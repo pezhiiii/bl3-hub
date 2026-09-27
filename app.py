@@ -3,6 +3,10 @@ import sqlite3
 import os
 import secrets
 import time
+import json
+import urllib.parse
+import urllib.request
+import urllib.error
 from datetime import datetime
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -51,6 +55,16 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             inviter TEXT,
             invited TEXT UNIQUE,
+            date TEXT
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS share_claims (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            cast_hash TEXT NOT NULL UNIQUE,
+            cast_url TEXT,
             date TEXT
         )
     """)
@@ -216,7 +230,7 @@ input {
 <div class="subtitle">
 Build. Meme. Repeat.
 </div>
-<div class="badge">V5.2 • Verified Referrals</div>
+<div class="badge">V5.3 • Verified Farcaster Shares</div>
 
 </div>
 
@@ -291,6 +305,12 @@ Complete
 
 <button onclick="share()">
 Share
+</button>
+
+<input id="castUrl" placeholder="Paste your Farcaster cast URL after sharing">
+
+<button onclick="verifyShare()">
+✅ Verify Share +25 XP
 </button>
 
 </div>
@@ -440,8 +460,29 @@ function share() {
     );
 
     show(
-        "📢 Share composer opened. XP verification comes next."
+        "📢 Post the cast, then paste its URL below and verify it."
     );
+}
+
+async function verifyShare() {
+    currentUser();
+    const castUrl = document.getElementById("castUrl").value.trim();
+
+    if (!castUrl) {
+        show("❌ Paste your Farcaster cast URL first.");
+        return;
+    }
+
+    const response = await fetch("/api/share/verify", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({user: username, cast_url: castUrl})
+    });
+
+    const data = await response.json();
+    if (data.xp !== undefined) update(data);
+    show(data.message || "Share verification finished.");
+    if (data.success) loadLeaderboard();
 }
 
 function invite() {
@@ -759,6 +800,13 @@ def quest_api():
             "message": "Unknown quest"
         }), 400
 
+    # V5.3: only Daily Check-in may use the generic quest endpoint.
+    if quest_name != "checkin":
+        return jsonify({
+            "success": False,
+            "message": "🔐 This quest requires verified completion"
+        }), 403
+
     get_user(username)
 
     today = datetime.utcnow().strftime(
@@ -1047,6 +1095,103 @@ def wallet_api():
     })
 
 
+
+@app.route("/api/share/verify", methods=["POST"])
+def share_verify_api():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("user", "")).strip()
+    cast_url = str(data.get("cast_url", "")).strip()
+
+    if not username or not cast_url:
+        return jsonify({"success": False, "message": "❌ Username and cast URL are required"}), 400
+
+    auth_user = session.get("authenticated_username")
+    auth_wallet = str(session.get("authenticated_wallet") or "").lower()
+
+    if auth_user != username or not auth_wallet:
+        return jsonify({"success": False, "message": "🔐 Sign in with your verified wallet before claiming Share XP"}), 401
+
+    api_key = os.environ.get("NEYNAR_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"success": False, "message": "❌ Share verification is not configured"}), 503
+
+    try:
+        host = (urllib.parse.urlparse(cast_url).hostname or "").lower()
+    except Exception:
+        host = ""
+
+    if host not in {"warpcast.com", "www.warpcast.com", "farcaster.xyz", "www.farcaster.xyz"}:
+        return jsonify({"success": False, "message": "❌ Paste a valid Farcaster/Warpcast cast URL"}), 400
+
+    query = urllib.parse.urlencode({"identifier": cast_url, "type": "url"})
+    req = urllib.request.Request(
+        "https://api.neynar.com/v2/farcaster/cast?" + query,
+        headers={"accept": "application/json", "x-api-key": api_key, "user-agent": "BL3-Hub/5.3"},
+        method="GET"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return jsonify({"success": False, "message": f"❌ Neynar could not verify this cast (HTTP {exc.code})"}), 502
+    except Exception:
+        return jsonify({"success": False, "message": "❌ Could not reach Neynar to verify this cast"}), 502
+
+    cast = payload.get("cast") or {}
+    cast_hash = str(cast.get("hash") or "").strip()
+    cast_text = str(cast.get("text") or "")
+    author = cast.get("author") or {}
+    verified = author.get("verified_addresses") or {}
+    eth_addresses = [str(a).lower() for a in (verified.get("eth_addresses") or [])]
+
+    if not cast_hash:
+        return jsonify({"success": False, "message": "❌ Cast not found"}), 404
+
+    if "bl3" not in cast_text.lower() and "bl3meme.com" not in cast_text.lower():
+        return jsonify({"success": False, "message": "❌ This cast does not mention BL3"}), 400
+
+    if auth_wallet not in eth_addresses:
+        return jsonify({"success": False, "message": "❌ This cast author is not verified with your BL3 wallet on Farcaster"}), 403
+
+    conn = db()
+    user = conn.execute("SELECT username, wallet FROM users WHERE username = ?", (username,)).fetchone()
+
+    if user is None or not user["wallet"] or str(user["wallet"]).lower() != auth_wallet:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Verified wallet does not match this BL3 profile"}), 401
+
+    if conn.execute("SELECT id FROM share_claims WHERE cast_hash = ?", (cast_hash,)).fetchone():
+        conn.close()
+        return jsonify({"success": False, "message": "⚠️ This cast has already been used for Share XP"}), 409
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    if conn.execute("SELECT id FROM share_claims WHERE username = ? AND date = ?", (username, today)).fetchone():
+        conn.close()
+        return jsonify({"success": False, "message": "⚠️ Share quest already completed today"}), 409
+
+    try:
+        conn.execute("INSERT INTO share_claims (username, cast_hash, cast_url, date) VALUES (?, ?, ?, ?)",
+                     (username, cast_hash, cast_url, today))
+        conn.execute("UPDATE users SET xp = xp + ? WHERE username = ?", (REWARDS["share"], username))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return jsonify({"success": False, "message": "⚠️ This cast has already been used for Share XP"}), 409
+
+    user = conn.execute("SELECT xp, streak FROM users WHERE username = ?", (username,)).fetchone()
+    ranking = conn.execute("SELECT username, xp FROM users ORDER BY xp DESC").fetchall()
+    conn.close()
+
+    rank = next((i for i, row in enumerate(ranking, start=1) if row["username"] == username), 1)
+
+    return jsonify({
+        "success": True, "xp": user["xp"], "streak": user["streak"], "rank": rank,
+        "message": f"📢 Verified Farcaster share! +{REWARDS['share']} XP"
+    })
+
+
 @app.route("/api/referral", methods=["POST"])
 def referral_api():
 
@@ -1169,7 +1314,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 HUB V5.2")
+    print("👑 BL3 HUB V5.3")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
