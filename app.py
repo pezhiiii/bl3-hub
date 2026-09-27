@@ -216,7 +216,7 @@ input {
 <div class="subtitle">
 Build. Meme. Repeat.
 </div>
-<div class="badge">V5.0 • Deploy Ready</div>
+<div class="badge">V5.1 • Railway Ready</div>
 
 </div>
 
@@ -1128,12 +1128,15 @@ def leaderboard_api():
     ])
 
 
+# Initialize SQLite schema when the module is imported.
+# This is required for Gunicorn/Railway, where __main__ is not executed.
+init_db()
+
+
 if __name__ == "__main__":
 
-    init_db()
-
     print("")
-    print("👑 BL3 HUB V5.0")
+    print("👑 BL3 HUB V5.1")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
