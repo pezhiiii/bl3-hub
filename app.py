@@ -216,7 +216,7 @@ input {
 <div class="subtitle">
 Build. Meme. Repeat.
 </div>
-<div class="badge">V5.1 • Railway Ready</div>
+<div class="badge">V5.2 • Verified Referrals</div>
 
 </div>
 
@@ -1066,11 +1066,47 @@ def referral_api():
             "message": "❌ You cannot invite yourself"
         }), 400
 
-    get_user(inviter)
-    get_user(invited)
+    # V5.2: reward referrals only after the invited user proves wallet ownership.
+    if session.get("authenticated_username") != invited:
+        return jsonify({
+            "success": False,
+            "message": "🔐 Sign in with the invited user's wallet before claiming this referral"
+        }), 401
+
+    conn = db()
+
+    inviter_user = conn.execute(
+        "SELECT username FROM users WHERE username = ?",
+        (inviter,)
+    ).fetchone()
+
+    invited_user = conn.execute(
+        "SELECT username, wallet FROM users WHERE username = ?",
+        (invited,)
+    ).fetchone()
+
+    if inviter_user is None:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "❌ Inviter profile does not exist"
+        }), 404
+
+    if invited_user is None or not invited_user["wallet"]:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "🔐 Invited user must verify a wallet first"
+        }), 401
+
+    if session.get("authenticated_wallet") != invited_user["wallet"].lower():
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "❌ Verified wallet does not match the invited profile"
+        }), 401
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    conn = db()
 
     existing = conn.execute(
         "SELECT id FROM referrals WHERE invited = ?",
@@ -1128,15 +1164,12 @@ def leaderboard_api():
     ])
 
 
-# Initialize SQLite schema when the module is imported.
-# This is required for Gunicorn/Railway, where __main__ is not executed.
-init_db()
-
-
 if __name__ == "__main__":
 
+    init_db()
+
     print("")
-    print("👑 BL3 HUB V5.1")
+    print("👑 BL3 HUB V5.2")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
