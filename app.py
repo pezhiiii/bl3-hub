@@ -96,7 +96,8 @@ def get_user(username):
     conn.close()
 
     return user
-
+# Initialize / migrate database when the app starts in production
+init_db()
 
 @app.route("/")
 def home():
