@@ -298,7 +298,39 @@ async function authStatus(){const d=await jsonFetch("/api/auth/status");if(d.aut
 async function loadLeaderboard(){const d=await jsonFetch("/api/leaderboard");let h="";(Array.isArray(d)?d:[]).slice(0,10).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.xp+' XP</b></div>');document.getElementById("leaderboard").innerHTML=h||'<div class="meta">No hunters yet.</div>';document.getElementById("totalHunters").innerText=Array.isArray(d)?d.length:0}
 async function claimStreakReward(){currentUser();const s=Number(document.getElementById("streak").innerText),p=await jsonFetch("/api/user/"+encodeURIComponent(username)),c=Array.isArray(p.claimed_milestones)?p.claimed_milestones.map(Number):[];let m=0;if(s>=3&&!c.includes(3))m=3;else if(s>=7&&!c.includes(7))m=7;else if(s>=30&&!c.includes(30))m=30;if(!m){show("No streak reward available yet.");return}const d=await jsonFetch("/api/streak/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,milestone:m})});show(d.message||"Claim finished");if(d.success)await loadUser()}
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
-async function loadArenas(){const d=await jsonFetch("/api/arenas");const list=Array.isArray(d.arenas)?d.arenas:[];document.getElementById("liveArenas").innerText=list.filter(a=>a.status==="live").length;document.getElementById("totalBounty").innerText=list.reduce((n,a)=>n+Number(a.bounty_amount||0),0).toLocaleString();let h="";list.forEach(a=>{h+='<article class="card arena"><div class="live">● '+escapeHtml(a.status).toUpperCase()+' // '+escapeHtml(a.category)+'</div><h2>'+escapeHtml(a.title)+'</h2><div class="bounty">'+Number(a.bounty_amount||0).toLocaleString()+' '+escapeHtml(a.bounty_asset)+'</div><div class="meta">'+escapeHtml(a.description)+'</div><div class="meta" style="margin-top:10px">By '+escapeHtml(a.creator)+' • '+a.submissions+' proofs • Deadline '+escapeHtml(a.deadline||"open")+'</div><button class="btn hot" onclick="openSubmission('+a.id+',\\''+escapeHtml(a.title).replace(/'/g,"&#039;")+'\\')">ENTER ARENA →</button><div id="submit-'+a.id+'" class="hidden"><textarea id="pitch-'+a.id+'" placeholder="Your thesis / proof / contribution"></textarea><input id="proof-'+a.id+'" placeholder="Proof URL (optional)"><button class="btn violet" onclick="submitProof('+a.id+')">SUBMIT PROOF</button></div></article>'});document.getElementById("arenas").innerHTML=h||'<div class="card"><h2>The first arena is waiting.</h2><div class="meta">Verified project creators can launch the first hunt from the Project Desk.</div></div>'}
+async function loadArenas(){
+ const d=await jsonFetch("/api/arenas");
+ const list=Array.isArray(d.arenas)?d.arenas:[];
+ document.getElementById("liveArenas").innerText=list.filter(a=>a.status==="live").length;
+ document.getElementById("totalBounty").innerText=list.reduce((n,a)=>n+Number(a.bounty_amount||0),0).toLocaleString();
+ const container=document.getElementById("arenas");
+ container.innerHTML="";
+ if(!list.length){
+  container.innerHTML='<div class="card"><h2>The first arena is waiting.</h2><div class="meta">Verified project creators can launch the first hunt from the Project Desk.</div></div>';
+  return;
+ }
+ list.forEach(a=>{
+  const article=document.createElement("article");
+  article.className="card arena";
+  article.innerHTML=`<div class="live">● ${escapeHtml(a.status).toUpperCase()} // ${escapeHtml(a.category)}</div>
+  <h2>${escapeHtml(a.title)}</h2>
+  <div class="bounty">${Number(a.bounty_amount||0).toLocaleString()} ${escapeHtml(a.bounty_asset)}</div>
+  <div class="meta">${escapeHtml(a.description)}</div>
+  <div class="meta" style="margin-top:10px">By ${escapeHtml(a.creator)} • ${Number(a.submissions||0)} proofs • Deadline ${escapeHtml(a.deadline||"open")}</div>`;
+  const enter=document.createElement("button");
+  enter.className="btn hot";
+  enter.textContent="ENTER ARENA →";
+  const submitBox=document.createElement("div");
+  submitBox.id="submit-"+a.id;
+  submitBox.className="hidden";
+  submitBox.innerHTML=`<textarea id="pitch-${a.id}" placeholder="Your thesis / proof / contribution"></textarea><input id="proof-${a.id}" placeholder="Proof URL (optional)"><button class="btn violet" id="send-${a.id}">SUBMIT PROOF</button>`;
+  enter.addEventListener("click",()=>{submitBox.classList.toggle("hidden");show("Entering: "+a.title)});
+  article.appendChild(enter);
+  article.appendChild(submitBox);
+  container.appendChild(article);
+  document.getElementById("send-"+a.id).addEventListener("click",()=>submitProof(a.id));
+ });
+}
 function openSubmission(id,title){document.getElementById("submit-"+id).classList.toggle("hidden");show("Entering: "+title)}
 async function submitProof(id){currentUser();const pitch=document.getElementById("pitch-"+id).value.trim(),proof_url=document.getElementById("proof-"+id).value.trim();const d=await jsonFetch("/api/arenas/"+id+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,pitch,proof_url})});show(d.message||"Submission finished");if(d.success)loadArenas()}
 async function createArena(){currentUser();const body={creator:username,title:document.getElementById("arenaTitle").value.trim(),description:document.getElementById("arenaDescription").value.trim(),category:document.getElementById("arenaCategory").value,bounty_amount:document.getElementById("arenaBounty").value,deadline:document.getElementById("arenaDeadline").value.trim()};const d=await jsonFetch("/api/arenas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});show(d.message||"Arena request finished");if(d.success)loadArenas()}
