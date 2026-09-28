@@ -107,6 +107,15 @@ def init_db():
         )
     """)
 
+    # Forward-compatible Arena V6.1 migrations for existing SQLite volumes.
+    arena_cols = {row["name"] for row in conn.execute("PRAGMA table_info(arenas)").fetchall()}
+    if "winner_username" not in arena_cols:
+        conn.execute("ALTER TABLE arenas ADD COLUMN winner_username TEXT DEFAULT ''")
+    if "paid" not in arena_cols:
+        conn.execute("ALTER TABLE arenas ADD COLUMN paid INTEGER DEFAULT 0")
+    if "paid_at" not in arena_cols:
+        conn.execute("ALTER TABLE arenas ADD COLUMN paid_at TEXT DEFAULT ''")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS reputation_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,7 +178,7 @@ h1{font-size:clamp(45px,8vw,96px);line-height:.88;letter-spacing:-5px;margin:18p
 .grid{display:grid;grid-template-columns:1.55fr .75fr;gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:20px;backdrop-filter:blur(18px);box-shadow:0 25px 80px rgba(0,0,0,.28)}
 .card h2,.card h3{margin-top:0}.arena{position:relative;overflow:hidden;margin-top:12px;transition:.2s transform,.2s border-color}.arena:hover{transform:translateY(-2px);border-color:rgba(184,255,90,.35)}
 .live{color:var(--hot);font-size:11px;font-weight:900;letter-spacing:2px}.bounty{font-size:25px;font-weight:900;margin:10px 0}.meta{color:var(--muted);font-size:13px;line-height:1.5}.btn{cursor:pointer;padding:13px 16px;font-weight:800;width:100%;margin-top:10px}.btn:hover{background:#fff;color:#08080a}.btn.hot{background:var(--hot);color:#090b06;border:0}.btn.violet{background:var(--violet);border:0}
-input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea{min-height:100px;resize:vertical}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{padding:14px;border:1px solid var(--line);border-radius:16px;text-align:center}.num{font-size:21px;font-weight:900}.small{font-size:11px;color:var(--muted)}
+input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea{min-height:100px;resize:vertical}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:8px}.stat{padding:14px;border:1px solid var(--line);border-radius:16px;text-align:center}.num{font-size:21px;font-weight:900}.small{font-size:11px;color:var(--muted)}
 .section-title{display:flex;justify-content:space-between;align-items:end;margin:38px 0 12px}.section-title h2{margin:0;font-size:30px}.leader{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
 .tabs{display:flex;gap:8px;flex-wrap:wrap}.tab{width:auto;padding:9px 13px}.message{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#181821;border:1px solid var(--line);padding:12px 18px;border-radius:999px;z-index:30;max-width:90%;text-align:center}
 .hidden{display:none}.proof{padding:10px;border:1px solid var(--line);border-radius:14px;margin-top:8px}.footer{text-align:center;color:#656675;padding:55px 0 30px}
@@ -211,6 +220,8 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
           <div class="stat"><div class="num" id="xp">0</div><div class="small">XP</div></div>
           <div class="stat"><div class="num" id="streak">0</div><div class="small">STREAK</div></div>
           <div class="stat"><div class="num" id="rank">-</div><div class="small">RANK</div></div>
+          <div class="stat"><div class="num" id="wins">0</div><div class="small">WINS</div></div>
+          <div class="stat"><div class="num" id="earned">0</div><div class="small">EARNED</div></div>
         </div>
         <div id="streakReward" class="meta" style="margin-top:12px">🔥 Next: 3-Day Flame</div>
         <button id="streakClaimButton" class="btn hot hidden" onclick="claimStreakReward()">🎁 Claim Streak Reward</button>
@@ -254,7 +265,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6 ARENA MVP</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.1 WINNERS</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -268,7 +279,13 @@ async function jsonFetch(url,options){const r=await fetch(url,options);let d={};
 async function loadUser(){
  currentUser();
  const data=await jsonFetch("/api/user/"+encodeURIComponent(username));
- update(data); await loadLeaderboard(); await claimReferral(); await authStatus();
+ update(data);
+ const rep=await jsonFetch("/api/reputation/"+encodeURIComponent(username));
+ if(rep.success){
+   document.getElementById("wins").innerText=rep.wins||0;
+   document.getElementById("earned").innerText=Number(rep.earned||0).toLocaleString();
+ }
+ await loadLeaderboard(); await claimReferral(); await authStatus();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -299,40 +316,47 @@ async function loadLeaderboard(){const d=await jsonFetch("/api/leaderboard");let
 async function claimStreakReward(){currentUser();const s=Number(document.getElementById("streak").innerText),p=await jsonFetch("/api/user/"+encodeURIComponent(username)),c=Array.isArray(p.claimed_milestones)?p.claimed_milestones.map(Number):[];let m=0;if(s>=3&&!c.includes(3))m=3;else if(s>=7&&!c.includes(7))m=7;else if(s>=30&&!c.includes(30))m=30;if(!m){show("No streak reward available yet.");return}const d=await jsonFetch("/api/streak/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,milestone:m})});show(d.message||"Claim finished");if(d.success)await loadUser()}
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 async function loadArenas(){
- const d=await jsonFetch("/api/arenas");
- const list=Array.isArray(d.arenas)?d.arenas:[];
+ const d=await jsonFetch("/api/arenas"),list=Array.isArray(d.arenas)?d.arenas:[];
  document.getElementById("liveArenas").innerText=list.filter(a=>a.status==="live").length;
  document.getElementById("totalBounty").innerText=list.reduce((n,a)=>n+Number(a.bounty_amount||0),0).toLocaleString();
- const container=document.getElementById("arenas");
- container.innerHTML="";
- if(!list.length){
-  container.innerHTML='<div class="card"><h2>The first arena is waiting.</h2><div class="meta">Verified project creators can launch the first hunt from the Project Desk.</div></div>';
-  return;
- }
+ let h="";
  list.forEach(a=>{
-  const article=document.createElement("article");
-  article.className="card arena";
-  article.innerHTML=`<div class="live">● ${escapeHtml(a.status).toUpperCase()} // ${escapeHtml(a.category)}</div>
-  <h2>${escapeHtml(a.title)}</h2>
-  <div class="bounty">${Number(a.bounty_amount||0).toLocaleString()} ${escapeHtml(a.bounty_asset)}</div>
-  <div class="meta">${escapeHtml(a.description)}</div>
-  <div class="meta" style="margin-top:10px">By ${escapeHtml(a.creator)} • ${Number(a.submissions||0)} proofs • Deadline ${escapeHtml(a.deadline||"open")}</div>`;
-  const enter=document.createElement("button");
-  enter.className="btn hot";
-  enter.textContent="ENTER ARENA →";
-  const submitBox=document.createElement("div");
-  submitBox.id="submit-"+a.id;
-  submitBox.className="hidden";
-  submitBox.innerHTML=`<textarea id="pitch-${a.id}" placeholder="Your thesis / proof / contribution"></textarea><input id="proof-${a.id}" placeholder="Proof URL (optional)"><button class="btn violet" id="send-${a.id}">SUBMIT PROOF</button>`;
-  enter.addEventListener("click",()=>{submitBox.classList.toggle("hidden");show("Entering: "+a.title)});
-  article.appendChild(enter);
-  article.appendChild(submitBox);
-  container.appendChild(article);
-  document.getElementById("send-"+a.id).addEventListener("click",()=>submitProof(a.id));
+   const winner=a.winner_username?'<div class="proof">👑 WINNER: <b>'+escapeHtml(a.winner_username)+'</b> • '+(a.paid?'PAID ✅':'PAYMENT PENDING')+'</div>':'';
+   const creatorControls=(currentUser()===a.creator)?'<button class="btn" onclick="reviewSubmissions('+a.id+')">REVIEW PROOFS</button><div id="reviews-'+a.id+'" class="hidden"></div>':'';
+   h+='<article class="card arena"><div class="live">● '+escapeHtml(a.status).toUpperCase()+' // '+escapeHtml(a.category)+'</div><h2>'+escapeHtml(a.title)+'</h2><div class="bounty">'+Number(a.bounty_amount||0).toLocaleString()+' '+escapeHtml(a.bounty_asset)+'</div><div class="meta">'+escapeHtml(a.description)+'</div><div class="meta" style="margin-top:10px">By '+escapeHtml(a.creator)+' • '+a.submissions+' proofs • Deadline '+escapeHtml(a.deadline||"open")+'</div>'+winner+(a.status==="live"?'<button class="btn hot enter-arena" data-arena="'+a.id+'">ENTER ARENA →</button><div id="submit-'+a.id+'" class="hidden"><textarea id="pitch-'+a.id+'" placeholder="Your thesis / proof / contribution"></textarea><input id="proof-'+a.id+'" placeholder="Proof URL (optional)"><button class="btn violet" onclick="submitProof('+a.id+')">SUBMIT PROOF</button></div>':'')+creatorControls+'</article>';
  });
+ document.getElementById("arenas").innerHTML=h||'<div class="card"><h2>The first arena is waiting.</h2><div class="meta">Verified project creators can launch the first hunt from the Project Desk.</div></div>';
+ document.querySelectorAll(".enter-arena").forEach(btn=>btn.addEventListener("click",()=>openSubmission(Number(btn.dataset.arena),"Arena")));
 }
 function openSubmission(id,title){document.getElementById("submit-"+id).classList.toggle("hidden");show("Entering: "+title)}
-async function submitProof(id){currentUser();const pitch=document.getElementById("pitch-"+id).value.trim(),proof_url=document.getElementById("proof-"+id).value.trim();const d=await jsonFetch("/api/arenas/"+id+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,pitch,proof_url})});show(d.message||"Submission finished");if(d.success)loadArenas()}
+async function submitProof(id){currentUser();const pitch=document.getElementById("pitch-"+id).value.trim(),proof_url=document.getElementById("proof-"+id).value.trim();const d=await jsonFetch("/api/arenas/"+id+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,pitch,proof_url})});show(d.message||"Submission finished");if(d.success){await loadArenas();await loadUser()}}
+
+async function reviewSubmissions(id){
+ currentUser();
+ const d=await jsonFetch("/api/arenas/"+id+"/submissions");
+ if(!d.success){show(d.message||"Could not load proofs");return}
+ let h="";
+ (d.submissions||[]).forEach(s=>{
+   h+='<div class="proof"><b>'+escapeHtml(s.username)+'</b><div class="meta">'+escapeHtml(s.pitch)+'</div>'+
+      (s.proof_url?'<div class="meta">'+escapeHtml(s.proof_url)+'</div>':'')+
+      (d.arena.status==="live"?'<button class="btn hot select-winner" data-arena="'+id+'" data-winner="'+escapeHtml(s.username)+'">SELECT WINNER 👑</button>':'')+
+      '</div>';
+ });
+ if(d.arena.winner_username&&!d.arena.paid){
+   h+='<button class="btn violet mark-paid" data-arena="'+id+'">MARK WINNER PAID ✓</button>';
+ }
+ const el=document.getElementById("reviews-"+id);el.innerHTML=h||'<div class="meta">No proofs yet.</div>';el.classList.remove("hidden");
+ el.querySelectorAll(".select-winner").forEach(btn=>btn.addEventListener("click",()=>selectWinner(Number(btn.dataset.arena),btn.dataset.winner)));
+ el.querySelectorAll(".mark-paid").forEach(btn=>btn.addEventListener("click",()=>markPaid(Number(btn.dataset.arena))));
+}
+async function selectWinner(id,winner){
+ const d=await jsonFetch("/api/arenas/"+id+"/winner",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({creator:currentUser(),winner})});
+ show(d.message||"Winner selection finished");if(d.success){await loadArenas();await loadUser()}
+}
+async function markPaid(id){
+ const d=await jsonFetch("/api/arenas/"+id+"/paid",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({creator:currentUser()})});
+ show(d.message||"Payment status updated");if(d.success){await loadArenas();await loadUser()}
+}
 async function createArena(){currentUser();const body={creator:username,title:document.getElementById("arenaTitle").value.trim(),description:document.getElementById("arenaDescription").value.trim(),category:document.getElementById("arenaCategory").value,bounty_amount:document.getElementById("arenaBounty").value,deadline:document.getElementById("arenaDeadline").value.trim()};const d=await jsonFetch("/api/arenas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});show(d.message||"Arena request finished");if(d.success)loadArenas()}
 loadUser();loadArenas();
 </script>
@@ -1139,6 +1163,84 @@ def arena_submit_api(arena_id):
     return jsonify({"success": True, "message": "⚡ Proof submitted. +5 XP participation signal."})
 
 
+
+@app.route("/api/arenas/<int:arena_id>/submissions")
+def arena_submissions_api(arena_id):
+    conn = db()
+    arena = conn.execute("SELECT * FROM arenas WHERE id = ?", (arena_id,)).fetchone()
+    if arena is None:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Arena not found"}), 404
+    if session.get("authenticated_username") != arena["creator"]:
+        conn.close()
+        return jsonify({"success": False, "message": "🔐 Creator wallet authentication required"}), 401
+    rows = conn.execute("""
+        SELECT id, username, proof_url, pitch, status, created_at
+        FROM arena_submissions WHERE arena_id = ? ORDER BY id DESC
+    """, (arena_id,)).fetchall()
+    conn.close()
+    return jsonify({"success": True, "arena": dict(arena), "submissions": [dict(r) for r in rows]})
+
+
+@app.route("/api/arenas/<int:arena_id>/winner", methods=["POST"])
+def arena_winner_api(arena_id):
+    data = request.get_json(silent=True) or {}
+    creator = str(data.get("creator", "")).strip()
+    winner = str(data.get("winner", "")).strip()
+    conn = db()
+    arena = conn.execute("SELECT * FROM arenas WHERE id = ?", (arena_id,)).fetchone()
+    if arena is None:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Arena not found"}), 404
+    if session.get("authenticated_username") != arena["creator"] or creator != arena["creator"]:
+        conn.close()
+        return jsonify({"success": False, "message": "🔐 Only the authenticated creator can select a winner"}), 401
+    submission = conn.execute(
+        "SELECT id FROM arena_submissions WHERE arena_id = ? AND username = ?",
+        (arena_id, winner)
+    ).fetchone()
+    if submission is None:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Winner must have a valid submission"}), 400
+    if arena["winner_username"]:
+        conn.close()
+        return jsonify({"success": False, "message": "⚠️ Winner already selected"}), 409
+    now = datetime.utcnow().isoformat()
+    conn.execute("UPDATE arenas SET winner_username = ?, status = 'closed' WHERE id = ?", (winner, arena_id))
+    conn.execute("UPDATE arena_submissions SET status = CASE WHEN username = ? THEN 'winner' ELSE 'not_selected' END WHERE arena_id = ?", (winner, arena_id))
+    conn.execute("INSERT INTO reputation_events (username, points, reason, created_at) VALUES (?, 100, ?, ?)",
+                 (winner, f"Arena #{arena_id} winner", now))
+    conn.execute("UPDATE users SET xp = xp + 100 WHERE username = ?", (winner,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": f"👑 {winner} selected as winner. +100 XP / REP signal."})
+
+
+@app.route("/api/arenas/<int:arena_id>/paid", methods=["POST"])
+def arena_paid_api(arena_id):
+    data = request.get_json(silent=True) or {}
+    creator = str(data.get("creator", "")).strip()
+    conn = db()
+    arena = conn.execute("SELECT * FROM arenas WHERE id = ?", (arena_id,)).fetchone()
+    if arena is None:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Arena not found"}), 404
+    if session.get("authenticated_username") != arena["creator"] or creator != arena["creator"]:
+        conn.close()
+        return jsonify({"success": False, "message": "🔐 Only the authenticated creator can mark payment"}), 401
+    if not arena["winner_username"]:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Select a winner first"}), 400
+    if arena["paid"]:
+        conn.close()
+        return jsonify({"success": False, "message": "⚠️ Payment already marked"}), 409
+    now = datetime.utcnow().isoformat()
+    conn.execute("UPDATE arenas SET paid = 1, paid_at = ? WHERE id = ?", (now, arena_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "✅ Payment marked as completed. Earnings are now counted in the winner profile."})
+
+
 @app.route("/api/reputation/<username>")
 def reputation_api(username):
     conn = db()
@@ -1150,8 +1252,23 @@ def reputation_api(username):
         "SELECT COUNT(*) AS n FROM arena_submissions WHERE username = ?",
         (username,)
     ).fetchone()["n"]
+    wins = conn.execute(
+        "SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ?",
+        (username,)
+    ).fetchone()["n"]
+    earned = conn.execute(
+        "SELECT COALESCE(SUM(bounty_amount), 0) AS amount FROM arenas WHERE winner_username = ? AND paid = 1",
+        (username,)
+    ).fetchone()["amount"]
     conn.close()
-    return jsonify({"success": True, "username": username, "reputation": total, "submissions": submissions})
+    return jsonify({
+        "success": True,
+        "username": username,
+        "reputation": total,
+        "submissions": submissions,
+        "wins": wins,
+        "earned": earned
+    })
 
 
 @app.route("/api/leaderboard")
@@ -1184,7 +1301,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6")
+    print("👑 BL3 ARENA V6.1 // WINNERS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
