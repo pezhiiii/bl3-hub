@@ -7,7 +7,7 @@ import json
 import urllib.parse
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
@@ -840,19 +840,45 @@ def quest_api():
             "message":
                 "⚠️ Quest already completed today"
         })
-
     reward = REWARDS[quest_name]
 
     if quest_name == "checkin":
+
+        last_checkin = conn.execute(
+            """
+            SELECT date
+            FROM quests
+            WHERE username = ?
+            AND quest = 'checkin'
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (username,)
+        ).fetchone()
+
+        yesterday = (
+            datetime.utcnow() - timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+
+        if last_checkin and last_checkin["date"] == yesterday:
+            current_streak = conn.execute(
+                "SELECT streak FROM users WHERE username = ?",
+                (username,)
+            ).fetchone()["streak"]
+
+            new_streak = current_streak + 1
+
+        else:
+            new_streak = 1
 
         conn.execute(
             """
             UPDATE users
             SET xp = xp + ?,
-                streak = streak + 1
+                streak = ?
             WHERE username = ?
             """,
-            (reward, username)
+            (reward, new_streak, username)
         )
 
     else:
