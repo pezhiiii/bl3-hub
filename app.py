@@ -69,6 +69,16 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS streak_rewards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            milestone INTEGER NOT NULL,
+            claimed_at TEXT NOT NULL,
+            UNIQUE(username, milestone)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -270,6 +280,14 @@ Streak
      style="font-size:11px;color:#999;margin-top:5px;">
     🔥 Next: 3-Day Flame
 </div>
+
+<button id="streakClaimButton"
+        onclick="claimStreakReward()"
+        style="display:none;font-size:12px;padding:8px;margin-top:6px;">
+    🎁 Claim Reward
+</button>
+
+
 </div>
 
 <div>
@@ -695,64 +713,166 @@ async function loadLeaderboard() {
 }
 
 
-function update(data) {
+   function update(data) {
 
     if (data.wallet !== undefined) {
-        document.getElementById("wallet").value = data.wallet || "";
+        document.getElementById("wallet").value =
+            data.wallet || "";
     }
 
     if (data.xp !== undefined) {
-
-        document.getElementById(
-            "xp"
-        ).innerText =
+        document.getElementById("xp").innerText =
             data.xp;
     }
 
- if (data.streak !== undefined) {
+    if (data.streak !== undefined) {
 
-    const streak = Number(data.streak);
+        const streak = Number(data.streak);
 
-    document.getElementById(
-        "streak"
-    ).innerText = streak;
+        const claimed =
+            Array.isArray(data.claimed_milestones)
+                ? data.claimed_milestones.map(Number)
+                : [];
 
-    const reward =
-        document.getElementById("streakReward");
+        document.getElementById("streak").innerText =
+            streak;
 
-    if (streak >= 30) {
+        const reward =
+            document.getElementById("streakReward");
 
-        reward.innerText =
-            "🌕 30-Day Moon — UNLOCKED";
+        const claimButton =
+            document.getElementById("streakClaimButton");
 
-    } else if (streak >= 7) {
+        claimButton.style.display = "none";
 
-        reward.innerText =
-            "🏆 7-Day House — UNLOCKED • Next: 30-Day Moon";
+        if (streak >= 3 && !claimed.includes(3)) {
 
-    } else if (streak >= 3) {
+            reward.innerText =
+                "🔥 3-Day Flame — UNLOCKED";
 
-        reward.innerText =
-            "🔥 3-Day Flame — UNLOCKED • Next: 7-Day House";
+            claimButton.style.display = "block";
 
-    } else {
+        } else if (streak >= 7 && !claimed.includes(7)) {
 
-        const daysLeft = 3 - streak;
+            reward.innerText =
+                "🏆 7-Day House — UNLOCKED";
 
-        reward.innerText =
-            "🔥 Next: 3-Day Flame • " +
-            daysLeft +
-            (daysLeft === 1 ? " day left" : " days left");
+            claimButton.style.display = "block";
+
+        } else if (streak >= 30 && !claimed.includes(30)) {
+
+            reward.innerText =
+                "🌕 30-Day Moon — UNLOCKED";
+
+            claimButton.style.display = "block";
+
+        } else if (streak < 3) {
+
+            const daysLeft = 3 - streak;
+
+            reward.innerText =
+                "🔥 Next: 3-Day Flame • " +
+                daysLeft +
+                (daysLeft === 1
+                    ? " day left"
+                    : " days left");
+
+        } else if (streak < 7) {
+
+            const daysLeft = 7 - streak;
+
+            reward.innerText =
+                "🏆 Next: 7-Day House • " +
+                daysLeft +
+                (daysLeft === 1
+                    ? " day left"
+                    : " days left");
+
+        } else if (streak < 30) {
+
+            const daysLeft = 30 - streak;
+
+            reward.innerText =
+                "🌕 Next: 30-Day Moon • " +
+                daysLeft +
+                (daysLeft === 1
+                    ? " day left"
+                    : " days left");
+
+        } else {
+
+            reward.innerText =
+                "👑 All streak rewards claimed!";
+        }
+    }
+
+    if (data.rank !== undefined) {
+        document.getElementById("rank").innerText =
+            data.rank;
     }
 }
 
-    if (data.rank !== undefined) {
 
-        document.getElementById(
-            "rank"
-        ).innerText =
-            data.rank;
+async function claimStreakReward() {
+
+    currentUser();
+
+    const streak = Number(
+        document.getElementById("streak").innerText
+    );
+
+    const profileResponse = await fetch(
+        "/api/user/" + encodeURIComponent(username)
+    );
+
+    const profileData = await profileResponse.json();
+
+    const claimed = Array.isArray(profileData.claimed_milestones)
+        ? profileData.claimed_milestones.map(Number)
+        : [];
+
+    let milestone = 0;
+
+    if (streak >= 3 && !claimed.includes(3)) {
+        milestone = 3;
+    } else if (streak >= 7 && !claimed.includes(7)) {
+        milestone = 7;
+    } else if (streak >= 30 && !claimed.includes(30)) {
+        milestone = 30;
     }
+
+    if (!milestone) {
+        show("🔒 No streak reward available yet.");
+        return;
+    }
+
+    const response = await fetch(
+        "/api/streak/claim",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                user: username,
+                milestone: milestone
+            })
+        }
+    );
+
+    const data = await response.json();
+
+    if (data.xp !== undefined) {
+        update(data);
+    }
+
+    show(data.message);
+
+    if (data.success) {
+    await loadUser();
+}
+
+
 }
 
 
@@ -785,6 +905,21 @@ def user_api(username):
         "SELECT username, xp FROM users ORDER BY xp DESC"
     ).fetchall()
 
+    claimed_rows = conn.execute(
+        """
+        SELECT milestone
+        FROM streak_rewards
+        WHERE username = ?
+        ORDER BY milestone
+        """,
+        (username,)
+    ).fetchall()
+
+    claimed_milestones = [
+        row["milestone"]
+        for row in claimed_rows
+    ]
+
     conn.close()
 
     rank = 1
@@ -793,7 +928,6 @@ def user_api(username):
         ranking,
         start=1
     ):
-
         if row["username"] == username:
             rank = i
             break
@@ -804,12 +938,14 @@ def user_api(username):
         "wallet": user["wallet"],
         "xp": user["xp"],
         "streak": user["streak"],
-        "rank": rank
+        "rank": rank,
+        "claimed_milestones": claimed_milestones
     })
-
+    
 
 @app.route("/api/quest", methods=["POST"])
 def quest_api():
+    
 
     data = request.get_json(silent=True) or {}
 
@@ -1337,6 +1473,124 @@ def referral_api():
     return jsonify({
         "success": True,
         "message": f"👥 Referral complete! +{REWARDS['invite']} XP"
+    })
+
+
+
+@app.route("/api/streak/claim", methods=["POST"])
+def streak_claim_api():
+
+    data = request.get_json(silent=True) or {}
+
+    username = str(data.get("user", "")).strip()
+    milestone = data.get("milestone")
+
+    
+    if session.get("authenticated_username") != username:
+        return jsonify({
+            "success": False,
+            "message": "🔐 Sign in with this profile's wallet before claiming a streak reward"
+        }), 401
+    rewards = {
+        3: 25,
+        7: 75,
+        30: 300
+    }
+
+    try:
+        milestone = int(milestone)
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "message": "❌ Invalid milestone"
+        }), 400
+
+    if milestone not in rewards:
+        return jsonify({
+            "success": False,
+            "message": "❌ Invalid milestone"
+        }), 400
+
+    conn = db()
+
+    user = conn.execute(
+        "SELECT streak, xp FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+
+    if user is None:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "❌ User not found"
+        }), 404
+
+    if user["streak"] < milestone:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": f"🔒 Reach a {milestone}-day streak first"
+        }), 403
+
+    existing = conn.execute(
+        """
+        SELECT id
+        FROM streak_rewards
+        WHERE username = ?
+        AND milestone = ?
+        """,
+        (username, milestone)
+    ).fetchone()
+
+    if existing:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "⚠️ This streak reward has already been claimed"
+        }), 409
+
+    reward = rewards[milestone]
+    claimed_at = datetime.utcnow().isoformat()
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO streak_rewards
+            (username, milestone, claimed_at)
+            VALUES (?, ?, ?)
+            """,
+            (username, milestone, claimed_at)
+        )
+
+        conn.execute(
+            "UPDATE users SET xp = xp + ? WHERE username = ?",
+            (reward, username)
+        )
+
+        conn.commit()
+
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+
+        return jsonify({
+            "success": False,
+            "message": "⚠️ This streak reward has already been claimed"
+        }), 409
+
+    updated = conn.execute(
+        "SELECT xp, streak FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "xp": updated["xp"],
+        "streak": updated["streak"],
+        "reward": reward,
+        "message": f"🎁 {milestone}-Day reward claimed! +{reward} XP"
     })
 
 
