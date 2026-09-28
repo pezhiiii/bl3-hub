@@ -251,8 +251,6 @@ Load Profile
 </button>
 
 </div>
-
-
 <div class="card">
 
 <div class="stats">
@@ -267,6 +265,11 @@ XP
 🔥
 <div class="number" id="streak">0</div>
 Streak
+
+<div id="streakReward"
+     style="font-size:11px;color:#999;margin-top:5px;">
+    🔥 Next: 3-Day Flame
+</div>
 </div>
 
 <div>
@@ -276,14 +279,11 @@ Rank
 </div>
 
 </div>
-
 </div>
-
 
 <div class="card">
 
 <h2>🎯 Quests</h2>
-
 
 <div class="quest">
 
@@ -709,13 +709,42 @@ function update(data) {
             data.xp;
     }
 
-    if (data.streak !== undefined) {
+ if (data.streak !== undefined) {
 
-        document.getElementById(
-            "streak"
-        ).innerText =
-            data.streak;
+    const streak = Number(data.streak);
+
+    document.getElementById(
+        "streak"
+    ).innerText = streak;
+
+    const reward =
+        document.getElementById("streakReward");
+
+    if (streak >= 30) {
+
+        reward.innerText =
+            "🌕 30-Day Moon — UNLOCKED";
+
+    } else if (streak >= 7) {
+
+        reward.innerText =
+            "🏆 7-Day House — UNLOCKED • Next: 30-Day Moon";
+
+    } else if (streak >= 3) {
+
+        reward.innerText =
+            "🔥 3-Day Flame — UNLOCKED • Next: 7-Day House";
+
+    } else {
+
+        const daysLeft = 3 - streak;
+
+        reward.innerText =
+            "🔥 Next: 3-Day Flame • " +
+            daysLeft +
+            (daysLeft === 1 ? " day left" : " days left");
     }
+}
 
     if (data.rank !== undefined) {
 
