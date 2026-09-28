@@ -265,7 +265,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.1 WINNERS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.1.1 CREATOR FIX</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -285,7 +285,7 @@ async function loadUser(){
    document.getElementById("wins").innerText=rep.wins||0;
    document.getElementById("earned").innerText=Number(rep.earned||0).toLocaleString();
  }
- await loadLeaderboard(); await claimReferral(); await authStatus();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -1301,7 +1301,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6.1 // WINNERS")
+    print("👑 BL3 ARENA V6.1.1 // CREATOR FIX")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
