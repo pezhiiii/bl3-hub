@@ -79,6 +79,44 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS arenas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            creator TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            category TEXT DEFAULT 'Alpha',
+            bounty_amount REAL DEFAULT 0,
+            bounty_asset TEXT DEFAULT 'USDC',
+            status TEXT DEFAULT 'live',
+            deadline TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS arena_submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arena_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            proof_url TEXT DEFAULT '',
+            pitch TEXT NOT NULL,
+            status TEXT DEFAULT 'submitted',
+            created_at TEXT NOT NULL,
+            UNIQUE(arena_id, username)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reputation_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            points INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -112,783 +150,160 @@ init_db()
 @app.route("/")
 def home():
 
-    return """
+    return r"""
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
-<title>BL3 Hub</title>
-
+<meta name="theme-color" content="#050507">
+<title>BL3 // Human Alpha Network</title>
 <style>
-
-body {
-    background: #0d0d12;
-    color: white;
-    font-family: Arial;
-    margin: 0;
-}
-
-.container {
-    max-width: 500px;
-    margin: auto;
-    padding: 20px;
-}
-
-.header {
-    text-align: center;
-    padding: 20px;
-}
-
-.logo {
-    font-size: 55px;
-}
-
-.title {
-    font-size: 32px;
-    font-weight: bold;
-}
-
-.subtitle {
-    color: #999;
-}
-
-.badge {
-    display: inline-block;
-    margin-top: 10px;
-    padding: 6px 10px;
-    border: 1px solid #3a3a4b;
-    border-radius: 999px;
-    font-size: 12px;
-    color: #bbb;
-}
-
-.card {
-    background: #191922;
-    padding: 20px;
-    border-radius: 20px;
-    margin-top: 15px;
-}
-
-.stats {
-    display: flex;
-    justify-content: space-around;
-    text-align: center;
-}
-
-.number {
-    font-size: 25px;
-    font-weight: bold;
-    margin: 5px;
-}
-
-.quest {
-    background: #24242f;
-    padding: 15px;
-    border-radius: 15px;
-    margin-top: 10px;
-}
-
-button {
-    width: 100%;
-    padding: 14px;
-    margin-top: 8px;
-    border: none;
-    border-radius: 12px;
-    font-size: 16px;
-    font-weight: bold;
-}
-
-input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 14px;
-    border-radius: 12px;
-    border: none;
-    margin-top: 8px;
-    font-size: 16px;
-}
-
-.rank {
-    display: flex;
-    justify-content: space-between;
-    background: #24242f;
-    padding: 12px;
-    border-radius: 10px;
-    margin-top: 8px;
-}
-
-.message {
-    text-align: center;
-    margin: 20px;
-}
-
+:root{--bg:#050507;--panel:rgba(18,18,25,.72);--line:rgba(255,255,255,.09);--muted:#8f91a3;--text:#f7f7fb;--hot:#b8ff5a;--violet:#9d7bff}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 50% -20%,#262044 0,#09090e 34%,var(--bg) 65%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,black,transparent 80%)}
+.shell{max-width:1180px;margin:auto;padding:22px}.nav{display:flex;align-items:center;justify-content:space-between;gap:14px;position:sticky;top:0;z-index:10;padding:10px 0;background:linear-gradient(var(--bg),transparent)}
+.brand{font-weight:900;letter-spacing:-1px;font-size:23px}.brand span{color:var(--hot)}.pill,.btn,input,textarea,select{border:1px solid var(--line);background:rgba(255,255,255,.045);color:white;border-radius:14px}
+.pill{padding:8px 12px;color:#c9cad3;font-size:12px}.hero{padding:78px 0 42px;text-align:center}.eyebrow{font-size:12px;letter-spacing:3px;color:var(--hot);font-weight:800}
+h1{font-size:clamp(45px,8vw,96px);line-height:.88;letter-spacing:-5px;margin:18px auto;max-width:950px}.grad{background:linear-gradient(100deg,#fff,#b9a7ff 45%,#b8ff5a);-webkit-background-clip:text;color:transparent}
+.lead{max-width:680px;margin:24px auto;color:#a9a9b6;font-size:17px;line-height:1.6}.ticker{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:1.55fr .75fr;gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:20px;backdrop-filter:blur(18px);box-shadow:0 25px 80px rgba(0,0,0,.28)}
+.card h2,.card h3{margin-top:0}.arena{position:relative;overflow:hidden;margin-top:12px;transition:.2s transform,.2s border-color}.arena:hover{transform:translateY(-2px);border-color:rgba(184,255,90,.35)}
+.live{color:var(--hot);font-size:11px;font-weight:900;letter-spacing:2px}.bounty{font-size:25px;font-weight:900;margin:10px 0}.meta{color:var(--muted);font-size:13px;line-height:1.5}.btn{cursor:pointer;padding:13px 16px;font-weight:800;width:100%;margin-top:10px}.btn:hover{background:#fff;color:#08080a}.btn.hot{background:var(--hot);color:#090b06;border:0}.btn.violet{background:var(--violet);border:0}
+input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea{min-height:100px;resize:vertical}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{padding:14px;border:1px solid var(--line);border-radius:16px;text-align:center}.num{font-size:21px;font-weight:900}.small{font-size:11px;color:var(--muted)}
+.section-title{display:flex;justify-content:space-between;align-items:end;margin:38px 0 12px}.section-title h2{margin:0;font-size:30px}.leader{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}.tab{width:auto;padding:9px 13px}.message{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#181821;border:1px solid var(--line);padding:12px 18px;border-radius:999px;z-index:30;max-width:90%;text-align:center}
+.hidden{display:none}.proof{padding:10px;border:1px solid var(--line);border-radius:14px;margin-top:8px}.footer{text-align:center;color:#656675;padding:55px 0 30px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
 </style>
-
 </head>
-
 <body>
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">BL3<span>●</span></div>
+    <div class="pill">THE HUMAN ALPHA NETWORK</div>
+    <div class="pill" id="navAuth">WALLET OFFLINE</div>
+  </nav>
 
-<div class="container">
+  <section class="hero">
+    <div class="eyebrow">PROOF &gt; NOISE</div>
+    <h1>HUNT ALPHA.<br><span class="grad">EARN REPUTATION.</span></h1>
+    <div class="lead">A live market for crypto research, product feedback, memes and human intelligence. Projects post funded opportunities. Hunters submit proof. Reputation compounds.</div>
+    <div class="ticker">
+      <div class="pill"><b id="liveArenas">0</b> LIVE ARENAS</div>
+      <div class="pill"><b id="totalBounty">0</b> USDC LISTED</div>
+      <div class="pill"><b id="totalHunters">0</b> HUNTERS</div>
+    </div>
+  </section>
 
-<div class="header">
+  <div class="grid">
+    <main>
+      <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>Live Arenas</h2></div><button class="btn tab" onclick="loadArenas()">↻ Refresh</button></div>
+      <div id="arenas"><div class="card">Scanning the network…</div></div>
+    </main>
 
-<div class="logo">👑</div>
+    <aside>
+      <div class="card">
+        <div class="eyebrow">HUNTER ID</div>
+        <h2 style="margin-top:8px">Your Passport</h2>
+        <input id="username" value="demo_user" placeholder="BL3 username">
+        <button class="btn" onclick="loadUser()">Load Profile</button>
+        <div class="stats" style="margin-top:12px">
+          <div class="stat"><div class="num" id="xp">0</div><div class="small">XP</div></div>
+          <div class="stat"><div class="num" id="streak">0</div><div class="small">STREAK</div></div>
+          <div class="stat"><div class="num" id="rank">-</div><div class="small">RANK</div></div>
+        </div>
+        <div id="streakReward" class="meta" style="margin-top:12px">🔥 Next: 3-Day Flame</div>
+        <button id="streakClaimButton" class="btn hot hidden" onclick="claimStreakReward()">🎁 Claim Streak Reward</button>
+      </div>
 
-<div class="title">BL3 HUB</div>
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">IDENTITY</div><h3 style="margin-top:8px">Wallet Proof</h3>
+        <input id="wallet" placeholder="Wallet address" readonly>
+        <button class="btn" onclick="connectWallet()">Connect Wallet</button>
+        <button class="btn violet" onclick="signInWallet()">Sign Message</button>
+        <div id="authStatus" class="meta" style="margin-top:10px">Not signed in</div>
+      </div>
 
-<div class="subtitle">
-Build. Meme. Repeat.
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">DAILY LOOP</div><h3 style="margin-top:8px">Build Reputation</h3>
+        <button class="btn hot" onclick="quest('checkin')">🔥 Daily Check-in +10 XP</button>
+        <button class="btn" onclick="share()">📢 Create BL3 Cast</button>
+        <input id="castUrl" placeholder="Paste Farcaster cast URL">
+        <button class="btn" onclick="verifyShare()">Verify Cast +25 XP</button>
+        <button class="btn" onclick="invite()">👥 Copy Invite Link +50 XP</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="grid" style="margin-top:36px">
+    <section class="card">
+      <div class="eyebrow">PROJECT DESK</div>
+      <h2 style="margin-top:8px">Launch an Arena</h2>
+      <div class="meta">MVP mode: BL3 does not custody funds. The project is responsible for winner payment. Never send funds to BL3 through this form.</div>
+      <input id="arenaTitle" placeholder="Arena title">
+      <textarea id="arenaDescription" placeholder="What should hunters discover, test, create or prove?"></textarea>
+      <select id="arenaCategory"><option>Alpha</option><option>Research</option><option>Product</option><option>Bug Hunt</option><option>Meme</option><option>Growth</option></select>
+      <input id="arenaBounty" type="number" min="0" step="0.01" placeholder="Listed bounty amount (USDC)">
+      <input id="arenaDeadline" placeholder="Deadline, e.g. 2026-10-05">
+      <button class="btn hot" onclick="createArena()">Launch Arena →</button>
+    </section>
+
+    <section class="card">
+      <div class="eyebrow">SIGNAL BOARD</div><h2 style="margin-top:8px">Top Hunters</h2>
+      <div id="leaderboard">Loading…</div>
+    </section>
+  </div>
+
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6 ARENA MVP</div>
 </div>
-<div class="badge">V5.3 • Verified Farcaster Shares</div>
-
-</div>
-
-
-<div class="card">
-
-<h3>👤 Profile</h3>
-
-<input
-id="username"
-value="demo_user"
-placeholder="Username"
->
-
-<button onclick="loadUser()">
-Load Profile
-</button>
-
-</div>
-<div class="card">
-
-<div class="stats">
-
-<div>
-⭐
-<div class="number" id="xp">0</div>
-XP
-</div>
-
-<div>
-🔥
-<div class="number" id="streak">0</div>
-Streak
-
-<div id="streakReward"
-     style="font-size:11px;color:#999;margin-top:5px;">
-    🔥 Next: 3-Day Flame
-</div>
-
-<button id="streakClaimButton"
-        onclick="claimStreakReward()"
-        style="display:none;font-size:12px;padding:8px;margin-top:6px;">
-    🎁 Claim Reward
-</button>
-
-
-</div>
-
-<div>
-🏆
-<div class="number" id="rank">-</div>
-Rank
-</div>
-
-</div>
-</div>
-
-<div class="card">
-
-<h2>🎯 Quests</h2>
-
-<div class="quest">
-
-<b>🔥 Daily Check-in</b>
-
-<p>Reward: +10 XP</p>
-
-<button onclick="quest('checkin')">
-Complete
-</button>
-
-</div>
-
-
-<div class="quest">
-
-<b>📢 Share BL3</b>
-
-<p>Reward: +25 XP</p>
-
-<button onclick="share()">
-Share
-</button>
-
-<input id="castUrl" placeholder="Paste your Farcaster cast URL after sharing">
-
-<button onclick="verifyShare()">
-✅ Verify Share +25 XP
-</button>
-
-</div>
-
-
-<div class="quest">
-
-<b>👥 Invite Friend</b>
-
-<p>Reward: +50 XP</p>
-
-<button onclick="invite()">
-Invite
-</button>
-
-</div>
-
-</div>
-
-
-<div class="card">
-
-<h2>🏆 Leaderboard</h2>
-
-<div id="leaderboard">
-Loading...
-</div>
-
-</div>
-
-
-<div class="card">
-
-<h2>👛 Wallet</h2>
-
-<input
-id="wallet"
-placeholder="Wallet address"
-readonly
->
-
-<button onclick="connectWallet()">
-🔗 Connect Wallet
-</button>
-
-<button onclick="signInWallet()">
-🔐 Sign In with Wallet
-</button>
-
-<div id="authStatus" style="margin-top:10px;color:#aaa;">
-Not signed in
-</div>
-
-
-
-</div>
-
-
-<div class="message" id="message"></div>
-
-</div>
-
+<div id="message" class="message hidden"></div>
 
 <script>
+let username="demo_user";
+let messageTimer=null;
+function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
+function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
+async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
 
-let username = "demo_user";
-
-
-function currentUser() {
-
-    username =
-        document.getElementById(
-            "username"
-        ).value.trim();
-
-    if (!username) {
-        username = "demo_user";
-    }
-
-    return username;
+async function loadUser(){
+ currentUser();
+ const data=await jsonFetch("/api/user/"+encodeURIComponent(username));
+ update(data); await loadLeaderboard(); await claimReferral(); await authStatus();
 }
-
-
-async function loadUser() {
-
-    currentUser();
-
-    const response =
-        await fetch(
-            "/api/user/" +
-            encodeURIComponent(username)
-        );
-
-    const data =
-        await response.json();
-
-    update(data);
-
-    loadLeaderboard();
-
-    await claimReferral();
+function update(data){
+ if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
+ if(data.xp!==undefined)document.getElementById("xp").innerText=data.xp;
+ if(data.rank!==undefined)document.getElementById("rank").innerText=data.rank;
+ if(data.streak!==undefined){
+  const s=Number(data.streak),c=Array.isArray(data.claimed_milestones)?data.claimed_milestones.map(Number):[];
+  document.getElementById("streak").innerText=s;
+  const r=document.getElementById("streakReward"),b=document.getElementById("streakClaimButton");b.classList.add("hidden");
+  if(s>=3&&!c.includes(3)){r.innerText="🔥 3-Day Flame — UNLOCKED";b.classList.remove("hidden")}
+  else if(s>=7&&!c.includes(7)){r.innerText="🏆 7-Day House — UNLOCKED";b.classList.remove("hidden")}
+  else if(s>=30&&!c.includes(30)){r.innerText="🌕 30-Day Moon — UNLOCKED";b.classList.remove("hidden")}
+  else if(s<3)r.innerText="🔥 Next: 3-Day Flame • "+(3-s)+" days left";
+  else if(s<7)r.innerText="🏆 Next: 7-Day House • "+(7-s)+" days left";
+  else if(s<30)r.innerText="🌕 Next: 30-Day Moon • "+(30-s)+" days left";
+  else r.innerText="👑 All streak rewards claimed!";
+ }
 }
-
-
-async function quest(name) {
-
-    currentUser();
-
-    const response =
-        await fetch(
-            "/api/quest",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                    "application/json"
-                },
-
-                body: JSON.stringify({
-                    user: username,
-                    quest: name
-                })
-            }
-        );
-
-    const data =
-        await response.json();
-
-    update(data);
-
-    show(data.message);
-
-    loadLeaderboard();
-}
-
-
-function share() {
-
-    const text = encodeURIComponent(
-        "BL3 — Build. Meme. Repeat. 👑"
-    );
-
-    window.open(
-        "https://warpcast.com/~/compose?text=" + text,
-        "_blank"
-    );
-
-    show(
-        "📢 Post the cast, then paste its URL below and verify it."
-    );
-}
-
-async function verifyShare() {
-    currentUser();
-    const castUrl = document.getElementById("castUrl").value.trim();
-
-    if (!castUrl) {
-        show("❌ Paste your Farcaster cast URL first.");
-        return;
-    }
-
-    const response = await fetch("/api/share/verify", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({user: username, cast_url: castUrl})
-    });
-
-    const data = await response.json();
-    if (data.xp !== undefined) update(data);
-    show(data.message || "Share verification finished.");
-    if (data.success) loadLeaderboard();
-}
-
-function invite() {
-
-    const user = currentUser();
-    const referralLink =
-        window.location.origin +
-        "/?ref=" +
-        encodeURIComponent(user);
-
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(referralLink);
-        show("👥 Referral link copied: " + referralLink);
-    } else {
-        show("👥 Your referral link: " + referralLink);
-    }
-}
-
-
-async function claimReferral() {
-
-    const params = new URLSearchParams(window.location.search);
-    const inviter = (params.get("ref") || "").trim();
-    const invited = currentUser();
-
-    if (!inviter) {
-        return;
-    }
-
-    if (!invited || invited === "demo_user") {
-        show("👥 Referral detected. Enter your username and press Load Profile.");
-        return;
-    }
-
-    if (inviter === invited) {
-        show("❌ You cannot use your own referral link.");
-        return;
-    }
-
-    const response = await fetch(
-        "/api/referral",
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                inviter: inviter,
-                invited: invited
-            })
-        }
-    );
-
-    const data = await response.json();
-    show(data.message);
-
-    if (data.success) {
-        loadLeaderboard();
-        history.replaceState({}, "", window.location.pathname);
-    }
-}
-
-
-
-async function connectWallet() {
-
-    if (!window.ethereum) {
-        show("❌ No browser wallet detected. Install a compatible wallet extension.");
-        return;
-    }
-
-    try {
-        const accounts = await window.ethereum.request({
-            method: "eth_requestAccounts"
-        });
-
-        if (!accounts || !accounts.length) {
-            show("❌ No wallet account returned.");
-            return;
-        }
-
-        const wallet = accounts[0];
-        document.getElementById("wallet").value = wallet;
-
-        show("👛 Wallet connected. Now press Sign In with Wallet.");
-
-    } catch (error) {
-        show("❌ Wallet connection cancelled or failed.");
-    }
-}
-
-
-async function signInWallet() {
-
-    if (!window.ethereum) {
-        show("❌ No browser wallet detected.");
-        return;
-    }
-
-    try {
-        currentUser();
-
-        if (!username || username === "demo_user") {
-            show("❌ Enter your BL3 username first, then press Load Profile.");
-            return;
-        }
-
-        const accounts = await window.ethereum.request({
-            method: "eth_requestAccounts"
-        });
-
-        if (!accounts || !accounts.length) {
-            show("❌ No wallet account returned.");
-            return;
-        }
-
-        const wallet = accounts[0];
-        document.getElementById("wallet").value = wallet;
-
-        const nonceResponse = await fetch(
-            "/api/auth/nonce?wallet=" +
-            encodeURIComponent(wallet) +
-            "&user=" +
-            encodeURIComponent(username)
-        );
-
-        const nonceData = await nonceResponse.json();
-
-        if (!nonceData.success) {
-            show(nonceData.message || "❌ Could not create sign-in challenge.");
-            return;
-        }
-
-        const message = nonceData.message;
-
-        const signature = await window.ethereum.request({
-            method: "personal_sign",
-            params: [message, wallet]
-        });
-
-        const verifyResponse = await fetch(
-            "/api/auth/verify",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    wallet: wallet,
-                    username: username,
-                    message: message,
-                    signature: signature
-                })
-            }
-        );
-
-        const data = await verifyResponse.json();
-
-        if (data.success) {
-            document.getElementById("authStatus").innerText =
-                "Verified: " + wallet.slice(0, 6) + "…" + wallet.slice(-4);
-
-            document.getElementById("wallet").value = wallet;
-            await loadUser();
-        }
-
-        show(data.message);
-
-    } catch (error) {
-        show("❌ Wallet sign-in cancelled or failed.");
-    }
-}
-
-
-async function loadLeaderboard() {
-
-    const response =
-        await fetch(
-            "/api/leaderboard"
-        );
-
-    const data =
-        await response.json();
-
-    let html = "";
-
-    data.forEach(
-        function(user, index) {
-
-            html +=
-                '<div class="rank">' +
-                '<span>#' +
-                (index + 1) +
-                ' ' +
-                user.username +
-                '</span>' +
-                '<b>' +
-                user.xp +
-                ' XP</b>' +
-                '</div>';
-
-        }
-    );
-
-    document.getElementById(
-        "leaderboard"
-    ).innerHTML =
-        html || "No users yet.";
-}
-
-
-   function update(data) {
-
-    if (data.wallet !== undefined) {
-        document.getElementById("wallet").value =
-            data.wallet || "";
-    }
-
-    if (data.xp !== undefined) {
-        document.getElementById("xp").innerText =
-            data.xp;
-    }
-
-    if (data.streak !== undefined) {
-
-        const streak = Number(data.streak);
-
-        const claimed =
-            Array.isArray(data.claimed_milestones)
-                ? data.claimed_milestones.map(Number)
-                : [];
-
-        document.getElementById("streak").innerText =
-            streak;
-
-        const reward =
-            document.getElementById("streakReward");
-
-        const claimButton =
-            document.getElementById("streakClaimButton");
-
-        claimButton.style.display = "none";
-
-        if (streak >= 3 && !claimed.includes(3)) {
-
-            reward.innerText =
-                "🔥 3-Day Flame — UNLOCKED";
-
-            claimButton.style.display = "block";
-
-        } else if (streak >= 7 && !claimed.includes(7)) {
-
-            reward.innerText =
-                "🏆 7-Day House — UNLOCKED";
-
-            claimButton.style.display = "block";
-
-        } else if (streak >= 30 && !claimed.includes(30)) {
-
-            reward.innerText =
-                "🌕 30-Day Moon — UNLOCKED";
-
-            claimButton.style.display = "block";
-
-        } else if (streak < 3) {
-
-            const daysLeft = 3 - streak;
-
-            reward.innerText =
-                "🔥 Next: 3-Day Flame • " +
-                daysLeft +
-                (daysLeft === 1
-                    ? " day left"
-                    : " days left");
-
-        } else if (streak < 7) {
-
-            const daysLeft = 7 - streak;
-
-            reward.innerText =
-                "🏆 Next: 7-Day House • " +
-                daysLeft +
-                (daysLeft === 1
-                    ? " day left"
-                    : " days left");
-
-        } else if (streak < 30) {
-
-            const daysLeft = 30 - streak;
-
-            reward.innerText =
-                "🌕 Next: 30-Day Moon • " +
-                daysLeft +
-                (daysLeft === 1
-                    ? " day left"
-                    : " days left");
-
-        } else {
-
-            reward.innerText =
-                "👑 All streak rewards claimed!";
-        }
-    }
-
-    if (data.rank !== undefined) {
-        document.getElementById("rank").innerText =
-            data.rank;
-    }
-}
-
-
-async function claimStreakReward() {
-
-    currentUser();
-
-    const streak = Number(
-        document.getElementById("streak").innerText
-    );
-
-    const profileResponse = await fetch(
-        "/api/user/" + encodeURIComponent(username)
-    );
-
-    const profileData = await profileResponse.json();
-
-    const claimed = Array.isArray(profileData.claimed_milestones)
-        ? profileData.claimed_milestones.map(Number)
-        : [];
-
-    let milestone = 0;
-
-    if (streak >= 3 && !claimed.includes(3)) {
-        milestone = 3;
-    } else if (streak >= 7 && !claimed.includes(7)) {
-        milestone = 7;
-    } else if (streak >= 30 && !claimed.includes(30)) {
-        milestone = 30;
-    }
-
-    if (!milestone) {
-        show("🔒 No streak reward available yet.");
-        return;
-    }
-
-    const response = await fetch(
-        "/api/streak/claim",
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                user: username,
-                milestone: milestone
-            })
-        }
-    );
-
-    const data = await response.json();
-
-    if (data.xp !== undefined) {
-        update(data);
-    }
-
-    show(data.message);
-
-    if (data.success) {
-    await loadUser();
-}
-
-
-}
-
-
-function show(text) {
-
-    document.getElementById(
-        "message"
-    ).innerText =
-        text;
-}
-
-
-loadUser();
-
+async function quest(name){currentUser();const d=await jsonFetch("/api/quest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,quest:name})});if(d.xp!==undefined)update(d);show(d.message||"Quest finished");loadLeaderboard()}
+function share(){window.open("https://warpcast.com/~/compose?text="+encodeURIComponent("BL3 — Hunt alpha. Prove it. 👑 https://bl3meme.com"),"_blank");show("Post your cast, paste its URL, then verify.")}
+async function verifyShare(){currentUser();const cast_url=document.getElementById("castUrl").value.trim();const d=await jsonFetch("/api/share/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,cast_url})});if(d.xp!==undefined)update(d);show(d.message||"Verification finished");if(d.success)loadLeaderboard()}
+function invite(){const link=location.origin+"/?ref="+encodeURIComponent(currentUser());if(navigator.clipboard)navigator.clipboard.writeText(link);show("Invite link: "+link)}
+async function claimReferral(){const p=new URLSearchParams(location.search),inviter=(p.get("ref")||"").trim(),invited=currentUser();if(!inviter)return;if(!invited||invited==="demo_user"){show("Referral detected. Enter your username.");return}if(inviter===invited){show("You cannot refer yourself.");return}const d=await jsonFetch("/api/referral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inviter,invited})});show(d.message||"Referral checked");if(d.success){history.replaceState({},"",location.pathname);loadLeaderboard()}}
+async function connectWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{const a=await ethereum.request({method:"eth_requestAccounts"});if(!a.length)return;document.getElementById("wallet").value=a[0];show("Wallet connected. Now sign the message.")}catch(e){show("Wallet connection cancelled.")}}
+async function signInWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{currentUser();if(username==="demo_user"){show("Enter your BL3 username first.");return}const a=await ethereum.request({method:"eth_requestAccounts"}),wallet=a[0];const n=await jsonFetch("/api/auth/nonce?wallet="+encodeURIComponent(wallet)+"&user="+encodeURIComponent(username));if(!n.success){show(n.message);return}const signature=await ethereum.request({method:"personal_sign",params:[n.message,wallet]});const d=await jsonFetch("/api/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({wallet,username,message:n.message,signature})});show(d.message||"Sign-in finished");if(d.success){document.getElementById("authStatus").innerText="Verified: "+wallet.slice(0,6)+"…"+wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED";await loadUser()}}catch(e){show("Wallet sign-in cancelled or failed.")}}
+async function authStatus(){const d=await jsonFetch("/api/auth/status");if(d.authenticated){document.getElementById("authStatus").innerText="Verified: "+d.wallet.slice(0,6)+"…"+d.wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED"}}
+async function loadLeaderboard(){const d=await jsonFetch("/api/leaderboard");let h="";(Array.isArray(d)?d:[]).slice(0,10).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.xp+' XP</b></div>');document.getElementById("leaderboard").innerHTML=h||'<div class="meta">No hunters yet.</div>';document.getElementById("totalHunters").innerText=Array.isArray(d)?d.length:0}
+async function claimStreakReward(){currentUser();const s=Number(document.getElementById("streak").innerText),p=await jsonFetch("/api/user/"+encodeURIComponent(username)),c=Array.isArray(p.claimed_milestones)?p.claimed_milestones.map(Number):[];let m=0;if(s>=3&&!c.includes(3))m=3;else if(s>=7&&!c.includes(7))m=7;else if(s>=30&&!c.includes(30))m=30;if(!m){show("No streak reward available yet.");return}const d=await jsonFetch("/api/streak/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,milestone:m})});show(d.message||"Claim finished");if(d.success)await loadUser()}
+function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+async function loadArenas(){const d=await jsonFetch("/api/arenas");const list=Array.isArray(d.arenas)?d.arenas:[];document.getElementById("liveArenas").innerText=list.filter(a=>a.status==="live").length;document.getElementById("totalBounty").innerText=list.reduce((n,a)=>n+Number(a.bounty_amount||0),0).toLocaleString();let h="";list.forEach(a=>{h+='<article class="card arena"><div class="live">● '+escapeHtml(a.status).toUpperCase()+' // '+escapeHtml(a.category)+'</div><h2>'+escapeHtml(a.title)+'</h2><div class="bounty">'+Number(a.bounty_amount||0).toLocaleString()+' '+escapeHtml(a.bounty_asset)+'</div><div class="meta">'+escapeHtml(a.description)+'</div><div class="meta" style="margin-top:10px">By '+escapeHtml(a.creator)+' • '+a.submissions+' proofs • Deadline '+escapeHtml(a.deadline||"open")+'</div><button class="btn hot" onclick="openSubmission('+a.id+',\\''+escapeHtml(a.title).replace(/'/g,"&#039;")+'\\')">ENTER ARENA →</button><div id="submit-'+a.id+'" class="hidden"><textarea id="pitch-'+a.id+'" placeholder="Your thesis / proof / contribution"></textarea><input id="proof-'+a.id+'" placeholder="Proof URL (optional)"><button class="btn violet" onclick="submitProof('+a.id+')">SUBMIT PROOF</button></div></article>'});document.getElementById("arenas").innerHTML=h||'<div class="card"><h2>The first arena is waiting.</h2><div class="meta">Verified project creators can launch the first hunt from the Project Desk.</div></div>'}
+function openSubmission(id,title){document.getElementById("submit-"+id).classList.toggle("hidden");show("Entering: "+title)}
+async function submitProof(id){currentUser();const pitch=document.getElementById("pitch-"+id).value.trim(),proof_url=document.getElementById("proof-"+id).value.trim();const d=await jsonFetch("/api/arenas/"+id+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,pitch,proof_url})});show(d.message||"Submission finished");if(d.success)loadArenas()}
+async function createArena(){currentUser();const body={creator:username,title:document.getElementById("arenaTitle").value.trim(),description:document.getElementById("arenaDescription").value.trim(),category:document.getElementById("arenaCategory").value,bounty_amount:document.getElementById("arenaBounty").value,deadline:document.getElementById("arenaDeadline").value.trim()};const d=await jsonFetch("/api/arenas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});show(d.message||"Arena request finished");if(d.success)loadArenas()}
+loadUser();loadArenas();
 </script>
-
 </body>
 </html>
 """
@@ -1594,6 +1009,119 @@ def streak_claim_api():
     })
 
 
+
+@app.route("/api/arenas", methods=["GET", "POST"])
+def arenas_api():
+    if request.method == "GET":
+        conn = db()
+        rows = conn.execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM arena_submissions s WHERE s.arena_id = a.id) AS submissions
+            FROM arenas a
+            ORDER BY CASE WHEN a.status = 'live' THEN 0 ELSE 1 END, a.id DESC
+            LIMIT 100
+        """).fetchall()
+        conn.close()
+        return jsonify({"success": True, "arenas": [dict(row) for row in rows]})
+
+    data = request.get_json(silent=True) or {}
+    creator = str(data.get("creator", "")).strip()
+    title = str(data.get("title", "")).strip()
+    description = str(data.get("description", "")).strip()
+    category = str(data.get("category", "Alpha")).strip()[:40]
+    deadline = str(data.get("deadline", "")).strip()[:40]
+
+    try:
+        bounty_amount = max(0.0, float(data.get("bounty_amount") or 0))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "❌ Invalid bounty amount"}), 400
+
+    if not creator or not title or not description:
+        return jsonify({"success": False, "message": "❌ Creator, title and description are required"}), 400
+
+    # Creating paid-looking campaigns is restricted to a wallet-authenticated profile.
+    if session.get("authenticated_username") != creator:
+        return jsonify({"success": False, "message": "🔐 Sign in with the creator wallet before launching an Arena"}), 401
+
+    get_user(creator)
+    now = datetime.utcnow().isoformat()
+
+    conn = db()
+    cur = conn.execute("""
+        INSERT INTO arenas
+        (creator, title, description, category, bounty_amount, bounty_asset, status, deadline, created_at)
+        VALUES (?, ?, ?, ?, ?, 'USDC', 'live', ?, ?)
+    """, (creator, title[:120], description[:3000], category, bounty_amount, deadline, now))
+    arena_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "arena_id": arena_id,
+        "message": "⚡ Arena launched. Listed bounty is project-funded; BL3 does not custody funds in this MVP."
+    })
+
+
+@app.route("/api/arenas/<int:arena_id>/submit", methods=["POST"])
+def arena_submit_api(arena_id):
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("user", "")).strip()
+    pitch = str(data.get("pitch", "")).strip()
+    proof_url = str(data.get("proof_url", "")).strip()
+
+    if not username or not pitch:
+        return jsonify({"success": False, "message": "❌ Username and contribution are required"}), 400
+
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "🔐 Sign in with this hunter wallet before submitting proof"}), 401
+
+    conn = db()
+    arena = conn.execute("SELECT id, status FROM arenas WHERE id = ?", (arena_id,)).fetchone()
+    if arena is None:
+        conn.close()
+        return jsonify({"success": False, "message": "❌ Arena not found"}), 404
+    if arena["status"] != "live":
+        conn.close()
+        return jsonify({"success": False, "message": "🔒 This Arena is closed"}), 403
+
+    now = datetime.utcnow().isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO arena_submissions
+            (arena_id, username, proof_url, pitch, status, created_at)
+            VALUES (?, ?, ?, ?, 'submitted', ?)
+        """, (arena_id, username, proof_url[:1000], pitch[:5000], now))
+        conn.execute("""
+            INSERT INTO reputation_events (username, points, reason, created_at)
+            VALUES (?, 5, ?, ?)
+        """, (username, f"Arena #{arena_id} submission", now))
+        conn.execute("UPDATE users SET xp = xp + 5 WHERE username = ?", (username,))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return jsonify({"success": False, "message": "⚠️ You already submitted to this Arena"}), 409
+
+    conn.close()
+    return jsonify({"success": True, "message": "⚡ Proof submitted. +5 XP participation signal."})
+
+
+@app.route("/api/reputation/<username>")
+def reputation_api(username):
+    conn = db()
+    total = conn.execute(
+        "SELECT COALESCE(SUM(points), 0) AS rep FROM reputation_events WHERE username = ?",
+        (username,)
+    ).fetchone()["rep"]
+    submissions = conn.execute(
+        "SELECT COUNT(*) AS n FROM arena_submissions WHERE username = ?",
+        (username,)
+    ).fetchone()["n"]
+    conn.close()
+    return jsonify({"success": True, "username": username, "reputation": total, "submissions": submissions})
+
+
 @app.route("/api/leaderboard")
 def leaderboard_api():
 
@@ -1624,7 +1152,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 HUB V5.3")
+    print("👑 BL3 ARENA V6")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
