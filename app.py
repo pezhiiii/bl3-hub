@@ -126,6 +126,19 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS creature_battles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenger TEXT NOT NULL,
+            opponent TEXT NOT NULL,
+            winner TEXT NOT NULL,
+            challenger_power INTEGER NOT NULL,
+            opponent_power INTEGER NOT NULL,
+            commentary TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -185,7 +198,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .creature-card{position:relative;overflow:hidden;background:radial-gradient(circle at 50% 18%,rgba(184,255,90,.12),transparent 38%),var(--panel)}
 .creature-card:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(157,123,255,.09);filter:blur(28px);right:-45px;top:-45px;pointer-events:none}
 .creature-head{display:flex;align-items:center;gap:14px;margin:14px 0}.creature-avatar{width:76px;height:76px;border:1px solid rgba(184,255,90,.35);border-radius:22px;display:grid;place-items:center;font-size:42px;background:rgba(184,255,90,.06);box-shadow:0 0 28px rgba(184,255,90,.08)}
-.creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}
+.creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}.battle-result{margin-top:12px;padding:14px;border:1px solid rgba(184,255,90,.25);border-radius:16px;background:rgba(184,255,90,.04)}.battle-vs{font-size:24px;font-weight:950;text-align:center;margin:8px 0}.battle-log{font-size:13px;color:var(--muted);line-height:1.5}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
 </style>
 </head>
@@ -237,6 +250,15 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <div class="empire"><span class="meta">👥 VERIFIED NETWORK</span><b id="empireLabel">0 HUNTERS</b></div>
         <div id="streakReward" class="meta" style="margin-top:12px">🔥 Next: 3-Day Flame</div>
         <button id="streakClaimButton" class="btn hot hidden" onclick="claimStreakReward()">🎁 Claim Streak Reward</button>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">ALPHA CLASH // CREATURE BATTLE</div>
+        <h3 style="margin-top:8px">Challenge a Hunter</h3>
+        <div class="meta">Pick any BL3 hunter. Creature power is based on real Passport progress, with a small chaos roll. No money, no XP farming — just wins, identity and shareable chaos.</div>
+        <input id="battleOpponent" placeholder="Opponent username">
+        <button class="btn hot" onclick="battleHunter()">⚔️ START CLASH</button>
+        <div id="battleResult" class="battle-result hidden"></div>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -334,6 +356,21 @@ function share(){window.open("https://warpcast.com/~/compose?text="+encodeURICom
 async function verifyShare(){currentUser();const cast_url=document.getElementById("castUrl").value.trim();const d=await jsonFetch("/api/share/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,cast_url})});if(d.xp!==undefined)update(d);show(d.message||"Verification finished");if(d.success)loadLeaderboard()}
 function invite(){const link=location.origin+"/?ref="+encodeURIComponent(currentUser());if(navigator.clipboard)navigator.clipboard.writeText(link);show("Invite link: "+link)}
 async function claimReferral(){const p=new URLSearchParams(location.search),inviter=(p.get("ref")||"").trim(),invited=currentUser();if(!inviter)return;if(!invited||invited==="demo_user"){show("Referral detected. Enter your username.");return}if(inviter===invited){show("You cannot refer yourself.");return}const d=await jsonFetch("/api/referral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inviter,invited})});show(d.message||"Referral checked");if(d.success){history.replaceState({},"",location.pathname);loadLeaderboard()}}
+async function battleHunter(){
+ currentUser();
+ const opponent=document.getElementById("battleOpponent").value.trim();
+ if(!opponent){show("Enter an opponent username.");return}
+ if(opponent===username){show("Your creature refuses to fight itself 😈");return}
+ const d=await jsonFetch("/api/battle",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({challenger:username,opponent})});
+ if(!d.success){show(d.message||"Clash failed");return}
+ const mine=d.challenger,them=d.opponent,won=d.winner===username;
+ const el=document.getElementById("battleResult");
+ el.classList.remove("hidden");
+ el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div>';
+ show(won?"Your creature took the crown 👑":"Chaos chose your opponent this round.");
+ await loadUser();
+}
+
 async function connectWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{const a=await ethereum.request({method:"eth_requestAccounts"});if(!a.length)return;document.getElementById("wallet").value=a[0];show("Wallet connected. Now sign the message.")}catch(e){show("Wallet connection cancelled.")}}
 async function signInWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{currentUser();if(username==="demo_user"){show("Enter your BL3 username first.");return}const a=await ethereum.request({method:"eth_requestAccounts"}),wallet=a[0];const n=await jsonFetch("/api/auth/nonce?wallet="+encodeURIComponent(wallet)+"&user="+encodeURIComponent(username));if(!n.success){show(n.message);return}const signature=await ethereum.request({method:"personal_sign",params:[n.message,wallet]});const d=await jsonFetch("/api/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({wallet,username,message:n.message,signature})});show(d.message||"Sign-in finished");if(d.success){document.getElementById("authStatus").innerText="Verified: "+wallet.slice(0,6)+"…"+wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED";await loadUser()}}catch(e){show("Wallet sign-in cancelled or failed.")}}
 async function authStatus(){const d=await jsonFetch("/api/auth/status");if(d.authenticated){document.getElementById("authStatus").innerText="Verified: "+d.wallet.slice(0,6)+"…"+d.wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED"}}
@@ -1308,6 +1345,65 @@ def passport_api(username):
     })
 
 
+@app.route("/api/battle", methods=["POST"])
+def battle_api():
+    data = request.get_json(silent=True) or {}
+    challenger = str(data.get("challenger", "")).strip()
+    opponent = str(data.get("opponent", "")).strip()
+    if not challenger or not opponent:
+        return jsonify({"success": False, "message": "Challenger and opponent are required."}), 400
+    if challenger == opponent:
+        return jsonify({"success": False, "message": "You cannot battle yourself."}), 400
+
+    c = get_user(challenger)
+    o = get_user(opponent)
+    cxp, oxp = int(c["xp"] or 0), int(o["xp"] or 0)
+    # Progress matters, but a bounded chaos roll keeps weaker creatures capable of an upset.
+    import secrets
+    c_roll = secrets.randbelow(41)
+    o_roll = secrets.randbelow(41)
+    c_power = 50 + min(150, cxp // 10) + c_roll
+    o_power = 50 + min(150, oxp // 10) + o_roll
+    winner = challenger if c_power >= o_power else opponent
+
+    def avatar(xp):
+        if xp >= 1500: return "👑"
+        if xp >= 700: return "🦹"
+        if xp >= 300: return "😈"
+        if xp >= 100: return "👾"
+        return "🥚"
+
+    if winner == challenger:
+        commentary = f"{challenger} cracked the arena and stole the crown from {opponent}."
+    else:
+        commentary = f"UPSET: {opponent} survived the chaos and sent {challenger} back to evolution."
+
+    now = datetime.utcnow().isoformat()
+    conn = db()
+    conn.execute("""INSERT INTO creature_battles
+        (challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (challenger, opponent, winner, c_power, o_power, commentary, now))
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "success": True, "winner": winner, "commentary": commentary,
+        "challenger": {"username": challenger, "avatar": avatar(cxp), "power": c_power},
+        "opponent": {"opponent": opponent, "avatar": avatar(oxp), "power": o_power}
+    })
+
+
+@app.route("/api/battles/<username>")
+def battle_history_api(username):
+    conn = db()
+    rows = conn.execute("""SELECT challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at
+                           FROM creature_battles WHERE challenger = ? OR opponent = ?
+                           ORDER BY id DESC LIMIT 10""", (username, username)).fetchall()
+    wins = conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = ?", (username,)).fetchone()["n"]
+    conn.close()
+    return jsonify({"success": True, "wins": wins, "battles": [dict(r) for r in rows]})
+
+
 @app.route("/api/reputation/<username>")
 def reputation_api(username):
     conn = db()
@@ -1319,10 +1415,15 @@ def reputation_api(username):
         "SELECT COUNT(*) AS n FROM arena_submissions WHERE username = ?",
         (username,)
     ).fetchone()["n"]
-    wins = conn.execute(
+    arena_wins = conn.execute(
         "SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ?",
         (username,)
     ).fetchone()["n"]
+    clash_wins = conn.execute(
+        "SELECT COUNT(*) AS n FROM creature_battles WHERE winner = ?",
+        (username,)
+    ).fetchone()["n"]
+    wins = arena_wins + clash_wins
     earned = conn.execute(
         "SELECT COALESCE(SUM(bounty_amount), 0) AS amount FROM arenas WHERE winner_username = ? AND paid = 1",
         (username,)
@@ -1368,7 +1469,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6.2 // PASSPORT EVOLUTION")
+    print("👑 BL3 ARENA V6.3 // ALPHA CLASH")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
