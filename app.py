@@ -154,6 +154,21 @@ def init_db():
         )
     """)
 
+    # V6.9: direct hunter-to-hunter challenge requests and inbox state.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS challenge_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenger TEXT NOT NULL,
+            opponent TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            responded_at TEXT DEFAULT '',
+            battle_id INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_challenge_opponent_status ON challenge_requests(opponent, status, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_challenge_challenger_status ON challenge_requests(challenger, status, id DESC)")
+
     # V6.6: seasons are non-destructive; old battles are assigned from their UTC month.
     battle_cols = {row["name"] for row in conn.execute("PRAGMA table_info(creature_battles)").fetchall()}
     if "season_key" not in battle_cols:
@@ -222,6 +237,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .creature-card:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(157,123,255,.09);filter:blur(28px);right:-45px;top:-45px;pointer-events:none}
 .creature-head{display:flex;align-items:center;gap:14px;margin:14px 0}.creature-avatar{width:76px;height:76px;border:1px solid rgba(184,255,90,.35);border-radius:22px;display:grid;place-items:center;font-size:42px;background:rgba(184,255,90,.06);box-shadow:0 0 28px rgba(184,255,90,.08)}
 .creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}.battle-result{margin-top:12px;padding:14px;border:1px solid rgba(184,255,90,.25);border-radius:16px;background:rgba(184,255,90,.04)}.battle-vs{font-size:24px;font-weight:950;text-align:center;margin:8px 0}.battle-log{font-size:13px;color:var(--muted);line-height:1.5}.battle-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}@media(max-width:520px){.battle-actions{grid-template-columns:1fr}}
+.inbox-item{padding:12px;border:1px solid var(--line);border-radius:16px;margin-top:9px;background:rgba(255,255,255,.025)}.inbox-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.inbox-title{font-weight:900}.inbox-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.inbox-badge{color:var(--hot);font-weight:900}.btn.danger:hover{background:#ff6b7a;color:#09090c}.nav-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
 </style>
 </head>
@@ -230,7 +246,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
   <nav class="nav">
     <div class="brand">BL3<span>●</span></div>
     <div class="pill">THE HUMAN ALPHA NETWORK</div>
-    <div class="pill" id="navAuth">WALLET OFFLINE</div>
+    <div class="nav-right"><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
   </nav>
 
   <section class="hero">
@@ -281,6 +297,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <div class="meta">Pick any BL3 hunter. Creature power is based on real Passport progress, with a small chaos roll. No money, no XP farming — just wins, identity and shareable chaos.</div>
         <input id="battleOpponent" placeholder="Opponent username">
         <button class="btn hot" onclick="battleHunter()">⚔️ START CLASH</button>
+        <button class="btn" onclick="sendChallengeRequest()">📨 SEND CHALLENGE REQUEST</button>
         <div id="battleResult" class="battle-result hidden"></div>
       </div>
 
@@ -306,6 +323,14 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <div class="meta">Four daily actions that push the real BL3 loop. Mission completion is a status signal only — no extra XP is minted here.</div>
         <div class="proof" style="margin-top:12px"><span class="small">DAILY PROGRESS</span><div class="crown-holder" id="dailyProgress">0 / 4</div></div>
         <div id="dailyMissions" style="margin-top:8px"><div class="meta">Loading missions…</div></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">CHALLENGE INBOX // HUNTER TO HUNTER</div>
+        <h3 style="margin-top:8px">Incoming Challenges</h3>
+        <div class="meta">Signed-in hunters can send a real challenge request. Accepting resolves the Alpha Clash and creates a public Battle Card.</div>
+        <div id="challengeInbox" style="margin-top:10px"><div class="meta">Sign in to load your inbox.</div></div>
+        <button class="btn" onclick="loadInbox()">↻ Refresh Inbox</button>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -354,7 +379,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.8 LIVE NETWORK</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.9 CHALLENGE INBOX</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -378,7 +403,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadInbox();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -502,6 +527,44 @@ function relativeTime(iso){
  const h=Math.floor(m/60); if(h<24)return h+"h";
  return Math.floor(h/24)+"d";
 }
+async function sendChallengeRequest(){
+ currentUser();
+ const opponent=document.getElementById("battleOpponent").value.trim();
+ if(!opponent){show("Enter an opponent username first.");return}
+ if(opponent===username){show("You cannot challenge yourself.");return}
+ const d=await jsonFetch("/api/challenges",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({challenger:username,opponent})});
+ show(d.message||"Challenge request finished");
+ if(d.success)await loadInbox();
+}
+async function loadInbox(){
+ currentUser();
+ const el=document.getElementById("challengeInbox"),badge=document.getElementById("inboxBadge");
+ const d=await jsonFetch("/api/challenges/"+encodeURIComponent(username));
+ if(!d.success){
+   if(badge)badge.innerText="INBOX —";
+   el.innerHTML='<div class="meta">'+escapeHtml(d.message||"Sign in with this Hunter ID to open the inbox.")+'</div>';
+   return;
+ }
+ const items=Array.isArray(d.incoming)?d.incoming:[];
+ if(badge)badge.innerText="INBOX "+items.length;
+ el.innerHTML=items.map(c=>'<div class="inbox-item"><div class="inbox-top"><div><div class="inbox-title">⚔️ '+escapeHtml(c.challenger)+' challenged you</div><div class="meta">'+escapeHtml(relativeTime(c.created_at))+' ago · Request #'+c.id+'</div></div><div class="inbox-badge">PENDING</div></div><div class="inbox-actions"><button class="btn hot" onclick="acceptChallenge('+c.id+')">ACCEPT ⚔️</button><button class="btn danger" onclick="declineChallenge('+c.id+')">DECLINE</button></div></div>').join("")||'<div class="meta">Inbox clear. Share a Battle Card and pull someone into the arena.</div>';
+}
+async function acceptChallenge(id){
+ const d=await jsonFetch("/api/challenges/"+id+"/accept",{method:"POST"});
+ if(!d.success){show(d.message||"Could not accept challenge");return}
+ show("⚔️ Challenge accepted — Clash #"+d.battle_id+" resolved.");
+ const mine=d.challenger,them=d.opponent;
+ const el=document.getElementById("battleResult");
+ el.classList.remove("hidden");
+ el.innerHTML='<div class="small">CHALLENGE ACCEPTED // 👑 '+escapeHtml(d.winner)+' WON</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(mine.username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><a href="/clash/'+d.battle_id+'" target="_blank" style="display:block;text-decoration:none;color:inherit;margin-top:10px"><div class="proof">🃏 OPEN BATTLE CARD #'+d.battle_id+' ↗</div></a>';
+ await loadInbox(); await loadSeason(); await loadActivity(); await loadUser();
+}
+async function declineChallenge(id){
+ const d=await jsonFetch("/api/challenges/"+id+"/decline",{method:"POST"});
+ show(d.message||"Challenge declined");
+ if(d.success)await loadInbox();
+}
+
 async function loadActivity(){
  const d=await jsonFetch("/api/activity?limit=18");
  const el=document.getElementById("activityFeed");
@@ -1559,31 +1622,18 @@ def clash_public_page(battle_id):
 <body><div class="wrap"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><div class="card"><div class="eyebrow">PUBLIC BATTLE CARD // #{battle_id}</div><h1>{esc(b['challenger'])}<br><span style="color:#8b5cf6">VS {esc(b['opponent'])}</span></h1><div class="vs"><div class="fighter"><b>{esc(b['challenger_avatar'])} {esc(b['challenger'])}</b><div class="power">POWER {b['challenger_power']}</div></div><div class="center">VS</div><div class="fighter"><b>{esc(b['opponent_avatar'])} {esc(b['opponent'])}</b><div class="power">POWER {b['opponent_power']}</div></div></div><div class="winner"><div class="eyebrow">CROWN HOLDER</div><h2>👑 {esc(b['winner'])}</h2><div class="meta">{esc(b['commentary'])}</div></div><a class="btn" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(b['challenger']).upper()}</a><a class="sub" href="/">BACK TO LIVE ARENAS</a></div></div></body></html>"""
 
 
-@app.route("/api/battle", methods=["POST"])
-def battle_api():
-    data = request.get_json(silent=True) or {}
-    challenger = str(data.get("challenger", "")).strip()
-    opponent = str(data.get("opponent", "")).strip()
-    if not challenger or not opponent:
-        return jsonify({"success": False, "message": "Challenger and opponent are required."}), 400
-    if challenger == opponent:
-        return jsonify({"success": False, "message": "You cannot battle yourself."}), 400
-
-    if session.get("authenticated_username") != challenger:
-        return jsonify({"success": False, "message": "🔐 Sign in with the challenger wallet before starting a clash."}), 401
-
+def _resolve_battle(challenger, opponent):
+    """Resolve one authenticated/accepted Alpha Clash and persist all season/Crown side effects."""
     conn = db()
     c = conn.execute("SELECT * FROM users WHERE username = ?", (challenger,)).fetchone()
     o = conn.execute("SELECT * FROM users WHERE username = ?", (opponent,)).fetchone()
     conn.close()
     if c is None:
-        return jsonify({"success": False, "message": "Challenger profile not found."}), 404
+        return {"success": False, "message": "Challenger profile not found."}, 404
     if o is None:
-        return jsonify({"success": False, "message": "Opponent is not a BL3 hunter yet. Invite them first."}), 404
+        return {"success": False, "message": "Opponent is not a BL3 hunter yet. Invite them first."}, 404
 
     cxp, oxp = int(c["xp"] or 0), int(o["xp"] or 0)
-    # Progress matters, but a bounded chaos roll keeps weaker creatures capable of an upset.
-    import secrets
     c_roll = secrets.randbelow(41)
     o_roll = secrets.randbelow(41)
     c_power = 50 + min(150, cxp // 10) + c_roll
@@ -1621,11 +1671,27 @@ def battle_api():
             (battle_id, season_key, crown_before, challenger, winner, 1 if winner == crown_before else 0, now))
     conn.commit()
     conn.close()
-    return jsonify({
-        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary, "season_key": season_key, "crown_attack": crown_attack, "crown_before": crown_before,
+    return {
+        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary,
+        "season_key": season_key, "crown_attack": crown_attack, "crown_before": crown_before,
         "challenger": {"username": challenger, "avatar": avatar(cxp), "power": c_power},
         "opponent": {"opponent": opponent, "avatar": avatar(oxp), "power": o_power}
-    })
+    }, 200
+
+
+@app.route("/api/battle", methods=["POST"])
+def battle_api():
+    data = request.get_json(silent=True) or {}
+    challenger = str(data.get("challenger", "")).strip()
+    opponent = str(data.get("opponent", "")).strip()
+    if not challenger or not opponent:
+        return jsonify({"success": False, "message": "Challenger and opponent are required."}), 400
+    if challenger == opponent:
+        return jsonify({"success": False, "message": "You cannot battle yourself."}), 400
+    if session.get("authenticated_username") != challenger:
+        return jsonify({"success": False, "message": "🔐 Sign in with the challenger wallet before starting a clash."}), 401
+    payload, status = _resolve_battle(challenger, opponent)
+    return jsonify(payload), status
 
 
 @app.route("/api/battles/<username>")
@@ -1750,6 +1816,100 @@ def daily_missions_api(username):
 
 
 
+@app.route("/api/challenges", methods=["POST"])
+def create_challenge_api():
+    data = request.get_json(silent=True) or {}
+    challenger = str(data.get("challenger", "")).strip()
+    opponent = str(data.get("opponent", "")).strip()
+    if not challenger or not opponent:
+        return jsonify({"success": False, "message": "Challenger and opponent are required."}), 400
+    if challenger == opponent:
+        return jsonify({"success": False, "message": "You cannot challenge yourself."}), 400
+    if session.get("authenticated_username") != challenger:
+        return jsonify({"success": False, "message": "🔐 Sign in with the challenger wallet before sending a request."}), 401
+    conn = db()
+    c = conn.execute("SELECT 1 FROM users WHERE username = ?", (challenger,)).fetchone()
+    o = conn.execute("SELECT 1 FROM users WHERE username = ?", (opponent,)).fetchone()
+    if c is None or o is None:
+        conn.close()
+        return jsonify({"success": False, "message": "Both hunters must already have BL3 profiles."}), 404
+    existing = conn.execute("""SELECT id FROM challenge_requests
+                               WHERE challenger = ? AND opponent = ? AND status = 'pending'
+                               ORDER BY id DESC LIMIT 1""", (challenger, opponent)).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"success": True, "challenge_id": existing["id"], "message": "📨 Challenge already waiting in their inbox."})
+    now = datetime.utcnow().isoformat()
+    cur = conn.execute("""INSERT INTO challenge_requests
+                          (challenger, opponent, status, created_at)
+                          VALUES (?, ?, 'pending', ?)""", (challenger, opponent, now))
+    challenge_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "challenge_id": challenge_id, "message": f"📨 Challenge sent to {opponent}."})
+
+
+@app.route("/api/challenges/<username>")
+def challenge_inbox_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "🔐 Sign in as this Hunter ID to open the challenge inbox."}), 401
+    conn = db()
+    incoming = [dict(r) for r in conn.execute("""SELECT id, challenger, opponent, status, created_at, responded_at, battle_id
+                                                 FROM challenge_requests
+                                                 WHERE opponent = ? AND status = 'pending'
+                                                 ORDER BY id DESC LIMIT 30""", (username,)).fetchall()]
+    outgoing = [dict(r) for r in conn.execute("""SELECT id, challenger, opponent, status, created_at, responded_at, battle_id
+                                                 FROM challenge_requests
+                                                 WHERE challenger = ?
+                                                 ORDER BY id DESC LIMIT 15""", (username,)).fetchall()]
+    conn.close()
+    return jsonify({"success": True, "incoming": incoming, "outgoing": outgoing, "unread": len(incoming)})
+
+
+@app.route("/api/challenges/<int:challenge_id>/accept", methods=["POST"])
+def accept_challenge_api(challenge_id):
+    conn = db()
+    row = conn.execute("SELECT * FROM challenge_requests WHERE id = ?", (challenge_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return jsonify({"success": False, "message": "Challenge request not found."}), 404
+    if row["status"] != "pending":
+        return jsonify({"success": False, "message": "This challenge is no longer pending."}), 409
+    if session.get("authenticated_username") != row["opponent"]:
+        return jsonify({"success": False, "message": "🔐 Only the challenged hunter can accept this request."}), 401
+    payload, status = _resolve_battle(row["challenger"], row["opponent"])
+    if not payload.get("success"):
+        return jsonify(payload), status
+    now = datetime.utcnow().isoformat()
+    conn = db()
+    conn.execute("""UPDATE challenge_requests SET status = 'accepted', responded_at = ?, battle_id = ?
+                    WHERE id = ? AND status = 'pending'""", (now, payload["battle_id"], challenge_id))
+    conn.commit()
+    conn.close()
+    payload["challenge_id"] = challenge_id
+    payload["message"] = "⚔️ Challenge accepted and resolved."
+    return jsonify(payload)
+
+
+@app.route("/api/challenges/<int:challenge_id>/decline", methods=["POST"])
+def decline_challenge_api(challenge_id):
+    conn = db()
+    row = conn.execute("SELECT * FROM challenge_requests WHERE id = ?", (challenge_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return jsonify({"success": False, "message": "Challenge request not found."}), 404
+    if row["status"] != "pending":
+        conn.close()
+        return jsonify({"success": False, "message": "This challenge is no longer pending."}), 409
+    if session.get("authenticated_username") != row["opponent"]:
+        conn.close()
+        return jsonify({"success": False, "message": "🔐 Only the challenged hunter can decline this request."}), 401
+    conn.execute("UPDATE challenge_requests SET status = 'declined', responded_at = ? WHERE id = ?", (datetime.utcnow().isoformat(), challenge_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "Challenge declined."})
+
+
 @app.route("/api/activity")
 def activity_api():
     try:
@@ -1764,6 +1924,11 @@ def activity_api():
             "kind": kind, "icon": icon, "title": title, "detail": detail,
             "created_at": created_at or "", "event_id": int(event_id or 0)
         })
+
+    for r in conn.execute("""SELECT id, challenger, opponent, status, created_at
+                           FROM challenge_requests ORDER BY id DESC LIMIT 20""").fetchall():
+        detail = ("Waiting for response" if r["status"] == "pending" else f"Status: {r['status']}")
+        add("challenge", "📨", f"{r['challenger']} challenged {r['opponent']}", detail, r["created_at"], r["id"])
 
     for r in conn.execute("""SELECT id, challenger, opponent, winner, commentary, created_at
                            FROM creature_battles ORDER BY id DESC LIMIT 25""").fetchall():
@@ -1860,7 +2025,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V6.8 // LIVE NETWORK ACTIVITY")
+    print("📨 BL3 ARENA V6.9 // CHALLENGE INBOX")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
