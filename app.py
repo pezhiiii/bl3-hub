@@ -363,7 +363,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V9.0 VISUAL OVERHAUL ===== */
+/* ===== V9.1 LIVE HUNTER HUD ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -392,7 +392,7 @@ body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transpare
 .core-orb:before,.core-orb:after{content:"";position:absolute;border-radius:50%;border:1px solid rgba(255,255,255,.09)}.core-orb:before{inset:-14px}.core-orb:after{inset:24px;border-style:dashed}.core-glyph{font-size:66px;filter:drop-shadow(0 0 18px rgba(186,255,90,.22))}
 .core-title{text-align:center;font-size:22px;font-weight:950;letter-spacing:-.8px}.core-sub{text-align:center;color:var(--muted);font-size:11px;line-height:1.5;margin:6px auto 18px;max-width:250px}
 .core-lines{display:grid;gap:8px}.core-line{display:flex;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025);font-size:10px}.core-line span:first-child{color:var(--muted);font-weight:800}.core-line b{color:var(--hot);letter-spacing:.7px}
-.command-deck{display:grid;grid-template-columns:1.25fr repeat(4,1fr);gap:9px;margin:0 0 20px}.command-label,.command-link{min-height:72px;border:1px solid var(--line);border-radius:18px;background:rgba(12,12,18,.72);padding:13px;text-decoration:none;color:#fff;display:flex;flex-direction:column;justify-content:center;transition:.2s}.command-label{background:linear-gradient(135deg,rgba(161,124,255,.12),rgba(186,255,90,.05))}.command-link:hover{transform:translateY(-2px);border-color:rgba(186,255,90,.35);background:rgba(186,255,90,.045)}.command-link b,.command-label b{font-size:12px}.command-link span,.command-label span{font-size:9px;color:var(--muted);margin-top:4px;letter-spacing:.8px}
+.command-deck{display:grid;grid-template-columns:1.15fr repeat(5,1fr);gap:9px;margin:0 0 20px}.command-label,.command-link{min-height:72px;border:1px solid var(--line);border-radius:18px;background:rgba(12,12,18,.72);padding:13px;text-decoration:none;color:#fff;display:flex;flex-direction:column;justify-content:center;transition:.2s}.command-label{background:linear-gradient(135deg,rgba(161,124,255,.12),rgba(186,255,90,.05))}.command-link:hover{transform:translateY(-2px);border-color:rgba(186,255,90,.35);background:rgba(186,255,90,.045)}.command-link b,.command-label b{font-size:12px}.command-link span,.command-label span{font-size:9px;color:var(--muted);margin-top:4px;letter-spacing:.8px}
 .onboarding{border-radius:28px;padding:24px;background:linear-gradient(120deg,rgba(186,255,90,.055),rgba(161,124,255,.075)),rgba(12,12,18,.88);box-shadow:0 25px 80px rgba(0,0,0,.24)}
 .grid{grid-template-columns:minmax(0,1.42fr) minmax(340px,.78fr);gap:20px}
 .card{border-radius:22px;background:linear-gradient(145deg,rgba(17,17,24,.9),rgba(10,10,15,.86));box-shadow:0 18px 55px rgba(0,0,0,.22)}
@@ -404,6 +404,26 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .footer{padding-top:70px;font-size:10px;letter-spacing:1.3px}
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
+
+/* ===== V9.1 LIVE HUNTER HUD ===== */
+.hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
+.hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
+.hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
+.hud-card .hud-value{font-size:17px;font-weight:950;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud-card .hud-sub{font-size:9px;color:var(--muted);margin-top:3px}
+.hud-title{display:flex;align-items:center;gap:7px;color:var(--hot)}
+.hud-next{margin-top:10px;padding:12px;border:1px solid rgba(161,124,255,.22);border-radius:15px;background:linear-gradient(120deg,rgba(161,124,255,.07),rgba(186,255,90,.025))}
+.hud-next-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hud-next-top span{font-size:8px;letter-spacing:1.3px;color:var(--muted);font-weight:900}
+.hud-next-top b{font-size:11px;color:var(--hot)}
+.hud-next-title{font-size:13px;font-weight:950;margin:5px 0}
+.hud-meter{height:6px;border-radius:999px;background:#08080c;border:1px solid var(--line);overflow:hidden}
+.hud-meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--hot),var(--violet));transition:width .35s ease}
+.hud-links{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}
+.hud-link{border:1px solid var(--line);border-radius:12px;padding:9px 7px;text-align:center;text-decoration:none;color:#fff;font-size:9px;font-weight:900;background:rgba(255,255,255,.025)}
+.hud-link:hover{border-color:rgba(186,255,90,.3);color:var(--hot)}
+.hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
+@media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 </style>
 </head>
 <body>
@@ -435,16 +455,48 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
         </div>
       </div>
       <div class="hero-core">
-        <div class="core-top"><div class="eyebrow">BL3 // NETWORK CORE</div><div class="core-badge">V9.0</div></div>
+        <div class="core-top">
+          <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
+            <div class="core-badge">V9.1</div>
+          </div>
+        </div>
         <div>
-          <div class="core-orb"><div class="core-glyph">👾</div></div>
-          <div class="core-title">YOUR IDENTITY EVOLVES</div>
-          <div class="core-sub">XP grows the creature. Proof grows REP. Wins build rivalry. Unlocks shape the public Loadout.</div>
+          <div class="core-orb"><div class="core-glyph" id="hudCreature">👾</div></div>
+          <div class="core-title" id="hudHunterName">LOAD YOUR HUNTER ID</div>
+          <div class="core-sub" id="hudCreatureMeta">Your live identity, title, reputation and next unlock will appear here.</div>
+
+          <div class="hud-strip">
+            <div class="hud-card">
+              <div class="hud-label">PUBLIC TITLE</div>
+              <div class="hud-value hud-title" id="hudTitle">🏷️ HUNTER</div>
+              <div class="hud-sub" id="hudTitleTier">UNRANKED</div>
+            </div>
+            <div class="hud-card">
+              <div class="hud-label">REPUTATION</div>
+              <div class="hud-value" id="hudRep">0 REP</div>
+              <div class="hud-sub" id="hudCombat">0 WINS // 0 NETWORK</div>
+            </div>
+          </div>
+
+          <div class="hud-next">
+            <div class="hud-next-top"><span>NEXT MEANINGFUL UNLOCK</span><b id="hudNextPercent">0%</b></div>
+            <div class="hud-next-title" id="hudNextTitle">🧭 LOAD PROFILE TO SCAN</div>
+            <div class="hud-meter"><i id="hudNextBar"></i></div>
+            <div class="hud-sub" id="hudNextDetail">Progress radar is waiting for a Hunter ID.</div>
+          </div>
+
+          <div class="hud-links">
+            <a class="hud-link" id="hudProfileLink" href="#passportCard">PROFILE</a>
+            <a class="hud-link" id="hudLoadoutLink" href="#passportCard">LOADOUT</a>
+            <a class="hud-link" id="hudProgressLink" href="#passportCard">PROGRESS</a>
+          </div>
         </div>
         <div class="core-lines">
-          <div class="core-line"><span>IDENTITY</span><b>PASSPORT + LOADOUT</b></div>
-          <div class="core-line"><span>COMBAT</span><b>ALPHA CLASH + CROWN</b></div>
-          <div class="core-line"><span>PROGRESSION</span><b>TITLES + TROPHIES + SKINS</b></div>
+          <div class="core-line"><span>IDENTITY</span><b id="hudIdentityLine">PASSPORT OFFLINE</b></div>
+          <div class="core-line"><span>COMBAT</span><b id="hudCombatLine">SCAN HUNTER</b></div>
+          <div class="core-line"><span>PROGRESSION</span><b id="hudProgressLine">WAITING FOR DATA</b></div>
         </div>
       </div>
     </div>
@@ -456,6 +508,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     <a class="command-link" href="#passportCard"><b>👾 PASSPORT</b><span>Identity + evolution</span></a>
     <a class="command-link" href="#clashCard"><b>⚔️ ALPHA CLASH</b><span>Challenge Hunters</span></a>
     <a class="command-link" href="#walletCard"><b>🔐 WALLET PROOF</b><span>Own your Hunter ID</span></a>
+    <a class="command-link" id="commandProgressLink" href="#passportCard"><b>📈 NEXT UNLOCKS</b><span>Progress radar</span></a>
   </section>
 
   <section class="card onboarding" id="firstHunt">
@@ -628,7 +681,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.1 LIVE HUNTER HUD</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -665,6 +718,44 @@ function currentUser(){username=document.getElementById("username").value.trim()
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
 
+async function loadHunterHUD(){
+ currentUser();
+ const safeUser=encodeURIComponent(username);
+ const [profile,titleData,progressData,unlockData]=await Promise.all([
+   jsonFetch("/api/hunter/"+safeUser),
+   jsonFetch("/api/title/"+safeUser),
+   jsonFetch("/api/progress/"+safeUser),
+   jsonFetch("/api/unlocks/"+safeUser+"?limit=1")
+ ]);
+ if(!profile.success)return;
+
+ const creature=profile.creature||{};
+ const title=(titleData&&titleData.current)||{};
+ const closest=(progressData&&progressData.closest)||{};
+ const unseen=(unlockData&&Number(unlockData.unseen||0))||0;
+
+ const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=value};
+ set("hudCreature",creature.avatar||"👾");
+ set("hudHunterName",(profile.username||username).toUpperCase());
+ set("hudCreatureMeta",(creature.name||"Hunter")+" // "+(creature.stage||"ACTIVE")+" // LEVEL "+Number(profile.level||1));
+ set("hudTitle",(title.icon||"🏷️")+" "+(title.title||"HUNTER"));
+ set("hudTitleTier",title.tier||"UNRANKED");
+ set("hudRep",Number(profile.reputation||0).toLocaleString()+" REP");
+ set("hudCombat",Number(profile.wins||0)+" WINS // "+Number(profile.network||0)+" NETWORK");
+ set("hudUnlockBadge","✨ "+unseen+" NEW");
+ set("hudNextTitle",(closest.icon||"🧭")+" "+(closest.title||"PROGRESSION ACTIVE"));
+ set("hudNextPercent",Number(closest.percent||0)+"%");
+ set("hudNextDetail",closest.detail||"Keep hunting to unlock the next layer.");
+ set("hudIdentityLine",(creature.name||"HUNTER")+" // "+(title.title||"HUNTER"));
+ set("hudCombatLine",Number(profile.wins||0)+" WINS // "+Number(profile.rivals||0)+" RIVALS");
+ set("hudProgressLine",(closest.kind||"PROGRESS")+" // "+Number(closest.percent||0)+"%");
+ const bar=document.getElementById("hudNextBar");if(bar)bar.style.width=Math.max(0,Math.min(100,Number(closest.percent||0)))+"%";
+
+ const profilePath="/hunter/"+safeUser,loadoutPath="/loadout/"+safeUser,progressPath="/progress/"+safeUser;
+ const links=[["hudProfileLink",profilePath],["hudLoadoutLink",loadoutPath],["hudProgressLink",progressPath],["commandProgressLink",progressPath]];
+ links.forEach(([id,href])=>{const el=document.getElementById(id);if(el)el.href=href});
+}
+
 async function loadUser(){
  currentUser();
  const data=await jsonFetch("/api/user/"+encodeURIComponent(username));
@@ -677,7 +768,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadHunterHUD();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -2834,7 +2925,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.1 LIVE HUNTER HUD</div>
 </div></body></html>"""
 
 
@@ -3649,7 +3740,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.1 LIVE HUNTER HUD</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -3774,7 +3865,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.1 LIVE HUNTER HUD</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -3947,7 +4038,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.1 LIVE HUNTER HUD</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -4693,7 +4784,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V9.0 // VISUAL OVERHAUL")
+    print("🛰️ BL3 ARENA V9.1 // LIVE HUNTER HUD")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
