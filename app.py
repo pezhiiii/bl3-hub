@@ -500,7 +500,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.7 RIVALRY CARDS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.8 RIVALRY MILESTONES</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2064,6 +2064,122 @@ def _head_to_head(a, b, limit=6):
     }
 
 
+
+def _rivalry_milestones(a, b):
+    """Derive rivalry badges from immutable battle history. No extra XP is minted."""
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, winner, challenger, opponent, created_at
+           FROM creature_battles
+           WHERE (challenger = ? AND opponent = ?)
+              OR (challenger = ? AND opponent = ?)
+           ORDER BY id ASC""",
+        (a, b, b, a)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    badges = []
+    first_winner = rows[0]["winner"]
+    badges.append({
+        "key": "first_blood",
+        "icon": "🩸",
+        "title": "FIRST BLOOD",
+        "detail": f"{first_winner} won the first Clash."
+    })
+
+    score = {a: 0, b: 0}
+    max_lead = {a: 0, b: 0}
+    trailed_by_two = {a: False, b: False}
+    comeback_hunter = None
+    streak_owner = None
+    streak = 0
+    max_streak = {a: 0, b: 0}
+
+    for row in rows:
+        winner = row["winner"]
+        loser = b if winner == a else a
+        score[winner] += 1
+
+        lead_a = score[a] - score[b]
+        lead_b = score[b] - score[a]
+        max_lead[a] = max(max_lead[a], lead_a)
+        max_lead[b] = max(max_lead[b], lead_b)
+
+        if lead_a <= -2:
+            trailed_by_two[a] = True
+        if lead_b <= -2:
+            trailed_by_two[b] = True
+
+        if streak_owner == winner:
+            streak += 1
+        else:
+            streak_owner = winner
+            streak = 1
+        max_streak[winner] = max(max_streak[winner], streak)
+
+        # Comeback: Hunter had trailed by 2+, later reached tie or took lead.
+        if trailed_by_two[winner] and score[winner] >= score[loser]:
+            comeback_hunter = winner
+
+    total = len(rows)
+    final_a, final_b = score[a], score[b]
+
+    if total >= 3:
+        badges.append({
+            "key": "rivalry_live",
+            "icon": "🔥",
+            "title": "RIVALRY IGNITED",
+            "detail": f"{total} direct Clashes and counting."
+        })
+
+    if total >= 5:
+        badges.append({
+            "key": "nemesis",
+            "icon": "😈",
+            "title": "NEMESIS",
+            "detail": "Five or more direct Clashes. This is personal now."
+        })
+
+    dominant = a if final_a - final_b >= 3 else b if final_b - final_a >= 3 else None
+    if dominant:
+        badges.append({
+            "key": "three_win_lead",
+            "icon": "👑",
+            "title": "3-WIN LEAD",
+            "detail": f"{dominant} leads the rivalry by at least three wins."
+        })
+
+    streak_hunter = a if max_streak[a] >= 3 and max_streak[a] >= max_streak[b] else b if max_streak[b] >= 3 else None
+    if streak_hunter:
+        badges.append({
+            "key": "hot_streak",
+            "icon": "⚡",
+            "title": "HOT STREAK",
+            "detail": f"{streak_hunter} recorded {max_streak[streak_hunter]} straight rivalry wins."
+        })
+
+    if comeback_hunter:
+        badges.append({
+            "key": "comeback",
+            "icon": "🧨",
+            "title": "COMEBACK",
+            "detail": f"{comeback_hunter} erased a two-win deficit and came back."
+        })
+
+    if total >= 2 and final_a == final_b:
+        badges.append({
+            "key": "dead_even",
+            "icon": "⚖️",
+            "title": "DEAD EVEN",
+            "detail": f"The rivalry is tied {final_a}-{final_b}."
+        })
+
+    return badges
+
+
 @app.route("/api/headtohead/<hunter_a>/<hunter_b>")
 def head_to_head_api(hunter_a, hunter_b):
     conn = db()
@@ -2072,7 +2188,11 @@ def head_to_head_api(hunter_a, hunter_b):
     conn.close()
     if a_exists is None or b_exists is None:
         return jsonify({"success": False, "message": "Hunter not found"}), 404
-    return jsonify({"success": True, **_head_to_head(hunter_a, hunter_b, 8)})
+    return jsonify({
+        "success": True,
+        **_head_to_head(hunter_a, hunter_b, 8),
+        "milestones": _rivalry_milestones(hunter_a, hunter_b)
+    })
 
 
 
@@ -2098,6 +2218,10 @@ def rivalry_card_svg(hunter_a, hunter_b):
         status = "RIVALRY TIED"
 
     last = h2h["last_winner"] or "NO CLASHES YET"
+    milestones = _rivalry_milestones(hunter_a, hunter_b)
+    badge_line = "  •  ".join(
+        f"{m['icon']} {m['title']}" for m in milestones[:3]
+    ) or "NO MILESTONES YET"
 
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
       <defs>
@@ -2130,9 +2254,10 @@ def rivalry_card_svg(hunter_a, hunter_b):
       <text x="965" y="405" fill="#ffffff" font-family="Arial,sans-serif" font-size="120" font-weight="900" text-anchor="middle">{h2h["b_wins"]}</text>
 
       <rect x="70" y="482" width="1060" height="1" fill="#2b2b38"/>
-      <text x="70" y="535" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="21">LAST WINNER: {esc(last)}</text>
-      <text x="1130" y="535" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="21" font-weight="900" text-anchor="end">SETTLE IT IN BL3 →</text>
-      <text x="70" y="586" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
+      <text x="70" y="522" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="20">LAST WINNER: {esc(last)}</text>
+      <text x="1130" y="522" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="20" font-weight="900" text-anchor="end">SETTLE IT IN BL3 →</text>
+      <text x="70" y="558" fill="#9d7bff" font-family="Arial,sans-serif" font-size="16" font-weight="900">{esc(badge_line)}</text>
+      <text x="70" y="596" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
       <text x="1130" y="586" fill="#666677" font-family="Arial,sans-serif" font-size="17" text-anchor="end">bl3meme.com</text>
     </svg>"""
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=120"})
@@ -2148,6 +2273,7 @@ def rivalry_public_page(hunter_a, hunter_b):
         return "Rivalry not found", 404
 
     h2h = _head_to_head(hunter_a, hunter_b, 8)
+    milestones = _rivalry_milestones(hunter_a, hunter_b)
     esc = lambda v: html.escape(str(v or ""))
     root = request.url_root.rstrip("/")
     page_url = f"{root}/rivalry/{urllib.parse.quote(hunter_a)}/{urllib.parse.quote(hunter_b)}"
@@ -2173,6 +2299,12 @@ def rivalry_public_page(hunter_a, hunter_b):
     if not rows:
         rows = '<div class="empty">No clashes yet. Start the first one.</div>'
 
+    badges_html = "".join(
+        f'<div class="badge-card"><div class="badge-icon">{esc(m["icon"])}</div>'
+        f'<div><b>{esc(m["title"])}</b><span>{esc(m["detail"])}</span></div></div>'
+        for m in milestones
+    ) or '<div class="empty">Milestones unlock automatically as the rivalry grows.</div>'
+
     title = f"{hunter_a} vs {hunter_b} // BL3 Rivalry"
     desc = f"{hunter_a} {h2h['a_wins']} — {h2h['b_wins']} {hunter_b}. {status}. {h2h['total']} clashes on BL3."
 
@@ -2195,8 +2327,8 @@ def rivalry_public_page(hunter_a, hunter_b):
 .hero{{margin-top:56px;text-align:center}}h1{{font-size:clamp(42px,8vw,84px);margin:10px 0;letter-spacing:-4px}}.vs{{color:var(--violet)}}.score{{display:grid;grid-template-columns:1fr auto 1fr;gap:20px;align-items:center;margin:30px auto;max-width:760px}}
 .side{{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:26px}}.side strong{{display:block;font-size:84px;line-height:1}}.side span{{display:block;margin-top:10px;font-weight:900}}
 .mid{{font-weight:900;color:var(--hot)}}.meta{{color:var(--muted)}}.actions{{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:26px 0}}.btn{{text-decoration:none;color:#08080d;background:var(--hot);font-weight:900;padding:14px 18px;border-radius:14px}}.btn.alt{{background:var(--violet);color:#fff}}
-.section{{margin-top:40px}}.battle{{display:grid;grid-template-columns:1fr auto;gap:6px 18px;text-decoration:none;color:#fff;border:1px solid var(--line);background:var(--card);padding:16px;border-radius:16px;margin-top:10px}}.battle small{{grid-column:1/-1;color:var(--muted)}}.empty{{color:var(--muted);padding:18px;border:1px dashed var(--line);border-radius:16px}}.footer{{text-align:center;color:#626270;padding:45px 0 20px}}
-@media(max-width:680px){{.score{{grid-template-columns:1fr}}.mid{{order:-1}}h1{{letter-spacing:-2px}}}}
+.section{{margin-top:40px}}.milestones{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.badge-card{{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);background:linear-gradient(145deg,#111119,#151020);padding:16px;border-radius:18px}}.badge-icon{{font-size:28px;line-height:1}}.badge-card b{{display:block;font-size:13px;letter-spacing:1px;color:var(--hot)}}.badge-card span{{display:block;color:var(--muted);font-size:12px;margin-top:5px;line-height:1.45}}.battle{{display:grid;grid-template-columns:1fr auto;gap:6px 18px;text-decoration:none;color:#fff;border:1px solid var(--line);background:var(--card);padding:16px;border-radius:16px;margin-top:10px}}.battle small{{grid-column:1/-1;color:var(--muted)}}.empty{{color:var(--muted);padding:18px;border:1px dashed var(--line);border-radius:16px}}.footer{{text-align:center;color:#626270;padding:45px 0 20px}}
+@media(max-width:680px){{.score{{grid-template-columns:1fr}}.mid{{order:-1}}.milestones{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell">
 <nav class="nav"><div class="brand">BL3<span>●</span></div><a class="back" href="/">← LIVE NETWORK</a></nav>
 <section class="hero"><div class="eyebrow">PUBLIC RIVALRY // SHAREABLE RECORD</div>
@@ -2205,8 +2337,9 @@ def rivalry_public_page(hunter_a, hunter_b):
 <div class="score"><div class="side"><strong>{h2h["a_wins"]}</strong><span>{esc(hunter_a)}</span></div><div class="mid">{h2h["total"]} CLASHES</div><div class="side"><strong>{h2h["b_wins"]}</strong><span>{esc(hunter_b)}</span></div></div>
 <div class="actions"><a class="btn" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(hunter_b).upper()}</a><a class="btn alt" href="{esc(page_url)}">📣 SHARE RIVALRY</a></div>
 </section>
+<section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.7 RIVALRY CARDS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.8 RIVALRY MILESTONES</div>
 </div></body></html>"""
 
 
@@ -2245,6 +2378,7 @@ def hunter_public_page(username):
     h2h_html = ""
     if viewer and viewer != username:
         h2h = _head_to_head(viewer, username, 5)
+        h2h_badges = _rivalry_milestones(viewer, username)
         leader_text = "TIED"
         if h2h["leader"] == viewer:
             leader_text = f"{viewer.upper()} LEADS"
@@ -2265,6 +2399,10 @@ def hunter_public_page(username):
         if not latest:
             latest = '<div class="empty">No clashes between you yet. Start the rivalry.</div>'
 
+        profile_badges = "".join(
+            f'<span class="muted-badge">{html.escape(str(m["icon"]))} {html.escape(str(m["title"]))}</span>'
+            for m in h2h_badges[:4]
+        )
         h2h_html = (
             f'<section class="section rivalry">'
             f'<div class="eyebrow">🎯 RIVALRY // HEAD-TO-HEAD</div>'
@@ -2275,6 +2413,7 @@ def hunter_public_page(username):
             f'<div class="h2h-score"><strong>{h2h["b_wins"]}</strong><span>{esc(username)}</span></div>'
             f'</div>'
             f'<div class="meta h2h-last">Last winner: {esc(h2h["last_winner"] or "—")}</div>'
+            f'<div class="badges" style="justify-content:center;margin-top:12px">{profile_badges}</div>'
             f'<div class="actions" style="justify-content:center;margin-top:14px">'
             f'<a class="btn violet" href="/rivalry/{urllib.parse.quote(viewer)}/{urllib.parse.quote(username)}">🃏 OPEN RIVALRY CARD</a>'
             f'</div>'
@@ -2298,7 +2437,7 @@ def hunter_public_page(username):
 <div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.7 RIVALRY CARDS</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.8 RIVALRY MILESTONES</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -3028,7 +3167,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🃏 BL3 ARENA V7.7 // RIVALRY CARDS")
+    print("🏅 BL3 ARENA V7.8 // RIVALRY MILESTONES")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
