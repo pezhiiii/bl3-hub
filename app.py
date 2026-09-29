@@ -518,7 +518,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.2 HUNTER SHOWCASE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2724,7 +2724,140 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.2 HUNTER SHOWCASE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div>
+</div></body></html>"""
+
+
+
+@app.route("/loadout/<username>/card.svg")
+def hunter_loadout_card_svg(username):
+    d = _hunter_public_data(username)
+    if d is None:
+        return Response("Hunter not found", status=404, mimetype="text/plain")
+
+    hunter_title = _hunter_title(username) or {
+        "title": "HUNTER", "icon": "👾", "tier": "UNRANKED"
+    }
+    showcase = _hunter_showcase(username) or {"featured": None}
+    featured = showcase.get("featured")
+    esc = lambda v: html.escape(str(v or ""))
+
+    featured_title = featured["title"] if featured else "NO FEATURED TROPHY"
+    featured_icon = featured["icon"] if featured else "🏆"
+    featured_tier = featured["tier"] if featured else "UNRANKED"
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop stop-color="#050507"/>
+          <stop offset=".55" stop-color="#101017"/>
+          <stop offset="1" stop-color="#1b1028"/>
+        </linearGradient>
+        <linearGradient id="accent" x1="0" x2="1">
+          <stop stop-color="#b8ff5a"/>
+          <stop offset="1" stop-color="#9d7bff"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="8" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+      <rect x="1" y="1" width="1198" height="628" rx="35" fill="none" stroke="#2b2b38" stroke-width="2"/>
+
+      <text x="68" y="70" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="22" font-weight="900" letter-spacing="3">BL3 // HUNTER LOADOUT</text>
+      <text x="1130" y="70" fill="#6f6f7f" font-family="Arial,sans-serif" font-size="17" text-anchor="end">THE HUMAN ALPHA NETWORK</text>
+
+      <rect x="68" y="118" width="260" height="350" rx="28" fill="#0d0d13" stroke="#2a2a35"/>
+      <text x="198" y="245" fill="#ffffff" font-family="Arial,sans-serif" font-size="94" text-anchor="middle">{esc(d['creature']['avatar'])}</text>
+      <text x="198" y="315" fill="#ffffff" font-family="Arial,sans-serif" font-size="29" font-weight="900" text-anchor="middle">{esc(d['creature']['name'])}</text>
+      <text x="198" y="350" fill="#9d7bff" font-family="Arial,sans-serif" font-size="18" font-weight="900" text-anchor="middle">{esc(d['creature']['stage'])}</text>
+      <text x="198" y="397" fill="#8f8f9e" font-family="Arial,sans-serif" font-size="16" text-anchor="middle">LEVEL {d['level']}  •  {d['xp']} XP</text>
+
+      <text x="380" y="165" fill="#ffffff" font-family="Arial,sans-serif" font-size="66" font-weight="950">{esc(username)}</text>
+      <text x="380" y="215" fill="url(#accent)" font-family="Arial,sans-serif" font-size="25" font-weight="900" filter="url(#glow)">{esc(hunter_title['icon'])} {esc(hunter_title['title'])}</text>
+      <text x="380" y="246" fill="#8f8f9e" font-family="Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="2">{esc(hunter_title['tier'])}</text>
+
+      <rect x="380" y="286" width="752" height="118" rx="20" fill="#0c0c12" stroke="#282834"/>
+      <text x="408" y="322" fill="#ffd86b" font-family="Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="2">FEATURED TROPHY</text>
+      <text x="408" y="362" fill="#ffffff" font-family="Arial,sans-serif" font-size="26" font-weight="900">{esc(featured_icon)} {esc(featured_title)}</text>
+      <text x="408" y="389" fill="#8f8f9e" font-family="Arial,sans-serif" font-size="14">{esc(featured_tier)}</text>
+
+      <rect x="380" y="430" width="752" height="1" fill="#30303a"/>
+      <text x="380" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">{d['reputation']} REP</text>
+      <text x="555" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">{d['wins']} WINS</text>
+      <text x="720" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">{d['network']} NETWORK</text>
+      <text x="930" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">XP RANK #{d['xp_rank'] or '—'}</text>
+
+      <text x="68" y="559" fill="#696978" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
+      <text x="1130" y="559" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">BL3MEME.COM</text>
+    </svg>"""
+    return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=120"})
+
+
+@app.route("/loadout/<username>")
+def hunter_loadout_page(username):
+    d = _hunter_public_data(username)
+    if d is None:
+        return "Hunter not found", 404
+
+    hunter_title = _hunter_title(username) or {
+        "title": "HUNTER", "icon": "👾", "tier": "UNRANKED"
+    }
+    showcase = _hunter_showcase(username) or {"featured": None}
+    featured = showcase.get("featured")
+    esc = lambda v: html.escape(str(v or ""))
+
+    root = request.url_root.rstrip("/")
+    page_url = f"{root}/loadout/{urllib.parse.quote(username)}"
+    image_url = page_url + "/card.svg"
+    profile_url = f"{root}/hunter/{urllib.parse.quote(username)}"
+
+    featured_html = (
+        f'<div class="featured"><div class="featured-icon">{esc(featured["icon"])}</div>'
+        f'<div><div class="small">FEATURED TROPHY</div><h3>{esc(featured["title"])}</h3>'
+        f'<div class="meta">{esc(featured["detail"])}</div>'
+        f'<span>{esc(featured["tier"])}</span></div></div>'
+        if featured else
+        '<div class="featured"><div class="featured-icon">🏆</div><div><div class="small">FEATURED TROPHY</div><h3>None yet</h3><div class="meta">Unlock and pin a Trophy from your public Hunter profile.</div></div></div>'
+    )
+
+    title = f"{username} // Hunter Loadout // BL3"
+    desc = f"{hunter_title['icon']} {hunter_title['title']} • {d['creature']['name']} • {d['reputation']} REP • {d['wins']} wins."
+
+    return f"""<!doctype html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title>
+<meta name="description" content="{esc(desc)}">
+<meta property="og:title" content="{esc(title)}">
+<meta property="og:description" content="{esc(desc)}">
+<meta property="og:image" content="{esc(image_url)}">
+<meta property="og:url" content="{esc(page_url)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(desc)}">
+<meta name="twitter:image" content="{esc(image_url)}">
+<style>
+:root{{--bg:#08080d;--card:#111119;--line:#292934;--muted:#9393a4;--hot:#b8ff5a;--violet:#9d7bff;--gold:#ffd86b}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -15%,#25163e 0,#08080d 50%);color:#fff;font-family:Arial,sans-serif}}
+.shell{{max-width:1000px;margin:auto;padding:28px}}.nav{{display:flex;justify-content:space-between;align-items:center}}.brand{{font-size:24px;font-weight:900}}.brand span,.eyebrow{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px}}
+.hero{{margin-top:55px}}.eyebrow{{font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:clamp(48px,8vw,86px);margin:8px 0;letter-spacing:-4px}}.meta{{color:var(--muted)}}.layout{{display:grid;grid-template-columns:300px 1fr;gap:18px;margin-top:28px}}
+.creature,.identity,.featured,.stat{{border:1px solid var(--line);background:var(--card);border-radius:24px}}.creature{{padding:28px;text-align:center}}.avatar{{font-size:94px}}.creature h2{{margin:16px 0 5px}}.stage{{color:var(--violet);font-weight:900;font-size:12px;letter-spacing:2px}}
+.identity{{padding:24px}}.title{{display:inline-flex;gap:8px;align-items:center;color:var(--hot);font-size:15px;font-weight:900;border:1px solid rgba(184,255,90,.25);padding:9px 12px;border-radius:999px}}.tier{{font-size:9px;color:var(--muted);letter-spacing:1px}}
+.featured{{display:flex;gap:15px;align-items:center;padding:18px;margin-top:16px;background:linear-gradient(145deg,#111119,#181220)}}.featured-icon{{font-size:44px}}.featured h3{{margin:4px 0}}.featured span{{display:inline-block;color:var(--gold);font-size:9px;font-weight:900;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px;margin-top:8px}}
+.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{padding:16px}}.stat b{{display:block;font-size:25px}}.stat span,.small{{color:var(--muted);font-size:10px;letter-spacing:1.2px;font-weight:900}}
+.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.footer{{text-align:center;color:#626270;padding:50px 0 20px}}
+@media(max-width:760px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}h1{{letter-spacing:-2px}}}}
+</style></head><body><div class="shell">
+<nav class="nav"><div class="brand">BL3<span>●</span></div><a class="back" href="{esc(profile_url)}">← HUNTER PROFILE</a></nav>
+<section class="hero"><div class="eyebrow">HUNTER LOADOUT // PUBLIC IDENTITY CARD</div><h1>{esc(username)}</h1><div class="meta">Creature + Title + Featured Trophy + proof stats in one shareable identity.</div>
+<div class="layout"><div class="creature"><div class="avatar">{esc(d['creature']['avatar'])}</div><h2>{esc(d['creature']['name'])}</h2><div class="stage">{esc(d['creature']['stage'])}</div><div class="meta" style="margin-top:10px">LEVEL {d['level']} · {d['xp']} XP</div></div>
+<div class="identity"><div class="title">{esc(hunter_title['icon'])} {esc(hunter_title['title'])} <span class="tier">{esc(hunter_title['tier'])}</span></div>
+{featured_html}
+<div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
+<div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div>
 </div></body></html>"""
 
 
@@ -2879,12 +3012,12 @@ def hunter_public_page(username):
 <div class="social-grid"><div class="social-stat"><b id="followersCount">{d['followers']}</b><span>FOLLOWERS</span></div><div class="social-stat"><b>{d['following']}</b><span>FOLLOWING</span></div><div class="social-stat"><b>{d['rivals']}</b><span>RIVALS TRACKED</span></div></div>
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
-<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div>{featured_html}</section>
+<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="/loadout/{urllib.parse.quote(username)}">🧬 HUNTER LOADOUT</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div>{featured_html}</section>
 <section class="section title-collection"><div class="eyebrow">🏷️ TITLE COLLECTION // IDENTITY LOADOUT</div><h2>Choose Your Public Title <span class="small">{len(title_options)} AVAILABLE</span></h2><div class="meta">Unlocked titles come from real Trophy Room achievements. The equipped title appears on your public profile and Hunter share card.</div><div class="title-grid">{title_collection}</div></section>
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.2 HUNTER SHOWCASE</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -3630,7 +3763,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🏆 BL3 ARENA V8.2 // HUNTER SHOWCASE")
+    print("🧬 BL3 ARENA V8.3 // HUNTER LOADOUT")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
