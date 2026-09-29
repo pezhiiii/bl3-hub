@@ -363,7 +363,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V9.3 NETWORK HEATMAP ===== */
+/* ===== V9.4 SPOTLIGHT ROTATOR ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -405,7 +405,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V9.3 NETWORK HEATMAP ===== */
+/* ===== V9.4 SPOTLIGHT ROTATOR ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -425,7 +425,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V9.3 NETWORK HEATMAP ===== */
+/* ===== V9.4 SPOTLIGHT ROTATOR ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -444,7 +444,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V9.3 NETWORK HEATMAP ===== */
+/* ===== V9.4 SPOTLIGHT ROTATOR ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -461,6 +461,19 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hot-rivalry:hover{border-color:rgba(255,79,216,.25)}.rivalry-line{display:flex;justify-content:space-between;align-items:center;gap:8px}.rivalry-line b{font-size:10px}.rivalry-line span{font-size:9px;color:var(--muted)}.rivalry-score{margin-top:6px;font-size:9px;color:#c8c8d2}
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
+
+/* ===== V9.4 SPOTLIGHT ROTATOR ===== */
+.spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
+.spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
+.spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
+.spot-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line)}
+.spot-title-wrap{display:flex;align-items:center;gap:10px}.spot-live{width:9px;height:9px;border-radius:50%;background:#ff4fd8;box-shadow:0 0 16px #ff4fd8}.spot-head b{font-size:11px;letter-spacing:1.5px}.spot-head span{font-size:9px;color:var(--muted);letter-spacing:1px}.spot-pager{display:flex;gap:6px}.spot-dot{width:7px;height:7px;border-radius:50%;border:1px solid var(--line);background:#121219;transition:.2s}.spot-dot.active{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px rgba(186,255,90,.5)}
+.spot-body{position:relative;z-index:2;display:grid;grid-template-columns:1.1fr .9fr;gap:0;min-height:250px}
+.spot-main{padding:28px}.spot-kicker{font-size:9px;letter-spacing:1.7px;color:var(--hot);font-weight:900}.spot-name{font-size:clamp(34px,5vw,58px);line-height:.95;letter-spacing:-2.8px;font-weight:950;margin:9px 0 12px}.spot-meta{color:var(--muted);font-size:11px;line-height:1.55}.spot-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}.spot-actions a{display:inline-flex;text-decoration:none;padding:10px 13px;border-radius:12px;border:1px solid var(--line);font-size:9px;font-weight:900;color:#fff}.spot-actions a.hot{background:var(--hot);color:#07070a;border-color:var(--hot)}.spot-actions a.alt{background:rgba(161,124,255,.11);border-color:rgba(161,124,255,.24)}
+.spot-side{padding:24px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:radial-gradient(circle at 50% 35%,rgba(255,79,216,.09),transparent 46%)}.spot-avatar{width:118px;height:118px;border-radius:36px;display:grid;place-items:center;font-size:62px;background:#09090e;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 55px rgba(0,0,0,.34)}.spot-side b{font-size:18px;margin-top:13px}.spot-side span{font-size:9px;color:var(--muted);margin-top:5px}.spot-stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;width:100%;margin-top:15px}.spot-stat{border:1px solid var(--line);border-radius:12px;padding:8px;background:rgba(255,255,255,.02)}.spot-stat strong{display:block;font-size:15px}.spot-stat small{font-size:7px;color:var(--muted);letter-spacing:.8px}
+.spot-fade{animation:spotIn .32s ease}.spot-empty{padding:30px;color:var(--muted);font-size:11px}
+@keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 </style>
 </head>
 <body>
@@ -496,7 +509,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V9.3</div>
+            <div class="core-badge">V9.4</div>
           </div>
         </div>
         <div>
@@ -546,6 +559,14 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     <a class="command-link" href="#clashCard"><b>⚔️ ALPHA CLASH</b><span>Challenge Hunters</span></a>
     <a class="command-link" href="#walletCard"><b>🔐 WALLET PROOF</b><span>Own your Hunter ID</span></a>
     <a class="command-link" id="commandProgressLink" href="#passportCard"><b>📈 NEXT UNLOCKS</b><span>Progress radar</span></a>
+  </section>
+
+  <section class="spotlight" id="networkSpotlight">
+    <div class="spot-head">
+      <div class="spot-title-wrap"><i class="spot-live"></i><div><b>NETWORK SPOTLIGHT</b><br><span>FEATURED HUNTER / FEATURED RIVALRY</span></div></div>
+      <div class="spot-pager" id="spotPager"><i class="spot-dot active"></i><i class="spot-dot"></i><i class="spot-dot"></i><i class="spot-dot"></i></div>
+    </div>
+    <div id="spotlightBody"><div class="spot-empty">Scanning the hottest Hunter stories…</div></div>
   </section>
 
   <section class="network-pulse" id="networkPulse">
@@ -745,7 +766,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.4 SPOTLIGHT ROTATOR</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -781,6 +802,88 @@ async function loadOnboarding(){
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
+
+let spotlightSlides=[];
+let spotlightIndex=0;
+let spotlightTimer=null;
+
+function buildSpotlightSlides(data){
+ const hunters=Array.isArray(data?.hunters)?data.hunters:[];
+ const rivalries=Array.isArray(data?.rivalries)?data.rivalries:[];
+ const slides=[];
+
+ hunters.slice(0,2).forEach((h,i)=>slides.push({
+   type:"hunter",
+   kicker:i===0?"🔥 TRENDING HUNTER":"⚡ RISING HUNTER",
+   name:h.username,
+   avatar:h.avatar||"👾",
+   subtitle:(h.creature||"Hunter")+" · LEVEL "+Number(h.level||1),
+   meta:Number(h.score||0)+" HEAT · "+Number(h.wins||0)+" WINS · "+Number(h.battles||0)+" CLASHES",
+   stats:[
+     [Number(h.wins||0),"WINS"],
+     [Number(h.followers||0),"FOLLOWERS"],
+     [Number(h.unlocks||0),"UNLOCKS"]
+   ],
+   primary:"/hunter/"+encodeURIComponent(h.username),
+   primaryLabel:"VIEW HUNTER",
+   secondary:"/progress/"+encodeURIComponent(h.username),
+   secondaryLabel:"PROGRESS"
+ }));
+
+ rivalries.slice(0,2).forEach((r,i)=>slides.push({
+   type:"rivalry",
+   kicker:i===0?"⚔️ FEATURED RIVALRY":"🩸 ACTIVE MATCHUP",
+   name:r.hunter_a+" VS "+r.hunter_b,
+   avatar:"⚔️",
+   subtitle:Number(r.clashes||0)+" RECENT CLASHES",
+   meta:Number(r.a_wins||0)+" — "+Number(r.b_wins||0)+" RECENT WINS",
+   stats:[
+     [Number(r.clashes||0),"CLASHES"],
+     [Number(r.a_wins||0),"A WINS"],
+     [Number(r.b_wins||0),"B WINS"]
+   ],
+   primary:"/rivalry/"+encodeURIComponent(r.hunter_a)+"/"+encodeURIComponent(r.hunter_b),
+   primaryLabel:"OPEN RIVALRY",
+   secondary:"/?challenge="+encodeURIComponent(r.hunter_b)+"&ref="+encodeURIComponent(r.hunter_a),
+   secondaryLabel:"CHALLENGE"
+ }));
+
+ return slides;
+}
+
+function renderSpotlight(){
+ const root=document.getElementById("spotlightBody");
+ if(!root)return;
+ if(!spotlightSlides.length){
+   root.innerHTML='<div class="spot-empty">Not enough network heat yet. Start hunting, clashing and unlocking.</div>';
+   return;
+ }
+ const s=spotlightSlides[spotlightIndex%spotlightSlides.length];
+ const stats=(s.stats||[]).map(x=>'<div class="spot-stat"><strong>'+escapeHtml(String(x[0]))+'</strong><small>'+escapeHtml(x[1])+'</small></div>').join("");
+ root.innerHTML='<div class="spot-body spot-fade">'
+   +'<div class="spot-main"><div class="spot-kicker">'+escapeHtml(s.kicker)+'</div>'
+   +'<div class="spot-name">'+escapeHtml(s.name)+'</div>'
+   +'<div class="spot-meta">'+escapeHtml(s.subtitle)+'<br>'+escapeHtml(s.meta)+'</div>'
+   +'<div class="spot-actions"><a class="hot" href="'+s.primary+'">'+escapeHtml(s.primaryLabel)+' →</a>'
+   +'<a class="alt" href="'+s.secondary+'">'+escapeHtml(s.secondaryLabel)+'</a></div></div>'
+   +'<div class="spot-side"><div class="spot-avatar">'+escapeHtml(s.avatar)+'</div><b>'+escapeHtml(s.type==="hunter"?"HUNTER SPOTLIGHT":"RIVALRY SPOTLIGHT")+'</b>'
+   +'<span>'+escapeHtml(s.subtitle)+'</span><div class="spot-stat-row">'+stats+'</div></div></div>';
+
+ const dots=[...document.querySelectorAll("#spotPager .spot-dot")];
+ dots.forEach((d,i)=>d.classList.toggle("active",i===spotlightIndex%dots.length));
+}
+
+function setSpotlightData(data){
+ spotlightSlides=buildSpotlightSlides(data);
+ spotlightIndex=0;
+ renderSpotlight();
+ if(spotlightTimer)clearInterval(spotlightTimer);
+ spotlightTimer=setInterval(()=>{
+   if(!spotlightSlides.length)return;
+   spotlightIndex=(spotlightIndex+1)%spotlightSlides.length;
+   renderSpotlight();
+ },7000);
+}
 
 function paintNetworkHeat(data){
  const hunterGrid=document.getElementById("hunterHeatGrid");
@@ -821,7 +924,10 @@ function paintNetworkHeat(data){
 }
 async function loadNetworkHeat(){
  const d=await jsonFetch("/api/network-heat");
- if(d&&d.success)paintNetworkHeat(d);
+ if(d&&d.success){
+   paintNetworkHeat(d);
+   setSpotlightData(d);
+ }
 }
 setInterval(loadNetworkHeat,20000);
 
@@ -3068,7 +3174,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.4 SPOTLIGHT ROTATOR</div>
 </div></body></html>"""
 
 
@@ -3883,7 +3989,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.4 SPOTLIGHT ROTATOR</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -4008,7 +4114,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.4 SPOTLIGHT ROTATOR</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -4181,7 +4287,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.4 SPOTLIGHT ROTATOR</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -5083,7 +5189,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🔥 BL3 ARENA V9.3 // NETWORK HEATMAP")
+    print("🌠 BL3 ARENA V9.4 // SPOTLIGHT ROTATOR")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
