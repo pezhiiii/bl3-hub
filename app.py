@@ -295,6 +295,8 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}.battle-result{margin-top:12px;padding:14px;border:1px solid rgba(184,255,90,.25);border-radius:16px;background:rgba(184,255,90,.04)}.battle-vs{font-size:24px;font-weight:950;text-align:center;margin:8px 0}.battle-log{font-size:13px;color:var(--muted);line-height:1.5}.battle-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}@media(max-width:520px){.battle-actions{grid-template-columns:1fr}}
 .inbox-item{padding:12px;border:1px solid var(--line);border-radius:16px;margin-top:9px;background:rgba(255,255,255,.025)}.inbox-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.inbox-title{font-weight:900}.inbox-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.inbox-badge{color:var(--hot);font-weight:900}.btn.danger:hover{background:#ff6b7a;color:#09090c}.nav-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.signal-item{padding:12px;border:1px solid var(--line);border-radius:16px;margin-top:9px;background:rgba(255,255,255,.022)}.signal-item.unread{border-color:rgba(184,255,90,.32);background:rgba(184,255,90,.045)}.signal-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.signal-title{font-weight:900}.signal-link{color:var(--hot);text-decoration:none;font-size:12px;font-weight:900}.rep-positive{color:var(--hot);font-weight:900}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
+.onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
+.onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 </style>
 </head>
 <body>
@@ -316,14 +318,38 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </div>
   </section>
 
+  <section class="card onboarding" id="firstHunt">
+    <div class="onboarding-top">
+      <div>
+        <div class="eyebrow">NEW HUNTER // 30 SECOND START</div>
+        <h2>Your First Hunt</h2>
+        <div class="meta">BL3 makes sense after one real loop: claim an identity, prove the wallet behind it, then make one move in the network.</div>
+      </div>
+      <div style="text-align:right">
+        <div class="onboarding-progress" id="onboardingProgress">0 / 3</div>
+        <button class="btn onboarding-dismiss" onclick="dismissOnboarding()">Hide guide</button>
+      </div>
+    </div>
+    <div class="onboarding-steps">
+      <div class="onboarding-step" id="onboardProfile"><div class="step-num">STEP 01</div><b>Choose your Hunter ID</b><div class="meta" id="onboardProfileText">Replace demo_user with your name and load the Passport.</div></div>
+      <div class="onboarding-step" id="onboardWallet"><div class="step-num">STEP 02</div><b>Verify your wallet</b><div class="meta" id="onboardWalletText">Connect + sign once so the Hunter ID belongs to you.</div></div>
+      <div class="onboarding-step" id="onboardAction"><div class="step-num">STEP 03</div><b>Make your first move</b><div class="meta" id="onboardActionText">Enter an Arena or complete an Alpha Clash.</div></div>
+    </div>
+    <div class="onboarding-actions">
+      <button class="btn hot" onclick="jumpToPassport()">01 Passport</button>
+      <button class="btn violet" onclick="jumpToWallet()">02 Verify Wallet</button>
+      <button class="btn" onclick="jumpToAction()">03 First Move</button>
+    </div>
+  </section>
+
   <div class="grid">
-    <main>
+    <main id="arenaSection">
       <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>Live Arenas</h2></div><button class="btn tab" onclick="loadArenas()">↻ Refresh</button></div>
       <div id="arenas"><div class="card">Scanning the network…</div></div>
     </main>
 
     <aside>
-      <div class="card creature-card">
+      <div class="card creature-card" id="passportCard">
         <div class="eyebrow">HUNTER ID // LIVING PASSPORT</div>
         <h2 style="margin-top:8px">Your Passport</h2>
         <input id="username" value="demo_user" placeholder="BL3 username">
@@ -348,7 +374,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <button id="streakClaimButton" class="btn hot hidden" onclick="claimStreakReward()">🎁 Claim Streak Reward</button>
       </div>
 
-      <div class="card" style="margin-top:16px">
+      <div class="card" id="clashCard" style="margin-top:16px">
         <div class="eyebrow">ALPHA CLASH // CREATURE BATTLE</div>
         <h3 style="margin-top:8px">Challenge a Hunter</h3>
         <div class="meta">Pick any BL3 hunter. Creature power is based on real Passport progress, with a small chaos roll. No money, no XP farming — just wins, identity and shareable chaos.</div>
@@ -406,7 +432,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <button class="btn" onclick="loadActivity()">↻ Refresh Activity</button>
       </div>
 
-      <div class="card" style="margin-top:16px">
+      <div class="card" id="walletCard" style="margin-top:16px">
         <div class="eyebrow">IDENTITY</div><h3 style="margin-top:8px">Wallet Proof</h3>
         <input id="wallet" placeholder="Wallet address" readonly>
         <button class="btn" onclick="connectWallet()">Connect Wallet</button>
@@ -444,7 +470,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.0 SIGNAL CENTER</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.1 FIRST HUNT</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -453,6 +479,29 @@ let username="demo_user";
 let messageTimer=null;
 let lastBattleShare=null;
 let currentCrown=null;
+let onboardingDismissed=false;
+try{onboardingDismissed=localStorage.getItem("bl3_onboarding_hidden")==="1"}catch(e){}
+function dismissOnboarding(){
+ const el=document.getElementById("firstHunt");if(el)el.classList.add("hidden-by-user");
+ try{localStorage.setItem("bl3_onboarding_hidden","1")}catch(e){}
+ show("First Hunt guide hidden. You can still use BL3 normally.");
+}
+function jumpToPassport(){document.getElementById("passportCard")?.scrollIntoView({behavior:"smooth",block:"center"});document.getElementById("username")?.focus()}
+function jumpToWallet(){document.getElementById("walletCard")?.scrollIntoView({behavior:"smooth",block:"center"})}
+function jumpToAction(){document.getElementById("arenaSection")?.scrollIntoView({behavior:"smooth",block:"start"})}
+async function loadOnboarding(){
+ currentUser();
+ const d=await jsonFetch("/api/onboarding/"+encodeURIComponent(username));
+ if(!d.success)return;
+ const p=document.getElementById("onboardingProgress");if(p)p.innerText=d.completed+" / 3"+(d.completed===3?" • READY ✓":" ");
+ [["onboardProfile",d.profile],["onboardWallet",d.wallet],["onboardAction",d.first_action]].forEach(([id,done])=>{const el=document.getElementById(id);if(el)el.classList.toggle("done",!!done)});
+ const a=document.getElementById("onboardProfileText"),b=document.getElementById("onboardWalletText"),c=document.getElementById("onboardActionText");
+ if(a)a.innerText=d.profile?"Hunter ID active ✓":"Replace demo_user with your name and load the Passport.";
+ if(b)b.innerText=d.wallet?"Wallet verified ✓":"Connect + sign once so the Hunter ID belongs to you.";
+ if(c)c.innerText=d.first_action?"First network move complete ✓":"Enter an Arena or complete an Alpha Clash.";
+ const guide=document.getElementById("firstHunt");
+ if(guide&&onboardingDismissed)guide.classList.add("hidden-by-user");
+}
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
@@ -469,7 +518,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadInbox(); await loadSignals();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadInbox(); await loadSignals(); await loadOnboarding();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -1590,6 +1639,36 @@ def arena_paid_api(arena_id):
     return jsonify({"success": True, "message": "✅ Payment marked as completed. Earnings are now counted in the winner profile."})
 
 
+@app.route("/api/onboarding/<username>")
+def onboarding_api(username):
+    username = str(username or "").strip()
+    if not username or username == "demo_user":
+        return jsonify({"success": True, "profile": False, "wallet": False, "first_action": False, "completed": 0})
+
+    conn = db()
+    user = conn.execute("SELECT username, wallet FROM users WHERE username = ?", (username,)).fetchone()
+    has_profile = user is not None
+    has_wallet = bool(user and user["wallet"])
+    battle = conn.execute(
+        "SELECT 1 FROM creature_battles WHERE challenger = ? OR opponent = ? LIMIT 1",
+        (username, username)
+    ).fetchone()
+    proof = conn.execute(
+        "SELECT 1 FROM arena_submissions WHERE username = ? LIMIT 1",
+        (username,)
+    ).fetchone()
+    conn.close()
+    first_action = bool(battle or proof)
+    completed = int(has_profile) + int(has_wallet) + int(first_action)
+    return jsonify({
+        "success": True,
+        "profile": has_profile,
+        "wallet": has_wallet,
+        "first_action": first_action,
+        "completed": completed
+    })
+
+
 @app.route("/api/passport/<username>")
 def passport_api(username):
     user = get_user(username)
@@ -2162,7 +2241,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V7.0 // SIGNAL CENTER")
+    print("🧭 BL3 ARENA V7.1 // FIRST HUNT")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
