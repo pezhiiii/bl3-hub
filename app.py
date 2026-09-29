@@ -140,6 +140,20 @@ def init_db():
         )
     """)
 
+    # V6.7: track direct attacks on the current seasonal Crown.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS crown_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            battle_id INTEGER NOT NULL UNIQUE,
+            season_key TEXT NOT NULL,
+            defender TEXT NOT NULL,
+            challenger TEXT NOT NULL,
+            winner TEXT NOT NULL,
+            successful_defense INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     # V6.6: seasons are non-destructive; old battles are assigned from their UTC month.
     battle_cols = {row["name"] for row in conn.execute("PRAGMA table_info(creature_battles)").fetchall()}
     if "season_key" not in battle_cols:
@@ -203,7 +217,7 @@ h1{font-size:clamp(45px,8vw,96px);line-height:.88;letter-spacing:-5px;margin:18p
 input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea{min-height:100px;resize:vertical}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:8px}.stat{padding:14px;border:1px solid var(--line);border-radius:16px;text-align:center}.num{font-size:21px;font-weight:900}.small{font-size:11px;color:var(--muted)}
 .section-title{display:flex;justify-content:space-between;align-items:end;margin:38px 0 12px}.section-title h2{margin:0;font-size:30px}.leader{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
 .tabs{display:flex;gap:8px;flex-wrap:wrap}.tab{width:auto;padding:9px 13px}.message{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#181821;border:1px solid var(--line);padding:12px 18px;border-radius:999px;z-index:30;max-width:90%;text-align:center}
-.hidden{display:none}.season-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.season-tile{padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}.crown-holder{font-size:19px;font-weight:900;color:var(--hot);margin-top:4px}.proof{padding:10px;border:1px solid var(--line);border-radius:14px;margin-top:8px}.footer{text-align:center;color:#656675;padding:55px 0 30px}
+.hidden{display:none}.season-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.season-tile{padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}.crown-holder{font-size:19px;font-weight:900;color:var(--hot);margin-top:4px}.mission{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}.mission:last-child{border-bottom:0}.mission-ok{color:var(--hot);font-weight:900}.mission-wait{color:var(--muted);font-weight:800}.proof{padding:10px;border:1px solid var(--line);border-radius:14px;margin-top:8px}.footer{text-align:center;color:#656675;padding:55px 0 30px}
 .creature-card{position:relative;overflow:hidden;background:radial-gradient(circle at 50% 18%,rgba(184,255,90,.12),transparent 38%),var(--panel)}
 .creature-card:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(157,123,255,.09);filter:blur(28px);right:-45px;top:-45px;pointer-events:none}
 .creature-head{display:flex;align-items:center;gap:14px;margin:14px 0}.creature-avatar{width:76px;height:76px;border:1px solid rgba(184,255,90,.35);border-radius:22px;display:grid;place-items:center;font-size:42px;background:rgba(184,255,90,.06);box-shadow:0 0 28px rgba(184,255,90,.08)}
@@ -281,7 +295,17 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
           <div class="season-tile"><div class="small">CROWN RANK</div><div class="num" id="seasonRank">—</div></div>
         </div>
         <div class="proof" style="margin-top:10px"><span class="small">CURRENT CROWN</span><div class="crown-holder" id="crownHolder">👑 Waiting for the first win</div></div>
+        <button id="crownChallengeButton" class="btn hot hidden" onclick="challengeCrown()">⚔️ CHALLENGE THE CROWN</button>
+        <div id="crownDefenseStats" class="meta" style="margin-top:10px">Crown defenses: —</div>
         <div id="seasonLeaders" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">DAILY MISSIONS // NO BONUS FARMING</div>
+        <h3 style="margin-top:8px">Today's Hunt</h3>
+        <div class="meta">Four daily actions that push the real BL3 loop. Mission completion is a status signal only — no extra XP is minted here.</div>
+        <div class="proof" style="margin-top:12px"><span class="small">DAILY PROGRESS</span><div class="crown-holder" id="dailyProgress">0 / 4</div></div>
+        <div id="dailyMissions" style="margin-top:8px"><div class="meta">Loading missions…</div></div>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -322,7 +346,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.5 BATTLE CARDS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.7 CROWN DEFENSE</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -330,6 +354,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 let username="demo_user";
 let messageTimer=null;
 let lastBattleShare=null;
+let currentCrown=null;
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
@@ -345,7 +370,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -375,9 +400,9 @@ function updatePassport(p){
  document.getElementById("evolutionText").innerText=p.evolution.current+" / "+p.evolution.target+" XP";
  document.getElementById("evolutionBar").style.width=Math.max(0,Math.min(100,p.evolution.percent))+"%";
 }
-async function quest(name){currentUser();const d=await jsonFetch("/api/quest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,quest:name})});if(d.xp!==undefined)update(d);show(d.message||"Quest finished");loadLeaderboard()}
+async function quest(name){currentUser();const d=await jsonFetch("/api/quest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,quest:name})});if(d.xp!==undefined)update(d);show(d.message||"Quest finished");loadLeaderboard();if(d.success)loadDailyMissions()}
 function share(){window.open("https://warpcast.com/~/compose?text="+encodeURIComponent("BL3 — Hunt alpha. Prove it. 👑 https://bl3meme.com"),"_blank");show("Post your cast, paste its URL, then verify.")}
-async function verifyShare(){currentUser();const cast_url=document.getElementById("castUrl").value.trim();const d=await jsonFetch("/api/share/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,cast_url})});if(d.xp!==undefined)update(d);show(d.message||"Verification finished");if(d.success)loadLeaderboard()}
+async function verifyShare(){currentUser();const cast_url=document.getElementById("castUrl").value.trim();const d=await jsonFetch("/api/share/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,cast_url})});if(d.xp!==undefined)update(d);show(d.message||"Verification finished");if(d.success){loadLeaderboard();loadDailyMissions()}}
 function invite(){const link=location.origin+"/?ref="+encodeURIComponent(currentUser());if(navigator.clipboard)navigator.clipboard.writeText(link);show("Invite link: "+link)}
 async function claimReferral(){const p=new URLSearchParams(location.search),inviter=(p.get("ref")||"").trim(),invited=currentUser();if(!inviter)return;if(!invited||invited==="demo_user"){show("Referral detected. Enter your username.");return}if(inviter===invited){show("You cannot refer yourself.");return}const d=await jsonFetch("/api/referral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inviter,invited})});show(d.message||"Referral checked");if(d.success){history.replaceState({},"",location.pathname);loadLeaderboard()}}
 async function loadSeason(){
@@ -388,10 +413,29 @@ async function loadSeason(){
  document.getElementById("seasonRecord").innerText=(d.user.wins||0)+"-"+(d.user.losses||0);
  document.getElementById("seasonStreak").innerText=d.user.win_streak||0;
  document.getElementById("seasonRank").innerText=d.user.rank?"#"+d.user.rank:"—";
+ currentCrown=d.crown?d.crown.username:null;
  document.getElementById("crownHolder").innerText=d.crown?"👑 "+d.crown.username+" • "+d.crown.wins+" wins":"👑 Waiting for the first win";
+ const cb=document.getElementById("crownChallengeButton");
+ if(currentCrown&&currentCrown!==username){cb.classList.remove("hidden");cb.innerText="⚔️ CHALLENGE "+currentCrown.toUpperCase()}else{cb.classList.add("hidden")}
+ const ds=await jsonFetch("/api/crown/defense/"+encodeURIComponent(username));
+ if(ds.success)document.getElementById("crownDefenseStats").innerText="👑 Crown attacks: "+ds.attacks+" • successful defenses: "+ds.successful_defenses;
  let h="";
  (d.leaderboard||[]).slice(0,5).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.wins+'W / '+u.losses+'L</b></div>');
  document.getElementById("seasonLeaders").innerHTML=h||'<div class="meta">No Clash wins this season yet.</div>';
+}
+function challengeCrown(){
+ if(!currentCrown){show("No Crown holder yet. Win a Clash and start the race.");return}
+ if(currentCrown===currentUser()){show("You hold the Crown 👑 Wait for hunters to challenge you.");return}
+ const el=document.getElementById("battleOpponent");el.value=currentCrown;el.scrollIntoView({behavior:"smooth",block:"center"});show("👑 Crown target locked: "+currentCrown);
+}
+async function loadDailyMissions(){
+ currentUser();
+ const d=await jsonFetch("/api/daily/"+encodeURIComponent(username));
+ if(!d.success)return;
+ document.getElementById("dailyProgress").innerText=d.completed+" / "+d.total+(d.completed===d.total?" • SWEEP ✓":"");
+ let h="";
+ (d.missions||[]).forEach(m=>{h+='<div class="mission"><span>'+escapeHtml(m.icon)+" "+escapeHtml(m.label)+'</span><span class="'+(m.complete?'mission-ok':'mission-wait')+'">'+(m.complete?'DONE ✓':'OPEN')+'</span></div>'});
+ document.getElementById("dailyMissions").innerHTML=h||'<div class="meta">No missions loaded.</div>';
 }
 
 async function battleHunter(){
@@ -1535,15 +1579,23 @@ def battle_api():
     now = now_dt.isoformat()
     season_key = now_dt.strftime("%Y-%m")
     conn = db()
+    board_before = _season_rows(conn, season_key)
+    crown_before = board_before[0]["username"] if board_before and int(board_before[0].get("wins") or 0) > 0 else None
     cursor = conn.execute("""INSERT INTO creature_battles
         (challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at, season_key)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (challenger, opponent, winner, c_power, o_power, commentary, now, season_key))
     battle_id = cursor.lastrowid
+    crown_attack = bool(crown_before and opponent == crown_before and challenger != crown_before)
+    if crown_attack:
+        conn.execute("""INSERT OR IGNORE INTO crown_events
+            (battle_id, season_key, defender, challenger, winner, successful_defense, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (battle_id, season_key, crown_before, challenger, winner, 1 if winner == crown_before else 0, now))
     conn.commit()
     conn.close()
     return jsonify({
-        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary, "season_key": season_key,
+        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary, "season_key": season_key, "crown_attack": crown_attack, "crown_before": crown_before,
         "challenger": {"username": challenger, "avatar": avatar(cxp), "power": c_power},
         "opponent": {"opponent": opponent, "avatar": avatar(oxp), "power": o_power}
     })
@@ -1625,6 +1677,51 @@ def season_user_api(username):
                     "crown": crown, "user": user_row, "leaderboard": board[:10]})
 
 
+@app.route("/api/crown/defense/<username>")
+def crown_defense_api(username):
+    season_key = _current_season_key()
+    conn = db()
+    attacks = conn.execute("SELECT COUNT(*) AS n FROM crown_events WHERE season_key = ? AND defender = ?", (season_key, username)).fetchone()["n"]
+    successful = conn.execute("SELECT COUNT(*) AS n FROM crown_events WHERE season_key = ? AND defender = ? AND successful_defense = 1", (season_key, username)).fetchone()["n"]
+    challenges = conn.execute("SELECT COUNT(*) AS n FROM crown_events WHERE season_key = ? AND challenger = ?", (season_key, username)).fetchone()["n"]
+    conn.close()
+    return jsonify({"success": True, "season_key": season_key, "username": username,
+                    "attacks": attacks, "successful_defenses": successful, "crown_challenges": challenges})
+
+
+@app.route("/api/daily/<username>")
+def daily_missions_api(username):
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    season_key = _current_season_key()
+    conn = db()
+    board = _season_rows(conn, season_key)
+    crown = board[0]["username"] if board and int(board[0].get("wins") or 0) > 0 else None
+    checked_in = conn.execute("SELECT 1 FROM quests WHERE username = ? AND quest = 'checkin' AND date = ? LIMIT 1", (username, today)).fetchone() is not None
+    shared = conn.execute("SELECT 1 FROM share_claims WHERE username = ? AND date = ? LIMIT 1", (username, today)).fetchone() is not None
+    clashed = conn.execute("SELECT 1 FROM creature_battles WHERE (challenger = ? OR opponent = ?) AND substr(created_at,1,10) = ? LIMIT 1", (username, username, today)).fetchone() is not None
+    if crown == username:
+        crown_done = conn.execute("SELECT 1 FROM crown_events WHERE defender = ? AND successful_defense = 1 AND substr(created_at,1,10) = ? LIMIT 1", (username, today)).fetchone() is not None
+        crown_label = "Defend the Crown"
+        crown_icon = "👑"
+    elif crown:
+        crown_done = conn.execute("SELECT 1 FROM crown_events WHERE challenger = ? AND defender = ? AND substr(created_at,1,10) = ? LIMIT 1", (username, crown, today)).fetchone() is not None
+        crown_label = f"Challenge the Crown ({crown})"
+        crown_icon = "⚔️"
+    else:
+        crown_done = False
+        crown_label = "Create the first Crown race win"
+        crown_icon = "👑"
+    conn.close()
+    missions = [
+        {"key": "checkin", "icon": "🔥", "label": "Daily Check-in", "complete": checked_in},
+        {"key": "share", "icon": "📣", "label": "Verify one BL3 Cast", "complete": shared},
+        {"key": "clash", "icon": "👾", "label": "Complete one Alpha Clash", "complete": clashed},
+        {"key": "crown", "icon": crown_icon, "label": crown_label, "complete": crown_done},
+    ]
+    completed = sum(1 for m in missions if m["complete"])
+    return jsonify({"success": True, "date": today, "crown": crown, "missions": missions, "completed": completed, "total": len(missions)})
+
+
 @app.route("/api/reputation/<username>")
 def reputation_api(username):
     conn = db()
@@ -1690,7 +1787,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6.6 // CROWN SEASON")
+    print("👑 BL3 ARENA V6.7 // CROWN DEFENSE + DAILY MISSIONS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
