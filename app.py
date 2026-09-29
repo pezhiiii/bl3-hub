@@ -206,6 +206,15 @@ def init_db():
         )
     """)
 
+    # V8.2: optional featured Trophy pinned to the public Hunter identity.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_showcase_choices (
+            username TEXT PRIMARY KEY,
+            trophy_key TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
     # Reputation events get an optional event_key so future signals can be idempotent.
     rep_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reputation_events)").fetchall()}
     if "event_key" not in rep_cols:
@@ -509,7 +518,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.1 TITLE COLLECTION</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.2 HUNTER SHOWCASE</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -1974,6 +1983,84 @@ def hunter_trophies_api(username):
     return jsonify({"success": True, **data})
 
 
+
+def _hunter_showcase(username):
+    """Return the equipped Featured Trophy, falling back to strongest unlocked Trophy."""
+    data = _hunter_trophies(username)
+    if data is None:
+        return None
+
+    trophies = data.get("trophies", [])
+    if not trophies:
+        return {
+            "username": username,
+            "featured": None,
+            "options": []
+        }
+
+    by_key = {t["key"]: t for t in trophies}
+    conn = db()
+    row = conn.execute(
+        "SELECT trophy_key FROM hunter_showcase_choices WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+
+    selected_key = row["trophy_key"] if row is not None else None
+    featured = by_key.get(selected_key)
+    if featured is None:
+        featured = trophies[0]
+
+    return {
+        "username": username,
+        "featured": featured,
+        "options": trophies
+    }
+
+
+@app.route("/api/showcase/<username>", methods=["GET", "POST"])
+def hunter_showcase_api(username):
+    data = _hunter_showcase(username)
+    if data is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    if request.method == "GET":
+        return jsonify({"success": True, **data})
+
+    if session.get("authenticated_username") != username:
+        return jsonify({
+            "success": False,
+            "message": "Sign in with this Hunter ID to pin a Featured Trophy."
+        }), 401
+
+    payload = request.get_json(silent=True) or {}
+    trophy_key = str(payload.get("trophy_key", "")).strip()
+    by_key = {t["key"]: t for t in data.get("options", [])}
+    if trophy_key not in by_key:
+        return jsonify({
+            "success": False,
+            "message": "That Trophy is not unlocked for this Hunter."
+        }), 400
+
+    conn = db()
+    conn.execute(
+        """INSERT INTO hunter_showcase_choices(username, trophy_key, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             trophy_key = excluded.trophy_key,
+             updated_at = excluded.updated_at""",
+        (username, trophy_key, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": f"🏆 Featured {by_key[trophy_key]['title']}",
+        "featured": by_key[trophy_key]
+    })
+
+
 def _hunter_title_options(username):
     """Return all titles unlocked by the Hunter's current Trophy Room."""
     data = _hunter_trophies(username)
@@ -2199,6 +2286,12 @@ def hunter_profile_card_svg(username):
         return Response("Hunter not found", status=404, mimetype="text/plain")
     esc = lambda v: html.escape(str(v or ""))
     hunter_title = _hunter_title(username) or {"title": "HUNTER", "icon": "👾", "tier": "UNRANKED"}
+    showcase = _hunter_showcase(username) or {"featured": None}
+    featured = showcase.get("featured")
+    featured_line = (
+        f"FEATURED: {featured['icon']} {featured['title']} // {featured['tier']}"
+        if featured else "FEATURED: TROPHY ROOM AWAITS"
+    )
     season_rank = f"#{d['season']['rank']}" if d['season']['rank'] else "—"
     crown = "CURRENT CROWN" if d['season']['is_crown'] else "HUNTER"
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
@@ -2214,9 +2307,10 @@ def hunter_profile_card_svg(username):
       <text x="72" y="304" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="24" font-weight="900" letter-spacing="2">{esc(hunter_title['icon'])} {esc(hunter_title['title'])}</text>
       <text x="72" y="346" fill="url(#accent)" font-family="Arial,sans-serif" font-size="28" font-weight="900">{esc(d['creature']['avatar'])} {esc(d['creature']['name'])} // LVL {d['level']}</text>
       <text x="72" y="386" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="22">{d['reputation']} REP   •   {d['xp']} XP   •   {d['wins']} WINS   •   {d['network']} NETWORK</text>
-      <rect x="72" y="433" width="1056" height="1" fill="#30303a"/>
-      <text x="72" y="486" fill="#ffffff" font-family="Arial,sans-serif" font-size="21" font-weight="800">SEASON {esc(d['season']['key'])}</text>
-      <text x="72" y="528" fill="#9d7bff" font-family="Arial,sans-serif" font-size="25" font-weight="900">RANK {season_rank}   •   {d['season']['wins']}W / {d['season']['losses']}L   •   {d['season']['win_streak']} WIN STREAK</text>
+      <text x="72" y="421" fill="#ffd86b" font-family="Arial,sans-serif" font-size="18" font-weight="900">{esc(featured_line)}</text>
+      <rect x="72" y="448" width="1056" height="1" fill="#30303a"/>
+      <text x="72" y="493" fill="#ffffff" font-family="Arial,sans-serif" font-size="21" font-weight="800">SEASON {esc(d['season']['key'])}</text>
+      <text x="72" y="535" fill="#9d7bff" font-family="Arial,sans-serif" font-size="25" font-weight="900">RANK {season_rank}   •   {d['season']['wins']}W / {d['season']['losses']}L   •   {d['season']['win_streak']} WIN STREAK</text>
       <text x="72" y="570" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
       <text x="1128" y="570" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">CHALLENGE THIS HUNTER →</text>
     </svg>"""
@@ -2630,7 +2724,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.1 TITLE COLLECTION</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.2 HUNTER SHOWCASE</div>
 </div></body></html>"""
 
 
@@ -2642,7 +2736,11 @@ def hunter_public_page(username):
     trophy_data = _hunter_trophies(username) or {"count": 0, "trophies": []}
     hunter_title = _hunter_title(username) or {"key": "hunter", "title": "HUNTER", "icon": "👾", "tier": "UNRANKED"}
     title_options = _hunter_title_options(username) or []
+    showcase_data = _hunter_showcase(username) or {"featured": None, "options": []}
+    featured_trophy = showcase_data.get("featured")
     esc = lambda v: html.escape(str(v or ""))
+    viewer = session.get("authenticated_username") or ""
+    is_owner = viewer == username
     root = request.url_root.rstrip("/")
     page_url = f"{root}/hunter/{urllib.parse.quote(username)}"
     image_url = f"{root}/hunter/{urllib.parse.quote(username)}/card.svg"
@@ -2664,20 +2762,42 @@ def hunter_public_page(username):
     if not battles_html:
         battles_html = '<div class="empty">No public clashes yet. Be the first to challenge this Hunter.</div>'
 
-    trophy_cards = "".join(
-        f'<div class="trophy trophy-{esc(t["tier"]).lower()}">'
-        f'<div class="trophy-icon">{esc(t["icon"])}</div>'
-        f'<div class="trophy-copy"><div class="trophy-top"><b>{esc(t["title"])}</b>'
-        f'<span>{esc(t["tier"])}</span></div>'
-        f'<p>{esc(t["detail"])}</p></div></div>'
-        for t in trophy_data["trophies"]
-    )
+    featured_key = featured_trophy["key"] if featured_trophy else ""
+    trophy_cards = ""
+    for t in trophy_data["trophies"]:
+        is_featured = t["key"] == featured_key
+        pin_control = ""
+        if is_owner:
+            pin_control = (
+                f'<button class="trophy-pin{" active" if is_featured else ""}" '
+                f'data-trophy-key="{esc(t["key"])}">'
+                f'{"FEATURED ✓" if is_featured else "PIN"}</button>'
+            )
+        elif is_featured:
+            pin_control = '<span class="featured-label">FEATURED</span>'
+
+        trophy_cards += (
+            f'<div class="trophy trophy-{esc(t["tier"]).lower()}{" featured" if is_featured else ""}">'
+            f'<div class="trophy-icon">{esc(t["icon"])}</div>'
+            f'<div class="trophy-copy"><div class="trophy-top"><b>{esc(t["title"])}</b>'
+            f'<span>{esc(t["tier"])}</span></div>'
+            f'<p>{esc(t["detail"])}</p></div>{pin_control}</div>'
+        )
     if not trophy_cards:
         trophy_cards = '<div class="empty">No trophies unlocked yet. Your first Clash or verified wallet can start the shelf.</div>'
 
+    featured_html = (
+        f'<div class="featured-showcase trophy-{esc(featured_trophy["tier"]).lower()}">'
+        f'<div class="featured-big-icon">{esc(featured_trophy["icon"])}</div>'
+        f'<div><div class="eyebrow">FEATURED TROPHY // PINNED PROOF</div>'
+        f'<h3>{esc(featured_trophy["title"])}</h3>'
+        f'<div class="meta">{esc(featured_trophy["detail"])}</div>'
+        f'<span class="featured-tier">{esc(featured_trophy["tier"])}</span></div></div>'
+        if featured_trophy else
+        '<div class="featured-showcase"><div class="featured-big-icon">🏆</div><div><div class="eyebrow">FEATURED TROPHY</div><h3>Nothing pinned yet</h3><div class="meta">Unlock a Trophy to start your public showcase.</div></div></div>'
+    )
+
     title_collection = ""
-    viewer = session.get("authenticated_username") or ""
-    is_owner = viewer == username
     for t in title_options:
         active = t["key"] == hunter_title.get("key")
         button = ""
@@ -2752,19 +2872,19 @@ def hunter_public_page(username):
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
 <style>
 :root{{--bg:#050507;--panel:#111116;--line:#2b2b36;--muted:#9293a4;--text:#f8f8fb;--hot:#b8ff5a;--violet:#9d7bff}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.hunter-title{{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:999px;border:1px solid rgba(184,255,90,.28);background:rgba(184,255,90,.06);color:var(--hot);font-size:12px;font-weight:900;letter-spacing:1.3px}}.hunter-title small{{color:var(--muted);font-size:9px;letter-spacing:1px}}.title-collection{{border-color:rgba(184,255,90,.18);background:linear-gradient(145deg,rgba(184,255,90,.035),rgba(157,123,255,.035))}}.title-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.title-option{{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#0d0d12;border-radius:17px;padding:13px}}.title-option.selected{{border-color:rgba(184,255,90,.42);box-shadow:0 0 24px rgba(184,255,90,.05)}}.title-option-icon{{font-size:26px}}.title-option-copy{{flex:1;min-width:0}}.title-option-copy b{{display:block;font-size:12px;letter-spacing:.8px}}.title-option-copy span{{display:block;color:var(--muted);font-size:9px;margin-top:4px;letter-spacing:1px}}.title-equip{{border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer}}.title-equip:hover,.title-equip.active{{border-color:var(--hot);color:var(--hot)}}.title-public-state{{font-size:9px;font-weight:900;color:var(--muted);letter-spacing:1px}}.trophy-room{{border-color:rgba(157,123,255,.28);background:linear-gradient(145deg,rgba(157,123,255,.05),rgba(184,255,90,.025))}}.trophy-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.trophy{{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--line);background:#0d0d12;padding:15px;border-radius:18px}}.trophy-icon{{font-size:30px;line-height:1}}.trophy-copy{{min-width:0;flex:1}}.trophy-top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.trophy-top b{{font-size:13px;letter-spacing:.8px}}.trophy-top span{{font-size:9px;font-weight:900;letter-spacing:1px;color:var(--muted);border:1px solid var(--line);padding:4px 7px;border-radius:999px}}.trophy p{{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.45}}.trophy-gold{{border-color:rgba(255,212,79,.3)}}.trophy-legendary{{border-color:rgba(184,255,90,.42);box-shadow:0 0 30px rgba(184,255,90,.05)}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.title-grid{{grid-template-columns:1fr}}.trophy-grid{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.hunter-title{{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:999px;border:1px solid rgba(184,255,90,.28);background:rgba(184,255,90,.06);color:var(--hot);font-size:12px;font-weight:900;letter-spacing:1.3px}}.hunter-title small{{color:var(--muted);font-size:9px;letter-spacing:1px}}.title-collection{{border-color:rgba(184,255,90,.18);background:linear-gradient(145deg,rgba(184,255,90,.035),rgba(157,123,255,.035))}}.title-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.title-option{{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#0d0d12;border-radius:17px;padding:13px}}.title-option.selected{{border-color:rgba(184,255,90,.42);box-shadow:0 0 24px rgba(184,255,90,.05)}}.title-option-icon{{font-size:26px}}.title-option-copy{{flex:1;min-width:0}}.title-option-copy b{{display:block;font-size:12px;letter-spacing:.8px}}.title-option-copy span{{display:block;color:var(--muted);font-size:9px;margin-top:4px;letter-spacing:1px}}.title-equip{{border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer}}.title-equip:hover,.title-equip.active{{border-color:var(--hot);color:var(--hot)}}.title-public-state{{font-size:9px;font-weight:900;color:var(--muted);letter-spacing:1px}}.featured-showcase{{display:flex;gap:16px;align-items:center;margin-top:18px;border:1px solid var(--line);border-radius:22px;padding:18px;background:linear-gradient(145deg,#111119,#17131e)}}.featured-big-icon{{width:72px;height:72px;display:grid;place-items:center;border-radius:20px;background:#0a0a0f;border:1px solid var(--line);font-size:38px;flex:0 0 auto}}.featured-showcase h3{{margin:4px 0 2px;font-size:24px}}.featured-tier,.featured-label{{display:inline-block;margin-top:8px;font-size:9px;font-weight:900;letter-spacing:1.2px;color:#ffd86b;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px}}.trophy-room{{border-color:rgba(157,123,255,.28);background:linear-gradient(145deg,rgba(157,123,255,.05),rgba(184,255,90,.025))}}.trophy-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.trophy{{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--line);background:#0d0d12;padding:15px;border-radius:18px}}.trophy.featured{{box-shadow:0 0 28px rgba(255,216,107,.06);border-color:rgba(255,216,107,.38)}}.trophy-pin{{align-self:center;border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}}.trophy-pin:hover,.trophy-pin.active{{border-color:#ffd86b;color:#ffd86b}}.trophy-icon{{font-size:30px;line-height:1}}.trophy-copy{{min-width:0;flex:1}}.trophy-top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.trophy-top b{{font-size:13px;letter-spacing:.8px}}.trophy-top span{{font-size:9px;font-weight:900;letter-spacing:1px;color:var(--muted);border:1px solid var(--line);padding:4px 7px;border-radius:999px}}.trophy p{{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.45}}.trophy-gold{{border-color:rgba(255,212,79,.3)}}.trophy-legendary{{border-color:rgba(184,255,90,.42);box-shadow:0 0 30px rgba(184,255,90,.05)}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.title-grid{{grid-template-columns:1fr}}.trophy-grid{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell"><nav class="nav"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><a class="back" href="/">← LIVE NETWORK</a></nav>
 <section class="hero"><div class="eyebrow">PUBLIC HUNTER ID // SEASON {esc(d['season']['key'])}</div><div class="top"><div class="avatar">{esc(d['creature']['avatar'])}</div><div><h1>{esc(d['username'])}</h1><div class="hunter-title">{esc(hunter_title['icon'])} {esc(hunter_title['title'])} <small>{esc(hunter_title['tier'])}</small></div><div class="subtitle">{esc(d['creature']['name'])} // {esc(d['creature']['stage'])} // LEVEL {d['level']}</div><div class="badges">{verified_badge}{crown_badge}</div></div></div>
 <div class="grid"><div class="stat"><div class="num">{d['reputation']}</div><div class="label">REPUTATION</div></div><div class="stat"><div class="num">{d['xp']}</div><div class="label">XP</div></div><div class="stat"><div class="num">{d['wins']}</div><div class="label">TOTAL WINS</div></div><div class="stat"><div class="num">{d['network']}</div><div class="label">NETWORK</div></div></div>
 <div class="social-grid"><div class="social-stat"><b id="followersCount">{d['followers']}</b><span>FOLLOWERS</span></div><div class="social-stat"><b>{d['following']}</b><span>FOLLOWING</span></div><div class="social-stat"><b>{d['rivals']}</b><span>RIVALS TRACKED</span></div></div>
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
-<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
+<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div>{featured_html}</section>
 <section class="section title-collection"><div class="eyebrow">🏷️ TITLE COLLECTION // IDENTITY LOADOUT</div><h2>Choose Your Public Title <span class="small">{len(title_options)} AVAILABLE</span></h2><div class="meta">Unlocked titles come from real Trophy Room achievements. The equipped title appears on your public profile and Hunter share card.</div><div class="title-grid">{title_collection}</div></section>
-<section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b> — titles upgrade automatically as stronger trophies unlock.</div><div class="trophy-grid">{trophy_cards}</div></section>
+<section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.1 TITLE COLLECTION</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.2 HUNTER SHOWCASE</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -2788,6 +2908,14 @@ document.querySelectorAll('.title-equip').forEach(btn=>btn.addEventListener('cli
    method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{title_key:key}})
  }});
  if(!d.success){{alert(d.message||'Could not equip title.');return}}
+ location.reload();
+}}));
+document.querySelectorAll('.trophy-pin').forEach(btn=>btn.addEventListener('click',async()=>{{
+ const key=btn.dataset.trophyKey;
+ const d=await socialFetch('/api/showcase/'+encodeURIComponent(hunterName),{{
+   method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{trophy_key:key}})
+ }});
+ if(!d.success){{alert(d.message||'Could not feature Trophy.');return}}
  location.reload();
 }}));
 loadSocial();
@@ -3502,7 +3630,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🎭 BL3 ARENA V8.1 // TITLE COLLECTION")
+    print("🏆 BL3 ARENA V8.2 // HUNTER SHOWCASE")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
