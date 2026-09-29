@@ -198,7 +198,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .creature-card{position:relative;overflow:hidden;background:radial-gradient(circle at 50% 18%,rgba(184,255,90,.12),transparent 38%),var(--panel)}
 .creature-card:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(157,123,255,.09);filter:blur(28px);right:-45px;top:-45px;pointer-events:none}
 .creature-head{display:flex;align-items:center;gap:14px;margin:14px 0}.creature-avatar{width:76px;height:76px;border:1px solid rgba(184,255,90,.35);border-radius:22px;display:grid;place-items:center;font-size:42px;background:rgba(184,255,90,.06);box-shadow:0 0 28px rgba(184,255,90,.08)}
-.creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}.battle-result{margin-top:12px;padding:14px;border:1px solid rgba(184,255,90,.25);border-radius:16px;background:rgba(184,255,90,.04)}.battle-vs{font-size:24px;font-weight:950;text-align:center;margin:8px 0}.battle-log{font-size:13px;color:var(--muted);line-height:1.5}
+.creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}.battle-result{margin-top:12px;padding:14px;border:1px solid rgba(184,255,90,.25);border-radius:16px;background:rgba(184,255,90,.04)}.battle-vs{font-size:24px;font-weight:950;text-align:center;margin:8px 0}.battle-log{font-size:13px;color:var(--muted);line-height:1.5}.battle-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}@media(max-width:520px){.battle-actions{grid-template-columns:1fr}}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
 </style>
 </head>
@@ -299,13 +299,14 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.2 PASSPORT EVOLUTION</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.4 SOCIAL CLASH</div>
 </div>
 <div id="message" class="message hidden"></div>
 
 <script>
 let username="demo_user";
 let messageTimer=null;
+let lastBattleShare=null;
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
@@ -364,11 +365,34 @@ async function battleHunter(){
  const d=await jsonFetch("/api/battle",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({challenger:username,opponent})});
  if(!d.success){show(d.message||"Clash failed");return}
  const mine=d.challenger,them=d.opponent,won=d.winner===username;
+ const challengeLink=location.origin+"/?challenge="+encodeURIComponent(username)+"&ref="+encodeURIComponent(username);
+ lastBattleShare={
+   text:"⚔️ BL3 ALPHA CLASH #"+d.battle_id+"\n"+mine.avatar+" "+username+" "+mine.power+" — "+them.power+" "+them.opponent+" "+them.avatar+"\n👑 Winner: "+d.winner+"\n"+d.commentary+"\n\nChallenge me on BL3 👇",
+   link:challengeLink
+ };
  const el=document.getElementById("battleResult");
  el.classList.remove("hidden");
- el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div>';
+ el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><div class="battle-actions"><button class="btn hot" onclick="shareBattle()">📣 SHARE CLASH</button><button class="btn" onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button></div>';
  show(won?"Your creature took the crown 👑":"Chaos chose your opponent this round.");
  await loadUser();
+}
+function shareBattle(){
+ if(!lastBattleShare){show("Finish a clash first.");return}
+ const body=lastBattleShare.text+"\n"+lastBattleShare.link;
+ window.open("https://warpcast.com/~/compose?text="+encodeURIComponent(body),"_blank");
+ show("Clash card ready to cast. 👑");
+}
+function copyChallengeLink(){
+ if(!lastBattleShare){show("Finish a clash first.");return}
+ if(navigator.clipboard)navigator.clipboard.writeText(lastBattleShare.link);
+ show("Challenge link copied: "+lastBattleShare.link);
+}
+function hydrateChallenge(){
+ const p=new URLSearchParams(location.search),target=(p.get("challenge")||"").trim();
+ if(!target)return;
+ const el=document.getElementById("battleOpponent");
+ if(el)el.value=target;
+ show("⚔️ Challenge detected: "+target+" is waiting in the arena.");
 }
 
 async function connectWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{const a=await ethereum.request({method:"eth_requestAccounts"});if(!a.length)return;document.getElementById("wallet").value=a[0];show("Wallet connected. Now sign the message.")}catch(e){show("Wallet connection cancelled.")}}
@@ -421,6 +445,8 @@ async function markPaid(id){
 }
 async function createArena(){currentUser();const body={creator:username,title:document.getElementById("arenaTitle").value.trim(),description:document.getElementById("arenaDescription").value.trim(),category:document.getElementById("arenaCategory").value,bounty_amount:document.getElementById("arenaBounty").value,deadline:document.getElementById("arenaDeadline").value.trim()};const d=await jsonFetch("/api/arenas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});show(d.message||"Arena request finished");if(d.success)loadArenas()}
 loadUser();loadArenas();
+
+hydrateChallenge();
 </script>
 </body>
 </html>
@@ -1355,8 +1381,18 @@ def battle_api():
     if challenger == opponent:
         return jsonify({"success": False, "message": "You cannot battle yourself."}), 400
 
-    c = get_user(challenger)
-    o = get_user(opponent)
+    if session.get("authenticated_username") != challenger:
+        return jsonify({"success": False, "message": "🔐 Sign in with the challenger wallet before starting a clash."}), 401
+
+    conn = db()
+    c = conn.execute("SELECT * FROM users WHERE username = ?", (challenger,)).fetchone()
+    o = conn.execute("SELECT * FROM users WHERE username = ?", (opponent,)).fetchone()
+    conn.close()
+    if c is None:
+        return jsonify({"success": False, "message": "Challenger profile not found."}), 404
+    if o is None:
+        return jsonify({"success": False, "message": "Opponent is not a BL3 hunter yet. Invite them first."}), 404
+
     cxp, oxp = int(c["xp"] or 0), int(o["xp"] or 0)
     # Progress matters, but a bounded chaos roll keeps weaker creatures capable of an upset.
     import secrets
@@ -1380,14 +1416,15 @@ def battle_api():
 
     now = datetime.utcnow().isoformat()
     conn = db()
-    conn.execute("""INSERT INTO creature_battles
+    cursor = conn.execute("""INSERT INTO creature_battles
         (challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (challenger, opponent, winner, c_power, o_power, commentary, now))
+    battle_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return jsonify({
-        "success": True, "winner": winner, "commentary": commentary,
+        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary,
         "challenger": {"username": challenger, "avatar": avatar(cxp), "power": c_power},
         "opponent": {"opponent": opponent, "avatar": avatar(oxp), "power": o_power}
     })
