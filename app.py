@@ -454,6 +454,14 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <div class="battle-actions"><button class="btn" onclick="loadRivalFeed()">↻ Refresh Rivals</button><button class="btn violet" onclick="openRivalDirectory()">🎯 View Rivals</button></div>
       </div>
 
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">🧭 HUNTER DISCOVERY // MATCHMAKING</div>
+        <h3 style="margin-top:8px">Suggested Rivals</h3>
+        <div class="meta">Active Hunters near your current XP and reputation. Follow them, mark a Rival, or open their public profile.</div>
+        <div id="hunterDiscovery" class="feed"><div class="meta">Sign in to discover Hunters.</div></div>
+        <button class="btn" onclick="loadDiscovery()">↻ Find Hunters</button>
+      </div>
+
       <div class="card" id="walletCard" style="margin-top:16px">
         <div class="eyebrow">IDENTITY</div><h3 style="margin-top:8px">Wallet Proof</h3>
         <input id="wallet" placeholder="Wallet address" readonly>
@@ -492,7 +500,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.4 RIVAL FEED</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.5 HUNTER DISCOVERY</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -541,7 +549,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadInbox(); await loadSignals(); await loadOnboarding();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -742,6 +750,49 @@ async function loadRivalFeed(){
  el.innerHTML=items.map(e=>'<div class="feed-item"><div class="feed-icon">'+escapeHtml(e.icon||"🎯")+'</div><div class="feed-main"><div class="feed-title">'+escapeHtml(e.title||"Rival activity")+'</div><div class="feed-meta">'+escapeHtml(e.detail||"")+'</div></div><div class="feed-time">'+escapeHtml(relativeTime(e.created_at))+'</div></div>').join("")||'<div class="meta">Your Rivals are quiet right now. 👀</div>';
 }
 function openRivalDirectory(){currentUser();window.open("/rivals/"+encodeURIComponent(username),"_blank","noopener")}
+
+async function loadDiscovery(){
+ currentUser();
+ const el=document.getElementById("hunterDiscovery");
+ if(!el)return;
+ const d=await jsonFetch("/api/discovery/"+encodeURIComponent(username)+"?limit=6");
+ if(!d.success){el.innerHTML='<div class="meta">'+escapeHtml(d.message||"Sign in to discover Hunters.")+'</div>';return}
+ const items=Array.isArray(d.hunters)?d.hunters:[];
+ if(!items.length){el.innerHTML='<div class="meta">No new Hunter suggestions yet. Invite someone into the network. 👥</div>';return}
+ el.innerHTML=items.map(h=>{
+   const rival=h.is_rival?'🎯 RIVAL ✓':'🎯 RIVAL';
+   const follow=h.is_following?'✓ FOLLOWING':'👁️ FOLLOW';
+   const u=escapeHtml(h.username);
+   return '<div class="feed-item" style="align-items:flex-start">'+
+     '<div class="feed-icon">'+escapeHtml(h.avatar||"👾")+'</div>'+
+     '<div class="feed-main"><div class="feed-title">'+u+
+     ' <span class="small">LVL '+Number(h.level||1)+'</span></div>'+
+     '<div class="feed-meta">'+Number(h.xp||0)+' XP • '+Number(h.reputation||0)+' REP • '+Number(h.wins||0)+' wins • '+Number(h.followers||0)+' followers</div>'+
+     '<div class="battle-actions">'+
+       '<button class="btn tab" data-user="'+u+'" data-kind="follow">'+follow+'</button>'+
+       '<button class="btn tab" data-user="'+u+'" data-kind="rival">'+rival+'</button>'+
+       '<button class="btn tab violet" data-profile="'+u+'">PROFILE ↗</button>'+
+     '</div></div>'+
+     '<div class="feed-time">MATCH '+Number(h.match_score||0)+'</div></div>';
+ }).join("");
+ el.querySelectorAll("[data-kind]").forEach(btn=>btn.addEventListener("click",()=>{
+   const target=btn.dataset.user,kind=btn.dataset.kind;
+   const h=items.find(x=>x.username===target);
+   const enabled=kind==="follow"?!h.is_following:!h.is_rival;
+   discoverySocial(target,kind,enabled);
+ }));
+ el.querySelectorAll("[data-profile]").forEach(btn=>btn.addEventListener("click",()=>{
+   window.open("/hunter/"+encodeURIComponent(btn.dataset.profile),"_blank","noopener");
+ }));
+}
+async function discoverySocial(target,kind,enabled){
+ const d=await jsonFetch("/api/hunter/"+encodeURIComponent(target)+"/social",{
+   method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({kind:kind,enabled:enabled})
+ });
+ show(d.message||"Social graph updated");
+ if(d.success){await loadDiscovery();await loadRivalFeed();}
+}
 setInterval(()=>{loadActivity();loadRivalFeed();loadSignals();},20000);
 
 async function loadArenas(){
@@ -2014,7 +2065,7 @@ def hunter_public_page(username):
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
 <div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.4 RIVAL FEED</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.5 HUNTER DISCOVERY</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -2603,6 +2654,110 @@ def reputation_api(username):
     })
 
 
+
+@app.route("/api/discovery/<username>")
+def hunter_discovery_api(username):
+    viewer = session.get("authenticated_username") or ""
+    if viewer != username:
+        return jsonify({
+            "success": False,
+            "message": "🔐 Sign in with this Hunter ID to discover matched Hunters."
+        }), 401
+
+    try:
+        limit = max(1, min(12, int(request.args.get("limit", 6))))
+    except Exception:
+        limit = 6
+
+    conn = db()
+    me = conn.execute("SELECT username, xp FROM users WHERE username = ?", (username,)).fetchone()
+    if me is None:
+        conn.close()
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    my_xp = int(me["xp"] or 0)
+    my_rep = int(conn.execute(
+        "SELECT COALESCE(SUM(points), 0) AS n FROM reputation_events WHERE username = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    candidates = []
+    users = conn.execute(
+        "SELECT username, xp FROM users WHERE username <> ? ORDER BY xp DESC LIMIT 100",
+        (username,)
+    ).fetchall()
+
+    for row in users:
+        target = row["username"]
+        xp = int(row["xp"] or 0)
+        rep = int(conn.execute(
+            "SELECT COALESCE(SUM(points), 0) AS n FROM reputation_events WHERE username = ?",
+            (target,)
+        ).fetchone()["n"] or 0)
+        wins = int(conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM creature_battles WHERE winner = ?) +
+                 (SELECT COUNT(*) FROM arenas WHERE winner_username = ?) AS n""",
+            (target, target)
+        ).fetchone()["n"] or 0)
+        activity = int(conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM creature_battles WHERE challenger = ? OR opponent = ?) +
+                 (SELECT COUNT(*) FROM arena_submissions WHERE username = ?) +
+                 (SELECT COUNT(*) FROM arenas WHERE creator = ?) +
+                 (SELECT COUNT(*) FROM share_claims WHERE username = ?) AS n""",
+            (target, target, target, target, target)
+        ).fetchone()["n"] or 0)
+        followers = int(conn.execute(
+            "SELECT COUNT(*) AS n FROM hunter_connections WHERE target = ? AND kind = 'follow'",
+            (target,)
+        ).fetchone()["n"] or 0)
+        is_following = conn.execute(
+            "SELECT 1 FROM hunter_connections WHERE owner = ? AND target = ? AND kind = 'follow'",
+            (username, target)
+        ).fetchone() is not None
+        is_rival = conn.execute(
+            "SELECT 1 FROM hunter_connections WHERE owner = ? AND target = ? AND kind = 'rival'",
+            (username, target)
+        ).fetchone() is not None
+
+        xp_gap = abs(my_xp - xp)
+        rep_gap = abs(my_rep - rep)
+        closeness = max(0, 70 - min(70, xp_gap // 10))
+        rep_closeness = max(0, 20 - min(20, rep_gap // 5))
+        active_bonus = min(25, activity * 3)
+        social_bonus = min(10, followers)
+        new_rival_bonus = 8 if not is_rival else 0
+        score = int(closeness + rep_closeness + active_bonus + social_bonus + new_rival_bonus)
+
+        creature = _creature_from_xp(xp)
+        level = max(1, (xp // 100) + 1)
+        candidates.append({
+            "username": target,
+            "xp": xp,
+            "reputation": rep,
+            "wins": wins,
+            "activity": activity,
+            "followers": followers,
+            "is_following": is_following,
+            "is_rival": is_rival,
+            "avatar": creature["avatar"],
+            "level": level,
+            "match_score": score
+        })
+
+    conn.close()
+    candidates.sort(
+        key=lambda h: (h["match_score"], h["activity"], h["reputation"], h["xp"]),
+        reverse=True
+    )
+    return jsonify({
+        "success": True,
+        "username": username,
+        "hunters": candidates[:limit]
+    })
+
+
 @app.route("/api/leaderboard")
 def leaderboard_api():
 
@@ -2633,7 +2788,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🎯 BL3 ARENA V7.4 // RIVAL FEED")
+    print("🧭 BL3 ARENA V7.5 // HUNTER DISCOVERY")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
