@@ -527,7 +527,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2733,21 +2733,8 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div>
-</div>
-<script>
-document.querySelectorAll('.skin-btn').forEach(btn=>btn.addEventListener('click',async()=>{{
-  const key=btn.dataset.skinKey;
-  const r=await fetch('/api/loadout-skin/'+encodeURIComponent({json.dumps(username)}),{{
-    method:'POST',
-    headers:{{'Content-Type':'application/json'}},
-    body:JSON.stringify({{skin_key:key}})
-  }});
-  let d={{}};try{{d=await r.json()}}catch(e){{}}
-  if(!d.success){{alert(d.message||'Could not change skin.');return}}
-  location.reload();
-}}));
-</script></body></html>"""
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div>
+</div></body></html>"""
 
 
 
@@ -2758,6 +2745,9 @@ def _loadout_skin_catalog():
             "key": "neon",
             "name": "NEON",
             "icon": "⚡",
+            "rarity": "COMMON",
+            "requirement": "Unlocked by default",
+            "unlock_any": [],
             "bg0": "#050507",
             "bg1": "#101017",
             "bg2": "#1b1028",
@@ -2772,6 +2762,9 @@ def _loadout_skin_catalog():
             "key": "void",
             "name": "VOID",
             "icon": "🌑",
+            "rarity": "RARE",
+            "requirement": "Unlock PROVEN HUNTER or REPUTATION ELITE",
+            "unlock_any": ["reputation_100", "reputation_500"],
             "bg0": "#020205",
             "bg1": "#080812",
             "bg2": "#11112a",
@@ -2786,6 +2779,9 @@ def _loadout_skin_catalog():
             "key": "crown",
             "name": "CROWN",
             "icon": "👑",
+            "rarity": "LEGENDARY",
+            "requirement": "Unlock CROWN DEFENDER, CROWN BREAKER, or ASCENDED",
+            "unlock_any": ["crown_defender", "crown_breaker", "ascended"],
             "bg0": "#090704",
             "bg1": "#181109",
             "bg2": "#2a1b09",
@@ -2800,6 +2796,9 @@ def _loadout_skin_catalog():
             "key": "chaos",
             "name": "CHAOS",
             "icon": "😈",
+            "rarity": "EPIC",
+            "requirement": "Unlock ALPHA HUNTER or NEMESIS FOUND",
+            "unlock_any": ["alpha_hunter", "nemesis_found"],
             "bg0": "#09030b",
             "bg1": "#1c071d",
             "bg2": "#280b18",
@@ -2813,36 +2812,59 @@ def _loadout_skin_catalog():
     }
 
 
+def _hunter_skin_unlocks(username):
+    """Return skin options with unlock state derived from Trophy Room."""
+    trophies = _hunter_trophies(username)
+    if trophies is None:
+        return None
+
+    trophy_keys = {t["key"] for t in trophies.get("trophies", [])}
+    catalog = _loadout_skin_catalog()
+    options = []
+
+    for skin in catalog.values():
+        requirements = skin.get("unlock_any", [])
+        unlocked = not requirements or any(key in trophy_keys for key in requirements)
+        public = {k: v for k, v in skin.items() if k != "unlock_any"}
+        public["unlocked"] = unlocked
+        options.append(public)
+
+    return options
+
+
 def _hunter_loadout_skin(username):
     catalog = _loadout_skin_catalog()
-    conn = db()
-    user = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-    if user is None:
-        conn.close()
+    unlocks = _hunter_skin_unlocks(username)
+    if unlocks is None:
         return None
+
+    unlocked_keys = {s["key"] for s in unlocks if s["unlocked"]}
+
+    conn = db()
     row = conn.execute(
         "SELECT skin_key FROM hunter_loadout_skins WHERE username = ?",
         (username,)
     ).fetchone()
     conn.close()
 
-    key = row["skin_key"] if row and row["skin_key"] in catalog else "neon"
-    return catalog[key]
+    requested = row["skin_key"] if row else "neon"
+    key = requested if requested in catalog and requested in unlocked_keys else "neon"
+    return {**catalog[key], "unlocked": True}
 
 
 @app.route("/api/loadout-skin/<username>", methods=["GET", "POST"])
 def hunter_loadout_skin_api(username):
     current = _hunter_loadout_skin(username)
-    if current is None:
+    options = _hunter_skin_unlocks(username)
+    if current is None or options is None:
         return jsonify({"success": False, "message": "Hunter not found"}), 404
 
-    catalog = _loadout_skin_catalog()
     if request.method == "GET":
         return jsonify({
             "success": True,
             "username": username,
             "current": current,
-            "options": list(catalog.values())
+            "options": options
         })
 
     if session.get("authenticated_username") != username:
@@ -2853,8 +2875,16 @@ def hunter_loadout_skin_api(username):
 
     payload = request.get_json(silent=True) or {}
     skin_key = str(payload.get("skin_key", "")).strip().lower()
-    if skin_key not in catalog:
+    by_key = {s["key"]: s for s in options}
+
+    if skin_key not in by_key:
         return jsonify({"success": False, "message": "Unknown Loadout skin."}), 400
+
+    if not by_key[skin_key]["unlocked"]:
+        return jsonify({
+            "success": False,
+            "message": f"🔒 {by_key[skin_key]['name']} is locked. {by_key[skin_key]['requirement']}."
+        }), 403
 
     conn = db()
     conn.execute(
@@ -2870,8 +2900,8 @@ def hunter_loadout_skin_api(username):
 
     return jsonify({
         "success": True,
-        "message": f"{catalog[skin_key]['icon']} Equipped {catalog[skin_key]['name']} skin",
-        "current": catalog[skin_key]
+        "message": f"{by_key[skin_key]['icon']} Equipped {by_key[skin_key]['name']} skin",
+        "current": by_key[skin_key]
     })
 
 
@@ -2954,8 +2984,8 @@ def hunter_loadout_page(username):
     }
     showcase = _hunter_showcase(username) or {"featured": None}
     featured = showcase.get("featured")
-    skin = _hunter_loadout_skin(username) or _loadout_skin_catalog()["neon"]
-    skin_options = list(_loadout_skin_catalog().values())
+    skin = _hunter_loadout_skin(username) or {**_loadout_skin_catalog()["neon"], "unlocked": True}
+    skin_options = _hunter_skin_unlocks(username) or []
     viewer = session.get("authenticated_username") or ""
     is_owner = viewer == username
     esc = lambda v: html.escape(str(v or ""))
@@ -2979,9 +3009,15 @@ def hunter_loadout_page(username):
         skin_picker = '<div class="skin-panel"><div><div class="small">LOADOUT SKIN</div><div class="meta">Choose a visual identity for this public card.</div></div><div class="skin-options">'
         for s in skin_options:
             active = s["key"] == skin["key"]
+            locked = not s.get("unlocked", False)
+            classes = "skin-btn" + (" active" if active else "") + (" locked" if locked else "")
+            disabled = " disabled" if locked else ""
             skin_picker += (
-                f'<button class="skin-btn{" active" if active else ""}" data-skin-key="{esc(s["key"])}">'
-                f'{esc(s["icon"])} {esc(s["name"])}</button>'
+                f'<div class="skin-choice">'
+                f'<button class="{classes}" data-skin-key="{esc(s["key"])}"{disabled}>'
+                f'{"🔒 " if locked else ""}{esc(s["icon"])} {esc(s["name"])}'
+                f'<small>{esc(s.get("rarity",""))}</small></button>'
+                f'<span>{esc(s.get("requirement",""))}</span></div>'
             )
         skin_picker += '</div></div>'
 
@@ -3009,7 +3045,7 @@ def hunter_loadout_page(username):
 .identity{{padding:24px}}.title{{display:inline-flex;gap:8px;align-items:center;color:var(--hot);font-size:15px;font-weight:900;border:1px solid rgba(184,255,90,.25);padding:9px 12px;border-radius:999px}}.tier{{font-size:9px;color:var(--muted);letter-spacing:1px}}
 .featured{{display:flex;gap:15px;align-items:center;padding:18px;margin-top:16px;background:linear-gradient(145deg,#111119,#181220)}}.featured-icon{{font-size:44px}}.featured h3{{margin:4px 0}}.featured span{{display:inline-block;color:var(--gold);font-size:9px;font-weight:900;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px;margin-top:8px}}
 .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{padding:16px}}.stat b{{display:block;font-size:25px}}.stat span,.small{{color:var(--muted);font-size:10px;letter-spacing:1.2px;font-weight:900}}
-.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.skin-panel{{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--card)}}.skin-options{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}.skin-btn{{border:1px solid var(--line);background:transparent;color:#fff;padding:9px 12px;border-radius:999px;font-size:10px;font-weight:900;cursor:pointer}}.skin-btn:hover,.skin-btn.active{{border-color:var(--hot);color:var(--hot);box-shadow:0 0 18px color-mix(in srgb,var(--hot) 18%,transparent)}}.footer{{text-align:center;color:var(--muted);padding:50px 0 20px}}
+.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.skin-panel{{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--card)}}.skin-options{{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}}.skin-choice{{display:flex;flex-direction:column;gap:5px;max-width:190px}}.skin-choice span{{font-size:8px;color:var(--muted);line-height:1.25}}.skin-btn{{border:1px solid var(--line);background:transparent;color:#fff;padding:9px 12px;border-radius:999px;font-size:10px;font-weight:900;cursor:pointer;white-space:nowrap}}.skin-btn small{{margin-left:6px;color:var(--muted);font-size:8px;letter-spacing:1px}}.skin-btn:hover,.skin-btn.active{{border-color:var(--hot);color:var(--hot);box-shadow:0 0 18px color-mix(in srgb,var(--hot) 18%,transparent)}}.skin-btn.locked{{opacity:.48;cursor:not-allowed;filter:saturate(.45)}}.skin-btn.locked:hover{{border-color:var(--line);color:#fff;box-shadow:none}}.footer{{text-align:center;color:var(--muted);padding:50px 0 20px}}
 @media(max-width:760px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}.skin-panel{{align-items:flex-start;flex-direction:column}}.skin-options{{justify-content:flex-start}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell">
 <nav class="nav"><div class="brand">BL3<span>●</span></div><a class="back" href="{esc(profile_url)}">← HUNTER PROFILE</a></nav>
@@ -3020,8 +3056,21 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div>
-</div></body></html>"""
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div>
+</div>
+<script>
+document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
+  const key=btn.dataset.skinKey;
+  const r=await fetch('/api/loadout-skin/'+encodeURIComponent({json.dumps(username)}),{{
+    method:'POST',
+    headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{skin_key:key}})
+  }});
+  let d={{}};try{{d=await r.json()}}catch(e){{}}
+  if(!d.success){{alert(d.message||'Could not change skin.');return}}
+  location.reload();
+}}));
+</script></body></html>"""
 
 
 @app.route("/hunter/<username>")
@@ -3180,7 +3229,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -3926,7 +3975,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🎨 BL3 ARENA V8.4 // LOADOUT SKINS")
+    print("🔓 BL3 ARENA V8.5 // SKIN UNLOCKS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
