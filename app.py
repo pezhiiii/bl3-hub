@@ -363,7 +363,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -405,7 +405,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -425,7 +425,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -444,7 +444,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -462,7 +462,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -475,7 +475,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -487,7 +487,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -503,7 +503,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V9.7 CROWN WAR ALERTS ===== */
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -513,6 +513,23 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0,0,.32),0 0 45px rgba(255,68,91,.08)}
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
+
+/* ===== V9.8 CINEMATIC CLASH REPLAY ===== */
+.clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
+.clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
+.clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
+.clash-replay:before{content:"";position:absolute;inset:-150px auto auto -130px;width:340px;height:340px;border-radius:50%;background:rgba(161,124,255,.12);filter:blur(56px)}.clash-replay:after{content:"";position:absolute;right:-140px;bottom:-160px;width:360px;height:360px;border-radius:50%;background:rgba(186,255,90,.08);filter:blur(60px)}
+.replay-top{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid rgba(255,255,255,.08)}.replay-top b{font-size:10px;letter-spacing:1.7px}.replay-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.replay-close{pointer-events:auto;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.035);color:#fff;padding:8px 10px;cursor:pointer;font-size:9px;font-weight:900}
+.replay-arena{position:relative;z-index:2;display:grid;grid-template-columns:1fr 140px 1fr;gap:14px;align-items:center;padding:34px 30px 22px}
+.replay-fighter{text-align:center}.replay-avatar{width:128px;height:128px;margin:auto;border-radius:38px;display:grid;place-items:center;font-size:70px;background:#09090e;border:1px solid rgba(255,255,255,.12);box-shadow:0 20px 60px rgba(0,0,0,.38)}.replay-fighter.winner .replay-avatar{border-color:rgba(186,255,90,.38);box-shadow:0 20px 60px rgba(0,0,0,.38),0 0 38px rgba(186,255,90,.1)}.replay-fighter.loser{opacity:.68}
+.replay-name{font-size:21px;font-weight:950;letter-spacing:-.7px;margin-top:12px}.replay-power{font-size:10px;color:var(--muted);margin-top:5px}.replay-power b{color:#fff;font-size:16px}
+.replay-vs{text-align:center}.replay-vs .vs{font-size:44px;font-weight:950;letter-spacing:-2px;color:#fff}.replay-vs .battle-no{font-size:8px;color:var(--muted);letter-spacing:1.3px;margin-top:4px}.replay-slash{height:2px;background:linear-gradient(90deg,transparent,#ff4fd8,var(--hot),transparent);transform:rotate(-8deg);margin:14px -8px;box-shadow:0 0 18px rgba(255,79,216,.35)}
+.replay-result{position:relative;z-index:2;text-align:center;padding:0 28px 28px}.replay-result .label{font-size:9px;letter-spacing:2px;color:var(--hot);font-weight:950}.replay-result h2{font-size:clamp(34px,7vw,62px);letter-spacing:-3px;margin:6px 0 8px}.replay-result p{max-width:650px;margin:0 auto;color:#a6a7b5;font-size:11px;line-height:1.6}
+.replay-meter{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:640px;margin:20px auto 0}.replay-meter-card{border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.replay-meter-card span{font-size:8px;color:var(--muted);letter-spacing:1px}.replay-meter-card b{display:block;font-size:18px;margin-top:3px}
+.replay-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:18px;pointer-events:auto}.replay-actions button,.replay-actions a{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.035);color:#fff;padding:10px 12px;font-size:9px;font-weight:950;text-decoration:none;cursor:pointer}.replay-actions .hot{background:var(--hot);border-color:var(--hot);color:#07070a}.replay-actions .violet{background:rgba(161,124,255,.14);border-color:rgba(161,124,255,.28)}
+.replay-step{opacity:0;transform:translateY(10px)}.clash-replay-shell.show .replay-step{animation:replayStep .45s ease forwards}.clash-replay-shell.show .replay-step.s2{animation-delay:.18s}.clash-replay-shell.show .replay-step.s3{animation-delay:.36s}.clash-replay-shell.show .replay-step.s4{animation-delay:.56s}
+@keyframes replayFade{from{opacity:0}to{opacity:1}}@keyframes replayStep{to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){.replay-arena{grid-template-columns:1fr 72px 1fr;padding:26px 14px 18px}.replay-avatar{width:86px;height:86px;border-radius:27px;font-size:48px}.replay-name{font-size:14px}.replay-vs .vs{font-size:30px}.replay-result{padding:0 16px 22px}.replay-meter{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -548,7 +565,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V9.7</div>
+            <div class="core-badge">V9.8</div>
           </div>
         </div>
         <div>
@@ -856,7 +873,48 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.7 CROWN WAR ALERTS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.8 CINEMATIC CLASH REPLAY</div>
+</div>
+
+<div class="clash-replay-shell" id="clashReplayShell">
+  <div class="clash-replay">
+    <div class="replay-top">
+      <div><b>⚔️ BL3 // CINEMATIC CLASH REPLAY</b><br><span id="replayTopMeta">ALPHA CLASH RESULT</span></div>
+      <button class="replay-close" onclick="closeClashReplay()">CLOSE ✕</button>
+    </div>
+    <div class="replay-arena replay-step">
+      <div class="replay-fighter" id="replayChallenger">
+        <div class="replay-avatar" id="replayChallengerAvatar">👾</div>
+        <div class="replay-name" id="replayChallengerName">CHALLENGER</div>
+        <div class="replay-power">POWER <b id="replayChallengerPower">0</b></div>
+      </div>
+      <div class="replay-vs replay-step s2">
+        <div class="vs">VS</div>
+        <div class="replay-slash"></div>
+        <div class="battle-no" id="replayBattleNo">CLASH #—</div>
+      </div>
+      <div class="replay-fighter" id="replayOpponent">
+        <div class="replay-avatar" id="replayOpponentAvatar">👾</div>
+        <div class="replay-name" id="replayOpponentName">OPPONENT</div>
+        <div class="replay-power">POWER <b id="replayOpponentPower">0</b></div>
+      </div>
+    </div>
+    <div class="replay-result replay-step s3">
+      <div class="label" id="replayOutcomeLabel">WINNER</div>
+      <h2 id="replayWinner">—</h2>
+      <p id="replayCommentary">Battle commentary will appear here.</p>
+      <div class="replay-meter">
+        <div class="replay-meter-card"><span>POWER GAP</span><b id="replayPowerGap">0</b></div>
+        <div class="replay-meter-card"><span>RESULT</span><b id="replayPersonalResult">—</b></div>
+      </div>
+      <div class="replay-actions replay-step s4">
+        <a class="hot" id="replayOpenCard" href="#" target="_blank" rel="noopener">🃏 OPEN BATTLE CARD</a>
+        <button class="violet" onclick="shareBattle()">📣 SHARE RESULT</button>
+        <button onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button>
+        <button onclick="closeClashReplay()">BACK TO ARENA</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="war-alert-shell" id="warAlertShell">
@@ -1400,6 +1458,50 @@ async function loadDailyMissions(){
  document.getElementById("dailyMissions").innerHTML=h||'<div class="meta">No missions loaded.</div>';
 }
 
+function closeClashReplay(){
+ const shell=document.getElementById("clashReplayShell");
+ if(shell)shell.classList.remove("show");
+}
+
+function openClashReplay(d){
+ if(!d?.success)return;
+ const mine=d.challenger||{};
+ const them=d.opponent||{};
+ const shell=document.getElementById("clashReplayShell");
+ if(!shell)return;
+
+ const mineName=username;
+ const themName=them.opponent||"Opponent";
+ const mineWon=d.winner===mineName;
+
+ const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=value};
+ set("replayTopMeta","ALPHA CLASH // "+(d.crown_attack?"CROWN WAR":"STANDARD ARENA"));
+ set("replayChallengerAvatar",mine.avatar||"👾");
+ set("replayChallengerName",mineName);
+ set("replayChallengerPower",Number(mine.power||0));
+ set("replayOpponentAvatar",them.avatar||"👾");
+ set("replayOpponentName",themName);
+ set("replayOpponentPower",Number(them.power||0));
+ set("replayBattleNo","CLASH #"+Number(d.battle_id||0));
+ set("replayWinner",(d.winner||"—").toUpperCase());
+ set("replayCommentary",d.commentary||"The clash resolved.");
+ set("replayPowerGap",Math.abs(Number(mine.power||0)-Number(them.power||0)));
+ set("replayPersonalResult",mineWon?"VICTORY":"DEFEAT");
+ set("replayOutcomeLabel",d.crown_attack?(mineWon?"CROWN WAR VICTORY":"CROWN WAR RESULT"):"WINNER");
+
+ const left=document.getElementById("replayChallenger");
+ const right=document.getElementById("replayOpponent");
+ if(left){left.classList.toggle("winner",d.winner===mineName);left.classList.toggle("loser",d.winner!==mineName)}
+ if(right){right.classList.toggle("winner",d.winner===themName);right.classList.toggle("loser",d.winner!==themName)}
+
+ const card=document.getElementById("replayOpenCard");
+ if(card)card.href="/clash/"+Number(d.battle_id||0);
+
+ shell.classList.remove("show");
+ void shell.offsetWidth;
+ shell.classList.add("show");
+}
+
 async function battleHunter(){
  currentUser();
  const opponent=document.getElementById("battleOpponent").value.trim();
@@ -1417,6 +1519,7 @@ async function battleHunter(){
  const el=document.getElementById("battleResult");
  el.classList.remove("hidden");
  el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><a href="/clash/'+d.battle_id+'" target="_blank" style="display:block;text-decoration:none;color:inherit;margin-top:10px"><div class="proof">🃏 BATTLE CARD #'+d.battle_id+' • OPEN PUBLIC RESULT ↗</div></a><div class="battle-actions"><button class="btn hot" onclick="shareBattle()">📣 SHARE CARD</button><button class="btn" onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button></div>';
+ openClashReplay(d);
  show(won?"Your creature took the crown 👑":"Chaos chose your opponent this round.");
  await loadSeason();
  await loadUser();
@@ -3489,7 +3592,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.7 CROWN WAR ALERTS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.8 CINEMATIC CLASH REPLAY</div>
 </div></body></html>"""
 
 
@@ -4304,7 +4407,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.7 CROWN WAR ALERTS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.8 CINEMATIC CLASH REPLAY</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -4429,7 +4532,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.7 CROWN WAR ALERTS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.8 CINEMATIC CLASH REPLAY</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -4602,7 +4705,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.7 CROWN WAR ALERTS</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.8 CINEMATIC CLASH REPLAY</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -5658,7 +5761,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🚨 BL3 ARENA V9.7 // CROWN WAR ALERTS")
+    print("🎬 BL3 ARENA V9.8 // CINEMATIC CLASH REPLAY")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
