@@ -215,6 +215,15 @@ def init_db():
         )
     """)
 
+    # V8.4: optional visual skin for the public Hunter Loadout.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_loadout_skins (
+            username TEXT PRIMARY KEY,
+            skin_key TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
     # Reputation events get an optional event_key so future signals can be idempotent.
     rep_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reputation_events)").fetchall()}
     if "event_key" not in rep_cols:
@@ -518,7 +527,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2296,23 +2305,23 @@ def hunter_profile_card_svg(username):
     crown = "CURRENT CROWN" if d['season']['is_crown'] else "HUNTER"
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
       <defs>
-        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#050507"/><stop offset=".55" stop-color="#141221"/><stop offset="1" stop-color="#09090e"/></linearGradient>
-        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#b8ff5a"/><stop offset="1" stop-color="#9d7bff"/></linearGradient>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{skin['bg0']}"/><stop offset=".55" stop-color="#141221"/><stop offset="1" stop-color="#09090e"/></linearGradient>
+        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="{skin['accent']}"/><stop offset="1" stop-color="{skin['accent2']}"/></linearGradient>
       </defs>
       <rect width="1200" height="630" rx="38" fill="url(#bg)"/>
       <rect x="34" y="34" width="1132" height="562" rx="30" fill="none" stroke="#30303a" stroke-width="2"/>
-      <text x="70" y="92" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="26" font-weight="900">BL3 // PUBLIC HUNTER PROFILE</text>
+      <text x="70" y="92" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="26" font-weight="900">BL3 // PUBLIC HUNTER PROFILE</text>
       <text x="70" y="142" fill="#777785" font-family="Arial,sans-serif" font-size="18" letter-spacing="3">THE HUMAN ALPHA NETWORK // {esc(crown)}</text>
       <text x="72" y="258" fill="#ffffff" font-family="Arial,sans-serif" font-size="70" font-weight="950">{esc(d['username'])}</text>
-      <text x="72" y="304" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="24" font-weight="900" letter-spacing="2">{esc(hunter_title['icon'])} {esc(hunter_title['title'])}</text>
+      <text x="72" y="304" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="24" font-weight="900" letter-spacing="2">{esc(hunter_title['icon'])} {esc(hunter_title['title'])}</text>
       <text x="72" y="346" fill="url(#accent)" font-family="Arial,sans-serif" font-size="28" font-weight="900">{esc(d['creature']['avatar'])} {esc(d['creature']['name'])} // LVL {d['level']}</text>
       <text x="72" y="386" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="22">{d['reputation']} REP   •   {d['xp']} XP   •   {d['wins']} WINS   •   {d['network']} NETWORK</text>
-      <text x="72" y="421" fill="#ffd86b" font-family="Arial,sans-serif" font-size="18" font-weight="900">{esc(featured_line)}</text>
-      <rect x="72" y="448" width="1056" height="1" fill="#30303a"/>
+      <text x="72" y="421" fill="{skin['gold']}" font-family="Arial,sans-serif" font-size="18" font-weight="900">{esc(featured_line)}</text>
+      <rect x="72" y="448" width="1056" height="1" fill="{skin['line']}"/>
       <text x="72" y="493" fill="#ffffff" font-family="Arial,sans-serif" font-size="21" font-weight="800">SEASON {esc(d['season']['key'])}</text>
-      <text x="72" y="535" fill="#9d7bff" font-family="Arial,sans-serif" font-size="25" font-weight="900">RANK {season_rank}   •   {d['season']['wins']}W / {d['season']['losses']}L   •   {d['season']['win_streak']} WIN STREAK</text>
+      <text x="72" y="535" fill="{skin['accent2']}" font-family="Arial,sans-serif" font-size="25" font-weight="900">RANK {season_rank}   •   {d['season']['wins']}W / {d['season']['losses']}L   •   {d['season']['win_streak']} WIN STREAK</text>
       <text x="72" y="570" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
-      <text x="1128" y="570" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">CHALLENGE THIS HUNTER →</text>
+      <text x="1128" y="570" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">CHALLENGE THIS HUNTER →</text>
     </svg>"""
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=300"})
 
@@ -2617,13 +2626,13 @@ def rivalry_card_svg(hunter_a, hunter_b):
         </linearGradient>
         <linearGradient id="hot" x1="0" x2="1">
           <stop offset="0" stop-color="#b8ff5a"/>
-          <stop offset="1" stop-color="#9d7bff"/>
+          <stop offset="1" stop-color="{skin['accent2']}"/>
         </linearGradient>
         <filter id="glow"><feGaussianBlur stdDeviation="8" result="c"/><feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       </defs>
       <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
-      <rect x="1" y="1" width="1198" height="628" rx="35" fill="none" stroke="#2b2b38" stroke-width="2"/>
-      <text x="70" y="74" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="22" font-weight="900" letter-spacing="3">BL3 // RIVALRY CARD</text>
+      <rect x="1" y="1" width="1198" height="628" rx="35" fill="none" stroke="{skin['line']}" stroke-width="2"/>
+      <text x="70" y="74" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="22" font-weight="900" letter-spacing="3">BL3 // RIVALRY CARD</text>
       <text x="1130" y="74" fill="#6d6d7d" font-family="Arial,sans-serif" font-size="18" text-anchor="end">THE HUMAN ALPHA NETWORK</text>
 
       <text x="235" y="215" fill="#ffffff" font-family="Arial,sans-serif" font-size="54" text-anchor="middle">{esc(a_avatar)}</text>
@@ -2631,8 +2640,8 @@ def rivalry_card_svg(hunter_a, hunter_b):
       <text x="235" y="405" fill="#ffffff" font-family="Arial,sans-serif" font-size="120" font-weight="900" text-anchor="middle">{h2h["a_wins"]}</text>
 
       <text x="600" y="250" fill="url(#hot)" font-family="Arial,sans-serif" font-size="64" font-weight="900" text-anchor="middle" filter="url(#glow)">VS</text>
-      <text x="600" y="323" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="26" font-weight="900" text-anchor="middle">{h2h["total"]} CLASHES</text>
-      <text x="600" y="362" fill="#9d7bff" font-family="Arial,sans-serif" font-size="22" font-weight="900" text-anchor="middle">{esc(status)}</text>
+      <text x="600" y="323" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="26" font-weight="900" text-anchor="middle">{h2h["total"]} CLASHES</text>
+      <text x="600" y="362" fill="{skin['accent2']}" font-family="Arial,sans-serif" font-size="22" font-weight="900" text-anchor="middle">{esc(status)}</text>
 
       <text x="965" y="215" fill="#ffffff" font-family="Arial,sans-serif" font-size="54" text-anchor="middle">{esc(b_avatar)}</text>
       <text x="965" y="280" fill="#ffffff" font-family="Arial,sans-serif" font-size="42" font-weight="900" text-anchor="middle">{esc(hunter_b)}</text>
@@ -2640,8 +2649,8 @@ def rivalry_card_svg(hunter_a, hunter_b):
 
       <rect x="70" y="482" width="1060" height="1" fill="#2b2b38"/>
       <text x="70" y="522" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="20">LAST WINNER: {esc(last)}</text>
-      <text x="1130" y="522" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="20" font-weight="900" text-anchor="end">SETTLE IT IN BL3 →</text>
-      <text x="70" y="558" fill="#9d7bff" font-family="Arial,sans-serif" font-size="16" font-weight="900">{esc(badge_line)}</text>
+      <text x="1130" y="522" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="20" font-weight="900" text-anchor="end">SETTLE IT IN BL3 →</text>
+      <text x="70" y="558" fill="{skin['accent2']}" font-family="Arial,sans-serif" font-size="16" font-weight="900">{esc(badge_line)}</text>
       <text x="70" y="596" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
       <text x="1130" y="586" fill="#666677" font-family="Arial,sans-serif" font-size="17" text-anchor="end">bl3meme.com</text>
     </svg>"""
@@ -2724,9 +2733,146 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div>
-</div></body></html>"""
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div>
+</div>
+<script>
+document.querySelectorAll('.skin-btn').forEach(btn=>btn.addEventListener('click',async()=>{{
+  const key=btn.dataset.skinKey;
+  const r=await fetch('/api/loadout-skin/'+encodeURIComponent({json.dumps(username)}),{{
+    method:'POST',
+    headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{skin_key:key}})
+  }});
+  let d={{}};try{{d=await r.json()}}catch(e){{}}
+  if(!d.success){{alert(d.message||'Could not change skin.');return}}
+  location.reload();
+}}));
+</script></body></html>"""
 
+
+
+
+def _loadout_skin_catalog():
+    return {
+        "neon": {
+            "key": "neon",
+            "name": "NEON",
+            "icon": "⚡",
+            "bg0": "#050507",
+            "bg1": "#101017",
+            "bg2": "#1b1028",
+            "accent": "#b8ff5a",
+            "accent2": "#9d7bff",
+            "gold": "#ffd86b",
+            "card": "#0d0d13",
+            "line": "#2a2a35",
+            "muted": "#8f8f9e"
+        },
+        "void": {
+            "key": "void",
+            "name": "VOID",
+            "icon": "🌑",
+            "bg0": "#020205",
+            "bg1": "#080812",
+            "bg2": "#11112a",
+            "accent": "#8ea1ff",
+            "accent2": "#5f6dff",
+            "gold": "#b9c4ff",
+            "card": "#080811",
+            "line": "#24243d",
+            "muted": "#82829c"
+        },
+        "crown": {
+            "key": "crown",
+            "name": "CROWN",
+            "icon": "👑",
+            "bg0": "#090704",
+            "bg1": "#181109",
+            "bg2": "#2a1b09",
+            "accent": "#ffd86b",
+            "accent2": "#ff9f43",
+            "gold": "#ffe7a3",
+            "card": "#161007",
+            "line": "#4a3517",
+            "muted": "#b3a58b"
+        },
+        "chaos": {
+            "key": "chaos",
+            "name": "CHAOS",
+            "icon": "😈",
+            "bg0": "#09030b",
+            "bg1": "#1c071d",
+            "bg2": "#280b18",
+            "accent": "#ff4fd8",
+            "accent2": "#ff6b35",
+            "gold": "#ffcc70",
+            "card": "#160817",
+            "line": "#4b1e45",
+            "muted": "#b38aa9"
+        }
+    }
+
+
+def _hunter_loadout_skin(username):
+    catalog = _loadout_skin_catalog()
+    conn = db()
+    user = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None:
+        conn.close()
+        return None
+    row = conn.execute(
+        "SELECT skin_key FROM hunter_loadout_skins WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+
+    key = row["skin_key"] if row and row["skin_key"] in catalog else "neon"
+    return catalog[key]
+
+
+@app.route("/api/loadout-skin/<username>", methods=["GET", "POST"])
+def hunter_loadout_skin_api(username):
+    current = _hunter_loadout_skin(username)
+    if current is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    catalog = _loadout_skin_catalog()
+    if request.method == "GET":
+        return jsonify({
+            "success": True,
+            "username": username,
+            "current": current,
+            "options": list(catalog.values())
+        })
+
+    if session.get("authenticated_username") != username:
+        return jsonify({
+            "success": False,
+            "message": "Sign in with this Hunter ID to change Loadout skin."
+        }), 401
+
+    payload = request.get_json(silent=True) or {}
+    skin_key = str(payload.get("skin_key", "")).strip().lower()
+    if skin_key not in catalog:
+        return jsonify({"success": False, "message": "Unknown Loadout skin."}), 400
+
+    conn = db()
+    conn.execute(
+        """INSERT INTO hunter_loadout_skins(username, skin_key, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             skin_key = excluded.skin_key,
+             updated_at = excluded.updated_at""",
+        (username, skin_key, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": f"{catalog[skin_key]['icon']} Equipped {catalog[skin_key]['name']} skin",
+        "current": catalog[skin_key]
+    })
 
 
 @app.route("/loadout/<username>/card.svg")
@@ -2740,6 +2886,7 @@ def hunter_loadout_card_svg(username):
     }
     showcase = _hunter_showcase(username) or {"featured": None}
     featured = showcase.get("featured")
+    skin = _hunter_loadout_skin(username) or _loadout_skin_catalog()["neon"]
     esc = lambda v: html.escape(str(v or ""))
 
     featured_title = featured["title"] if featured else "NO FEATURED TROPHY"
@@ -2749,13 +2896,13 @@ def hunter_loadout_card_svg(username):
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
       <defs>
         <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-          <stop stop-color="#050507"/>
-          <stop offset=".55" stop-color="#101017"/>
-          <stop offset="1" stop-color="#1b1028"/>
+          <stop stop-color="{skin['bg0']}"/>
+          <stop offset=".55" stop-color="{skin['bg1']}"/>
+          <stop offset="1" stop-color="{skin['bg2']}"/>
         </linearGradient>
         <linearGradient id="accent" x1="0" x2="1">
-          <stop stop-color="#b8ff5a"/>
-          <stop offset="1" stop-color="#9d7bff"/>
+          <stop stop-color="{skin['accent']}"/>
+          <stop offset="1" stop-color="{skin['accent2']}"/>
         </linearGradient>
         <filter id="glow">
           <feGaussianBlur stdDeviation="8" result="b"/>
@@ -2764,34 +2911,34 @@ def hunter_loadout_card_svg(username):
       </defs>
 
       <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
-      <rect x="1" y="1" width="1198" height="628" rx="35" fill="none" stroke="#2b2b38" stroke-width="2"/>
+      <rect x="1" y="1" width="1198" height="628" rx="35" fill="none" stroke="{skin['line']}" stroke-width="2"/>
 
-      <text x="68" y="70" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="22" font-weight="900" letter-spacing="3">BL3 // HUNTER LOADOUT</text>
-      <text x="1130" y="70" fill="#6f6f7f" font-family="Arial,sans-serif" font-size="17" text-anchor="end">THE HUMAN ALPHA NETWORK</text>
+      <text x="68" y="70" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="22" font-weight="900" letter-spacing="3">BL3 // HUNTER LOADOUT</text>
+      <text x="1130" y="70" fill="{skin['muted']}" font-family="Arial,sans-serif" font-size="17" text-anchor="end">{esc(skin['icon'])} {esc(skin['name'])} SKIN</text>
 
-      <rect x="68" y="118" width="260" height="350" rx="28" fill="#0d0d13" stroke="#2a2a35"/>
+      <rect x="68" y="118" width="260" height="350" rx="28" fill="{skin['card']}" stroke="{skin['line']}"/>
       <text x="198" y="245" fill="#ffffff" font-family="Arial,sans-serif" font-size="94" text-anchor="middle">{esc(d['creature']['avatar'])}</text>
       <text x="198" y="315" fill="#ffffff" font-family="Arial,sans-serif" font-size="29" font-weight="900" text-anchor="middle">{esc(d['creature']['name'])}</text>
-      <text x="198" y="350" fill="#9d7bff" font-family="Arial,sans-serif" font-size="18" font-weight="900" text-anchor="middle">{esc(d['creature']['stage'])}</text>
-      <text x="198" y="397" fill="#8f8f9e" font-family="Arial,sans-serif" font-size="16" text-anchor="middle">LEVEL {d['level']}  •  {d['xp']} XP</text>
+      <text x="198" y="350" fill="{skin['accent2']}" font-family="Arial,sans-serif" font-size="18" font-weight="900" text-anchor="middle">{esc(d['creature']['stage'])}</text>
+      <text x="198" y="397" fill="{skin['muted']}" font-family="Arial,sans-serif" font-size="16" text-anchor="middle">LEVEL {d['level']}  •  {d['xp']} XP</text>
 
       <text x="380" y="165" fill="#ffffff" font-family="Arial,sans-serif" font-size="66" font-weight="950">{esc(username)}</text>
       <text x="380" y="215" fill="url(#accent)" font-family="Arial,sans-serif" font-size="25" font-weight="900" filter="url(#glow)">{esc(hunter_title['icon'])} {esc(hunter_title['title'])}</text>
-      <text x="380" y="246" fill="#8f8f9e" font-family="Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="2">{esc(hunter_title['tier'])}</text>
+      <text x="380" y="246" fill="{skin['muted']}" font-family="Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="2">{esc(hunter_title['tier'])}</text>
 
-      <rect x="380" y="286" width="752" height="118" rx="20" fill="#0c0c12" stroke="#282834"/>
-      <text x="408" y="322" fill="#ffd86b" font-family="Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="2">FEATURED TROPHY</text>
+      <rect x="380" y="286" width="752" height="118" rx="20" fill="{skin['card']}" stroke="{skin['line']}"/>
+      <text x="408" y="322" fill="{skin['gold']}" font-family="Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="2">FEATURED TROPHY</text>
       <text x="408" y="362" fill="#ffffff" font-family="Arial,sans-serif" font-size="26" font-weight="900">{esc(featured_icon)} {esc(featured_title)}</text>
-      <text x="408" y="389" fill="#8f8f9e" font-family="Arial,sans-serif" font-size="14">{esc(featured_tier)}</text>
+      <text x="408" y="389" fill="{skin['muted']}" font-family="Arial,sans-serif" font-size="14">{esc(featured_tier)}</text>
 
-      <rect x="380" y="430" width="752" height="1" fill="#30303a"/>
+      <rect x="380" y="430" width="752" height="1" fill="{skin['line']}"/>
       <text x="380" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">{d['reputation']} REP</text>
       <text x="555" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">{d['wins']} WINS</text>
       <text x="720" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">{d['network']} NETWORK</text>
       <text x="930" y="477" fill="#ffffff" font-family="Arial,sans-serif" font-size="20" font-weight="900">XP RANK #{d['xp_rank'] or '—'}</text>
 
-      <text x="68" y="559" fill="#696978" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
-      <text x="1130" y="559" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">BL3MEME.COM</text>
+      <text x="68" y="559" fill="{skin['muted']}" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
+      <text x="1130" y="559" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">BL3MEME.COM</text>
     </svg>"""
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=120"})
 
@@ -2807,6 +2954,10 @@ def hunter_loadout_page(username):
     }
     showcase = _hunter_showcase(username) or {"featured": None}
     featured = showcase.get("featured")
+    skin = _hunter_loadout_skin(username) or _loadout_skin_catalog()["neon"]
+    skin_options = list(_loadout_skin_catalog().values())
+    viewer = session.get("authenticated_username") or ""
+    is_owner = viewer == username
     esc = lambda v: html.escape(str(v or ""))
 
     root = request.url_root.rstrip("/")
@@ -2823,8 +2974,19 @@ def hunter_loadout_page(username):
         '<div class="featured"><div class="featured-icon">🏆</div><div><div class="small">FEATURED TROPHY</div><h3>None yet</h3><div class="meta">Unlock and pin a Trophy from your public Hunter profile.</div></div></div>'
     )
 
+    skin_picker = ""
+    if is_owner:
+        skin_picker = '<div class="skin-panel"><div><div class="small">LOADOUT SKIN</div><div class="meta">Choose a visual identity for this public card.</div></div><div class="skin-options">'
+        for s in skin_options:
+            active = s["key"] == skin["key"]
+            skin_picker += (
+                f'<button class="skin-btn{" active" if active else ""}" data-skin-key="{esc(s["key"])}">'
+                f'{esc(s["icon"])} {esc(s["name"])}</button>'
+            )
+        skin_picker += '</div></div>'
+
     title = f"{username} // Hunter Loadout // BL3"
-    desc = f"{hunter_title['icon']} {hunter_title['title']} • {d['creature']['name']} • {d['reputation']} REP • {d['wins']} wins."
+    desc = f"{skin['icon']} {skin['name']} Loadout • {hunter_title['icon']} {hunter_title['title']} • {d['creature']['name']} • {d['reputation']} REP • {d['wins']} wins."
 
     return f"""<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2839,25 +3001,26 @@ def hunter_loadout_page(username):
 <meta name="twitter:description" content="{esc(desc)}">
 <meta name="twitter:image" content="{esc(image_url)}">
 <style>
-:root{{--bg:#08080d;--card:#111119;--line:#292934;--muted:#9393a4;--hot:#b8ff5a;--violet:#9d7bff;--gold:#ffd86b}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -15%,#25163e 0,#08080d 50%);color:#fff;font-family:Arial,sans-serif}}
+:root{{--bg:{skin['bg0']};--card:{skin['card']};--line:{skin['line']};--muted:{skin['muted']};--hot:{skin['accent']};--violet:{skin['accent2']};--gold:{skin['gold']}}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -15%,{skin['bg2']} 0,{skin['bg0']} 52%);color:#fff;font-family:Arial,sans-serif}}
 .shell{{max-width:1000px;margin:auto;padding:28px}}.nav{{display:flex;justify-content:space-between;align-items:center}}.brand{{font-size:24px;font-weight:900}}.brand span,.eyebrow{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px}}
 .hero{{margin-top:55px}}.eyebrow{{font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:clamp(48px,8vw,86px);margin:8px 0;letter-spacing:-4px}}.meta{{color:var(--muted)}}.layout{{display:grid;grid-template-columns:300px 1fr;gap:18px;margin-top:28px}}
 .creature,.identity,.featured,.stat{{border:1px solid var(--line);background:var(--card);border-radius:24px}}.creature{{padding:28px;text-align:center}}.avatar{{font-size:94px}}.creature h2{{margin:16px 0 5px}}.stage{{color:var(--violet);font-weight:900;font-size:12px;letter-spacing:2px}}
 .identity{{padding:24px}}.title{{display:inline-flex;gap:8px;align-items:center;color:var(--hot);font-size:15px;font-weight:900;border:1px solid rgba(184,255,90,.25);padding:9px 12px;border-radius:999px}}.tier{{font-size:9px;color:var(--muted);letter-spacing:1px}}
 .featured{{display:flex;gap:15px;align-items:center;padding:18px;margin-top:16px;background:linear-gradient(145deg,#111119,#181220)}}.featured-icon{{font-size:44px}}.featured h3{{margin:4px 0}}.featured span{{display:inline-block;color:var(--gold);font-size:9px;font-weight:900;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px;margin-top:8px}}
 .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{padding:16px}}.stat b{{display:block;font-size:25px}}.stat span,.small{{color:var(--muted);font-size:10px;letter-spacing:1.2px;font-weight:900}}
-.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.footer{{text-align:center;color:#626270;padding:50px 0 20px}}
-@media(max-width:760px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}h1{{letter-spacing:-2px}}}}
+.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.skin-panel{{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--card)}}.skin-options{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}.skin-btn{{border:1px solid var(--line);background:transparent;color:#fff;padding:9px 12px;border-radius:999px;font-size:10px;font-weight:900;cursor:pointer}}.skin-btn:hover,.skin-btn.active{{border-color:var(--hot);color:var(--hot);box-shadow:0 0 18px color-mix(in srgb,var(--hot) 18%,transparent)}}.footer{{text-align:center;color:var(--muted);padding:50px 0 20px}}
+@media(max-width:760px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}.skin-panel{{align-items:flex-start;flex-direction:column}}.skin-options{{justify-content:flex-start}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell">
 <nav class="nav"><div class="brand">BL3<span>●</span></div><a class="back" href="{esc(profile_url)}">← HUNTER PROFILE</a></nav>
-<section class="hero"><div class="eyebrow">HUNTER LOADOUT // PUBLIC IDENTITY CARD</div><h1>{esc(username)}</h1><div class="meta">Creature + Title + Featured Trophy + proof stats in one shareable identity.</div>
+<section class="hero"><div class="eyebrow">HUNTER LOADOUT // PUBLIC IDENTITY CARD // {esc(skin['icon'])} {esc(skin['name'])}</div><h1>{esc(username)}</h1><div class="meta">Creature + Title + Featured Trophy + proof stats in one shareable identity.</div>
+{skin_picker}
 <div class="layout"><div class="creature"><div class="avatar">{esc(d['creature']['avatar'])}</div><h2>{esc(d['creature']['name'])}</h2><div class="stage">{esc(d['creature']['stage'])}</div><div class="meta" style="margin-top:10px">LEVEL {d['level']} · {d['xp']} XP</div></div>
 <div class="identity"><div class="title">{esc(hunter_title['icon'])} {esc(hunter_title['title'])} <span class="tier">{esc(hunter_title['tier'])}</span></div>
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div>
 </div></body></html>"""
 
 
@@ -3017,7 +3180,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.3 HUNTER LOADOUT</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.4 LOADOUT SKINS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -3085,21 +3248,21 @@ def clash_card_svg(battle_id):
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
       <defs>
         <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#08080b"/><stop offset="1" stop-color="#171725"/></linearGradient>
-        <linearGradient id="a" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#b8ff5a"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+        <linearGradient id="a" x1="0" y1="0" x2="1" y2="0"><stop stop-color="{skin['accent']}"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
       </defs>
       <rect width="1200" height="630" rx="36" fill="url(#g)"/>
       <rect x="34" y="34" width="1132" height="562" rx="30" fill="none" stroke="#30303a" stroke-width="2"/>
-      <text x="72" y="98" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="27" font-weight="800">BL3 // ALPHA CLASH #{battle_id}</text>
+      <text x="72" y="98" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="27" font-weight="800">BL3 // ALPHA CLASH #{battle_id}</text>
       <text x="72" y="155" fill="#777785" font-family="Arial,sans-serif" font-size="20" letter-spacing="3">PROOF &gt; NOISE // BATTLE RESULT</text>
       <text x="190" y="292" fill="#ffffff" font-family="Arial,sans-serif" font-size="47" font-weight="900" text-anchor="middle">{challenger}</text>
-      <text x="190" y="348" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="34" font-weight="900" text-anchor="middle">POWER {b['challenger_power']}</text>
+      <text x="190" y="348" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="34" font-weight="900" text-anchor="middle">POWER {b['challenger_power']}</text>
       <text x="600" y="315" fill="url(#a)" font-family="Arial,sans-serif" font-size="70" font-weight="900" text-anchor="middle">VS</text>
       <text x="1010" y="292" fill="#ffffff" font-family="Arial,sans-serif" font-size="47" font-weight="900" text-anchor="middle">{opponent}</text>
       <text x="1010" y="348" fill="#8b5cf6" font-family="Arial,sans-serif" font-size="34" font-weight="900" text-anchor="middle">POWER {b['opponent_power']}</text>
       <text x="600" y="438" fill="#ffffff" font-family="Arial,sans-serif" font-size="32" font-weight="900" text-anchor="middle">CROWN: {winner}</text>
       <text x="600" y="493" fill="#9b9baa" font-family="Arial,sans-serif" font-size="21" text-anchor="middle">{commentary[:86]}</text>
       <text x="72" y="560" fill="#656675" font-family="Arial,sans-serif" font-size="18">BL3 HUMAN ALPHA NETWORK</text>
-      <text x="1128" y="560" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="18" text-anchor="end">CHALLENGE THE HUNTER</text>
+      <text x="1128" y="560" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="18" text-anchor="end">CHALLENGE THE HUNTER</text>
     </svg>"""
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=300"})
 
@@ -3763,7 +3926,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🧬 BL3 ARENA V8.3 // HUNTER LOADOUT")
+    print("🎨 BL3 ARENA V8.4 // LOADOUT SKINS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
