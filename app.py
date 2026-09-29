@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request, session, Response
 import sqlite3
 import os
 import secrets
@@ -7,6 +7,7 @@ import json
 import urllib.parse
 import urllib.request
 import urllib.error
+import html
 from datetime import datetime, timedelta
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -299,7 +300,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.4 SOCIAL CLASH</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.5 BATTLE CARDS</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -365,14 +366,15 @@ async function battleHunter(){
  const d=await jsonFetch("/api/battle",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({challenger:username,opponent})});
  if(!d.success){show(d.message||"Clash failed");return}
  const mine=d.challenger,them=d.opponent,won=d.winner===username;
- const challengeLink=location.origin+"/?challenge="+encodeURIComponent(username)+"&ref="+encodeURIComponent(username);
+ const challengeLink=location.origin+"/?challenge="+encodeURIComponent(username)+"&ref="+encodeURIComponent(username)+"&from_battle="+d.battle_id;
+ const battleCard=location.origin+"/clash/"+d.battle_id;
  lastBattleShare={
-   text:"⚔️ BL3 ALPHA CLASH #"+d.battle_id+"\n"+mine.avatar+" "+username+" "+mine.power+" — "+them.power+" "+them.opponent+" "+them.avatar+"\n👑 Winner: "+d.winner+"\n"+d.commentary+"\n\nChallenge me on BL3 👇",
-   link:challengeLink
+   text:"⚔️ BL3 ALPHA CLASH #"+d.battle_id+"\n"+mine.avatar+" "+username+" "+mine.power+" — "+them.power+" "+them.opponent+" "+them.avatar+"\n👑 Winner: "+d.winner+"\n"+d.commentary+"\n\nOpen the battle card + challenge me 👇",
+   link:battleCard, challenge:challengeLink, card:battleCard
  };
  const el=document.getElementById("battleResult");
  el.classList.remove("hidden");
- el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><div class="battle-actions"><button class="btn hot" onclick="shareBattle()">📣 SHARE CLASH</button><button class="btn" onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button></div>';
+ el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><a href="/clash/'+d.battle_id+'" target="_blank" style="display:block;text-decoration:none;color:inherit;margin-top:10px"><div class="proof">🃏 BATTLE CARD #'+d.battle_id+' • OPEN PUBLIC RESULT ↗</div></a><div class="battle-actions"><button class="btn hot" onclick="shareBattle()">📣 SHARE CARD</button><button class="btn" onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button></div>';
  show(won?"Your creature took the crown 👑":"Chaos chose your opponent this round.");
  await loadUser();
 }
@@ -384,8 +386,8 @@ function shareBattle(){
 }
 function copyChallengeLink(){
  if(!lastBattleShare){show("Finish a clash first.");return}
- if(navigator.clipboard)navigator.clipboard.writeText(lastBattleShare.link);
- show("Challenge link copied: "+lastBattleShare.link);
+ if(navigator.clipboard)navigator.clipboard.writeText(lastBattleShare.challenge);
+ show("Challenge link copied: "+lastBattleShare.challenge);
 }
 function hydrateChallenge(){
  const p=new URLSearchParams(location.search),target=(p.get("challenge")||"").trim();
@@ -1371,6 +1373,84 @@ def passport_api(username):
     })
 
 
+def _creature_avatar_from_xp(xp):
+    xp = int(xp or 0)
+    if xp >= 1500: return "👑"
+    if xp >= 700: return "🦹"
+    if xp >= 300: return "😈"
+    if xp >= 100: return "👾"
+    return "🥚"
+
+
+def _battle_record(battle_id):
+    conn = db()
+    row = conn.execute("""SELECT id, challenger, opponent, winner, challenger_power, opponent_power,
+                               commentary, created_at
+                        FROM creature_battles WHERE id = ?""", (battle_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return None
+    d = dict(row)
+    cx = conn.execute("SELECT xp FROM users WHERE username = ?", (d["challenger"],)).fetchone()
+    ox = conn.execute("SELECT xp FROM users WHERE username = ?", (d["opponent"],)).fetchone()
+    conn.close()
+    d["challenger_avatar"] = _creature_avatar_from_xp(cx["xp"] if cx else 0)
+    d["opponent_avatar"] = _creature_avatar_from_xp(ox["xp"] if ox else 0)
+    return d
+
+
+@app.route("/clash/<int:battle_id>/card.svg")
+def clash_card_svg(battle_id):
+    b = _battle_record(battle_id)
+    if not b:
+        return Response("Battle not found", status=404, mimetype="text/plain")
+    esc = lambda v: html.escape(str(v or ""))
+    winner = esc(b["winner"])
+    challenger = esc(b["challenger"])
+    opponent = esc(b["opponent"])
+    commentary = esc(b["commentary"])
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#08080b"/><stop offset="1" stop-color="#171725"/></linearGradient>
+        <linearGradient id="a" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#b8ff5a"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+      </defs>
+      <rect width="1200" height="630" rx="36" fill="url(#g)"/>
+      <rect x="34" y="34" width="1132" height="562" rx="30" fill="none" stroke="#30303a" stroke-width="2"/>
+      <text x="72" y="98" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="27" font-weight="800">BL3 // ALPHA CLASH #{battle_id}</text>
+      <text x="72" y="155" fill="#777785" font-family="Arial,sans-serif" font-size="20" letter-spacing="3">PROOF &gt; NOISE // BATTLE RESULT</text>
+      <text x="190" y="292" fill="#ffffff" font-family="Arial,sans-serif" font-size="47" font-weight="900" text-anchor="middle">{challenger}</text>
+      <text x="190" y="348" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="34" font-weight="900" text-anchor="middle">POWER {b['challenger_power']}</text>
+      <text x="600" y="315" fill="url(#a)" font-family="Arial,sans-serif" font-size="70" font-weight="900" text-anchor="middle">VS</text>
+      <text x="1010" y="292" fill="#ffffff" font-family="Arial,sans-serif" font-size="47" font-weight="900" text-anchor="middle">{opponent}</text>
+      <text x="1010" y="348" fill="#8b5cf6" font-family="Arial,sans-serif" font-size="34" font-weight="900" text-anchor="middle">POWER {b['opponent_power']}</text>
+      <text x="600" y="438" fill="#ffffff" font-family="Arial,sans-serif" font-size="32" font-weight="900" text-anchor="middle">CROWN: {winner}</text>
+      <text x="600" y="493" fill="#9b9baa" font-family="Arial,sans-serif" font-size="21" text-anchor="middle">{commentary[:86]}</text>
+      <text x="72" y="560" fill="#656675" font-family="Arial,sans-serif" font-size="18">BL3 HUMAN ALPHA NETWORK</text>
+      <text x="1128" y="560" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="18" text-anchor="end">CHALLENGE THE HUNTER</text>
+    </svg>"""
+    return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.route("/clash/<int:battle_id>")
+def clash_public_page(battle_id):
+    b = _battle_record(battle_id)
+    if not b:
+        return "Battle not found", 404
+    esc = lambda v: html.escape(str(v or ""))
+    root = request.url_root.rstrip("/")
+    page_url = f"{root}/clash/{battle_id}"
+    image_url = f"{root}/clash/{battle_id}/card.svg"
+    challenge_url = f"{root}/?challenge={urllib.parse.quote(b['challenger'])}&ref={urllib.parse.quote(b['challenger'])}&from_battle={battle_id}"
+    title = f"BL3 Alpha Clash #{battle_id}: {b['challenger']} vs {b['opponent']}"
+    desc = f"{b['winner']} took the crown. {b['challenger_power']}-{b['opponent_power']}. Challenge the hunter on BL3."
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title><meta name="description" content="{esc(desc)}">
+<meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(desc)}"><meta property="og:type" content="website"><meta property="og:url" content="{esc(page_url)}"><meta property="og:image" content="{esc(image_url)}">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
+<style>*{{box-sizing:border-box}}body{{margin:0;background:#08080b;color:#fff;font-family:Arial,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px}}.wrap{{width:min(920px,100%)}}.brand{{font-weight:950;font-size:27px}}.brand span{{color:#b8ff5a}}.card{{margin-top:18px;border:1px solid #30303a;border-radius:28px;padding:30px;background:linear-gradient(145deg,#111116,#181824)}}.eyebrow{{color:#b8ff5a;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:clamp(34px,7vw,72px);line-height:.95;margin:18px 0}}.vs{{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;margin:30px 0}}.fighter{{padding:20px;border:1px solid #30303a;border-radius:20px;text-align:center}}.fighter b{{font-size:28px}}.power{{font-size:20px;color:#b8ff5a;margin-top:8px}}.center{{font-size:34px;font-weight:950;color:#8b5cf6}}.winner{{padding:18px;border:1px solid rgba(184,255,90,.3);border-radius:18px;background:rgba(184,255,90,.05)}}.meta{{color:#9b9baa;line-height:1.6}}.btn{{display:block;text-align:center;text-decoration:none;color:#09090c;background:#b8ff5a;font-weight:950;padding:16px;border-radius:16px;margin-top:18px}}.sub{{display:block;text-align:center;text-decoration:none;color:#fff;border:1px solid #30303a;font-weight:800;padding:14px;border-radius:16px;margin-top:9px}}@media(max-width:650px){{.vs{{grid-template-columns:1fr}}.center{{text-align:center}}}}</style></head>
+<body><div class="wrap"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><div class="card"><div class="eyebrow">PUBLIC BATTLE CARD // #{battle_id}</div><h1>{esc(b['challenger'])}<br><span style="color:#8b5cf6">VS {esc(b['opponent'])}</span></h1><div class="vs"><div class="fighter"><b>{esc(b['challenger_avatar'])} {esc(b['challenger'])}</b><div class="power">POWER {b['challenger_power']}</div></div><div class="center">VS</div><div class="fighter"><b>{esc(b['opponent_avatar'])} {esc(b['opponent'])}</b><div class="power">POWER {b['opponent_power']}</div></div></div><div class="winner"><div class="eyebrow">CROWN HOLDER</div><h2>👑 {esc(b['winner'])}</h2><div class="meta">{esc(b['commentary'])}</div></div><a class="btn" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(b['challenger']).upper()}</a><a class="sub" href="/">BACK TO LIVE ARENAS</a></div></div></body></html>"""
+
+
 @app.route("/api/battle", methods=["POST"])
 def battle_api():
     data = request.get_json(silent=True) or {}
@@ -1506,7 +1586,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6.3 // ALPHA CLASH")
+    print("👑 BL3 ARENA V6.5 // BATTLE CARDS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
