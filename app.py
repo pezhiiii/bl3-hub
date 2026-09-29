@@ -363,7 +363,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V9.2 LIVE NETWORK PULSE ===== */
+/* ===== V9.3 NETWORK HEATMAP ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -405,7 +405,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V9.2 LIVE NETWORK PULSE ===== */
+/* ===== V9.3 NETWORK HEATMAP ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -425,7 +425,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V9.2 LIVE NETWORK PULSE ===== */
+/* ===== V9.3 NETWORK HEATMAP ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -443,6 +443,24 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseDot{0%,100%{opacity:.55;transform:scale(.86)}50%{opacity:1;transform:scale(1.15)}}
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
+
+/* ===== V9.3 NETWORK HEATMAP ===== */
+.heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
+.heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
+.heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
+.heat-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;position:relative;z-index:1}
+.heat-top h2{font-size:24px;margin:5px 0 0;letter-spacing:-1px}.heat-top .meta{font-size:9px;max-width:290px;text-align:right}
+.hunter-heat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px;position:relative;z-index:1}
+.heat-hunter{border:1px solid var(--line);border-radius:16px;padding:11px;background:rgba(255,255,255,.022);text-decoration:none;color:#fff;transition:.18s}
+.heat-hunter:hover{transform:translateY(-2px);border-color:rgba(186,255,90,.28)}
+.heat-hunter-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.heat-id{display:flex;align-items:center;gap:8px;min-width:0}.heat-avatar{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#09090e;border:1px solid var(--line);font-size:18px}.heat-name{min-width:0}.heat-name b{display:block;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.heat-name span{font-size:8px;color:var(--muted)}.heat-score{font-size:10px;color:var(--hot);font-weight:950}
+.heat-bar{height:5px;margin-top:9px;border:1px solid var(--line);background:#07070b;border-radius:999px;overflow:hidden}.heat-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),#ff4fd8,var(--hot));border-radius:999px}
+.heat-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.heat-tag{font-size:7px;color:var(--muted);border:1px solid var(--line);padding:3px 5px;border-radius:999px}
+.rivalry-heat-list{display:grid;gap:9px;margin-top:14px;position:relative;z-index:1}
+.hot-rivalry{display:block;text-decoration:none;color:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;background:rgba(255,255,255,.022)}
+.hot-rivalry:hover{border-color:rgba(255,79,216,.25)}.rivalry-line{display:flex;justify-content:space-between;align-items:center;gap:8px}.rivalry-line b{font-size:10px}.rivalry-line span{font-size:9px;color:var(--muted)}.rivalry-score{margin-top:6px;font-size:9px;color:#c8c8d2}
+.heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
+@media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 </style>
 </head>
 <body>
@@ -478,7 +496,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V9.2</div>
+            <div class="core-badge">V9.3</div>
           </div>
         </div>
         <div>
@@ -537,6 +555,23 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     </div>
     <div class="pulse-track-wrap">
       <div class="pulse-track" id="pulseTrack"><div class="pulse-empty">Scanning the Human Alpha Network…</div></div>
+    </div>
+  </section>
+
+  <section class="heat-zone" id="networkHeatmap">
+    <div class="heat-panel">
+      <div class="heat-top">
+        <div><div class="eyebrow">🔥 NETWORK HEATMAP</div><h2>Trending Hunters</h2></div>
+        <div class="meta">Heat is based only on recent BL3 activity — not a financial or quality score.</div>
+      </div>
+      <div class="hunter-heat-grid" id="hunterHeatGrid"><div class="heat-empty">Calculating Hunter heat…</div></div>
+    </div>
+    <div class="heat-panel">
+      <div class="heat-top">
+        <div><div class="eyebrow">⚔️ RIVALRY HEAT</div><h2>Hot Matchups</h2></div>
+        <div class="meta">The most active direct Clash pairs in the recent battle stream.</div>
+      </div>
+      <div class="rivalry-heat-list" id="rivalryHeatList"><div class="heat-empty">Scanning rivalries…</div></div>
     </div>
   </section>
 
@@ -710,7 +745,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.2 LIVE NETWORK PULSE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -746,6 +781,49 @@ async function loadOnboarding(){
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
+
+function paintNetworkHeat(data){
+ const hunterGrid=document.getElementById("hunterHeatGrid");
+ const rivalryList=document.getElementById("rivalryHeatList");
+ if(!hunterGrid||!rivalryList)return;
+
+ const hunters=Array.isArray(data?.hunters)?data.hunters:[];
+ if(!hunters.length){
+   hunterGrid.innerHTML='<div class="heat-empty">Not enough Hunter activity yet.</div>';
+ }else{
+   hunterGrid.innerHTML=hunters.map((h,i)=>{
+     const tags=[];
+     if(Number(h.wins||0))tags.push(Number(h.wins)+" WINS");
+     if(Number(h.battles||0))tags.push(Number(h.battles)+" CLASHES");
+     if(Number(h.unlocks||0))tags.push(Number(h.unlocks)+" UNLOCKS");
+     if(Number(h.proofs||0))tags.push(Number(h.proofs)+" PROOFS");
+     return '<a class="heat-hunter" href="/hunter/'+encodeURIComponent(h.username)+'">'
+       +'<div class="heat-hunter-head"><div class="heat-id"><div class="heat-avatar">'+escapeHtml(h.avatar||"👾")+'</div>'
+       +'<div class="heat-name"><b>#'+(i+1)+' '+escapeHtml(h.username)+'</b><span>'+escapeHtml(h.creature||"Hunter")+' · LVL '+Number(h.level||1)+'</span></div></div>'
+       +'<div class="heat-score">🔥 '+Number(h.score||0)+'</div></div>'
+       +'<div class="heat-bar"><i style="width:'+Math.max(0,Math.min(100,Number(h.heat_percent||0)))+'%"></i></div>'
+       +'<div class="heat-tags">'+tags.slice(0,3).map(t=>'<span class="heat-tag">'+escapeHtml(t)+'</span>').join("")+'</div></a>';
+   }).join("");
+ }
+
+ const rivalries=Array.isArray(data?.rivalries)?data.rivalries:[];
+ if(!rivalries.length){
+   rivalryList.innerHTML='<div class="heat-empty">No rivalry heat yet. Start a Clash.</div>';
+ }else{
+   rivalryList.innerHTML=rivalries.map((r,i)=>{
+     const url='/rivalry/'+encodeURIComponent(r.hunter_a)+'/'+encodeURIComponent(r.hunter_b);
+     return '<a class="hot-rivalry" href="'+url+'">'
+       +'<div class="rivalry-line"><b>🔥 #'+(i+1)+' '+escapeHtml(r.hunter_a)+' <span>VS</span> '+escapeHtml(r.hunter_b)+'</b><span>'+Number(r.clashes||0)+' CLASHES</span></div>'
+       +'<div class="heat-bar"><i style="width:'+Math.max(0,Math.min(100,Number(r.heat_percent||0)))+'%"></i></div>'
+       +'<div class="rivalry-score">'+Number(r.a_wins||0)+' — '+Number(r.b_wins||0)+' recent wins</div></a>';
+   }).join("");
+ }
+}
+async function loadNetworkHeat(){
+ const d=await jsonFetch("/api/network-heat");
+ if(d&&d.success)paintNetworkHeat(d);
+}
+setInterval(loadNetworkHeat,20000);
 
 function pulseRelativeTime(value){
  if(!value)return "NOW";
@@ -830,9 +908,10 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadHunterHUD();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
 }
 loadNetworkPulse();
+loadNetworkHeat();
 
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -2989,7 +3068,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.2 LIVE NETWORK PULSE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
 </div></body></html>"""
 
 
@@ -3804,7 +3883,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.2 LIVE NETWORK PULSE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -3929,7 +4008,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.2 LIVE NETWORK PULSE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -4102,7 +4181,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.2 LIVE NETWORK PULSE</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.3 NETWORK HEATMAP</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -4546,6 +4625,151 @@ def notifications_read_all_api(username):
     return jsonify({"success": True, "message": "✓ All Hunter signals marked read."})
 
 
+@app.route("/api/network-heat")
+def network_heat_api():
+    """
+    BL3-native heat score built only from recent in-app activity.
+    It is a visibility signal, not a financial or quality rating.
+    """
+    conn = db()
+    heat = {}
+
+    def touch(username, points=0, kind="activity"):
+        username = str(username or "").strip()
+        if not username:
+            return
+        item = heat.setdefault(username, {
+            "username": username,
+            "score": 0,
+            "battles": 0,
+            "wins": 0,
+            "challenges": 0,
+            "unlocks": 0,
+            "followers": 0,
+            "proofs": 0,
+            "crown": 0
+        })
+        item["score"] += int(points)
+        if kind in item:
+            item[kind] += 1
+
+    # Recency comes from taking only the latest rows in each activity stream.
+    battles = conn.execute(
+        """SELECT challenger, opponent, winner
+           FROM creature_battles ORDER BY id DESC LIMIT 60"""
+    ).fetchall()
+    for r in battles:
+        touch(r["challenger"], 4, "battles")
+        touch(r["opponent"], 4, "battles")
+        touch(r["winner"], 5, "wins")
+
+    challenges = conn.execute(
+        """SELECT challenger, opponent
+           FROM challenge_requests ORDER BY id DESC LIMIT 50"""
+    ).fetchall()
+    for r in challenges:
+        touch(r["challenger"], 2, "challenges")
+        touch(r["opponent"], 1, "challenges")
+
+    unlocks = conn.execute(
+        """SELECT username FROM hunter_unlock_events
+           ORDER BY id DESC LIMIT 50"""
+    ).fetchall()
+    for r in unlocks:
+        touch(r["username"], 3, "unlocks")
+
+    proofs = conn.execute(
+        """SELECT username FROM arena_submissions
+           ORDER BY id DESC LIMIT 50"""
+    ).fetchall()
+    for r in proofs:
+        touch(r["username"], 3, "proofs")
+
+    crowns = conn.execute(
+        """SELECT challenger, defender, winner
+           FROM crown_events ORDER BY id DESC LIMIT 35"""
+    ).fetchall()
+    for r in crowns:
+        touch(r["challenger"], 4, "crown")
+        touch(r["defender"], 4, "crown")
+        touch(r["winner"], 4, "wins")
+
+    follower_rows = conn.execute(
+        """SELECT target, COUNT(*) AS n
+           FROM hunter_connections
+           WHERE kind = 'follow'
+           GROUP BY target"""
+    ).fetchall()
+    for r in follower_rows:
+        n = int(r["n"] or 0)
+        touch(r["target"], min(20, n), "followers")
+        heat[r["target"]]["followers"] = n
+
+    # Pull XP / creature for presentation without letting old XP dominate heat.
+    users = {
+        r["username"]: r
+        for r in conn.execute("SELECT username, xp FROM users").fetchall()
+    }
+
+    # Hot rivalries: count the latest direct battles by unordered pair.
+    rivalry = {}
+    for r in conn.execute(
+        """SELECT challenger, opponent, winner
+           FROM creature_battles ORDER BY id DESC LIMIT 80"""
+    ).fetchall():
+        a, b = sorted([str(r["challenger"]), str(r["opponent"])])
+        if not a or not b or a == b:
+            continue
+        key = (a, b)
+        item = rivalry.setdefault(key, {
+            "hunter_a": a, "hunter_b": b,
+            "clashes": 0, "a_wins": 0, "b_wins": 0
+        })
+        item["clashes"] += 1
+        if r["winner"] == a:
+            item["a_wins"] += 1
+        elif r["winner"] == b:
+            item["b_wins"] += 1
+
+    conn.close()
+
+    hunters = []
+    for username, item in heat.items():
+        user = users.get(username)
+        xp = int(user["xp"] or 0) if user else 0
+        creature = _creature_from_xp(xp)
+        hunters.append({
+            **item,
+            "xp": xp,
+            "avatar": creature["avatar"],
+            "creature": creature["name"],
+            "level": max(1, xp // 100 + 1)
+        })
+
+    hunters.sort(
+        key=lambda h: (h["score"], h["wins"], h["battles"], h["followers"]),
+        reverse=True
+    )
+    top = hunters[:8]
+    max_score = max([h["score"] for h in top], default=1)
+    for h in top:
+        h["heat_percent"] = max(5, round((h["score"] / max_score) * 100)) if h["score"] else 0
+
+    rivalries = list(rivalry.values())
+    rivalries.sort(key=lambda x: (x["clashes"], x["a_wins"] + x["b_wins"]), reverse=True)
+    rivalries = rivalries[:5]
+    max_clashes = max([r["clashes"] for r in rivalries], default=1)
+    for r in rivalries:
+        r["heat_percent"] = max(8, round((r["clashes"] / max_clashes) * 100))
+
+    return jsonify({
+        "success": True,
+        "hunters": top,
+        "rivalries": rivalries,
+        "method": "Recent BL3 activity only: clashes, wins, challenges, unlocks, proofs, Crown activity and followers."
+    })
+
+
 @app.route("/api/activity")
 def activity_api():
     try:
@@ -4859,7 +5083,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📡 BL3 ARENA V9.2 // LIVE NETWORK PULSE")
+    print("🔥 BL3 ARENA V9.3 // NETWORK HEATMAP")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
