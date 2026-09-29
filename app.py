@@ -309,6 +309,14 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
       </div>
 
       <div class="card" style="margin-top:16px">
+        <div class="eyebrow"><span class="pulse"></span> LIVE NETWORK // ACTIVITY</div>
+        <h3 style="margin-top:8px">The Network Is Moving</h3>
+        <div class="meta">Recent battles, Crown attacks, Arena launches, proofs, referrals and verified casts. Auto-refreshes every 20 seconds.</div>
+        <div id="activityFeed" class="feed"><div class="meta">Listening to the network…</div></div>
+        <button class="btn" onclick="loadActivity()">↻ Refresh Activity</button>
+      </div>
+
+      <div class="card" style="margin-top:16px">
         <div class="eyebrow">IDENTITY</div><h3 style="margin-top:8px">Wallet Proof</h3>
         <input id="wallet" placeholder="Wallet address" readonly>
         <button class="btn" onclick="connectWallet()">Connect Wallet</button>
@@ -346,7 +354,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.7 CROWN DEFENSE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.8 LIVE NETWORK</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -370,7 +378,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -484,6 +492,25 @@ async function authStatus(){const d=await jsonFetch("/api/auth/status");if(d.aut
 async function loadLeaderboard(){const d=await jsonFetch("/api/leaderboard");let h="";(Array.isArray(d)?d:[]).slice(0,10).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.xp+' XP</b></div>');document.getElementById("leaderboard").innerHTML=h||'<div class="meta">No hunters yet.</div>';document.getElementById("totalHunters").innerText=Array.isArray(d)?d.length:0}
 async function claimStreakReward(){currentUser();const s=Number(document.getElementById("streak").innerText),p=await jsonFetch("/api/user/"+encodeURIComponent(username)),c=Array.isArray(p.claimed_milestones)?p.claimed_milestones.map(Number):[];let m=0;if(s>=3&&!c.includes(3))m=3;else if(s>=7&&!c.includes(7))m=7;else if(s>=30&&!c.includes(30))m=30;if(!m){show("No streak reward available yet.");return}const d=await jsonFetch("/api/streak/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,milestone:m})});show(d.message||"Claim finished");if(d.success)await loadUser()}
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function relativeTime(iso){
+ if(!iso)return "now";
+ const t=Date.parse(String(iso).endsWith("Z")?iso:iso+"Z");
+ if(Number.isNaN(t))return "";
+ const s=Math.max(0,Math.floor((Date.now()-t)/1000));
+ if(s<60)return s+"s";
+ const m=Math.floor(s/60); if(m<60)return m+"m";
+ const h=Math.floor(m/60); if(h<24)return h+"h";
+ return Math.floor(h/24)+"d";
+}
+async function loadActivity(){
+ const d=await jsonFetch("/api/activity?limit=18");
+ const el=document.getElementById("activityFeed");
+ if(!d.success){el.innerHTML='<div class="meta">Network signal unavailable.</div>';return}
+ const items=Array.isArray(d.events)?d.events:[];
+ el.innerHTML=items.map(e=>'<div class="feed-item"><div class="feed-icon">'+escapeHtml(e.icon||"⚡")+'</div><div class="feed-main"><div class="feed-title">'+escapeHtml(e.title||"Network activity")+'</div><div class="feed-meta">'+escapeHtml(e.detail||"")+'</div></div><div class="feed-time">'+escapeHtml(relativeTime(e.created_at))+'</div></div>').join("")||'<div class="meta">No activity yet. Be the first signal.</div>';
+}
+setInterval(loadActivity,20000);
+
 async function loadArenas(){
  const d=await jsonFetch("/api/arenas"),list=Array.isArray(d.arenas)?d.arenas:[];
  document.getElementById("liveArenas").innerText=list.filter(a=>a.status==="live").length;
@@ -1722,6 +1749,52 @@ def daily_missions_api(username):
     return jsonify({"success": True, "date": today, "crown": crown, "missions": missions, "completed": completed, "total": len(missions)})
 
 
+
+@app.route("/api/activity")
+def activity_api():
+    try:
+        limit = max(1, min(50, int(request.args.get("limit", 18))))
+    except Exception:
+        limit = 18
+    conn = db()
+    events = []
+
+    def add(kind, icon, title, detail, created_at, event_id=0):
+        events.append({
+            "kind": kind, "icon": icon, "title": title, "detail": detail,
+            "created_at": created_at or "", "event_id": int(event_id or 0)
+        })
+
+    for r in conn.execute("""SELECT id, challenger, opponent, winner, commentary, created_at
+                           FROM creature_battles ORDER BY id DESC LIMIT 25""").fetchall():
+        add("battle", "⚔️", f"{r['challenger']} challenged {r['opponent']}",
+            f"👑 {r['winner']} won · {r['commentary']}", r["created_at"], r["id"])
+
+    for r in conn.execute("""SELECT id, challenger, defender, winner, successful_defense, created_at
+                           FROM crown_events ORDER BY id DESC LIMIT 15""").fetchall():
+        detail = (f"👑 {r['defender']} defended the Crown" if r["successful_defense"]
+                  else f"🔥 {r['challenger']} broke the Crown defense")
+        add("crown", "👑", f"Crown attack: {r['challenger']} → {r['defender']}", detail, r["created_at"], r["id"])
+
+    for r in conn.execute("""SELECT id, creator, title, category, bounty_amount, bounty_asset, created_at
+                           FROM arenas ORDER BY id DESC LIMIT 15""").fetchall():
+        add("arena", "🎯", f"{r['creator']} launched an Arena", r["title"] + f" · {r['bounty_amount']:g} {r['bounty_asset']} · {r['category']}", r["created_at"], r["id"])
+
+    for r in conn.execute("""SELECT id, username, arena_id, created_at
+                           FROM arena_submissions ORDER BY id DESC LIMIT 15""").fetchall():
+        add("proof", "🧠", f"{r['username']} submitted proof", f"Arena #{r['arena_id']}", r["created_at"], r["id"])
+
+    for r in conn.execute("""SELECT id, inviter, invited, date FROM referrals ORDER BY id DESC LIMIT 15""").fetchall():
+        add("referral", "👥", f"{r['invited']} joined the network", f"Invited by {r['inviter']}", (r["date"] or "") + "T12:00:00", r["id"])
+
+    for r in conn.execute("""SELECT id, username, date FROM share_claims ORDER BY id DESC LIMIT 15""").fetchall():
+        add("share", "📣", f"{r['username']} verified a BL3 cast", "Social proof added to the network", (r["date"] or "") + "T12:00:00", r["id"])
+
+    conn.close()
+    events.sort(key=lambda e: (e["created_at"], e["event_id"]), reverse=True)
+    return jsonify({"success": True, "events": events[:limit]})
+
+
 @app.route("/api/reputation/<username>")
 def reputation_api(username):
     conn = db()
@@ -1787,7 +1860,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6.7 // CROWN DEFENSE + DAILY MISSIONS")
+    print("⚡ BL3 ARENA V6.8 // LIVE NETWORK ACTIVITY")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
