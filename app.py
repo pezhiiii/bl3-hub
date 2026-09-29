@@ -500,7 +500,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.5 HUNTER DISCOVERY</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.6 HEAD-TO-HEAD</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2019,6 +2019,62 @@ def social_me():
     return jsonify({"success": True, "username": viewer, "connections": [dict(r) for r in rows]})
 
 
+
+def _head_to_head(a, b, limit=6):
+    """Read-only rivalry record between two existing Hunters."""
+    if not a or not b or a == b:
+        return {
+            "a": a, "b": b, "total": 0, "a_wins": 0, "b_wins": 0,
+            "leader": None, "last_winner": None, "recent": []
+        }
+
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, challenger, opponent, winner, challenger_power, opponent_power,
+                  commentary, created_at
+           FROM creature_battles
+           WHERE (challenger = ? AND opponent = ?)
+              OR (challenger = ? AND opponent = ?)
+           ORDER BY id DESC LIMIT ?""",
+        (a, b, b, a, max(1, min(int(limit or 6), 20)))
+    ).fetchall()
+
+    totals = conn.execute(
+        """SELECT
+             COUNT(*) AS total,
+             SUM(CASE WHEN winner = ? THEN 1 ELSE 0 END) AS a_wins,
+             SUM(CASE WHEN winner = ? THEN 1 ELSE 0 END) AS b_wins
+           FROM creature_battles
+           WHERE (challenger = ? AND opponent = ?)
+              OR (challenger = ? AND opponent = ?)""",
+        (a, b, a, b, b, a)
+    ).fetchone()
+    conn.close()
+
+    total = int(totals["total"] or 0)
+    a_wins = int(totals["a_wins"] or 0)
+    b_wins = int(totals["b_wins"] or 0)
+    leader = a if a_wins > b_wins else b if b_wins > a_wins else None
+    recent = [dict(r) for r in rows]
+    last_winner = recent[0]["winner"] if recent else None
+
+    return {
+        "a": a, "b": b, "total": total, "a_wins": a_wins, "b_wins": b_wins,
+        "leader": leader, "last_winner": last_winner, "recent": recent
+    }
+
+
+@app.route("/api/headtohead/<hunter_a>/<hunter_b>")
+def head_to_head_api(hunter_a, hunter_b):
+    conn = db()
+    a_exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (hunter_a,)).fetchone()
+    b_exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (hunter_b,)).fetchone()
+    conn.close()
+    if a_exists is None or b_exists is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    return jsonify({"success": True, **_head_to_head(hunter_a, hunter_b, 8)})
+
+
 @app.route("/hunter/<username>")
 def hunter_public_page(username):
     d = _hunter_public_data(username)
@@ -2050,13 +2106,51 @@ def hunter_public_page(username):
     crown_badge = '<span class="crown">👑 CURRENT CROWN</span>' if d['season']['is_crown'] else ''
     verified_badge = '<span class="verified">WALLET VERIFIED</span>' if d['wallet_verified'] else '<span class="muted-badge">WALLET UNVERIFIED</span>'
 
+    viewer = session.get("authenticated_username") or ""
+    h2h_html = ""
+    if viewer and viewer != username:
+        h2h = _head_to_head(viewer, username, 5)
+        leader_text = "TIED"
+        if h2h["leader"] == viewer:
+            leader_text = f"{viewer.upper()} LEADS"
+        elif h2h["leader"] == username:
+            leader_text = f"{username.upper()} LEADS"
+
+        latest = ""
+        for battle in h2h["recent"]:
+            mine = battle["winner"] == viewer
+            outcome = "WIN" if mine else "LOSS"
+            cls = "win" if mine else "loss"
+            latest += (
+                f'<a class="battle" href="/clash/{battle["id"]}">'
+                f'<div><b>⚔️ Clash #{battle["id"]}</b>'
+                f'<div class="meta">{esc(battle["commentary"])}</div></div>'
+                f'<div class="outcome {cls}">{outcome}</div></a>'
+            )
+        if not latest:
+            latest = '<div class="empty">No clashes between you yet. Start the rivalry.</div>'
+
+        h2h_html = (
+            f'<section class="section rivalry">'
+            f'<div class="eyebrow">🎯 RIVALRY // HEAD-TO-HEAD</div>'
+            f'<h2>{esc(viewer)} <span class="vs">VS</span> {esc(username)}</h2>'
+            f'<div class="h2h-grid">'
+            f'<div class="h2h-score"><strong>{h2h["a_wins"]}</strong><span>{esc(viewer)}</span></div>'
+            f'<div class="h2h-mid"><b>{h2h["total"]} CLASHES</b><span>{esc(leader_text)}</span></div>'
+            f'<div class="h2h-score"><strong>{h2h["b_wins"]}</strong><span>{esc(username)}</span></div>'
+            f'</div>'
+            f'<div class="meta h2h-last">Last winner: {esc(h2h["last_winner"] or "—")}</div>'
+            f'<div class="h2h-recent">{latest}</div>'
+            f'</section>'
+        )
+
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507">
 <title>{esc(title)}</title><meta name="description" content="{esc(desc)}">
 <meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(desc)}"><meta property="og:type" content="profile"><meta property="og:url" content="{esc(page_url)}"><meta property="og:image" content="{esc(image_url)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
 <style>
 :root{{--bg:#050507;--panel:#111116;--line:#2b2b36;--muted:#9293a4;--text:#f8f8fb;--hot:#b8ff5a;--violet:#9d7bff}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell"><nav class="nav"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><a class="back" href="/">← LIVE NETWORK</a></nav>
 <section class="hero"><div class="eyebrow">PUBLIC HUNTER ID // SEASON {esc(d['season']['key'])}</div><div class="top"><div class="avatar">{esc(d['creature']['avatar'])}</div><div><h1>{esc(d['username'])}</h1><div class="subtitle">{esc(d['creature']['name'])} // {esc(d['creature']['stage'])} // LEVEL {d['level']}</div><div class="badges">{verified_badge}{crown_badge}</div></div></div>
 <div class="grid"><div class="stat"><div class="num">{d['reputation']}</div><div class="label">REPUTATION</div></div><div class="stat"><div class="num">{d['xp']}</div><div class="label">XP</div></div><div class="stat"><div class="num">{d['wins']}</div><div class="label">TOTAL WINS</div></div><div class="stat"><div class="num">{d['network']}</div><div class="label">NETWORK</div></div></div>
@@ -2064,8 +2158,9 @@ def hunter_public_page(username):
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
 <div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
+{h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.5 HUNTER DISCOVERY</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.6 HEAD-TO-HEAD</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -2612,10 +2707,17 @@ def rival_directory_page(username):
     ).fetchall()
     conn.close()
     esc = lambda v: html.escape(str(v or ""))
-    cards = "".join(
-        f'<a class="r" href="/hunter/{urllib.parse.quote(r["target"])}"><b>🎯 {esc(r["target"])}</b><span>{int(r["xp"] or 0)} XP · VIEW HUNTER →</span></a>'
-        for r in rows
-    ) or '<div class="empty">No Rivals yet. Mark Hunters as Rival from their public profile.</div>'
+    cards = ""
+    for r in rows:
+        h2h = _head_to_head(username, r["target"], 1)
+        record = f'{h2h["a_wins"]}-{h2h["b_wins"]}' if h2h["total"] else '0-0'
+        cards += (
+            f'<a class="r" href="/hunter/{urllib.parse.quote(r["target"])}">'
+            f'<b>🎯 {esc(r["target"])}</b>'
+            f'<span>H2H {record} · {int(r["xp"] or 0)} XP · VIEW HUNTER →</span></a>'
+        )
+    if not cards:
+        cards = '<div class="empty">No Rivals yet. Mark Hunters as Rival from their public profile.</div>'
     return f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(username)} Rivals // BL3</title><style>body{{margin:0;background:#08080d;color:#fff;font-family:Arial,sans-serif}}.shell{{max-width:820px;margin:auto;padding:28px}}.brand{{font-size:24px;font-weight:900}}.brand span,.eyebrow{{color:#b8ff5a}}h1{{font-size:48px;margin:38px 0 8px}}.meta,.r span{{color:#9292a3}}.r{{display:flex;justify-content:space-between;gap:18px;text-decoration:none;color:#fff;border:1px solid #2a2a34;background:#111119;padding:20px;border-radius:18px;margin-top:12px}}.r:hover{{border-color:#b8ff5a}}.back{{color:#b8ff5a;text-decoration:none}}.empty{{margin-top:20px;color:#9292a3;border:1px dashed #333;padding:20px;border-radius:16px}}@media(max-width:620px){{h1{{font-size:38px}}.r{{flex-direction:column}}}}</style></head><body><div class="shell"><div class="brand">BL3 ● <span>RIVAL NETWORK</span></div><h1>{esc(username)}'s Rivals</h1><div class="meta">Hunters you chose to watch closely. Their moves appear in your private Rival Feed.</div>{cards}<div style="margin-top:30px"><a class="back" href="/">← BACK TO LIVE NETWORK</a></div></div></body></html>"""
 
 
@@ -2788,7 +2890,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🧭 BL3 ARENA V7.5 // HUNTER DISCOVERY")
+    print("⚔️ BL3 ARENA V7.6 // HEAD-TO-HEAD")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
