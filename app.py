@@ -184,6 +184,19 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(username, is_read, id DESC)")
 
+    # V7.3: lightweight social graph for follows and rivalries.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_connections (
+            owner TEXT NOT NULL,
+            target TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (owner, target, kind)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_connections_target_kind ON hunter_connections(target, kind)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_connections_owner_kind ON hunter_connections(owner, kind)")
+
     # Reputation events get an optional event_key so future signals can be idempotent.
     rep_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reputation_events)").fetchall()}
     if "event_key" not in rep_cols:
@@ -471,7 +484,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.2 PUBLIC HUNTER PROFILE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.3 RIVAL NETWORK</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -1776,6 +1789,9 @@ def _hunter_public_data(username):
 
     ranking = conn.execute("SELECT username FROM users ORDER BY xp DESC, username COLLATE NOCASE ASC").fetchall()
     xp_rank = next((i for i, r in enumerate(ranking, 1) if r["username"] == username), None)
+    followers = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE target = ? AND kind = 'follow'", (username,)).fetchone()["n"]
+    following = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE owner = ? AND kind = 'follow'", (username,)).fetchone()["n"]
+    rivals = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE owner = ? AND kind = 'rival'", (username,)).fetchone()["n"]
     conn.close()
 
     return {
@@ -1789,6 +1805,9 @@ def _hunter_public_data(username):
         "network": int(network or 0),
         "wins": int(arena_wins or 0) + int(clash_wins or 0),
         "earned": float(earned or 0),
+        "followers": int(followers or 0),
+        "following": int(following or 0),
+        "rivals": int(rivals or 0),
         "creature": {"avatar": avatar, "name": creature_name, "stage": creature_stage},
         "evolution": {"current": evo_current, "target": evo_target, "percent": evo_percent},
         "season": {
@@ -1842,6 +1861,93 @@ def hunter_profile_card_svg(username):
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=300"})
 
 
+@app.route("/api/hunter/<username>/social")
+def hunter_social_status(username):
+    conn = db()
+    exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+    if exists is None:
+        conn.close()
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    viewer = session.get("authenticated_username") or ""
+    followers = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE target = ? AND kind = 'follow'", (username,)).fetchone()["n"]
+    following = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE owner = ? AND kind = 'follow'", (username,)).fetchone()["n"]
+    rivals = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE owner = ? AND kind = 'rival'", (username,)).fetchone()["n"]
+    is_following = False
+    is_rival = False
+    if viewer:
+        is_following = conn.execute("SELECT 1 FROM hunter_connections WHERE owner = ? AND target = ? AND kind = 'follow'", (viewer, username)).fetchone() is not None
+        is_rival = conn.execute("SELECT 1 FROM hunter_connections WHERE owner = ? AND target = ? AND kind = 'rival'", (viewer, username)).fetchone() is not None
+    conn.close()
+    return jsonify({
+        "success": True, "username": username, "viewer": viewer,
+        "followers": int(followers or 0), "following": int(following or 0), "rivals": int(rivals or 0),
+        "is_following": is_following, "is_rival": is_rival
+    })
+
+
+@app.route("/api/hunter/<username>/social", methods=["POST"])
+def hunter_social_toggle(username):
+    viewer = session.get("authenticated_username") or ""
+    if not viewer:
+        return jsonify({"success": False, "message": "🔐 Sign in with your verified wallet first."}), 401
+    if viewer == username:
+        return jsonify({"success": False, "message": "You cannot follow or rival yourself."}), 400
+    data = request.get_json(silent=True) or {}
+    kind = str(data.get("kind", "")).strip().lower()
+    enabled = bool(data.get("enabled", True))
+    if kind not in {"follow", "rival"}:
+        return jsonify({"success": False, "message": "Invalid social connection."}), 400
+
+    conn = db()
+    exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+    if exists is None:
+        conn.close()
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    if enabled:
+        conn.execute(
+            "INSERT OR IGNORE INTO hunter_connections (owner, target, kind, created_at) VALUES (?, ?, ?, ?)",
+            (viewer, username, kind, datetime.utcnow().isoformat())
+        )
+        if kind == "follow":
+            _notify(conn, username, "social", f"👁️ {viewer} followed you", "A Hunter started following your public profile.", f"/hunter/{urllib.parse.quote(viewer)}")
+            message = f"👁️ Following {username}."
+        else:
+            _notify(conn, username, "rival", f"🎯 {viewer} marked you as a rival", "A Hunter added you to their Rival Network.", f"/hunter/{urllib.parse.quote(viewer)}")
+            message = f"🎯 {username} added to your Rival Network."
+    else:
+        conn.execute("DELETE FROM hunter_connections WHERE owner = ? AND target = ? AND kind = ?", (viewer, username, kind))
+        message = f"{username} removed from your {'Rival Network' if kind == 'rival' else 'following list'}."
+
+    conn.commit()
+    followers = conn.execute("SELECT COUNT(*) AS n FROM hunter_connections WHERE target = ? AND kind = 'follow'", (username,)).fetchone()["n"]
+    conn.close()
+    return jsonify({"success": True, "message": message, "followers": int(followers or 0), "kind": kind, "enabled": enabled})
+
+
+@app.route("/api/social/me")
+def social_me():
+    viewer = session.get("authenticated_username") or ""
+    if not viewer:
+        return jsonify({"success": False, "message": "Sign in required"}), 401
+    conn = db()
+    rows = conn.execute(
+        """SELECT hc.target, hc.kind, hc.created_at, u.xp
+           FROM hunter_connections hc
+           JOIN users u ON u.username = hc.target
+           WHERE hc.owner = ?
+           ORDER BY hc.id DESC""" if False else
+        """SELECT hc.target, hc.kind, hc.created_at, u.xp
+           FROM hunter_connections hc
+           JOIN users u ON u.username = hc.target
+           WHERE hc.owner = ?
+           ORDER BY hc.created_at DESC""",
+        (viewer,)
+    ).fetchall()
+    conn.close()
+    return jsonify({"success": True, "username": viewer, "connections": [dict(r) for r in rows]})
+
+
 @app.route("/hunter/<username>")
 def hunter_public_page(username):
     d = _hunter_public_data(username)
@@ -1879,15 +1985,35 @@ def hunter_public_page(username):
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
 <style>
 :root{{--bg:#050507;--panel:#111116;--line:#2b2b36;--muted:#9293a4;--text:#f8f8fb;--hot:#b8ff5a;--violet:#9d7bff}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}h1{{letter-spacing:-2px}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell"><nav class="nav"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><a class="back" href="/">← LIVE NETWORK</a></nav>
 <section class="hero"><div class="eyebrow">PUBLIC HUNTER ID // SEASON {esc(d['season']['key'])}</div><div class="top"><div class="avatar">{esc(d['creature']['avatar'])}</div><div><h1>{esc(d['username'])}</h1><div class="subtitle">{esc(d['creature']['name'])} // {esc(d['creature']['stage'])} // LEVEL {d['level']}</div><div class="badges">{verified_badge}{crown_badge}</div></div></div>
 <div class="grid"><div class="stat"><div class="num">{d['reputation']}</div><div class="label">REPUTATION</div></div><div class="stat"><div class="num">{d['xp']}</div><div class="label">XP</div></div><div class="stat"><div class="num">{d['wins']}</div><div class="label">TOTAL WINS</div></div><div class="stat"><div class="num">{d['network']}</div><div class="label">NETWORK</div></div></div>
+<div class="social-grid"><div class="social-stat"><b id="followersCount">{d['followers']}</b><span>FOLLOWERS</span></div><div class="social-stat"><b>{d['following']}</b><span>FOLLOWING</span></div><div class="social-stat"><b>{d['rivals']}</b><span>RIVALS TRACKED</span></div></div>
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
-<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a></div></section>
+<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.2 PUBLIC HUNTER PROFILE</div></div></body></html>'''
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.3 RIVAL NETWORK</div></div>
+<script>
+const hunterName={json.dumps(username)};
+let socialState={{is_following:false,is_rival:false}};
+async function socialFetch(url,options){{const r=await fetch(url,options);let d={{}};try{{d=await r.json()}}catch(e){{}}return d}}
+function paintSocial(){{
+ const f=document.getElementById('followBtn'),r=document.getElementById('rivalBtn');
+ if(f)f.textContent=socialState.is_following?'✓ FOLLOWING':'👁️ FOLLOW';
+ if(r)r.textContent=socialState.is_rival?'🎯 RIVAL ✓':'🎯 MARK RIVAL';
+}}
+async function loadSocial(){{const d=await socialFetch('/api/hunter/'+encodeURIComponent(hunterName)+'/social');if(!d.success)return;socialState=d;const c=document.getElementById('followersCount');if(c)c.textContent=d.followers;paintSocial()}}
+async function toggleSocial(kind){{
+ const enabled=kind==='follow'?!socialState.is_following:!socialState.is_rival;
+ const d=await socialFetch('/api/hunter/'+encodeURIComponent(hunterName)+'/social',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{kind:kind,enabled:enabled}})}});
+ if(!d.success){{alert(d.message||'Sign in to BL3 first.');return}}
+ if(kind==='follow')socialState.is_following=enabled;else socialState.is_rival=enabled;
+ const c=document.getElementById('followersCount');if(c&&d.followers!==undefined)c.textContent=d.followers;paintSocial();
+}}
+loadSocial();
+</script></body></html>'''
 
 
 def _battle_record(battle_id):
@@ -2411,7 +2537,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🪪 BL3 ARENA V7.2 // PUBLIC HUNTER PROFILE")
+    print("🎯 BL3 ARENA V7.3 // RIVAL NETWORK")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
