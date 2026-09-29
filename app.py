@@ -527,7 +527,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2733,7 +2733,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div>
 </div></body></html>"""
 
 
@@ -2813,9 +2813,10 @@ def _loadout_skin_catalog():
 
 
 def _hunter_skin_unlocks(username):
-    """Return skin options with unlock state derived from Trophy Room."""
+    """Return skin options with unlock state + visible progress."""
     trophies = _hunter_trophies(username)
-    if trophies is None:
+    progress = _hunter_skin_progress(username)
+    if trophies is None or progress is None:
         return None
 
     trophy_keys = {t["key"] for t in trophies.get("trophies", [])}
@@ -2827,9 +2828,106 @@ def _hunter_skin_unlocks(username):
         unlocked = not requirements or any(key in trophy_keys for key in requirements)
         public = {k: v for k, v in skin.items() if k != "unlock_any"}
         public["unlocked"] = unlocked
+        public["progress"] = {
+            "percent": 100 if unlocked else int(progress.get(skin["key"], {}).get("percent", 0)),
+            "label": "UNLOCKED" if unlocked else progress.get(skin["key"], {}).get("label", skin["requirement"])
+        }
         options.append(public)
 
     return options
+
+
+def _hunter_skin_progress(username):
+    """Progress toward each locked skin using existing BL3 activity only."""
+    conn = db()
+    user = conn.execute(
+        "SELECT username, xp FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    if user is None:
+        conn.close()
+        return None
+
+    xp = int(user["xp"] or 0)
+    rep = int(conn.execute(
+        "SELECT COALESCE(SUM(points),0) AS n FROM reputation_events WHERE username = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    clash_wins = int(conn.execute(
+        """SELECT COUNT(*) AS n
+           FROM creature_battles
+           WHERE winner = ?""",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    strongest_rival = conn.execute(
+        """SELECT COUNT(*) AS clashes
+           FROM creature_battles
+           WHERE challenger = ? OR opponent = ?
+           GROUP BY CASE WHEN challenger = ? THEN opponent ELSE challenger END
+           ORDER BY clashes DESC LIMIT 1""",
+        (username, username, username)
+    ).fetchone()
+    rival_clashes = int(strongest_rival["clashes"] or 0) if strongest_rival else 0
+
+    crown_defenses = int(conn.execute(
+        """SELECT COUNT(*) AS n FROM crown_events
+           WHERE defender = ? AND successful_defense = 1""",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    crown_breaks = int(conn.execute(
+        """SELECT COUNT(*) AS n FROM crown_events
+           WHERE challenger = ? AND winner = ? AND successful_defense = 0""",
+        (username, username)
+    ).fetchone()["n"] or 0)
+
+    conn.close()
+
+    # For OR-based unlocks, show the closest path to completion.
+    def pct(current, target):
+        if target <= 0:
+            return 100
+        return max(0, min(100, round((current / target) * 100)))
+
+    void_paths = [
+        {"label": "REP", "current": rep, "target": 100, "percent": pct(rep, 100)},
+        {"label": "REP ELITE", "current": rep, "target": 500, "percent": pct(rep, 500)},
+    ]
+    chaos_paths = [
+        {"label": "CLASH WINS", "current": clash_wins, "target": 10, "percent": pct(clash_wins, 10)},
+        {"label": "NEMESIS CLASHES", "current": rival_clashes, "target": 5, "percent": pct(rival_clashes, 5)},
+    ]
+    crown_paths = [
+        {"label": "CROWN DEFENSE", "current": crown_defenses, "target": 1, "percent": pct(crown_defenses, 1)},
+        {"label": "CROWN BREAK", "current": crown_breaks, "target": 1, "percent": pct(crown_breaks, 1)},
+        {"label": "ASCENDED XP", "current": xp, "target": 1500, "percent": pct(xp, 1500)},
+    ]
+
+    def best(paths):
+        return max(paths, key=lambda x: (x["percent"], x["current"]))
+
+    return {
+        "neon": {
+            "percent": 100,
+            "label": "Unlocked by default",
+            "current": 1,
+            "target": 1
+        },
+        "void": {
+            **best(void_paths),
+            "label": f"{best(void_paths)['current']} / {best(void_paths)['target']} {best(void_paths)['label']}"
+        },
+        "chaos": {
+            **best(chaos_paths),
+            "label": f"{best(chaos_paths)['current']} / {best(chaos_paths)['target']} {best(chaos_paths)['label']}"
+        },
+        "crown": {
+            **best(crown_paths),
+            "label": f"{best(crown_paths)['current']} / {best(crown_paths)['target']} {best(crown_paths)['label']}"
+        }
+    }
 
 
 def _hunter_loadout_skin(username):
@@ -2850,6 +2948,29 @@ def _hunter_loadout_skin(username):
     requested = row["skin_key"] if row else "neon"
     key = requested if requested in catalog and requested in unlocked_keys else "neon"
     return {**catalog[key], "unlocked": True}
+
+
+@app.route("/api/skin-progress/<username>")
+def hunter_skin_progress_api(username):
+    options = _hunter_skin_unlocks(username)
+    if options is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    return jsonify({
+        "success": True,
+        "username": username,
+        "skins": [
+            {
+                "key": s["key"],
+                "name": s["name"],
+                "icon": s["icon"],
+                "rarity": s["rarity"],
+                "unlocked": s["unlocked"],
+                "requirement": s["requirement"],
+                "progress": s.get("progress", {"percent": 0, "label": ""})
+            }
+            for s in options
+        ]
+    })
 
 
 @app.route("/api/loadout-skin/<username>", methods=["GET", "POST"])
@@ -3006,17 +3127,21 @@ def hunter_loadout_page(username):
 
     skin_picker = ""
     if is_owner:
-        skin_picker = '<div class="skin-panel"><div><div class="small">LOADOUT SKIN</div><div class="meta">Choose a visual identity for this public card.</div></div><div class="skin-options">'
+        skin_picker = '<div class="skin-panel"><div><div class="small">LOADOUT SKIN</div><div class="meta">Choose a visual identity for this public card. Locked skins show your closest unlock path in real time.</div></div><div class="skin-options">'
         for s in skin_options:
             active = s["key"] == skin["key"]
             locked = not s.get("unlocked", False)
             classes = "skin-btn" + (" active" if active else "") + (" locked" if locked else "")
             disabled = " disabled" if locked else ""
+            progress = s.get("progress", {"percent": 100 if not locked else 0, "label": ""})
             skin_picker += (
                 f'<div class="skin-choice">'
                 f'<button class="{classes}" data-skin-key="{esc(s["key"])}"{disabled}>'
                 f'{"🔒 " if locked else ""}{esc(s["icon"])} {esc(s["name"])}'
                 f'<small>{esc(s.get("rarity",""))}</small></button>'
+                f'<div class="skin-progress-head"><span>{esc(progress.get("label",""))}</span>'
+                f'<b>{int(progress.get("percent",0))}%</b></div>'
+                f'<div class="skin-progress"><i style="width:{int(progress.get("percent",0))}%"></i></div>'
                 f'<span>{esc(s.get("requirement",""))}</span></div>'
             )
         skin_picker += '</div></div>'
@@ -3045,7 +3170,7 @@ def hunter_loadout_page(username):
 .identity{{padding:24px}}.title{{display:inline-flex;gap:8px;align-items:center;color:var(--hot);font-size:15px;font-weight:900;border:1px solid rgba(184,255,90,.25);padding:9px 12px;border-radius:999px}}.tier{{font-size:9px;color:var(--muted);letter-spacing:1px}}
 .featured{{display:flex;gap:15px;align-items:center;padding:18px;margin-top:16px;background:linear-gradient(145deg,#111119,#181220)}}.featured-icon{{font-size:44px}}.featured h3{{margin:4px 0}}.featured span{{display:inline-block;color:var(--gold);font-size:9px;font-weight:900;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px;margin-top:8px}}
 .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{padding:16px}}.stat b{{display:block;font-size:25px}}.stat span,.small{{color:var(--muted);font-size:10px;letter-spacing:1.2px;font-weight:900}}
-.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.skin-panel{{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--card)}}.skin-options{{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}}.skin-choice{{display:flex;flex-direction:column;gap:5px;max-width:190px}}.skin-choice span{{font-size:8px;color:var(--muted);line-height:1.25}}.skin-btn{{border:1px solid var(--line);background:transparent;color:#fff;padding:9px 12px;border-radius:999px;font-size:10px;font-weight:900;cursor:pointer;white-space:nowrap}}.skin-btn small{{margin-left:6px;color:var(--muted);font-size:8px;letter-spacing:1px}}.skin-btn:hover,.skin-btn.active{{border-color:var(--hot);color:var(--hot);box-shadow:0 0 18px color-mix(in srgb,var(--hot) 18%,transparent)}}.skin-btn.locked{{opacity:.48;cursor:not-allowed;filter:saturate(.45)}}.skin-btn.locked:hover{{border-color:var(--line);color:#fff;box-shadow:none}}.footer{{text-align:center;color:var(--muted);padding:50px 0 20px}}
+.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{text-decoration:none;color:#07070b;background:var(--hot);font-weight:900;padding:13px 16px;border-radius:14px}}.btn.alt{{color:#fff;background:var(--violet)}}.skin-panel{{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--card)}}.skin-options{{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}}.skin-choice{{display:flex;flex-direction:column;gap:5px;min-width:180px;max-width:210px}}.skin-choice span{{font-size:8px;color:var(--muted);line-height:1.25}}.skin-progress-head{{display:flex;justify-content:space-between;gap:8px;align-items:center}}.skin-progress-head b{{font-size:9px;color:var(--hot)}}.skin-progress{{height:5px;border-radius:999px;background:#08080c;border:1px solid var(--line);overflow:hidden}}.skin-progress i{{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--hot),var(--violet));box-shadow:0 0 14px color-mix(in srgb,var(--hot) 30%,transparent)}}.skin-btn{{border:1px solid var(--line);background:transparent;color:#fff;padding:9px 12px;border-radius:999px;font-size:10px;font-weight:900;cursor:pointer;white-space:nowrap}}.skin-btn small{{margin-left:6px;color:var(--muted);font-size:8px;letter-spacing:1px}}.skin-btn:hover,.skin-btn.active{{border-color:var(--hot);color:var(--hot);box-shadow:0 0 18px color-mix(in srgb,var(--hot) 18%,transparent)}}.skin-btn.locked{{opacity:.48;cursor:not-allowed;filter:saturate(.45)}}.skin-btn.locked:hover{{border-color:var(--line);color:#fff;box-shadow:none}}.footer{{text-align:center;color:var(--muted);padding:50px 0 20px}}
 @media(max-width:760px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}.skin-panel{{align-items:flex-start;flex-direction:column}}.skin-options{{justify-content:flex-start}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell">
 <nav class="nav"><div class="brand">BL3<span>●</span></div><a class="back" href="{esc(profile_url)}">← HUNTER PROFILE</a></nav>
@@ -3056,7 +3181,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -3229,7 +3354,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.5 SKIN UNLOCKS</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -3975,7 +4100,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🔓 BL3 ARENA V8.5 // SKIN UNLOCKS")
+    print("📈 BL3 ARENA V8.6 // SKIN PROGRESS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
