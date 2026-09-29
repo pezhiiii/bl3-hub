@@ -527,7 +527,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2733,10 +2733,220 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
 </div></body></html>"""
 
 
+
+
+def _hunter_progress_dashboard(username):
+    """Unified next-unlock view across evolution, trophies, titles and skins."""
+    conn = db()
+    user = conn.execute(
+        "SELECT username, xp, streak FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    if user is None:
+        conn.close()
+        return None
+
+    xp = int(user["xp"] or 0)
+    streak = int(user["streak"] or 0)
+    rep = int(conn.execute(
+        "SELECT COALESCE(SUM(points),0) AS n FROM reputation_events WHERE username = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+    clash_wins = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM creature_battles WHERE winner = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+    battles = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM creature_battles WHERE challenger = ? OR opponent = ?",
+        (username, username)
+    ).fetchone()["n"] or 0)
+    referrals = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM referrals WHERE inviter = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+    followers = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM hunter_connections WHERE target = ? AND kind = 'follow'",
+        (username,)
+    ).fetchone()["n"] or 0)
+    arena_wins = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+    paid_wins = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ? AND paid = 1",
+        (username,)
+    ).fetchone()["n"] or 0)
+    crown_defenses = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM crown_events WHERE defender = ? AND successful_defense = 1",
+        (username,)
+    ).fetchone()["n"] or 0)
+    crown_breaks = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM crown_events WHERE challenger = ? AND winner = ? AND successful_defense = 0",
+        (username, username)
+    ).fetchone()["n"] or 0)
+    conn.close()
+
+    def pct(current, target):
+        if target <= 0:
+            return 100
+        return max(0, min(100, round((current / target) * 100)))
+
+    # Evolution path.
+    evo_targets = [
+        (100, "👾 GLITCHLING"),
+        (300, "😈 CHAOS SPAWN"),
+        (700, "🦹 ALPHA BEAST"),
+        (1500, "👑 CROWN ENTITY"),
+    ]
+    next_evo = None
+    for target, label in evo_targets:
+        if xp < target:
+            next_evo = {
+                "kind": "EVOLUTION",
+                "icon": "🧬",
+                "title": label,
+                "current": xp,
+                "target": target,
+                "percent": pct(xp, target),
+                "detail": f"{target - xp} XP remaining"
+            }
+            break
+    if next_evo is None:
+        next_evo = {
+            "kind": "EVOLUTION",
+            "icon": "👑",
+            "title": "CROWN ENTITY",
+            "current": xp,
+            "target": xp,
+            "percent": 100,
+            "detail": "Maximum evolution reached"
+        }
+
+    trophy_data = _hunter_trophies(username) or {"trophies": []}
+    unlocked_trophy_keys = {t["key"] for t in trophy_data.get("trophies", [])}
+
+    trophy_candidates = [
+        ("reputation_100", "⚡", "100 REP", rep, 100, "Build reputation"),
+        ("battle_hardened", "🛡️", "BATTLE HARDENED", battles, 10, "Complete 10 direct Clashes"),
+        ("alpha_hunter", "😈", "ALPHA HUNTER", clash_wins, 10, "Win 10 direct Clashes"),
+        ("network_builder", "👥", "NETWORK BUILDER", referrals, 5, "Refer 5 Hunters"),
+        ("signal_magnet", "📡", "SIGNAL MAGNET", followers, 10, "Reach 10 followers"),
+        ("arena_winner", "🎯", "ARENA WINNER", arena_wins, 1, "Win a project Arena"),
+        ("proof_paid", "💎", "PROOF PAID", paid_wins, 1, "Have an Arena win marked paid"),
+        ("crown_defender", "👑", "CROWN DEFENDER", crown_defenses, 1, "Defend the Crown"),
+        ("crown_breaker", "💥", "CROWN BREAKER", crown_breaks, 1, "Break a Crown defense"),
+        ("reputation_500", "🌠", "500 REP", rep, 500, "Reach 500 REP"),
+        ("seven_day_flame", "🔥", "7-DAY FLAME", streak, 7, "Maintain a 7-day streak"),
+        ("ascended", "👑", "ASCENDED", xp, 1500, "Reach 1500 XP"),
+    ]
+    locked_trophies = []
+    for key, icon, title, current, target, detail in trophy_candidates:
+        if key in unlocked_trophy_keys:
+            continue
+        locked_trophies.append({
+            "key": key,
+            "kind": "TROPHY",
+            "icon": icon,
+            "title": title,
+            "current": current,
+            "target": target,
+            "percent": pct(current, target),
+            "detail": detail
+        })
+    locked_trophies.sort(key=lambda x: (-x["percent"], x["target"] - x["current"]))
+    next_trophy = locked_trophies[0] if locked_trophies else {
+        "kind": "TROPHY", "icon": "🏆", "title": "TROPHY ROOM COMPLETE",
+        "current": len(unlocked_trophy_keys), "target": len(unlocked_trophy_keys),
+        "percent": 100, "detail": "No tracked Trophy unlock is closer."
+    }
+
+    # Titles come from trophies: show the strongest locked title path that is closest.
+    title_options = _hunter_title_options(username) or []
+    unlocked_title_keys = {t["key"] for t in title_options}
+    title_map = {
+        "reputation_100": ("⚡", "PROVEN HUNTER"),
+        "battle_hardened": ("🛡️", "BATTLE HARDENED"),
+        "alpha_hunter": ("😈", "ALPHA HUNTER"),
+        "network_builder": ("👥", "NETWORK BUILDER"),
+        "signal_magnet": ("📡", "SIGNAL MAGNET"),
+        "arena_winner": ("🎯", "ARENA WINNER"),
+        "proof_paid": ("💎", "PROOF HUNTER"),
+        "crown_defender": ("👑", "CROWN DEFENDER"),
+        "crown_breaker": ("💥", "CROWN BREAKER"),
+        "reputation_500": ("🌠", "REPUTATION ELITE"),
+        "seven_day_flame": ("🔥", "FLAMEKEEPER"),
+        "ascended": ("👑", "CROWN ENTITY"),
+    }
+    title_candidates = []
+    for item in locked_trophies:
+        if item["key"] in title_map and item["key"] not in unlocked_title_keys:
+            icon, title_name = title_map[item["key"]]
+            title_candidates.append({
+                "kind": "TITLE",
+                "icon": icon,
+                "title": title_name,
+                "current": item["current"],
+                "target": item["target"],
+                "percent": item["percent"],
+                "detail": f"Unlock via {item['title']}"
+            })
+    title_candidates.sort(key=lambda x: -x["percent"])
+    next_title = title_candidates[0] if title_candidates else {
+        "kind": "TITLE", "icon": "🏷️", "title": "TITLE COLLECTION ACTIVE",
+        "current": len(title_options), "target": len(title_options),
+        "percent": 100, "detail": "Use any unlocked title from your collection."
+    }
+
+    skin_options = _hunter_skin_unlocks(username) or []
+    locked_skins = []
+    for s in skin_options:
+        if s.get("unlocked"):
+            continue
+        p = s.get("progress", {})
+        locked_skins.append({
+            "kind": "SKIN",
+            "icon": s["icon"],
+            "title": f"{s['name']} // {s['rarity']}",
+            "current": int(p.get("percent", 0)),
+            "target": 100,
+            "percent": int(p.get("percent", 0)),
+            "detail": p.get("label", s.get("requirement", ""))
+        })
+    locked_skins.sort(key=lambda x: -x["percent"])
+    next_skin = locked_skins[0] if locked_skins else {
+        "kind": "SKIN", "icon": "🎨", "title": "ALL CURRENT SKINS UNLOCKED",
+        "current": 100, "target": 100, "percent": 100,
+        "detail": "Every current Loadout skin is available."
+    }
+
+    cards = [next_evo, next_trophy, next_title, next_skin]
+    incomplete = [c for c in cards if c["percent"] < 100]
+    closest = max(incomplete, key=lambda c: c["percent"]) if incomplete else cards[0]
+
+    return {
+        "username": username,
+        "closest": closest,
+        "cards": cards,
+        "stats": {
+            "xp": xp,
+            "rep": rep,
+            "streak": streak,
+            "clash_wins": clash_wins,
+            "battles": battles
+        }
+    }
+
+
+@app.route("/api/progress/<username>")
+def hunter_progress_api(username):
+    data = _hunter_progress_dashboard(username)
+    if data is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    return jsonify({"success": True, **data})
 
 
 def _loadout_skin_catalog():
@@ -3094,6 +3304,52 @@ def hunter_loadout_card_svg(username):
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=120"})
 
 
+
+@app.route("/progress/<username>")
+def hunter_progress_page(username):
+    data = _hunter_progress_dashboard(username)
+    if data is None:
+        return "Hunter not found", 404
+
+    esc = lambda v: html.escape(str(v or ""))
+    root = request.url_root.rstrip("/")
+    profile_url = f"{root}/hunter/{urllib.parse.quote(username)}"
+    loadout_url = f"{root}/loadout/{urllib.parse.quote(username)}"
+
+    cards_html = ""
+    for c in data["cards"]:
+        cards_html += (
+            f'<div class="progress-card">'
+            f'<div class="progress-head"><div><span>{esc(c["kind"])}</span>'
+            f'<h3>{esc(c["icon"])} {esc(c["title"])}</h3></div>'
+            f'<b>{int(c["percent"])}%</b></div>'
+            f'<div class="bar"><i style="width:{int(c["percent"])}%"></i></div>'
+            f'<div class="meta">{esc(c["detail"])}</div>'
+            f'</div>'
+        )
+
+    closest = data["closest"]
+    return f"""<!doctype html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(username)} // Progress Dashboard // BL3</title>
+<style>
+:root{{--bg:#08080d;--card:#111119;--line:#292934;--muted:#9393a4;--hot:#b8ff5a;--violet:#9d7bff}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -10%,#271840 0,#08080d 48%);color:#fff;font-family:Arial,sans-serif}}
+.shell{{max-width:1000px;margin:auto;padding:28px}}.nav{{display:flex;justify-content:space-between;gap:12px;align-items:center}}.brand{{font-size:24px;font-weight:900}}.brand span,.eyebrow{{color:var(--hot)}}.nav a{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px}}
+.hero{{margin-top:54px}}h1{{font-size:clamp(46px,8vw,82px);letter-spacing:-4px;margin:8px 0}}.meta{{color:var(--muted)}}.closest{{margin-top:26px;border:1px solid rgba(184,255,90,.32);background:linear-gradient(145deg,rgba(184,255,90,.06),rgba(157,123,255,.07));padding:22px;border-radius:24px}}.closest strong{{display:block;font-size:30px;margin-top:6px}}.closest b{{color:var(--hot)}}
+.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}}.progress-card{{border:1px solid var(--line);background:var(--card);padding:18px;border-radius:20px}}.progress-head{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}}.progress-head span{{font-size:9px;letter-spacing:1.5px;color:var(--muted);font-weight:900}}.progress-head h3{{margin:5px 0 0;font-size:20px}}.progress-head b{{font-size:22px;color:var(--hot)}}.bar{{height:8px;border:1px solid var(--line);background:#08080c;border-radius:999px;overflow:hidden;margin:16px 0 10px}}.bar i{{display:block;height:100%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:999px}}
+.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid var(--line);background:#0d0d12;padding:14px;border-radius:16px}}.stat b{{font-size:22px;display:block}}.stat span{{font-size:9px;color:var(--muted);font-weight:900;letter-spacing:1px}}.footer{{text-align:center;color:#646473;padding:48px 0 18px}}
+@media(max-width:720px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}h1{{letter-spacing:-2px}}}}
+</style></head><body><div class="shell">
+<nav class="nav"><div class="brand">BL3<span>●</span></div><div><a href="{esc(profile_url)}">PROFILE</a> <a href="{esc(loadout_url)}">LOADOUT</a></div></nav>
+<section class="hero"><div class="eyebrow">PROGRESSION RADAR // NEXT UNLOCKS</div><h1>{esc(username)}</h1><div class="meta">One place to see what your next meaningful BL3 unlock is.</div>
+<div class="closest"><div class="eyebrow">CLOSEST UNLOCK</div><strong>{esc(closest["icon"])} {esc(closest["title"])}</strong><b>{int(closest["percent"])}% COMPLETE</b><div class="meta" style="margin-top:8px">{esc(closest["detail"])}</div></div>
+<div class="stats"><div class="stat"><b>{data["stats"]["xp"]}</b><span>XP</span></div><div class="stat"><b>{data["stats"]["rep"]}</b><span>REP</span></div><div class="stat"><b>{data["stats"]["streak"]}</b><span>STREAK</span></div><div class="stat"><b>{data["stats"]["clash_wins"]}</b><span>CLASH WINS</span></div><div class="stat"><b>{data["stats"]["battles"]}</b><span>BATTLES</span></div></div>
+<div class="grid">{cards_html}</div></section>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
+</div></body></html>"""
+
+
 @app.route("/loadout/<username>")
 def hunter_loadout_page(username):
     d = _hunter_public_data(username)
@@ -3180,8 +3436,8 @@ def hunter_loadout_page(username):
 <div class="identity"><div class="title">{esc(hunter_title['icon'])} {esc(hunter_title['title'])} <span class="tier">{esc(hunter_title['tier'])}</span></div>
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
-<div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div>
+<div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -3349,12 +3605,12 @@ def hunter_public_page(username):
 <div class="social-grid"><div class="social-stat"><b id="followersCount">{d['followers']}</b><span>FOLLOWERS</span></div><div class="social-stat"><b>{d['following']}</b><span>FOLLOWING</span></div><div class="social-stat"><b>{d['rivals']}</b><span>RIVALS TRACKED</span></div></div>
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
-<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="/loadout/{urllib.parse.quote(username)}">🧬 HUNTER LOADOUT</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div>{featured_html}</section>
+<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="/loadout/{urllib.parse.quote(username)}">🧬 HUNTER LOADOUT</a><a class="btn violet" href="/progress/{urllib.parse.quote(username)}">📈 NEXT UNLOCKS</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div>{featured_html}</section>
 <section class="section title-collection"><div class="eyebrow">🏷️ TITLE COLLECTION // IDENTITY LOADOUT</div><h2>Choose Your Public Title <span class="small">{len(title_options)} AVAILABLE</span></h2><div class="meta">Unlocked titles come from real Trophy Room achievements. The equipped title appears on your public profile and Hunter share card.</div><div class="title-grid">{title_collection}</div></section>
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.6 SKIN PROGRESS</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -4100,7 +4356,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📈 BL3 ARENA V8.6 // SKIN PROGRESS")
+    print("🧭 BL3 ARENA V8.7 // PROGRESS DASHBOARD")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
