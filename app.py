@@ -169,6 +169,27 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_challenge_opponent_status ON challenge_requests(opponent, status, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_challenge_challenger_status ON challenge_requests(challenger, status, id DESC)")
 
+    # V7.0: private notification stream for signed-in hunters.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'signal',
+            title TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            link TEXT DEFAULT '',
+            is_read INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(username, is_read, id DESC)")
+
+    # Reputation events get an optional event_key so future signals can be idempotent.
+    rep_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reputation_events)").fetchall()}
+    if "event_key" not in rep_cols:
+        conn.execute("ALTER TABLE reputation_events ADD COLUMN event_key TEXT DEFAULT ''")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rep_event_key ON reputation_events(event_key) WHERE event_key <> ''")
+
     # V6.6: seasons are non-destructive; old battles are assigned from their UTC month.
     battle_cols = {row["name"] for row in conn.execute("PRAGMA table_info(creature_battles)").fetchall()}
     if "season_key" not in battle_cols:
@@ -179,6 +200,41 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+def _notify(conn, username, kind, title, detail="", link=""):
+    if not username:
+        return
+    conn.execute(
+        """INSERT INTO notifications (username, kind, title, detail, link, is_read, created_at)
+           VALUES (?, ?, ?, ?, ?, 0, ?)""",
+        (username, kind, title[:160], detail[:500], link[:500], datetime.utcnow().isoformat())
+    )
+
+
+def _add_rep(conn, username, points, reason, event_key="", daily_cap=None, daily_prefix=None):
+    """Add REP without minting XP. Optional daily cap limits farmable event families."""
+    if not username or not points:
+        return False
+    if event_key:
+        exists = conn.execute("SELECT 1 FROM reputation_events WHERE event_key = ?", (event_key,)).fetchone()
+        if exists:
+            return False
+    if daily_cap is not None and daily_prefix:
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        n = conn.execute(
+            """SELECT COUNT(*) AS n FROM reputation_events
+               WHERE username = ? AND reason LIKE ? AND substr(created_at,1,10) = ?""",
+            (username, daily_prefix + "%", today)
+        ).fetchone()["n"]
+        if int(n or 0) >= int(daily_cap):
+            return False
+    conn.execute(
+        """INSERT INTO reputation_events (username, points, reason, created_at, event_key)
+           VALUES (?, ?, ?, ?, ?)""",
+        (username, int(points), reason, datetime.utcnow().isoformat(), event_key or "")
+    )
+    return True
 
 
 def get_user(username):
@@ -237,7 +293,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .creature-card:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(157,123,255,.09);filter:blur(28px);right:-45px;top:-45px;pointer-events:none}
 .creature-head{display:flex;align-items:center;gap:14px;margin:14px 0}.creature-avatar{width:76px;height:76px;border:1px solid rgba(184,255,90,.35);border-radius:22px;display:grid;place-items:center;font-size:42px;background:rgba(184,255,90,.06);box-shadow:0 0 28px rgba(184,255,90,.08)}
 .creature-name{font-size:20px;font-weight:900}.creature-stage{color:var(--hot);font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}.progress{height:9px;background:#24242d;border-radius:999px;overflow:hidden;margin:8px 0 6px}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--hot));border-radius:999px;transition:width .45s ease}.passport-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.passport-grid .stat{padding:11px 6px}.empire{display:flex;justify-content:space-between;align-items:center;padding:12px 0 2px;border-top:1px solid var(--line);margin-top:13px}.empire b{color:var(--hot)}.battle-result{margin-top:12px;padding:14px;border:1px solid rgba(184,255,90,.25);border-radius:16px;background:rgba(184,255,90,.04)}.battle-vs{font-size:24px;font-weight:950;text-align:center;margin:8px 0}.battle-log{font-size:13px;color:var(--muted);line-height:1.5}.battle-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}@media(max-width:520px){.battle-actions{grid-template-columns:1fr}}
-.inbox-item{padding:12px;border:1px solid var(--line);border-radius:16px;margin-top:9px;background:rgba(255,255,255,.025)}.inbox-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.inbox-title{font-weight:900}.inbox-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.inbox-badge{color:var(--hot);font-weight:900}.btn.danger:hover{background:#ff6b7a;color:#09090c}.nav-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.inbox-item{padding:12px;border:1px solid var(--line);border-radius:16px;margin-top:9px;background:rgba(255,255,255,.025)}.inbox-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.inbox-title{font-weight:900}.inbox-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.inbox-badge{color:var(--hot);font-weight:900}.btn.danger:hover{background:#ff6b7a;color:#09090c}.nav-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.signal-item{padding:12px;border:1px solid var(--line);border-radius:16px;margin-top:9px;background:rgba(255,255,255,.022)}.signal-item.unread{border-color:rgba(184,255,90,.32);background:rgba(184,255,90,.045)}.signal-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.signal-title{font-weight:900}.signal-link{color:var(--hot);text-decoration:none;font-size:12px;font-weight:900}.rep-positive{color:var(--hot);font-weight:900}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
 </style>
 </head>
@@ -246,7 +302,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
   <nav class="nav">
     <div class="brand">BL3<span>●</span></div>
     <div class="pill">THE HUMAN ALPHA NETWORK</div>
-    <div class="nav-right"><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
+    <div class="nav-right"><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
   </nav>
 
   <section class="hero">
@@ -285,6 +341,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
           <div class="stat"><div class="num" id="wins">0</div><div class="small">WINS</div></div>
           <div class="stat"><div class="num" id="network">0</div><div class="small">NETWORK</div></div>
           <div class="stat"><div class="num" id="earned">0</div><div class="small">EARNED</div></div>
+          <div class="stat"><div class="num" id="reputation">0</div><div class="small">REP</div></div>
         </div>
         <div class="empire"><span class="meta">👥 VERIFIED NETWORK</span><b id="empireLabel">0 HUNTERS</b></div>
         <div id="streakReward" class="meta" style="margin-top:12px">🔥 Next: 3-Day Flame</div>
@@ -334,6 +391,14 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
       </div>
 
       <div class="card" style="margin-top:16px">
+        <div class="eyebrow">SIGNAL CENTER // PRIVATE NOTIFICATIONS</div>
+        <h3 style="margin-top:8px">What Happened While You Were Away</h3>
+        <div class="meta">Private Hunter signals for challenges, Clash results, Crown events and Arena outcomes. Wallet sign-in is required to read them.</div>
+        <div id="signalCenter" style="margin-top:10px"><div class="meta">Sign in to load private signals.</div></div>
+        <div class="battle-actions"><button class="btn" onclick="loadSignals()">↻ Refresh Signals</button><button class="btn violet" onclick="markSignalsRead()">✓ Mark All Read</button></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
         <div class="eyebrow"><span class="pulse"></span> LIVE NETWORK // ACTIVITY</div>
         <h3 style="margin-top:8px">The Network Is Moving</h3>
         <div class="meta">Recent battles, Crown attacks, Arena launches, proofs, referrals and verified casts. Auto-refreshes every 20 seconds.</div>
@@ -379,7 +444,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V6.9 CHALLENGE INBOX</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.0 SIGNAL CENTER</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -400,10 +465,11 @@ async function loadUser(){
  if(rep.success){
    document.getElementById("wins").innerText=rep.wins||0;
    document.getElementById("earned").innerText=Number(rep.earned||0).toLocaleString();
+   document.getElementById("reputation").innerText=Number(rep.reputation||0).toLocaleString();
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadInbox();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadDailyMissions(); await loadActivity(); await loadInbox(); await loadSignals();
 }
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -565,6 +631,26 @@ async function declineChallenge(id){
  if(d.success)await loadInbox();
 }
 
+async function loadSignals(){
+ currentUser();
+ const el=document.getElementById("signalCenter"),badge=document.getElementById("signalBadge");
+ const d=await jsonFetch("/api/notifications/"+encodeURIComponent(username));
+ if(!d.success){
+   if(badge)badge.innerText="SIGNALS —";
+   el.innerHTML='<div class="meta">'+escapeHtml(d.message||"Sign in with this Hunter ID to open private signals.")+'</div>';
+   return;
+ }
+ const items=Array.isArray(d.notifications)?d.notifications:[];
+ if(badge)badge.innerText="SIGNALS "+Number(d.unread||0);
+ el.innerHTML=items.map(n=>'<div class="signal-item '+(n.is_read?'':'unread')+'"><div class="signal-top"><div><div class="signal-title">'+escapeHtml(n.title||"BL3 signal")+'</div><div class="meta">'+escapeHtml(n.detail||"")+'</div></div><div class="feed-time">'+escapeHtml(relativeTime(n.created_at))+'</div></div>'+(n.link?'<a class="signal-link" href="'+escapeHtml(n.link)+'">OPEN SIGNAL ↗</a>':'')+'</div>').join("")||'<div class="meta">No private signals yet. Go make noise. ⚡</div>';
+}
+async function markSignalsRead(){
+ currentUser();
+ const d=await jsonFetch("/api/notifications/"+encodeURIComponent(username)+"/read-all",{method:"POST"});
+ show(d.message||"Signals updated");
+ if(d.success)await loadSignals();
+}
+
 async function loadActivity(){
  const d=await jsonFetch("/api/activity?limit=18");
  const el=document.getElementById("activityFeed");
@@ -572,7 +658,7 @@ async function loadActivity(){
  const items=Array.isArray(d.events)?d.events:[];
  el.innerHTML=items.map(e=>'<div class="feed-item"><div class="feed-icon">'+escapeHtml(e.icon||"⚡")+'</div><div class="feed-main"><div class="feed-title">'+escapeHtml(e.title||"Network activity")+'</div><div class="feed-meta">'+escapeHtml(e.detail||"")+'</div></div><div class="feed-time">'+escapeHtml(relativeTime(e.created_at))+'</div></div>').join("")||'<div class="meta">No activity yet. Be the first signal.</div>';
 }
-setInterval(loadActivity,20000);
+setInterval(()=>{loadActivity();loadSignals();},20000);
 
 async function loadArenas(){
  const d=await jsonFetch("/api/arenas"),list=Array.isArray(d.arenas)?d.arenas:[];
@@ -1472,6 +1558,7 @@ def arena_winner_api(arena_id):
     conn.execute("INSERT INTO reputation_events (username, points, reason, created_at) VALUES (?, 100, ?, ?)",
                  (winner, f"Arena #{arena_id} winner", now))
     conn.execute("UPDATE users SET xp = xp + 100 WHERE username = ?", (winner,))
+    _notify(conn, winner, "arena", f"👑 You won Arena #{arena_id}", "Winner selected. +100 XP / REP signal recorded.", "/")
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": f"👑 {winner} selected as winner. +100 XP / REP signal."})
@@ -1497,6 +1584,7 @@ def arena_paid_api(arena_id):
         return jsonify({"success": False, "message": "⚠️ Payment already marked"}), 409
     now = datetime.utcnow().isoformat()
     conn.execute("UPDATE arenas SET paid = 1, paid_at = ? WHERE id = ?", (now, arena_id))
+    _notify(conn, arena["winner_username"], "payment", f"✅ Arena #{arena_id} marked paid", f"{arena['bounty_amount']:g} {arena['bounty_asset']} is now counted in your BL3 earned total.", "/")
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": "✅ Payment marked as completed. Earnings are now counted in the winner profile."})
@@ -1669,6 +1757,20 @@ def _resolve_battle(challenger, opponent):
             (battle_id, season_key, defender, challenger, winner, successful_defense, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (battle_id, season_key, crown_before, challenger, winner, 1 if winner == crown_before else 0, now))
+
+    # V7.0 REP is separate from XP. Clash wins are capped to 3 REP-awarding wins/day.
+    rep_awarded = _add_rep(conn, winner, 3, "Clash win", f"battle:{battle_id}:win", daily_cap=3, daily_prefix="Clash win")
+    if crown_attack:
+        if winner == crown_before:
+            crown_rep = _add_rep(conn, winner, 10, "Crown defense", f"battle:{battle_id}:crown-defense", daily_cap=1, daily_prefix="Crown defense")
+            _notify(conn, crown_before, "crown", "👑 Crown defended", f"You stopped {challenger} in Clash #{battle_id}.", f"/clash/{battle_id}")
+            _notify(conn, challenger, "crown", "🛡️ Crown attack stopped", f"{crown_before} defended the Crown in Clash #{battle_id}.", f"/clash/{battle_id}")
+        else:
+            crown_rep = _add_rep(conn, winner, 12, "Crown takeover", f"battle:{battle_id}:crown-takeover", daily_cap=1, daily_prefix="Crown takeover")
+            _notify(conn, challenger, "crown", "👑 You broke the Crown defense", f"You beat {crown_before} in Clash #{battle_id}.", f"/clash/{battle_id}")
+            _notify(conn, crown_before, "crown", "🔥 Crown defense broken", f"{challenger} beat you in Clash #{battle_id}.", f"/clash/{battle_id}")
+    _notify(conn, challenger, "battle", f"⚔️ Clash #{battle_id}: {challenger} vs {opponent}", f"Winner: {winner}." + (" +3 REP signal." if rep_awarded and winner == challenger else ""), f"/clash/{battle_id}")
+    _notify(conn, opponent, "battle", f"⚔️ Clash #{battle_id}: {challenger} vs {opponent}", f"Winner: {winner}." + (" +3 REP signal." if rep_awarded and winner == opponent else ""), f"/clash/{battle_id}")
     conn.commit()
     conn.close()
     return {
@@ -1844,6 +1946,8 @@ def create_challenge_api():
                           (challenger, opponent, status, created_at)
                           VALUES (?, ?, 'pending', ?)""", (challenger, opponent, now))
     challenge_id = cur.lastrowid
+    _notify(conn, opponent, "challenge", f"⚔️ {challenger} challenged you",
+            f"Challenge request #{challenge_id} is waiting in your Inbox.", "/#challenge-inbox")
     conn.commit()
     conn.close()
     return jsonify({"success": True, "challenge_id": challenge_id, "message": f"📨 Challenge sent to {opponent}."})
@@ -1884,6 +1988,12 @@ def accept_challenge_api(challenge_id):
     conn = db()
     conn.execute("""UPDATE challenge_requests SET status = 'accepted', responded_at = ?, battle_id = ?
                     WHERE id = ? AND status = 'pending'""", (now, payload["battle_id"], challenge_id))
+    _add_rep(conn, row["challenger"], 1, f"Accepted challenge #{challenge_id} participation", f"challenge:{challenge_id}:challenger")
+    _add_rep(conn, row["opponent"], 1, f"Accepted challenge #{challenge_id} participation", f"challenge:{challenge_id}:opponent")
+    _notify(conn, row["challenger"], "challenge", f"⚔️ {row['opponent']} accepted your challenge",
+            f"Clash #{payload['battle_id']} resolved. Winner: {payload['winner']}.", f"/clash/{payload['battle_id']}")
+    _notify(conn, row["opponent"], "battle", f"👑 Clash #{payload['battle_id']} resolved",
+            f"Winner: {payload['winner']}. Open the public Battle Card.", f"/clash/{payload['battle_id']}")
     conn.commit()
     conn.close()
     payload["challenge_id"] = challenge_id
@@ -1905,9 +2015,36 @@ def decline_challenge_api(challenge_id):
         conn.close()
         return jsonify({"success": False, "message": "🔐 Only the challenged hunter can decline this request."}), 401
     conn.execute("UPDATE challenge_requests SET status = 'declined', responded_at = ? WHERE id = ?", (datetime.utcnow().isoformat(), challenge_id))
+    _notify(conn, row["challenger"], "challenge", f"Challenge #{challenge_id} declined",
+            f"{row['opponent']} declined the request. Pick another hunter or try later.", "")
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": "Challenge declined."})
+
+
+@app.route("/api/notifications/<username>")
+def notifications_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "🔐 Sign in as this Hunter ID to read private signals."}), 401
+    conn = db()
+    rows = [dict(r) for r in conn.execute(
+        """SELECT id, username, kind, title, detail, link, is_read, created_at
+           FROM notifications WHERE username = ? ORDER BY id DESC LIMIT 40""", (username,)
+    ).fetchall()]
+    unread = conn.execute("SELECT COUNT(*) AS n FROM notifications WHERE username = ? AND is_read = 0", (username,)).fetchone()["n"]
+    conn.close()
+    return jsonify({"success": True, "notifications": rows, "unread": unread})
+
+
+@app.route("/api/notifications/<username>/read-all", methods=["POST"])
+def notifications_read_all_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "🔐 Sign in as this Hunter ID first."}), 401
+    conn = db()
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "✓ All Hunter signals marked read."})
 
 
 @app.route("/api/activity")
@@ -2025,7 +2162,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📨 BL3 ARENA V6.9 // CHALLENGE INBOX")
+    print("⚡ BL3 ARENA V7.0 // SIGNAL CENTER")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
