@@ -354,6 +354,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <h2 style="margin-top:8px">Your Passport</h2>
         <input id="username" value="demo_user" placeholder="BL3 username">
         <button class="btn" onclick="loadUser()">Load Profile</button>
+        <button class="btn violet" onclick="openPublicProfile()">↗ View Public Hunter Profile</button>
         <div class="creature-head">
           <div class="creature-avatar" id="creatureAvatar">🥚</div>
           <div><div class="creature-stage" id="creatureStage">DORMANT</div><div class="creature-name" id="creatureName">BL3 Seed</div><div class="meta" id="creatureLevel">LEVEL 1</div></div>
@@ -470,7 +471,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.1 FIRST HUNT</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.2 PUBLIC HUNTER PROFILE</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -489,6 +490,7 @@ function dismissOnboarding(){
 function jumpToPassport(){document.getElementById("passportCard")?.scrollIntoView({behavior:"smooth",block:"center"});document.getElementById("username")?.focus()}
 function jumpToWallet(){document.getElementById("walletCard")?.scrollIntoView({behavior:"smooth",block:"center"})}
 function jumpToAction(){document.getElementById("arenaSection")?.scrollIntoView({behavior:"smooth",block:"start"})}
+function openPublicProfile(){currentUser();window.open("/hunter/"+encodeURIComponent(username),"_blank","noopener")}
 async function loadOnboarding(){
  currentUser();
  const d=await jsonFetch("/api/onboarding/"+encodeURIComponent(username));
@@ -1720,6 +1722,174 @@ def _creature_avatar_from_xp(xp):
     return "🥚"
 
 
+def _hunter_public_data(username):
+    """Read-only public Hunter profile. Never auto-creates usernames."""
+    conn = db()
+    user = conn.execute("SELECT username, wallet, xp, streak FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None:
+        conn.close()
+        return None
+
+    xp = int(user["xp"] or 0)
+    stages = [
+        (0, 100, "🥚", "BL3 Seed", "DORMANT"),
+        (100, 300, "👾", "Glitchling", "AWAKENED"),
+        (300, 700, "😈", "Chaos Spawn", "EVOLVED"),
+        (700, 1500, "🦹", "Alpha Beast", "ALPHA"),
+        (1500, None, "👑", "Crown Entity", "ASCENDED"),
+    ]
+    selected = stages[0]
+    for stage in stages:
+        if xp >= stage[0]:
+            selected = stage
+    floor, ceiling, avatar, creature_name, creature_stage = selected
+    if ceiling is None:
+        evo_current = max(0, xp - floor)
+        evo_target = max(1, evo_current)
+        evo_percent = 100
+    else:
+        evo_current = max(0, xp - floor)
+        evo_target = ceiling - floor
+        evo_percent = round((evo_current / evo_target) * 100, 1)
+
+    rep = conn.execute("SELECT COALESCE(SUM(points),0) AS n FROM reputation_events WHERE username = ?", (username,)).fetchone()["n"]
+    network = conn.execute("SELECT COUNT(*) AS n FROM referrals WHERE inviter = ?", (username,)).fetchone()["n"]
+    arena_wins = conn.execute("SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ?", (username,)).fetchone()["n"]
+    clash_wins = conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = ?", (username,)).fetchone()["n"]
+    earned = conn.execute("SELECT COALESCE(SUM(bounty_amount),0) AS n FROM arenas WHERE winner_username = ? AND paid = 1", (username,)).fetchone()["n"]
+
+    season_key = _current_season_key()
+    board = _season_rows(conn, season_key)
+    season_row = next((r for r in board if r["username"] == username), {"username": username, "wins": 0, "losses": 0, "battles": 0})
+    season_rank = next((i for i, r in enumerate(board, 1) if r["username"] == username), None)
+    win_streak = _season_win_streak(conn, username, season_key)
+    crown = board[0]["username"] if board and int(board[0].get("wins") or 0) > 0 else None
+
+    battles = conn.execute(
+        """SELECT id, challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at
+           FROM creature_battles
+           WHERE challenger = ? OR opponent = ?
+           ORDER BY id DESC LIMIT 6""",
+        (username, username)
+    ).fetchall()
+    recent = [dict(r) for r in battles]
+
+    ranking = conn.execute("SELECT username FROM users ORDER BY xp DESC, username COLLATE NOCASE ASC").fetchall()
+    xp_rank = next((i for i, r in enumerate(ranking, 1) if r["username"] == username), None)
+    conn.close()
+
+    return {
+        "username": username,
+        "wallet_verified": bool(user["wallet"]),
+        "xp": xp,
+        "xp_rank": xp_rank,
+        "streak": int(user["streak"] or 0),
+        "level": max(1, xp // 100 + 1),
+        "reputation": int(rep or 0),
+        "network": int(network or 0),
+        "wins": int(arena_wins or 0) + int(clash_wins or 0),
+        "earned": float(earned or 0),
+        "creature": {"avatar": avatar, "name": creature_name, "stage": creature_stage},
+        "evolution": {"current": evo_current, "target": evo_target, "percent": evo_percent},
+        "season": {
+            "key": season_key,
+            "rank": season_rank,
+            "wins": int(season_row.get("wins") or 0),
+            "losses": int(season_row.get("losses") or 0),
+            "battles": int(season_row.get("battles") or 0),
+            "win_streak": int(win_streak or 0),
+            "is_crown": crown == username,
+            "crown": crown,
+        },
+        "recent_battles": recent,
+    }
+
+
+@app.route("/api/hunter/<username>")
+def hunter_public_api(username):
+    data = _hunter_public_data(username)
+    if data is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    return jsonify({"success": True, **data})
+
+
+@app.route("/hunter/<username>/card.svg")
+def hunter_profile_card_svg(username):
+    d = _hunter_public_data(username)
+    if d is None:
+        return Response("Hunter not found", status=404, mimetype="text/plain")
+    esc = lambda v: html.escape(str(v or ""))
+    season_rank = f"#{d['season']['rank']}" if d['season']['rank'] else "—"
+    crown = "CURRENT CROWN" if d['season']['is_crown'] else "HUNTER"
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#050507"/><stop offset=".55" stop-color="#141221"/><stop offset="1" stop-color="#09090e"/></linearGradient>
+        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#b8ff5a"/><stop offset="1" stop-color="#9d7bff"/></linearGradient>
+      </defs>
+      <rect width="1200" height="630" rx="38" fill="url(#bg)"/>
+      <rect x="34" y="34" width="1132" height="562" rx="30" fill="none" stroke="#30303a" stroke-width="2"/>
+      <text x="70" y="92" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="26" font-weight="900">BL3 // PUBLIC HUNTER PROFILE</text>
+      <text x="70" y="142" fill="#777785" font-family="Arial,sans-serif" font-size="18" letter-spacing="3">THE HUMAN ALPHA NETWORK // {esc(crown)}</text>
+      <text x="72" y="282" fill="#ffffff" font-family="Arial,sans-serif" font-size="74" font-weight="950">{esc(d['username'])}</text>
+      <text x="72" y="336" fill="url(#accent)" font-family="Arial,sans-serif" font-size="30" font-weight="900">{esc(d['creature']['avatar'])} {esc(d['creature']['name'])} // LVL {d['level']}</text>
+      <text x="72" y="386" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="22">{d['reputation']} REP   •   {d['xp']} XP   •   {d['wins']} WINS   •   {d['network']} NETWORK</text>
+      <rect x="72" y="433" width="1056" height="1" fill="#30303a"/>
+      <text x="72" y="486" fill="#ffffff" font-family="Arial,sans-serif" font-size="21" font-weight="800">SEASON {esc(d['season']['key'])}</text>
+      <text x="72" y="528" fill="#9d7bff" font-family="Arial,sans-serif" font-size="25" font-weight="900">RANK {season_rank}   •   {d['season']['wins']}W / {d['season']['losses']}L   •   {d['season']['win_streak']} WIN STREAK</text>
+      <text x="72" y="570" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
+      <text x="1128" y="570" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">CHALLENGE THIS HUNTER →</text>
+    </svg>"""
+    return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.route("/hunter/<username>")
+def hunter_public_page(username):
+    d = _hunter_public_data(username)
+    if d is None:
+        return "Hunter not found", 404
+    esc = lambda v: html.escape(str(v or ""))
+    root = request.url_root.rstrip("/")
+    page_url = f"{root}/hunter/{urllib.parse.quote(username)}"
+    image_url = f"{root}/hunter/{urllib.parse.quote(username)}/card.svg"
+    challenge_url = f"{root}/?challenge={urllib.parse.quote(username)}&ref={urllib.parse.quote(username)}"
+    title = f"{username} // BL3 Hunter Profile"
+    desc = f"{d['reputation']} REP • {d['wins']} wins • {d['creature']['name']} • Level {d['level']} on the BL3 Human Alpha Network."
+
+    battles_html = ""
+    for b in d["recent_battles"]:
+        opponent = b["opponent"] if b["challenger"] == username else b["challenger"]
+        won = b["winner"] == username
+        outcome = "WIN" if won else "LOSS"
+        outcome_class = "win" if won else "loss"
+        battles_html += (
+            f'<a class="battle" href="/clash/{b["id"]}"><div><b>⚔️ vs {esc(opponent)}</b>'
+            f'<div class="meta">{esc(b["commentary"])}</div></div>'
+            f'<div class="outcome {outcome_class}">{outcome}</div></a>'
+        )
+    if not battles_html:
+        battles_html = '<div class="empty">No public clashes yet. Be the first to challenge this Hunter.</div>'
+
+    rank_text = f"#{d['season']['rank']}" if d['season']['rank'] else "—"
+    crown_badge = '<span class="crown">👑 CURRENT CROWN</span>' if d['season']['is_crown'] else ''
+    verified_badge = '<span class="verified">WALLET VERIFIED</span>' if d['wallet_verified'] else '<span class="muted-badge">WALLET UNVERIFIED</span>'
+
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507">
+<title>{esc(title)}</title><meta name="description" content="{esc(desc)}">
+<meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(desc)}"><meta property="og:type" content="profile"><meta property="og:url" content="{esc(page_url)}"><meta property="og:image" content="{esc(image_url)}">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
+<style>
+:root{{--bg:#050507;--panel:#111116;--line:#2b2b36;--muted:#9293a4;--text:#f8f8fb;--hot:#b8ff5a;--violet:#9d7bff}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}h1{{letter-spacing:-2px}}}}
+</style></head><body><div class="shell"><nav class="nav"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><a class="back" href="/">← LIVE NETWORK</a></nav>
+<section class="hero"><div class="eyebrow">PUBLIC HUNTER ID // SEASON {esc(d['season']['key'])}</div><div class="top"><div class="avatar">{esc(d['creature']['avatar'])}</div><div><h1>{esc(d['username'])}</h1><div class="subtitle">{esc(d['creature']['name'])} // {esc(d['creature']['stage'])} // LEVEL {d['level']}</div><div class="badges">{verified_badge}{crown_badge}</div></div></div>
+<div class="grid"><div class="stat"><div class="num">{d['reputation']}</div><div class="label">REPUTATION</div></div><div class="stat"><div class="num">{d['xp']}</div><div class="label">XP</div></div><div class="stat"><div class="num">{d['wins']}</div><div class="label">TOTAL WINS</div></div><div class="stat"><div class="num">{d['network']}</div><div class="label">NETWORK</div></div></div>
+<div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
+<div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
+<div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a></div></section>
+<section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.2 PUBLIC HUNTER PROFILE</div></div></body></html>'''
+
+
 def _battle_record(battle_id):
     conn = db()
     row = conn.execute("""SELECT id, challenger, opponent, winner, challenger_power, opponent_power,
@@ -2241,7 +2411,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🧭 BL3 ARENA V7.1 // FIRST HUNT")
+    print("🪪 BL3 ARENA V7.2 // PUBLIC HUNTER PROFILE")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
