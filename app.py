@@ -362,6 +362,48 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero{padding-top:45px}h1{letter-spacing:-3px}.nav .pill:nth-child(2){display:none}.shell{padding:14px}}
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
+
+/* ===== V9.0 VISUAL OVERHAUL ===== */
+:root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
+body{background:
+radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
+radial-gradient(circle at 90% 11%,rgba(186,255,90,.11),transparent 27%),
+radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
+#040406}
+body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
+.shell{max-width:1280px;padding:20px 28px 38px}
+.nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V9";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
+.nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
+.hero{padding:46px 0 28px;text-align:left}
+.hero-v9{position:relative;display:grid;grid-template-columns:minmax(0,1.28fr) minmax(320px,.72fr);gap:18px;align-items:stretch}
+.hero-copy,.hero-core{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:34px;background:linear-gradient(145deg,rgba(20,20,29,.88),rgba(8,8,12,.88));box-shadow:0 35px 100px rgba(0,0,0,.36)}
+.hero-copy{padding:54px 52px}.hero-copy:before{content:"";position:absolute;inset:auto auto -170px -110px;width:420px;height:420px;border-radius:50%;background:rgba(161,124,255,.16);filter:blur(50px)}
+.hero-copy:after{content:"";position:absolute;right:-100px;top:-120px;width:300px;height:300px;border-radius:50%;background:rgba(186,255,90,.08);filter:blur(38px)}
+.hero-copy>*{position:relative;z-index:1}.hero-kicker{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.hero-status{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(186,255,90,.22);background:rgba(186,255,90,.055);padding:8px 11px;border-radius:999px;font-size:10px;letter-spacing:1.4px;font-weight:900;color:var(--hot)}
+.hero-status i{width:7px;height:7px;border-radius:50%;background:var(--hot);box-shadow:0 0 14px var(--hot)}
+.hero h1{font-size:clamp(56px,7vw,104px);line-height:.86;letter-spacing:-6px;margin:21px 0 20px;max-width:780px}
+.hero .lead{max-width:690px;margin:0;color:#a7a8b6;font-size:16px;line-height:1.7}
+.hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}.hero-actions .btn{width:auto;margin:0;padding:13px 18px}.btn.ghost{background:transparent;color:#fff}.btn.ghost:hover{background:#fff;color:#08080a}
+.ticker{justify-content:flex-start;margin-top:30px;gap:8px}.ticker .pill{min-width:132px;padding:12px 14px;background:rgba(255,255,255,.035)}.ticker .pill b{display:block;font-size:20px;color:#fff;margin-bottom:2px}.ticker .pill{font-size:9px;letter-spacing:1.2px;color:var(--muted);font-weight:800}
+.hero-core{padding:24px;display:flex;flex-direction:column;justify-content:space-between;background:radial-gradient(circle at 60% 20%,rgba(186,255,90,.11),transparent 33%),linear-gradient(160deg,#101018,#08080d)}
+.core-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.core-badge{font-size:9px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.core-orb{width:178px;height:178px;border-radius:50%;margin:18px auto;display:grid;place-items:center;position:relative;background:radial-gradient(circle,rgba(186,255,90,.2),rgba(161,124,255,.08) 45%,transparent 68%);border:1px solid rgba(186,255,90,.22);box-shadow:inset 0 0 50px rgba(186,255,90,.06),0 0 65px rgba(161,124,255,.08)}
+.core-orb:before,.core-orb:after{content:"";position:absolute;border-radius:50%;border:1px solid rgba(255,255,255,.09)}.core-orb:before{inset:-14px}.core-orb:after{inset:24px;border-style:dashed}.core-glyph{font-size:66px;filter:drop-shadow(0 0 18px rgba(186,255,90,.22))}
+.core-title{text-align:center;font-size:22px;font-weight:950;letter-spacing:-.8px}.core-sub{text-align:center;color:var(--muted);font-size:11px;line-height:1.5;margin:6px auto 18px;max-width:250px}
+.core-lines{display:grid;gap:8px}.core-line{display:flex;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025);font-size:10px}.core-line span:first-child{color:var(--muted);font-weight:800}.core-line b{color:var(--hot);letter-spacing:.7px}
+.command-deck{display:grid;grid-template-columns:1.25fr repeat(4,1fr);gap:9px;margin:0 0 20px}.command-label,.command-link{min-height:72px;border:1px solid var(--line);border-radius:18px;background:rgba(12,12,18,.72);padding:13px;text-decoration:none;color:#fff;display:flex;flex-direction:column;justify-content:center;transition:.2s}.command-label{background:linear-gradient(135deg,rgba(161,124,255,.12),rgba(186,255,90,.05))}.command-link:hover{transform:translateY(-2px);border-color:rgba(186,255,90,.35);background:rgba(186,255,90,.045)}.command-link b,.command-label b{font-size:12px}.command-link span,.command-label span{font-size:9px;color:var(--muted);margin-top:4px;letter-spacing:.8px}
+.onboarding{border-radius:28px;padding:24px;background:linear-gradient(120deg,rgba(186,255,90,.055),rgba(161,124,255,.075)),rgba(12,12,18,.88);box-shadow:0 25px 80px rgba(0,0,0,.24)}
+.grid{grid-template-columns:minmax(0,1.42fr) minmax(340px,.78fr);gap:20px}
+.card{border-radius:22px;background:linear-gradient(145deg,rgba(17,17,24,.9),rgba(10,10,15,.86));box-shadow:0 18px 55px rgba(0,0,0,.22)}
+#arenaSection{padding:4px 2px}.section-title{margin-top:26px}.section-title h2{font-size:36px;letter-spacing:-1.5px}
+.arena{border-radius:22px!important;padding:22px!important}.arena:before{content:"LIVE";position:absolute;right:14px;top:14px;font-size:8px;letter-spacing:1.8px;color:var(--hot);border:1px solid rgba(186,255,90,.18);border-radius:999px;padding:5px 7px;background:rgba(186,255,90,.04)}
+.creature-card{border-color:rgba(186,255,90,.18);box-shadow:0 22px 70px rgba(0,0,0,.25),0 0 0 1px rgba(186,255,90,.02)}
+.creature-avatar{width:88px;height:88px;border-radius:28px;font-size:48px}.passport-grid .stat{background:rgba(255,255,255,.025)}
+aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.card:not(:first-child):hover{transform:translateY(-2px);border-color:rgba(161,124,255,.26)}
+.footer{padding-top:70px;font-size:10px;letter-spacing:1.3px}
+@media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
+@media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 </style>
 </head>
 <body>
@@ -373,14 +415,47 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
   </nav>
 
   <section class="hero">
-    <div class="eyebrow">PROOF &gt; NOISE</div>
-    <h1>HUNT ALPHA.<br><span class="grad">EARN REPUTATION.</span></h1>
-    <div class="lead">A live market for crypto research, product feedback, memes and human intelligence. Projects post funded opportunities. Hunters submit proof. Reputation compounds.</div>
-    <div class="ticker">
-      <div class="pill"><b id="liveArenas">0</b> LIVE ARENAS</div>
-      <div class="pill"><b id="totalBounty">0</b> USDC LISTED</div>
-      <div class="pill"><b id="totalHunters">0</b> HUNTERS</div>
+    <div class="hero-v9">
+      <div class="hero-copy">
+        <div class="hero-kicker">
+          <div class="eyebrow">PROOF &gt; NOISE</div>
+          <div class="hero-status"><i></i> HUMAN ALPHA NETWORK // LIVE</div>
+        </div>
+        <h1>HUNT ALPHA.<br><span class="grad">BUILD YOUR NAME.</span></h1>
+        <div class="lead">Compete in live Arenas, evolve your Hunter identity, build reputation, clash with rivals and turn real proof into a public onchain-style reputation layer.</div>
+        <div class="hero-actions">
+          <button class="btn hot" onclick="jumpToAction()">⚡ ENTER LIVE ARENAS</button>
+          <button class="btn violet" onclick="jumpToPassport()">👾 OPEN HUNTER PASSPORT</button>
+          <button class="btn ghost" onclick="jumpToWallet()">🔐 VERIFY IDENTITY</button>
+        </div>
+        <div class="ticker">
+          <div class="pill"><b id="liveArenas">0</b> LIVE ARENAS</div>
+          <div class="pill"><b id="totalBounty">0</b> USDC LISTED</div>
+          <div class="pill"><b id="totalHunters">0</b> HUNTERS</div>
+        </div>
+      </div>
+      <div class="hero-core">
+        <div class="core-top"><div class="eyebrow">BL3 // NETWORK CORE</div><div class="core-badge">V9.0</div></div>
+        <div>
+          <div class="core-orb"><div class="core-glyph">👾</div></div>
+          <div class="core-title">YOUR IDENTITY EVOLVES</div>
+          <div class="core-sub">XP grows the creature. Proof grows REP. Wins build rivalry. Unlocks shape the public Loadout.</div>
+        </div>
+        <div class="core-lines">
+          <div class="core-line"><span>IDENTITY</span><b>PASSPORT + LOADOUT</b></div>
+          <div class="core-line"><span>COMBAT</span><b>ALPHA CLASH + CROWN</b></div>
+          <div class="core-line"><span>PROGRESSION</span><b>TITLES + TROPHIES + SKINS</b></div>
+        </div>
+      </div>
     </div>
+  </section>
+
+  <section class="command-deck">
+    <div class="command-label"><b>⚡ COMMAND DECK</b><span>Your main BL3 systems — one tap away.</span></div>
+    <a class="command-link" href="#arenaSection"><b>🎯 LIVE ARENAS</b><span>Find proof opportunities</span></a>
+    <a class="command-link" href="#passportCard"><b>👾 PASSPORT</b><span>Identity + evolution</span></a>
+    <a class="command-link" href="#clashCard"><b>⚔️ ALPHA CLASH</b><span>Challenge Hunters</span></a>
+    <a class="command-link" href="#walletCard"><b>🔐 WALLET PROOF</b><span>Own your Hunter ID</span></a>
   </section>
 
   <section class="card onboarding" id="firstHunt">
@@ -407,16 +482,17 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </div>
   </section>
 
-  <div class="grid">
+  <div class="grid v9-main-grid">
     <main id="arenaSection">
-      <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>Live Arenas</h2></div><button class="btn tab" onclick="loadArenas()">↻ Refresh</button></div>
+      <div class="section-title"><div><div class="eyebrow">LIVE OPPORTUNITY LAYER</div><h2>Hunt the Network</h2><div class="meta">Enter active Arenas, submit proof, and build a record Hunters can actually inspect.</div></div><button class="btn tab" onclick="loadArenas()">↻ SCAN NETWORK</button></div>
       <div id="arenas"><div class="card">Scanning the network…</div></div>
     </main>
 
     <aside>
       <div class="card creature-card" id="passportCard">
         <div class="eyebrow">HUNTER ID // LIVING PASSPORT</div>
-        <h2 style="margin-top:8px">Your Passport</h2>
+        <h2 style="margin-top:8px">Your Hunter Core</h2>
+        <div class="meta" style="margin-bottom:10px">The persistent identity layer behind your Creature, REP, Crown rank and public Loadout.</div>
         <input id="username" value="demo_user" placeholder="BL3 username">
         <button class="btn" onclick="loadUser()">Load Profile</button>
         <button class="btn violet" onclick="openPublicProfile()">↗ View Public Hunter Profile</button>
@@ -552,7 +628,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2758,7 +2834,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
 </div></body></html>"""
 
 
@@ -3573,7 +3649,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -3698,7 +3774,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -3871,7 +3947,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.0 VISUAL OVERHAUL</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -4617,7 +4693,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("✨ BL3 ARENA V8.8 // UNLOCK FEED")
+    print("⚡ BL3 ARENA V9.0 // VISUAL OVERHAUL")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
