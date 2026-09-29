@@ -500,7 +500,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.8 RIVALRY MILESTONES</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.9 TROPHY ROOM</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -1806,6 +1806,165 @@ def _creature_avatar_from_xp(xp):
     return "🥚"
 
 
+
+def _hunter_trophies(username):
+    """Public, read-only achievements derived from existing BL3 activity."""
+    conn = db()
+    user = conn.execute(
+        "SELECT username, wallet, xp, streak FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    if user is None:
+        conn.close()
+        return None
+
+    trophies = []
+    def add(key, icon, title, detail, tier="BRONZE"):
+        trophies.append({
+            "key": key,
+            "icon": icon,
+            "title": title,
+            "detail": detail,
+            "tier": tier
+        })
+
+    xp = int(user["xp"] or 0)
+    streak = int(user["streak"] or 0)
+    rep = int(conn.execute(
+        "SELECT COALESCE(SUM(points),0) AS n FROM reputation_events WHERE username = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    battle_stats = conn.execute(
+        """SELECT
+             COUNT(*) AS battles,
+             SUM(CASE WHEN winner = ? THEN 1 ELSE 0 END) AS wins
+           FROM creature_battles
+           WHERE challenger = ? OR opponent = ?""",
+        (username, username, username)
+    ).fetchone()
+    battles = int(battle_stats["battles"] or 0)
+    clash_wins = int(battle_stats["wins"] or 0)
+
+    arena_wins = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+    paid_wins = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM arenas WHERE winner_username = ? AND paid = 1",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    defenses = int(conn.execute(
+        """SELECT COUNT(*) AS n FROM crown_events
+           WHERE defender = ? AND successful_defense = 1""",
+        (username,)
+    ).fetchone()["n"] or 0)
+    crown_breaks = int(conn.execute(
+        """SELECT COUNT(*) AS n FROM crown_events
+           WHERE challenger = ? AND winner = ? AND successful_defense = 0""",
+        (username, username)
+    ).fetchone()["n"] or 0)
+
+    referrals = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM referrals WHERE inviter = ?",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    followers = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM hunter_connections WHERE target = ? AND kind = 'follow'",
+        (username,)
+    ).fetchone()["n"] or 0)
+
+    # Rivalry depth: strongest direct opponent by number of clashes.
+    rival_rows = conn.execute(
+        """SELECT
+             CASE WHEN challenger = ? THEN opponent ELSE challenger END AS rival,
+             COUNT(*) AS clashes
+           FROM creature_battles
+           WHERE challenger = ? OR opponent = ?
+           GROUP BY rival
+           ORDER BY clashes DESC""",
+        (username, username, username)
+    ).fetchall()
+
+    conn.close()
+
+    if user["wallet"]:
+        add("verified_hunter", "🔐", "VERIFIED HUNTER",
+            "Wallet ownership verified for this Hunter ID.", "BRONZE")
+
+    if battles >= 1:
+        add("first_clash", "⚔️", "FIRST CLASH",
+            f"Entered the BL3 arena. {battles} total direct Clash{'es' if battles != 1 else ''}.", "BRONZE")
+    if clash_wins >= 1:
+        add("clash_victor", "🩸", "CLASH VICTOR",
+            f"{clash_wins} Alpha Clash win{'s' if clash_wins != 1 else ''}.", "BRONZE")
+    if battles >= 10:
+        add("battle_hardened", "🛡️", "BATTLE HARDENED",
+            f"Survived {battles} direct Clashes.", "SILVER")
+    if clash_wins >= 10:
+        add("alpha_hunter", "😈", "ALPHA HUNTER",
+            f"Reached {clash_wins} direct Clash wins.", "GOLD")
+
+    strongest = rival_rows[0] if rival_rows else None
+    if strongest and int(strongest["clashes"] or 0) >= 5:
+        add("nemesis_found", "🔥", "NEMESIS FOUND",
+            f"{int(strongest['clashes'])} clashes with {strongest['rival']}.", "SILVER")
+
+    if arena_wins >= 1:
+        add("arena_winner", "🎯", "ARENA WINNER",
+            f"Won {arena_wins} project Arena{'s' if arena_wins != 1 else ''}.", "SILVER")
+    if paid_wins >= 1:
+        add("proof_paid", "💎", "PROOF PAID",
+            f"{paid_wins} winning Arena result{'s' if paid_wins != 1 else ''} marked paid.", "GOLD")
+
+    if defenses >= 1:
+        add("crown_defender", "👑", "CROWN DEFENDER",
+            f"Defended the Crown {defenses} time{'s' if defenses != 1 else ''}.", "GOLD")
+    if crown_breaks >= 1:
+        add("crown_breaker", "💥", "CROWN BREAKER",
+            f"Broke a Crown defense {crown_breaks} time{'s' if crown_breaks != 1 else ''}.", "GOLD")
+
+    if referrals >= 5:
+        add("network_builder", "👥", "NETWORK BUILDER",
+            f"Built a verified network of {referrals} Hunters.", "SILVER")
+    if followers >= 10:
+        add("signal_magnet", "📡", "SIGNAL MAGNET",
+            f"Reached {followers} followers.", "SILVER")
+
+    if rep >= 100:
+        add("reputation_100", "⚡", "100 REP",
+            f"Built {rep} reputation points.", "SILVER")
+    if rep >= 500:
+        add("reputation_500", "🌠", "500 REP",
+            f"Crossed the 500 REP threshold with {rep} total.", "GOLD")
+    if xp >= 1500:
+        add("ascended", "👑", "ASCENDED",
+            f"Reached Crown Entity evolution at {xp} XP.", "LEGENDARY")
+    if streak >= 7:
+        add("seven_day_flame", "🔥", "7-DAY FLAME",
+            f"Maintained a {streak}-day activity streak.", "GOLD")
+
+    # Highest tiers first, then stable title order.
+    tier_order = {"LEGENDARY": 4, "GOLD": 3, "SILVER": 2, "BRONZE": 1}
+    trophies.sort(key=lambda t: (-tier_order.get(t["tier"], 0), t["title"]))
+
+    return {
+        "username": username,
+        "count": len(trophies),
+        "trophies": trophies
+    }
+
+
+@app.route("/api/trophies/<username>")
+def hunter_trophies_api(username):
+    data = _hunter_trophies(username)
+    if data is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    return jsonify({"success": True, **data})
+
+
 def _hunter_public_data(username):
     """Read-only public Hunter profile. Never auto-creates usernames."""
     conn = db()
@@ -2339,7 +2498,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.8 RIVALRY MILESTONES</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.9 TROPHY ROOM</div>
 </div></body></html>"""
 
 
@@ -2348,6 +2507,7 @@ def hunter_public_page(username):
     d = _hunter_public_data(username)
     if d is None:
         return "Hunter not found", 404
+    trophy_data = _hunter_trophies(username) or {"count": 0, "trophies": []}
     esc = lambda v: html.escape(str(v or ""))
     root = request.url_root.rstrip("/")
     page_url = f"{root}/hunter/{urllib.parse.quote(username)}"
@@ -2369,6 +2529,17 @@ def hunter_public_page(username):
         )
     if not battles_html:
         battles_html = '<div class="empty">No public clashes yet. Be the first to challenge this Hunter.</div>'
+
+    trophy_cards = "".join(
+        f'<div class="trophy trophy-{esc(t["tier"]).lower()}">'
+        f'<div class="trophy-icon">{esc(t["icon"])}</div>'
+        f'<div class="trophy-copy"><div class="trophy-top"><b>{esc(t["title"])}</b>'
+        f'<span>{esc(t["tier"])}</span></div>'
+        f'<p>{esc(t["detail"])}</p></div></div>'
+        for t in trophy_data["trophies"]
+    )
+    if not trophy_cards:
+        trophy_cards = '<div class="empty">No trophies unlocked yet. Your first Clash or verified wallet can start the shelf.</div>'
 
     rank_text = f"#{d['season']['rank']}" if d['season']['rank'] else "—"
     crown_badge = '<span class="crown">👑 CURRENT CROWN</span>' if d['season']['is_crown'] else ''
@@ -2427,7 +2598,7 @@ def hunter_public_page(username):
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
 <style>
 :root{{--bg:#050507;--panel:#111116;--line:#2b2b36;--muted:#9293a4;--text:#f8f8fb;--hot:#b8ff5a;--violet:#9d7bff}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.trophy-room{{border-color:rgba(157,123,255,.28);background:linear-gradient(145deg,rgba(157,123,255,.05),rgba(184,255,90,.025))}}.trophy-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.trophy{{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--line);background:#0d0d12;padding:15px;border-radius:18px}}.trophy-icon{{font-size:30px;line-height:1}}.trophy-copy{{min-width:0;flex:1}}.trophy-top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.trophy-top b{{font-size:13px;letter-spacing:.8px}}.trophy-top span{{font-size:9px;font-weight:900;letter-spacing:1px;color:var(--muted);border:1px solid var(--line);padding:4px 7px;border-radius:999px}}.trophy p{{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.45}}.trophy-gold{{border-color:rgba(255,212,79,.3)}}.trophy-legendary{{border-color:rgba(184,255,90,.42);box-shadow:0 0 30px rgba(184,255,90,.05)}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.trophy-grid{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell"><nav class="nav"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><a class="back" href="/">← LIVE NETWORK</a></nav>
 <section class="hero"><div class="eyebrow">PUBLIC HUNTER ID // SEASON {esc(d['season']['key'])}</div><div class="top"><div class="avatar">{esc(d['creature']['avatar'])}</div><div><h1>{esc(d['username'])}</h1><div class="subtitle">{esc(d['creature']['name'])} // {esc(d['creature']['stage'])} // LEVEL {d['level']}</div><div class="badges">{verified_badge}{crown_badge}</div></div></div>
 <div class="grid"><div class="stat"><div class="num">{d['reputation']}</div><div class="label">REPUTATION</div></div><div class="stat"><div class="num">{d['xp']}</div><div class="label">XP</div></div><div class="stat"><div class="num">{d['wins']}</div><div class="label">TOTAL WINS</div></div><div class="stat"><div class="num">{d['network']}</div><div class="label">NETWORK</div></div></div>
@@ -2435,9 +2606,10 @@ def hunter_public_page(username):
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
 <div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
+<section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.8 RIVALRY MILESTONES</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.9 TROPHY ROOM</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -3167,7 +3339,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🏅 BL3 ARENA V7.8 // RIVALRY MILESTONES")
+    print("🏆 BL3 ARENA V7.9 // TROPHY ROOM")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
