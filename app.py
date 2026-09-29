@@ -500,7 +500,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.6 HEAD-TO-HEAD</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.7 RIVALRY CARDS</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2075,6 +2075,141 @@ def head_to_head_api(hunter_a, hunter_b):
     return jsonify({"success": True, **_head_to_head(hunter_a, hunter_b, 8)})
 
 
+
+@app.route("/rivalry/<hunter_a>/<hunter_b>/card.svg")
+def rivalry_card_svg(hunter_a, hunter_b):
+    conn = db()
+    a_row = conn.execute("SELECT username, xp FROM users WHERE username = ?", (hunter_a,)).fetchone()
+    b_row = conn.execute("SELECT username, xp FROM users WHERE username = ?", (hunter_b,)).fetchone()
+    conn.close()
+    if a_row is None or b_row is None or hunter_a == hunter_b:
+        return Response("Rivalry not found", status=404, mimetype="text/plain")
+
+    h2h = _head_to_head(hunter_a, hunter_b, 6)
+    a_avatar = _creature_avatar_from_xp(int(a_row["xp"] or 0))
+    b_avatar = _creature_avatar_from_xp(int(b_row["xp"] or 0))
+    esc = lambda v: html.escape(str(v or ""))
+
+    if h2h["leader"] == hunter_a:
+        status = f"{hunter_a.upper()} LEADS"
+    elif h2h["leader"] == hunter_b:
+        status = f"{hunter_b.upper()} LEADS"
+    else:
+        status = "RIVALRY TIED"
+
+    last = h2h["last_winner"] or "NO CLASHES YET"
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+      <defs>
+        <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="#07070c"/>
+          <stop offset=".55" stop-color="#11111a"/>
+          <stop offset="1" stop-color="#171022"/>
+        </linearGradient>
+        <linearGradient id="hot" x1="0" x2="1">
+          <stop offset="0" stop-color="#b8ff5a"/>
+          <stop offset="1" stop-color="#9d7bff"/>
+        </linearGradient>
+        <filter id="glow"><feGaussianBlur stdDeviation="8" result="c"/><feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+      <rect x="1" y="1" width="1198" height="628" rx="35" fill="none" stroke="#2b2b38" stroke-width="2"/>
+      <text x="70" y="74" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="22" font-weight="900" letter-spacing="3">BL3 // RIVALRY CARD</text>
+      <text x="1130" y="74" fill="#6d6d7d" font-family="Arial,sans-serif" font-size="18" text-anchor="end">THE HUMAN ALPHA NETWORK</text>
+
+      <text x="235" y="215" fill="#ffffff" font-family="Arial,sans-serif" font-size="54" text-anchor="middle">{esc(a_avatar)}</text>
+      <text x="235" y="280" fill="#ffffff" font-family="Arial,sans-serif" font-size="42" font-weight="900" text-anchor="middle">{esc(hunter_a)}</text>
+      <text x="235" y="405" fill="#ffffff" font-family="Arial,sans-serif" font-size="120" font-weight="900" text-anchor="middle">{h2h["a_wins"]}</text>
+
+      <text x="600" y="250" fill="url(#hot)" font-family="Arial,sans-serif" font-size="64" font-weight="900" text-anchor="middle" filter="url(#glow)">VS</text>
+      <text x="600" y="323" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="26" font-weight="900" text-anchor="middle">{h2h["total"]} CLASHES</text>
+      <text x="600" y="362" fill="#9d7bff" font-family="Arial,sans-serif" font-size="22" font-weight="900" text-anchor="middle">{esc(status)}</text>
+
+      <text x="965" y="215" fill="#ffffff" font-family="Arial,sans-serif" font-size="54" text-anchor="middle">{esc(b_avatar)}</text>
+      <text x="965" y="280" fill="#ffffff" font-family="Arial,sans-serif" font-size="42" font-weight="900" text-anchor="middle">{esc(hunter_b)}</text>
+      <text x="965" y="405" fill="#ffffff" font-family="Arial,sans-serif" font-size="120" font-weight="900" text-anchor="middle">{h2h["b_wins"]}</text>
+
+      <rect x="70" y="482" width="1060" height="1" fill="#2b2b38"/>
+      <text x="70" y="535" fill="#a7a7b6" font-family="Arial,sans-serif" font-size="21">LAST WINNER: {esc(last)}</text>
+      <text x="1130" y="535" fill="#b8ff5a" font-family="Arial,sans-serif" font-size="21" font-weight="900" text-anchor="end">SETTLE IT IN BL3 →</text>
+      <text x="70" y="586" fill="#666677" font-family="Arial,sans-serif" font-size="17">HUNT ALPHA. EARN REPUTATION.</text>
+      <text x="1130" y="586" fill="#666677" font-family="Arial,sans-serif" font-size="17" text-anchor="end">bl3meme.com</text>
+    </svg>"""
+    return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=120"})
+
+
+@app.route("/rivalry/<hunter_a>/<hunter_b>")
+def rivalry_public_page(hunter_a, hunter_b):
+    conn = db()
+    a = conn.execute("SELECT username FROM users WHERE username = ?", (hunter_a,)).fetchone()
+    b = conn.execute("SELECT username FROM users WHERE username = ?", (hunter_b,)).fetchone()
+    conn.close()
+    if a is None or b is None or hunter_a == hunter_b:
+        return "Rivalry not found", 404
+
+    h2h = _head_to_head(hunter_a, hunter_b, 8)
+    esc = lambda v: html.escape(str(v or ""))
+    root = request.url_root.rstrip("/")
+    page_url = f"{root}/rivalry/{urllib.parse.quote(hunter_a)}/{urllib.parse.quote(hunter_b)}"
+    image_url = page_url + "/card.svg"
+    challenge_url = f"{root}/?challenge={urllib.parse.quote(hunter_b)}&ref={urllib.parse.quote(hunter_a)}"
+
+    if h2h["leader"] == hunter_a:
+        status = f"{hunter_a} leads"
+    elif h2h["leader"] == hunter_b:
+        status = f"{hunter_b} leads"
+    else:
+        status = "The rivalry is tied"
+
+    rows = ""
+    for battle in h2h["recent"]:
+        rows += (
+            f'<a class="battle" href="/clash/{battle["id"]}">'
+            f'<span>⚔️ Clash #{battle["id"]}</span>'
+            f'<b>👑 {esc(battle["winner"])}</b>'
+            f'<small>{esc(battle["commentary"])}</small>'
+            f'</a>'
+        )
+    if not rows:
+        rows = '<div class="empty">No clashes yet. Start the first one.</div>'
+
+    title = f"{hunter_a} vs {hunter_b} // BL3 Rivalry"
+    desc = f"{hunter_a} {h2h['a_wins']} — {h2h['b_wins']} {hunter_b}. {status}. {h2h['total']} clashes on BL3."
+
+    return f"""<!doctype html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title>
+<meta name="description" content="{esc(desc)}">
+<meta property="og:title" content="{esc(title)}">
+<meta property="og:description" content="{esc(desc)}">
+<meta property="og:image" content="{esc(image_url)}">
+<meta property="og:url" content="{esc(page_url)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(desc)}">
+<meta name="twitter:image" content="{esc(image_url)}">
+<style>
+:root{{--bg:#08080d;--card:#111119;--line:#292934;--muted:#9393a4;--hot:#b8ff5a;--violet:#9d7bff}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#281743 0,#08080d 48%);color:#fff;font-family:Arial,sans-serif}}
+.shell{{max-width:980px;margin:auto;padding:26px}}.nav{{display:flex;justify-content:space-between;align-items:center}}.brand{{font-size:24px;font-weight:900}}.brand span,.eyebrow{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px}}
+.hero{{margin-top:56px;text-align:center}}h1{{font-size:clamp(42px,8vw,84px);margin:10px 0;letter-spacing:-4px}}.vs{{color:var(--violet)}}.score{{display:grid;grid-template-columns:1fr auto 1fr;gap:20px;align-items:center;margin:30px auto;max-width:760px}}
+.side{{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:26px}}.side strong{{display:block;font-size:84px;line-height:1}}.side span{{display:block;margin-top:10px;font-weight:900}}
+.mid{{font-weight:900;color:var(--hot)}}.meta{{color:var(--muted)}}.actions{{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:26px 0}}.btn{{text-decoration:none;color:#08080d;background:var(--hot);font-weight:900;padding:14px 18px;border-radius:14px}}.btn.alt{{background:var(--violet);color:#fff}}
+.section{{margin-top:40px}}.battle{{display:grid;grid-template-columns:1fr auto;gap:6px 18px;text-decoration:none;color:#fff;border:1px solid var(--line);background:var(--card);padding:16px;border-radius:16px;margin-top:10px}}.battle small{{grid-column:1/-1;color:var(--muted)}}.empty{{color:var(--muted);padding:18px;border:1px dashed var(--line);border-radius:16px}}.footer{{text-align:center;color:#626270;padding:45px 0 20px}}
+@media(max-width:680px){{.score{{grid-template-columns:1fr}}.mid{{order:-1}}h1{{letter-spacing:-2px}}}}
+</style></head><body><div class="shell">
+<nav class="nav"><div class="brand">BL3<span>●</span></div><a class="back" href="/">← LIVE NETWORK</a></nav>
+<section class="hero"><div class="eyebrow">PUBLIC RIVALRY // SHAREABLE RECORD</div>
+<h1>{esc(hunter_a)} <span class="vs">VS</span> {esc(hunter_b)}</h1>
+<div class="meta">{esc(status)} · Last winner: {esc(h2h["last_winner"] or "—")}</div>
+<div class="score"><div class="side"><strong>{h2h["a_wins"]}</strong><span>{esc(hunter_a)}</span></div><div class="mid">{h2h["total"]} CLASHES</div><div class="side"><strong>{h2h["b_wins"]}</strong><span>{esc(hunter_b)}</span></div></div>
+<div class="actions"><a class="btn" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(hunter_b).upper()}</a><a class="btn alt" href="{esc(page_url)}">📣 SHARE RIVALRY</a></div>
+</section>
+<section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.7 RIVALRY CARDS</div>
+</div></body></html>"""
+
+
 @app.route("/hunter/<username>")
 def hunter_public_page(username):
     d = _hunter_public_data(username)
@@ -2140,6 +2275,9 @@ def hunter_public_page(username):
             f'<div class="h2h-score"><strong>{h2h["b_wins"]}</strong><span>{esc(username)}</span></div>'
             f'</div>'
             f'<div class="meta h2h-last">Last winner: {esc(h2h["last_winner"] or "—")}</div>'
+            f'<div class="actions" style="justify-content:center;margin-top:14px">'
+            f'<a class="btn violet" href="/rivalry/{urllib.parse.quote(viewer)}/{urllib.parse.quote(username)}">🃏 OPEN RIVALRY CARD</a>'
+            f'</div>'
             f'<div class="h2h-recent">{latest}</div>'
             f'</section>'
         )
@@ -2160,7 +2298,7 @@ def hunter_public_page(username):
 <div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.6 HEAD-TO-HEAD</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V7.7 RIVALRY CARDS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -2890,7 +3028,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚔️ BL3 ARENA V7.6 // HEAD-TO-HEAD")
+    print("🃏 BL3 ARENA V7.7 // RIVALRY CARDS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
