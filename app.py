@@ -363,7 +363,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V9.5 SEASON COMMAND CENTER ===== */
+/* ===== V9.6 CROWN WAR MODE ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -405,7 +405,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V9.5 SEASON COMMAND CENTER ===== */
+/* ===== V9.6 CROWN WAR MODE ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -425,7 +425,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V9.5 SEASON COMMAND CENTER ===== */
+/* ===== V9.6 CROWN WAR MODE ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -444,7 +444,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V9.5 SEASON COMMAND CENTER ===== */
+/* ===== V9.6 CROWN WAR MODE ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -462,7 +462,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V9.5 SEASON COMMAND CENTER ===== */
+/* ===== V9.6 CROWN WAR MODE ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -475,7 +475,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V9.5 SEASON COMMAND CENTER ===== */
+/* ===== V9.6 CROWN WAR MODE ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -486,6 +486,22 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-board-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}.season-board-head h3{margin:5px 0 0;font-size:22px}.season-top3{display:grid;gap:8px;margin-top:14px}.season-leader-card{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:16px;padding:11px;background:rgba(255,255,255,.022);text-decoration:none;color:#fff}.season-rank{font-size:17px;font-weight:950;color:var(--hot)}.season-leader-main b{font-size:11px}.season-leader-main span{display:block;font-size:8px;color:var(--muted);margin-top:2px}.season-leader-record{text-align:right}.season-leader-record b{font-size:11px}.season-leader-record span{display:block;font-size:8px;color:var(--muted);margin-top:2px}
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
+
+/* ===== V9.6 CROWN WAR MODE ===== */
+.crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
+.crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
+.crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
+.crown-war-head{position:relative;z-index:2;display:flex;justify-content:space-between;gap:14px;align-items:center;padding:15px 18px;border-bottom:1px solid rgba(255,255,255,.08)}
+.war-status{display:flex;align-items:center;gap:9px}.war-dot{width:9px;height:9px;border-radius:50%;background:#ff445b;box-shadow:0 0 16px #ff445b;animation:warPulse 1.2s infinite}.crown-war.stable .war-dot{background:var(--gold);box-shadow:0 0 15px var(--gold)}
+.war-status b{font-size:11px;letter-spacing:1.5px}.war-status span{display:block;font-size:8px;color:var(--muted);margin-top:2px;letter-spacing:1px}
+.war-count{font-size:10px;color:#ff8394;font-weight:950}.crown-war.stable .war-count{color:var(--gold)}
+.crown-war-body{position:relative;z-index:2;display:grid;grid-template-columns:.9fr 1.1fr;gap:0}
+.war-crown{padding:24px;display:flex;align-items:center;gap:16px;border-right:1px solid rgba(255,255,255,.08)}
+.war-avatar{width:76px;height:76px;border-radius:23px;display:grid;place-items:center;font-size:42px;background:#0a090d;border:1px solid rgba(255,255,255,.11);box-shadow:0 18px 50px rgba(0,0,0,.32)}
+.war-copy h3{font-size:25px;margin:4px 0 6px;letter-spacing:-1px}.war-copy .meta{font-size:10px}.war-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.war-actions button,.war-actions a{border:1px solid rgba(255,255,255,.11);border-radius:11px;background:rgba(255,255,255,.03);color:#fff;padding:9px 11px;font-size:8px;font-weight:900;text-decoration:none;cursor:pointer}.war-actions .attack{background:#ff445b;color:#fff;border-color:#ff445b}.crown-war.stable .war-actions .attack{background:var(--gold);border-color:var(--gold);color:#080708}
+.war-feed{padding:18px}.war-feed-title{font-size:9px;color:var(--muted);letter-spacing:1.4px;font-weight:900;margin-bottom:10px}.war-list{display:grid;gap:7px}.war-row{display:grid;grid-template-columns:28px 1fr auto;gap:9px;align-items:center;border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:9px;background:rgba(255,255,255,.02)}.war-row .icon{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#09090d}.war-row b{font-size:9px}.war-row span{display:block;color:var(--muted);font-size:8px;margin-top:2px}.war-row em{font-size:8px;color:#ff8394;font-style:normal;font-weight:900}.war-empty{border:1px dashed rgba(255,255,255,.09);border-radius:12px;padding:12px;color:var(--muted);font-size:9px}
+@keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
+@media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 </style>
 </head>
 <body>
@@ -521,7 +537,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V9.5</div>
+            <div class="core-badge">V9.6</div>
           </div>
         </div>
         <div>
@@ -571,6 +587,31 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     <a class="command-link" href="#clashCard"><b>⚔️ ALPHA CLASH</b><span>Challenge Hunters</span></a>
     <a class="command-link" href="#walletCard"><b>🔐 WALLET PROOF</b><span>Own your Hunter ID</span></a>
     <a class="command-link" id="commandProgressLink" href="#passportCard"><b>📈 NEXT UNLOCKS</b><span>Progress radar</span></a>
+  </section>
+
+  <section class="crown-war" id="crownWar">
+    <div class="crown-war-head">
+      <div class="war-status"><i class="war-dot"></i><div><b id="crownWarStatus">CROWN WAR</b><span>LIVE CHALLENGE STATE</span></div></div>
+      <div class="war-count" id="crownWarCount">0 PENDING ATTACKS</div>
+    </div>
+    <div class="crown-war-body">
+      <div class="war-crown">
+        <div class="war-avatar" id="crownWarAvatar">👑</div>
+        <div class="war-copy">
+          <div class="eyebrow">CURRENT CROWN</div>
+          <h3 id="crownWarHolder">Waiting for Crown</h3>
+          <div class="meta" id="crownWarMeta">The battlefield will activate when a Hunter takes the Crown.</div>
+          <div class="war-actions">
+            <button class="attack" id="crownWarAttackBtn" onclick="attackCurrentCrown()">⚔️ ATTACK THE CROWN</button>
+            <a id="crownWarProfile" href="#clashCard">VIEW HOLDER</a>
+          </div>
+        </div>
+      </div>
+      <div class="war-feed">
+        <div class="war-feed-title">LATEST CROWN WAR SIGNALS</div>
+        <div class="war-list" id="crownWarFeed"><div class="war-empty">No Crown combat yet.</div></div>
+      </div>
+    </div>
   </section>
 
   <section class="season-command" id="seasonCommandCenter">
@@ -804,7 +845,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.5 SEASON COMMAND CENTER</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.6 CROWN WAR MODE</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -840,6 +881,62 @@ async function loadOnboarding(){
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
+
+let crownWarTarget=null;
+
+function attackCurrentCrown(){
+ if(!crownWarTarget){show("No Crown holder yet.");return}
+ currentUser();
+ if(username===crownWarTarget){show("👑 You hold the Crown. Defend it.");return}
+ const opponent=document.getElementById("battleOpponent");
+ if(opponent)opponent.value=crownWarTarget;
+ document.getElementById("clashCard")?.scrollIntoView({behavior:"smooth",block:"center"});
+ show("⚔️ Crown target locked: "+crownWarTarget);
+}
+
+async function loadCrownWar(){
+ const d=await jsonFetch("/api/crown-war");
+ const root=document.getElementById("crownWar");
+ if(!root||!d?.success)return;
+
+ if(!d.active){
+   root.classList.remove("active","stable");
+   crownWarTarget=null;
+   return;
+ }
+
+ root.classList.add("active");
+ root.classList.toggle("stable",Number(d.pending_attacks||0)===0);
+ crownWarTarget=d.crown?.username||null;
+
+ const status=document.getElementById("crownWarStatus");
+ const count=document.getElementById("crownWarCount");
+ const avatar=document.getElementById("crownWarAvatar");
+ const holder=document.getElementById("crownWarHolder");
+ const meta=document.getElementById("crownWarMeta");
+ const profile=document.getElementById("crownWarProfile");
+ const feed=document.getElementById("crownWarFeed");
+
+ if(status)status.textContent=d.status||"CROWN WAR";
+ if(count)count.textContent=Number(d.pending_attacks||0)+" PENDING ATTACK"+(Number(d.pending_attacks||0)===1?"":"S");
+ if(avatar)avatar.textContent=d.crown?.avatar||"👑";
+ if(holder)holder.textContent=d.crown?.username||"Crown Holder";
+ if(meta)meta.textContent=(d.crown?.creature||"Hunter")+" · LEVEL "+Number(d.crown?.level||1)+" · "+(Number(d.pending_attacks||0)?"CROWN UNDER PRESSURE":"NO PENDING ATTACKS");
+ if(profile&&d.crown?.username)profile.href="/hunter/"+encodeURIComponent(d.crown.username);
+
+ if(feed){
+   const rows=[];
+   (d.pending||[]).forEach(x=>rows.push(
+     '<div class="war-row"><div class="icon">⚔️</div><div><b>'+escapeHtml(x.challenger)+' → '+escapeHtml(x.opponent)+'</b><span>Challenge request #'+Number(x.id||0)+'</span></div><em>PENDING</em></div>'
+   ));
+   (d.recent_attacks||[]).forEach(x=>{
+     const defended=Number(x.successful_defense||0)===1;
+     rows.push('<a class="war-row" style="text-decoration:none;color:#fff" href="/clash/'+Number(x.battle_id||0)+'"><div class="icon">'+(defended?'🛡️':'💥')+'</div><div><b>'+escapeHtml(x.challenger)+' vs '+escapeHtml(x.defender)+'</b><span>Winner: '+escapeHtml(x.winner||"—")+'</span></div><em>'+(defended?'DEFENDED':'BROKEN')+'</em></a>');
+   });
+   feed.innerHTML=rows.slice(0,8).join("")||'<div class="war-empty">Crown is quiet. No attack signals yet.</div>';
+ }
+}
+setInterval(loadCrownWar,15000);
 
 async function loadSeasonCommandCenter(){
  const d=await jsonFetch("/api/season-command");
@@ -1094,11 +1191,12 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
 }
 loadNetworkPulse();
 loadNetworkHeat();
 loadSeasonCommandCenter();
+loadCrownWar();
 
 function update(data){
  if(data.wallet!==undefined)document.getElementById("wallet").value=data.wallet||"";
@@ -3255,7 +3353,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.5 SEASON COMMAND CENTER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.6 CROWN WAR MODE</div>
 </div></body></html>"""
 
 
@@ -4070,7 +4168,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.5 SEASON COMMAND CENTER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.6 CROWN WAR MODE</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -4195,7 +4293,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.5 SEASON COMMAND CENTER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.6 CROWN WAR MODE</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -4368,7 +4466,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.5 SEASON COMMAND CENTER</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V9.6 CROWN WAR MODE</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -4608,6 +4706,68 @@ def _season_win_streak(conn, username, season_key):
         else:
             break
     return streak
+
+
+@app.route("/api/crown-war")
+def crown_war_api():
+    season_key = _current_season_key()
+    conn = db()
+    board = _season_rows(conn, season_key)
+    crown = board[0]["username"] if board and int(board[0].get("wins") or 0) > 0 else None
+
+    if not crown:
+        conn.close()
+        return jsonify({
+            "success": True,
+            "active": False,
+            "season_key": season_key,
+            "crown": None,
+            "pending_attacks": 0,
+            "recent_attacks": [],
+            "message": "No Crown holder yet."
+        })
+
+    pending = [dict(r) for r in conn.execute(
+        """SELECT id, challenger, opponent, created_at
+           FROM challenge_requests
+           WHERE opponent = ? AND status = 'pending'
+           ORDER BY id DESC LIMIT 8""",
+        (crown,)
+    ).fetchall()]
+
+    recent = [dict(r) for r in conn.execute(
+        """SELECT id, battle_id, defender, challenger, winner,
+                  successful_defense, created_at
+           FROM crown_events
+           WHERE season_key = ?
+           ORDER BY id DESC LIMIT 8""",
+        (season_key,)
+    ).fetchall()]
+
+    crown_user = conn.execute(
+        "SELECT xp FROM users WHERE username = ?",
+        (crown,)
+    ).fetchone()
+    crown_xp = int(crown_user["xp"] or 0) if crown_user else 0
+    creature = _creature_from_xp(crown_xp)
+
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "active": True,
+        "season_key": season_key,
+        "crown": {
+            "username": crown,
+            "avatar": creature["avatar"],
+            "creature": creature["name"],
+            "level": max(1, crown_xp // 100 + 1)
+        },
+        "pending_attacks": len(pending),
+        "pending": pending,
+        "recent_attacks": recent,
+        "status": "UNDER ATTACK" if pending else "CROWN STABLE"
+    })
 
 
 @app.route("/api/season-command")
@@ -5362,7 +5522,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V9.5 // SEASON COMMAND CENTER")
+    print("⚔️ BL3 ARENA V9.6 // CROWN WAR MODE")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
