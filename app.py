@@ -224,6 +224,31 @@ def init_db():
         )
     """)
 
+    # V8.8: baseline of already-known unlocks + feed of newly discovered unlock events.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_unlock_state (
+            username TEXT NOT NULL,
+            unlock_key TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            PRIMARY KEY (username, unlock_key)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_unlock_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            unlock_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            is_seen INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(username, unlock_key)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_unlock_events_user_seen ON hunter_unlock_events(username, is_seen, id DESC)")
+
     # Reputation events get an optional event_key so future signals can be idempotent.
     rep_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reputation_events)").fetchall()}
     if "event_key" not in rep_cols:
@@ -527,7 +552,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
 </div>
 <div id="message" class="message hidden"></div>
 
@@ -2733,10 +2758,187 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
 </div></body></html>"""
 
 
+
+
+def _hunter_unlock_snapshot(username):
+    """Current unlock set derived from existing BL3 state."""
+    user = _hunter_public_data(username)
+    if user is None:
+        return None
+
+    items = []
+
+    # Evolution unlocks are milestone-based so each stage can fire once.
+    xp = int(user.get("xp") or 0)
+    evo_milestones = [
+        (100, "evolution:glitchling", "EVOLUTION", "👾", "GLITCHLING AWAKENED", "Reached 100 XP and evolved beyond the Seed stage."),
+        (300, "evolution:chaos_spawn", "EVOLUTION", "😈", "CHAOS SPAWN EVOLVED", "Reached 300 XP and evolved into Chaos Spawn."),
+        (700, "evolution:alpha_beast", "EVOLUTION", "🦹", "ALPHA BEAST UNLOCKED", "Reached 700 XP and entered Alpha Beast stage."),
+        (1500, "evolution:crown_entity", "EVOLUTION", "👑", "CROWN ENTITY ASCENDED", "Reached 1500 XP and ascended into Crown Entity."),
+    ]
+    for threshold, key, kind, icon, title, detail in evo_milestones:
+        if xp >= threshold:
+            items.append({
+                "key": key, "kind": kind, "icon": icon,
+                "title": title, "detail": detail
+            })
+
+    # Trophy unlocks.
+    trophy_data = _hunter_trophies(username) or {"trophies": []}
+    for t in trophy_data.get("trophies", []):
+        items.append({
+            "key": f"trophy:{t['key']}",
+            "kind": "TROPHY",
+            "icon": t["icon"],
+            "title": t["title"],
+            "detail": t["detail"]
+        })
+
+    # Public titles backed by trophies. Skip neutral HUNTER fallback.
+    for t in (_hunter_title_options(username) or []):
+        if t["key"] == "hunter":
+            continue
+        items.append({
+            "key": f"title:{t['key']}",
+            "kind": "TITLE",
+            "icon": t["icon"],
+            "title": t["title"],
+            "detail": f"New public title unlocked via {t.get('source') or 'BL3 progress'}."
+        })
+
+    # Skins.
+    for s in (_hunter_skin_unlocks(username) or []):
+        if not s.get("unlocked"):
+            continue
+        items.append({
+            "key": f"skin:{s['key']}",
+            "kind": "SKIN",
+            "icon": s["icon"],
+            "title": f"{s['name']} SKIN",
+            "detail": f"{s['rarity']} Loadout skin unlocked."
+        })
+
+    # Stable order keeps first baseline deterministic.
+    items.sort(key=lambda x: (x["kind"], x["key"]))
+    return items
+
+
+def _sync_hunter_unlocks(username):
+    """
+    First call silently records the current baseline.
+    Later calls create feed events only for genuinely new unlocks.
+    """
+    snapshot = _hunter_unlock_snapshot(username)
+    if snapshot is None:
+        return None
+
+    now = datetime.utcnow().isoformat()
+    conn = db()
+    existing_rows = conn.execute(
+        "SELECT unlock_key FROM hunter_unlock_state WHERE username = ?",
+        (username,)
+    ).fetchall()
+    existing = {r["unlock_key"] for r in existing_rows}
+    is_first_sync = len(existing) == 0
+
+    new_events = []
+    for item in snapshot:
+        if item["key"] in existing:
+            continue
+
+        conn.execute(
+            """INSERT OR IGNORE INTO hunter_unlock_state(username, unlock_key, first_seen_at)
+               VALUES (?, ?, ?)""",
+            (username, item["key"], now)
+        )
+
+        # Avoid retroactive popup spam on first deployment/sync.
+        if not is_first_sync:
+            conn.execute(
+                """INSERT OR IGNORE INTO hunter_unlock_events
+                   (username, unlock_key, kind, icon, title, detail, created_at, is_seen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+                (
+                    username, item["key"], item["kind"], item["icon"],
+                    item["title"], item["detail"], now
+                )
+            )
+            new_events.append(item)
+
+    conn.commit()
+    conn.close()
+    return new_events
+
+
+@app.route("/api/unlocks/<username>")
+def hunter_unlock_feed_api(username):
+    if _hunter_public_data(username) is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    _sync_hunter_unlocks(username)
+
+    try:
+        limit = max(1, min(50, int(request.args.get("limit", 12))))
+    except Exception:
+        limit = 12
+
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, unlock_key, kind, icon, title, detail, created_at, is_seen
+           FROM hunter_unlock_events
+           WHERE username = ?
+           ORDER BY id DESC
+           LIMIT ?""",
+        (username, limit)
+    ).fetchall()
+    unseen = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM hunter_unlock_events WHERE username = ? AND is_seen = 0",
+        (username,)
+    ).fetchone()["n"] or 0)
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "username": username,
+        "unseen": unseen,
+        "events": [dict(r) for r in rows]
+    })
+
+
+@app.route("/api/unlocks/<username>/seen", methods=["POST"])
+def hunter_unlock_seen_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({
+            "success": False,
+            "message": "Sign in with this Hunter ID to mark unlocks seen."
+        }), 401
+
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get("ids")
+    conn = db()
+
+    if isinstance(ids, list) and ids:
+        clean_ids = [int(x) for x in ids if str(x).isdigit()]
+        if clean_ids:
+            placeholders = ",".join("?" for _ in clean_ids)
+            conn.execute(
+                f"""UPDATE hunter_unlock_events SET is_seen = 1
+                    WHERE username = ? AND id IN ({placeholders})""",
+                [username, *clean_ids]
+            )
+    else:
+        conn.execute(
+            "UPDATE hunter_unlock_events SET is_seen = 1 WHERE username = ?",
+            (username,)
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 def _hunter_progress_dashboard(username):
@@ -3316,6 +3518,29 @@ def hunter_progress_page(username):
     profile_url = f"{root}/hunter/{urllib.parse.quote(username)}"
     loadout_url = f"{root}/loadout/{urllib.parse.quote(username)}"
 
+    _sync_hunter_unlocks(username)
+    conn = db()
+    unlock_rows = conn.execute(
+        """SELECT id, kind, icon, title, detail, created_at, is_seen
+           FROM hunter_unlock_events
+           WHERE username = ?
+           ORDER BY id DESC
+           LIMIT 8""",
+        (username,)
+    ).fetchall()
+    conn.close()
+
+    unlock_feed_html = ""
+    for e in unlock_rows:
+        unlock_feed_html += (
+            f'<div class="unlock-row{" unseen" if not e["is_seen"] else ""}" data-unlock-id="{int(e["id"])}">'
+            f'<div class="unlock-icon">{esc(e["icon"])}</div>'
+            f'<div class="unlock-copy"><div class="unlock-kind">{esc(e["kind"])}</div>'
+            f'<b>{esc(e["title"])}</b><span>{esc(e["detail"])}</span></div></div>'
+        )
+    if not unlock_feed_html:
+        unlock_feed_html = '<div class="empty-feed">No new unlock events yet. Your current progress is now the baseline.</div>'
+
     cards_html = ""
     for c in data["cards"]:
         cards_html += (
@@ -3338,16 +3563,52 @@ def hunter_progress_page(username):
 .shell{{max-width:1000px;margin:auto;padding:28px}}.nav{{display:flex;justify-content:space-between;gap:12px;align-items:center}}.brand{{font-size:24px;font-weight:900}}.brand span,.eyebrow{{color:var(--hot)}}.nav a{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px}}
 .hero{{margin-top:54px}}h1{{font-size:clamp(46px,8vw,82px);letter-spacing:-4px;margin:8px 0}}.meta{{color:var(--muted)}}.closest{{margin-top:26px;border:1px solid rgba(184,255,90,.32);background:linear-gradient(145deg,rgba(184,255,90,.06),rgba(157,123,255,.07));padding:22px;border-radius:24px}}.closest strong{{display:block;font-size:30px;margin-top:6px}}.closest b{{color:var(--hot)}}
 .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}}.progress-card{{border:1px solid var(--line);background:var(--card);padding:18px;border-radius:20px}}.progress-head{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}}.progress-head span{{font-size:9px;letter-spacing:1.5px;color:var(--muted);font-weight:900}}.progress-head h3{{margin:5px 0 0;font-size:20px}}.progress-head b{{font-size:22px;color:var(--hot)}}.bar{{height:8px;border:1px solid var(--line);background:#08080c;border-radius:999px;overflow:hidden;margin:16px 0 10px}}.bar i{{display:block;height:100%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:999px}}
-.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid var(--line);background:#0d0d12;padding:14px;border-radius:16px}}.stat b{{font-size:22px;display:block}}.stat span{{font-size:9px;color:var(--muted);font-weight:900;letter-spacing:1px}}.footer{{text-align:center;color:#646473;padding:48px 0 18px}}
+.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid var(--line);background:#0d0d12;padding:14px;border-radius:16px}}.stat b{{font-size:22px;display:block}}.stat span{{font-size:9px;color:var(--muted);font-weight:900;letter-spacing:1px}}.unlock-section{{margin-top:24px;border:1px solid rgba(157,123,255,.24);background:linear-gradient(145deg,rgba(157,123,255,.05),rgba(184,255,90,.03));border-radius:24px;padding:20px}}.unlock-section h2{{margin:6px 0 4px}}.unlock-list{{display:grid;gap:9px;margin-top:14px}}.unlock-row{{display:flex;gap:12px;align-items:center;border:1px solid var(--line);background:#0d0d12;padding:13px;border-radius:16px}}.unlock-row.unseen{{border-color:rgba(184,255,90,.32);box-shadow:0 0 18px rgba(184,255,90,.04)}}.unlock-icon{{font-size:26px;width:38px;text-align:center}}.unlock-copy{{display:flex;flex-direction:column;gap:3px}}.unlock-copy b{{font-size:13px}}.unlock-copy span{{font-size:10px;color:var(--muted)}}.unlock-kind{{font-size:8px;color:var(--hot);font-weight:900;letter-spacing:1.4px}}.empty-feed{{color:var(--muted);border:1px dashed var(--line);padding:16px;border-radius:14px;margin-top:12px}}.unlock-toast{{position:fixed;right:22px;bottom:22px;width:min(360px,calc(100vw - 44px));border:1px solid rgba(184,255,90,.42);background:#0d0d12;padding:16px;border-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.45);display:none;z-index:9999}}.unlock-toast.show{{display:block;animation:pop .22s ease-out}}.unlock-toast .big{{font-size:26px}}.unlock-toast b{{display:block;margin:5px 0}}.unlock-toast span{{font-size:11px;color:var(--muted)}}@keyframes pop{{from{{transform:translateY(10px);opacity:0}}to{{transform:translateY(0);opacity:1}}}}.footer{{text-align:center;color:#646473;padding:48px 0 18px}}
 @media(max-width:720px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell">
 <nav class="nav"><div class="brand">BL3<span>●</span></div><div><a href="{esc(profile_url)}">PROFILE</a> <a href="{esc(loadout_url)}">LOADOUT</a></div></nav>
 <section class="hero"><div class="eyebrow">PROGRESSION RADAR // NEXT UNLOCKS</div><h1>{esc(username)}</h1><div class="meta">One place to see what your next meaningful BL3 unlock is.</div>
 <div class="closest"><div class="eyebrow">CLOSEST UNLOCK</div><strong>{esc(closest["icon"])} {esc(closest["title"])}</strong><b>{int(closest["percent"])}% COMPLETE</b><div class="meta" style="margin-top:8px">{esc(closest["detail"])}</div></div>
 <div class="stats"><div class="stat"><b>{data["stats"]["xp"]}</b><span>XP</span></div><div class="stat"><b>{data["stats"]["rep"]}</b><span>REP</span></div><div class="stat"><b>{data["stats"]["streak"]}</b><span>STREAK</span></div><div class="stat"><b>{data["stats"]["clash_wins"]}</b><span>CLASH WINS</span></div><div class="stat"><b>{data["stats"]["battles"]}</b><span>BATTLES</span></div></div>
-<div class="grid">{cards_html}</div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
-</div></body></html>"""
+<div class="grid">{cards_html}</div>
+<section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
+</section>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
+</div>
+<div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
+<script>
+const progressHunter={json.dumps(username)};
+let lastUnlockId=Math.max(0,...Array.from(document.querySelectorAll('[data-unlock-id]')).map(x=>Number(x.dataset.unlockId)||0));
+async function pollUnlocks(){{
+  const r=await fetch('/api/unlocks/'+encodeURIComponent(progressHunter)+'?limit=8');
+  let d={{}};try{{d=await r.json()}}catch(e){{}}
+  if(!d.success||!Array.isArray(d.events))return;
+  const newest=d.events.find(e=>Number(e.id)>lastUnlockId);
+  if(newest){{
+    lastUnlockId=Math.max(...d.events.map(e=>Number(e.id)||0),lastUnlockId);
+    const toast=document.getElementById('unlockToast');
+    document.getElementById('unlockToastIcon').textContent=newest.icon||'✨';
+    document.getElementById('unlockToastTitle').textContent=(newest.kind||'UNLOCK')+' // '+(newest.title||'Unlocked');
+    document.getElementById('unlockToastDetail').textContent=newest.detail||'';
+    toast.classList.add('show');
+    setTimeout(()=>toast.classList.remove('show'),5000);
+    setTimeout(()=>location.reload(),5400);
+  }}
+}}
+setInterval(pollUnlocks,15000);
+setTimeout(pollUnlocks,2500);
+setTimeout(async()=>{{
+  const unseen=[...document.querySelectorAll('.unlock-row.unseen')].map(x=>Number(x.dataset.unlockId)).filter(Boolean);
+  if(!unseen.length)return;
+  try{{
+    await fetch('/api/unlocks/'+encodeURIComponent(progressHunter)+'/seen',{{
+      method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{ids:unseen}})
+    }});
+  }}catch(e){{}}
+}},1800);
+</script></body></html>"""
 
 
 @app.route("/loadout/<username>")
@@ -3437,7 +3698,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -3610,7 +3871,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.7 PROGRESS DASHBOARD</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V8.8 UNLOCK FEED</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -4356,7 +4617,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🧭 BL3 ARENA V8.7 // PROGRESS DASHBOARD")
+    print("✨ BL3 ARENA V8.8 // UNLOCK FEED")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
