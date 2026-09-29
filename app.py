@@ -140,6 +140,14 @@ def init_db():
         )
     """)
 
+    # V6.6: seasons are non-destructive; old battles are assigned from their UTC month.
+    battle_cols = {row["name"] for row in conn.execute("PRAGMA table_info(creature_battles)").fetchall()}
+    if "season_key" not in battle_cols:
+        conn.execute("ALTER TABLE creature_battles ADD COLUMN season_key TEXT DEFAULT ''")
+    conn.execute("""UPDATE creature_battles
+                    SET season_key = substr(created_at, 1, 7)
+                    WHERE COALESCE(season_key, '') = ''""")
+
     conn.commit()
     conn.close()
 
@@ -195,7 +203,7 @@ h1{font-size:clamp(45px,8vw,96px);line-height:.88;letter-spacing:-5px;margin:18p
 input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea{min-height:100px;resize:vertical}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:8px}.stat{padding:14px;border:1px solid var(--line);border-radius:16px;text-align:center}.num{font-size:21px;font-weight:900}.small{font-size:11px;color:var(--muted)}
 .section-title{display:flex;justify-content:space-between;align-items:end;margin:38px 0 12px}.section-title h2{margin:0;font-size:30px}.leader{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
 .tabs{display:flex;gap:8px;flex-wrap:wrap}.tab{width:auto;padding:9px 13px}.message{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#181821;border:1px solid var(--line);padding:12px 18px;border-radius:999px;z-index:30;max-width:90%;text-align:center}
-.hidden{display:none}.proof{padding:10px;border:1px solid var(--line);border-radius:14px;margin-top:8px}.footer{text-align:center;color:#656675;padding:55px 0 30px}
+.hidden{display:none}.season-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.season-tile{padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}.crown-holder{font-size:19px;font-weight:900;color:var(--hot);margin-top:4px}.proof{padding:10px;border:1px solid var(--line);border-radius:14px;margin-top:8px}.footer{text-align:center;color:#656675;padding:55px 0 30px}
 .creature-card{position:relative;overflow:hidden;background:radial-gradient(circle at 50% 18%,rgba(184,255,90,.12),transparent 38%),var(--panel)}
 .creature-card:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(157,123,255,.09);filter:blur(28px);right:-45px;top:-45px;pointer-events:none}
 .creature-head{display:flex;align-items:center;gap:14px;margin:14px 0}.creature-avatar{width:76px;height:76px;border:1px solid rgba(184,255,90,.35);border-radius:22px;display:grid;place-items:center;font-size:42px;background:rgba(184,255,90,.06);box-shadow:0 0 28px rgba(184,255,90,.08)}
@@ -260,6 +268,20 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
         <input id="battleOpponent" placeholder="Opponent username">
         <button class="btn hot" onclick="battleHunter()">⚔️ START CLASH</button>
         <div id="battleResult" class="battle-result hidden"></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="eyebrow">SEASON // CROWN RACE</div>
+        <h3 style="margin-top:8px">Claim the BL3 Crown</h3>
+        <div class="meta">Every UTC month is a fresh Clash season. Wins move you up the Crown Race; no token or cash reward is implied.</div>
+        <div class="season-grid">
+          <div class="season-tile"><div class="small">SEASON</div><div class="num" id="seasonKey">—</div></div>
+          <div class="season-tile"><div class="small">YOUR RECORD</div><div class="num" id="seasonRecord">0-0</div></div>
+          <div class="season-tile"><div class="small">WIN STREAK</div><div class="num" id="seasonStreak">0</div></div>
+          <div class="season-tile"><div class="small">CROWN RANK</div><div class="num" id="seasonRank">—</div></div>
+        </div>
+        <div class="proof" style="margin-top:10px"><span class="small">CURRENT CROWN</span><div class="crown-holder" id="crownHolder">👑 Waiting for the first win</div></div>
+        <div id="seasonLeaders" style="margin-top:8px"></div>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -358,6 +380,20 @@ function share(){window.open("https://warpcast.com/~/compose?text="+encodeURICom
 async function verifyShare(){currentUser();const cast_url=document.getElementById("castUrl").value.trim();const d=await jsonFetch("/api/share/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,cast_url})});if(d.xp!==undefined)update(d);show(d.message||"Verification finished");if(d.success)loadLeaderboard()}
 function invite(){const link=location.origin+"/?ref="+encodeURIComponent(currentUser());if(navigator.clipboard)navigator.clipboard.writeText(link);show("Invite link: "+link)}
 async function claimReferral(){const p=new URLSearchParams(location.search),inviter=(p.get("ref")||"").trim(),invited=currentUser();if(!inviter)return;if(!invited||invited==="demo_user"){show("Referral detected. Enter your username.");return}if(inviter===invited){show("You cannot refer yourself.");return}const d=await jsonFetch("/api/referral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inviter,invited})});show(d.message||"Referral checked");if(d.success){history.replaceState({},"",location.pathname);loadLeaderboard()}}
+async function loadSeason(){
+ currentUser();
+ const d=await jsonFetch("/api/season/"+encodeURIComponent(username));
+ if(!d.success)return;
+ document.getElementById("seasonKey").innerText=d.season_label||d.season_key||"—";
+ document.getElementById("seasonRecord").innerText=(d.user.wins||0)+"-"+(d.user.losses||0);
+ document.getElementById("seasonStreak").innerText=d.user.win_streak||0;
+ document.getElementById("seasonRank").innerText=d.user.rank?"#"+d.user.rank:"—";
+ document.getElementById("crownHolder").innerText=d.crown?"👑 "+d.crown.username+" • "+d.crown.wins+" wins":"👑 Waiting for the first win";
+ let h="";
+ (d.leaderboard||[]).slice(0,5).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.wins+'W / '+u.losses+'L</b></div>');
+ document.getElementById("seasonLeaders").innerHTML=h||'<div class="meta">No Clash wins this season yet.</div>';
+}
+
 async function battleHunter(){
  currentUser();
  const opponent=document.getElementById("battleOpponent").value.trim();
@@ -376,6 +412,7 @@ async function battleHunter(){
  el.classList.remove("hidden");
  el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><a href="/clash/'+d.battle_id+'" target="_blank" style="display:block;text-decoration:none;color:inherit;margin-top:10px"><div class="proof">🃏 BATTLE CARD #'+d.battle_id+' • OPEN PUBLIC RESULT ↗</div></a><div class="battle-actions"><button class="btn hot" onclick="shareBattle()">📣 SHARE CARD</button><button class="btn" onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button></div>';
  show(won?"Your creature took the crown 👑":"Chaos chose your opponent this round.");
+ await loadSeason();
  await loadUser();
 }
 function shareBattle(){
@@ -1494,17 +1531,19 @@ def battle_api():
     else:
         commentary = f"UPSET: {opponent} survived the chaos and sent {challenger} back to evolution."
 
-    now = datetime.utcnow().isoformat()
+    now_dt = datetime.utcnow()
+    now = now_dt.isoformat()
+    season_key = now_dt.strftime("%Y-%m")
     conn = db()
     cursor = conn.execute("""INSERT INTO creature_battles
-        (challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (challenger, opponent, winner, c_power, o_power, commentary, now))
+        (challenger, opponent, winner, challenger_power, opponent_power, commentary, created_at, season_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (challenger, opponent, winner, c_power, o_power, commentary, now, season_key))
     battle_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return jsonify({
-        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary,
+        "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary, "season_key": season_key,
         "challenger": {"username": challenger, "avatar": avatar(cxp), "power": c_power},
         "opponent": {"opponent": opponent, "avatar": avatar(oxp), "power": o_power}
     })
@@ -1519,6 +1558,71 @@ def battle_history_api(username):
     wins = conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = ?", (username,)).fetchone()["n"]
     conn.close()
     return jsonify({"success": True, "wins": wins, "battles": [dict(r) for r in rows]})
+
+
+
+def _current_season_key():
+    return datetime.utcnow().strftime("%Y-%m")
+
+
+def _season_rows(conn, season_key):
+    rows = conn.execute("""
+        WITH participants AS (
+            SELECT challenger AS username FROM creature_battles WHERE season_key = ?
+            UNION
+            SELECT opponent AS username FROM creature_battles WHERE season_key = ?
+        )
+        SELECT p.username,
+               SUM(CASE WHEN b.winner = p.username THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN (b.challenger = p.username OR b.opponent = p.username) AND b.winner <> p.username THEN 1 ELSE 0 END) AS losses,
+               SUM(CASE WHEN b.challenger = p.username OR b.opponent = p.username THEN 1 ELSE 0 END) AS battles
+        FROM participants p
+        LEFT JOIN creature_battles b
+          ON b.season_key = ? AND (b.challenger = p.username OR b.opponent = p.username)
+        GROUP BY p.username
+        ORDER BY wins DESC, battles ASC, p.username COLLATE NOCASE ASC
+    """, (season_key, season_key, season_key)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _season_win_streak(conn, username, season_key):
+    rows = conn.execute("""SELECT winner FROM creature_battles
+                           WHERE season_key = ? AND (challenger = ? OR opponent = ?)
+                           ORDER BY id DESC LIMIT 100""", (season_key, username, username)).fetchall()
+    streak = 0
+    for r in rows:
+        if r["winner"] == username:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+@app.route("/api/season")
+def season_api():
+    season_key = _current_season_key()
+    conn = db()
+    board = _season_rows(conn, season_key)
+    conn.close()
+    crown = board[0] if board and int(board[0].get("wins") or 0) > 0 else None
+    return jsonify({"success": True, "season_key": season_key, "season_label": season_key, "crown": crown, "leaderboard": board[:20]})
+
+
+@app.route("/api/season/<username>")
+def season_user_api(username):
+    season_key = _current_season_key()
+    conn = db()
+    board = _season_rows(conn, season_key)
+    user_row = next((r for r in board if r["username"] == username), {"username": username, "wins": 0, "losses": 0, "battles": 0})
+    rank = next((i for i, r in enumerate(board, 1) if r["username"] == username), None)
+    streak = _season_win_streak(conn, username, season_key)
+    conn.close()
+    crown = board[0] if board and int(board[0].get("wins") or 0) > 0 else None
+    user_row = dict(user_row)
+    user_row["rank"] = rank
+    user_row["win_streak"] = streak
+    return jsonify({"success": True, "season_key": season_key, "season_label": season_key,
+                    "crown": crown, "user": user_row, "leaderboard": board[:10]})
 
 
 @app.route("/api/reputation/<username>")
@@ -1586,7 +1690,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V6.5 // BATTLE CARDS")
+    print("👑 BL3 ARENA V6.6 // CROWN SEASON")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
