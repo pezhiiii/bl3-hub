@@ -224,6 +224,15 @@ def init_db():
         )
     """)
 
+    # V10.6: one optional public Featured Nemesis per Hunter.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_featured_nemesis (
+            username TEXT PRIMARY KEY,
+            rival TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
     # V8.8: baseline of already-known unlocks + feed of newly discovered unlock events.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS hunter_unlock_state (
@@ -363,7 +372,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -405,7 +414,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -425,7 +434,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -444,7 +453,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -462,7 +471,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -475,7 +484,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -487,7 +496,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -503,7 +512,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -514,7 +523,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
 .clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
 .clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
@@ -544,7 +553,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes comboBurst{0%{opacity:0;filter:blur(1px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6) rotate(360deg) translateX(150px)}}@keyframes comboToast{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(prefers-reduced-motion:reduce){.combo-burst i,.combo-toast.show{animation:none!important}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .momentum-board{margin:0 0 22px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(16,16,23,.94),rgba(8,8,13,.93));padding:18px;overflow:hidden;position:relative}
 .momentum-board:before{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(45px)}
 .momentum-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.momentum-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.momentum-head .meta{text-align:right;font-size:9px}
@@ -556,7 +565,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .hud-momentum{margin-top:9px;border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.hud-momentum-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.hud-momentum-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.hud-momentum-top b{font-size:10px}.hud-momentum-detail{margin-top:5px;font-size:9px;color:var(--muted)}
 @media(max-width:980px){.momentum-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.momentum-grid{grid-template-columns:1fr}.momentum-head{align-items:flex-start;flex-direction:column}.momentum-head .meta{text-align:left}}
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .threat-radar{margin:0 0 22px;border:1px solid rgba(255,68,91,.16);border-radius:24px;background:linear-gradient(145deg,rgba(24,10,15,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .threat-radar:before{content:"";position:absolute;left:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,68,91,.08);filter:blur(48px)}
 .threat-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.threat-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.threat-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -572,7 +581,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   *{scroll-behavior:auto!important}
 }
 
-/* ===== V10.5 RIVALRY ESCALATION ===== */
+/* ===== V10.6 FEATURED NEMESIS ===== */
 .revenge-queue{margin:0 0 22px;border:1px solid rgba(255,99,215,.16);border-radius:24px;background:linear-gradient(145deg,rgba(25,10,24,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .revenge-queue:before{content:"";position:absolute;right:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(48px)}
 .revenge-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.revenge-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.revenge-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -618,7 +627,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V10.5</div>
+            <div class="core-badge">V10.6</div>
           </div>
         </div>
         <div>
@@ -957,7 +966,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.5 RIVALRY ESCALATION</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.6 FEATURED NEMESIS</div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1100,6 +1109,17 @@ async function loadRevengeQueue(){
  }).join("");
 }
 
+async function featureNemesis(name){
+ currentUser();
+ const d=await jsonFetch("/api/featured-nemesis/"+encodeURIComponent(username),{
+   method:"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({rival:name})
+ });
+ show(d.message||"Featured Nemesis updated.");
+ if(d.success)loadThreatRadar();
+}
+
 function targetThreatRival(name){
  const opponent=document.getElementById("battleOpponent");
  if(opponent)opponent.value=name;
@@ -1120,7 +1140,8 @@ async function loadThreatRadar(){
  }
 
  const rows=Array.isArray(d.rivals)?d.rivals:[];
- if(meta)meta.textContent=(d.season_key||"—")+" · "+Number(d.count||0)+" tracked rival"+(Number(d.count||0)===1?"":"s");
+ const featured=d.featured_nemesis||"";
+ if(meta)meta.textContent=(d.season_key||"—")+" · "+Number(d.count||0)+" tracked rival"+(Number(d.count||0)===1?"":"s")+(featured?(" · 😈 "+featured+" FEATURED"):"");
 
  if(!rows.length){
    grid.innerHTML='<div class="threat-empty">No tracked rivals yet. Open a Hunter profile and use 🎯 MARK RIVAL to build your radar.</div>';
@@ -1141,6 +1162,7 @@ async function loadThreatRadar(){
      +'<div class="threat-actions">'
      +'<a href="/rivalry/'+encodeURIComponent(username)+'/'+encodeURIComponent(r.username)+'">⚔️ OPEN RIVALRY</a>'
      +'<a href="/hunter/'+encodeURIComponent(r.username)+'">👾 PROFILE</a>'
+     +'<button onclick="featureNemesis('+JSON.stringify(r.username).replace(/"/g,"&quot;")+')">'+(featured===r.username?'⭐ FEATURED':'⭐ FEATURE NEMESIS')+'</button>'
      +'<button class="danger" onclick="targetThreatRival('+JSON.stringify(r.username).replace(/"/g,"&quot;")+')">😈 TARGET</button>'
      +'<span style="margin-left:auto;font-size:8px;color:var(--muted);align-self:center">'+escapeHtml((m.icon||"⚔️")+" "+(m.label||"BUILDING MOMENTUM"))+' · '+Number(r.rival_streak||0)+' streak</span>'
      +'</div></div>';
@@ -3408,6 +3430,12 @@ def hunter_profile_card_svg(username):
     momentum = _momentum_state(d["season"]["win_streak"])
     showcase = _hunter_showcase(username) or {"featured": None}
     featured = showcase.get("featured")
+    featured_nemesis_data = _featured_nemesis(username) or {"featured": None}
+    card_nemesis = featured_nemesis_data.get("featured")
+    card_nemesis_line = (
+        f"FEATURED NEMESIS: {card_nemesis['rival']} // {card_nemesis['escalation']['tier']['label']}"
+        if card_nemesis else "FEATURED NEMESIS: UNSET"
+    )
     featured_line = (
         f"FEATURED: {featured['icon']} {featured['title']} // {featured['tier']}"
         if featured else "FEATURED: TROPHY ROOM AWAITS"
@@ -3431,7 +3459,7 @@ def hunter_profile_card_svg(username):
       <rect x="72" y="448" width="1056" height="1" fill="{skin['line']}"/>
       <text x="72" y="493" fill="#ffffff" font-family="Arial,sans-serif" font-size="21" font-weight="800">SEASON {esc(d['season']['key'])}</text>
       <text x="72" y="535" fill="{skin['accent2']}" font-family="Arial,sans-serif" font-size="25" font-weight="900">RANK {season_rank}   •   {d['season']['wins']}W / {d['season']['losses']}L   •   {d['season']['win_streak']} WIN STREAK</text>
-      <text x="72" y="570" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="17" font-weight="900">{esc(momentum['icon'])} {esc(momentum['label'])}   //   STATUS AURA</text>
+      <text x="72" y="570" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="17" font-weight="900">{esc(momentum['icon'])} {esc(momentum['label'])}   //   {esc(card_nemesis_line)}</text>
       <text x="1128" y="570" fill="{skin['accent']}" font-family="Arial,sans-serif" font-size="17" font-weight="900" text-anchor="end">CHALLENGE THIS HUNTER →</text>
     </svg>"""
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=300"})
@@ -3916,7 +3944,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.5 RIVALRY ESCALATION</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.6 FEATURED NEMESIS</div>
 </div></body></html>"""
 
 
@@ -4731,7 +4759,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.5 RIVALRY ESCALATION</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.6 FEATURED NEMESIS</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -4856,7 +4884,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.5 RIVALRY ESCALATION</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.6 FEATURED NEMESIS</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -4873,6 +4901,122 @@ document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventLis
 </script></body></html>"""
 
 
+def _featured_nemesis(username):
+    conn = db()
+    owner = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+    if owner is None:
+        conn.close()
+        return None
+    row = conn.execute(
+        "SELECT rival, updated_at FROM hunter_featured_nemesis WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+
+    if row is None:
+        return {"username": username, "featured": None}
+
+    rival = str(row["rival"] or "").strip()
+    if not rival or rival == username:
+        return {"username": username, "featured": None}
+
+    conn = db()
+    rival_row = conn.execute(
+        "SELECT xp FROM users WHERE username = ?",
+        (rival,)
+    ).fetchone()
+    tracked = conn.execute(
+        """SELECT 1 FROM hunter_connections
+           WHERE owner = ? AND target = ? AND kind = 'rival'""",
+        (username, rival)
+    ).fetchone() is not None
+    conn.close()
+
+    if rival_row is None or not tracked:
+        return {"username": username, "featured": None}
+
+    escalation = _rivalry_escalation(username, rival)
+    if int(escalation.get("total") or 0) < 1:
+        return {"username": username, "featured": None}
+
+    xp = int(rival_row["xp"] or 0)
+    creature = _creature_from_xp(xp)
+    return {
+        "username": username,
+        "featured": {
+            "rival": rival,
+            "avatar": creature["avatar"],
+            "creature": creature["name"],
+            "level": max(1, xp // 100 + 1),
+            "updated_at": row["updated_at"],
+            "escalation": escalation
+        }
+    }
+
+
+@app.route("/api/featured-nemesis/<username>", methods=["GET", "POST"])
+def featured_nemesis_api(username):
+    data = _featured_nemesis(username)
+    if data is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    if request.method == "GET":
+        return jsonify({"success": True, **data})
+
+    if session.get("authenticated_username") != username:
+        return jsonify({
+            "success": False,
+            "message": "🔐 Sign in with this Hunter ID to feature a Nemesis."
+        }), 401
+
+    payload = request.get_json(silent=True) or {}
+    rival = str(payload.get("rival", "")).strip()
+    if not rival or rival == username:
+        return jsonify({"success": False, "message": "Choose a tracked rival."}), 400
+
+    conn = db()
+    rival_exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (rival,)).fetchone()
+    tracked = conn.execute(
+        """SELECT 1 FROM hunter_connections
+           WHERE owner = ? AND target = ? AND kind = 'rival'""",
+        (username, rival)
+    ).fetchone()
+    conn.close()
+
+    if rival_exists is None or tracked is None:
+        return jsonify({
+            "success": False,
+            "message": "That Hunter must be in your Rival Network first."
+        }), 400
+
+    escalation = _rivalry_escalation(username, rival)
+    if int(escalation.get("total") or 0) < 1:
+        return jsonify({
+            "success": False,
+            "message": "Complete at least one direct Clash before featuring this Rivalry."
+        }), 400
+
+    now = datetime.utcnow().isoformat()
+    conn = db()
+    conn.execute(
+        """INSERT INTO hunter_featured_nemesis(username, rival, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             rival = excluded.rival,
+             updated_at = excluded.updated_at""",
+        (username, rival, now)
+    )
+    conn.commit()
+    conn.close()
+
+    fresh = _featured_nemesis(username)
+    return jsonify({
+        "success": True,
+        "message": f"😈 {rival} is now your Featured Nemesis.",
+        **fresh
+    })
+
+
 @app.route("/hunter/<username>")
 def hunter_public_page(username):
     d = _hunter_public_data(username)
@@ -4887,6 +5031,8 @@ def hunter_public_page(username):
     title_options = _hunter_title_options(username) or []
     showcase_data = _hunter_showcase(username) or {"featured": None, "options": []}
     featured_trophy = showcase_data.get("featured")
+    featured_nemesis_data = _featured_nemesis(username) or {"featured": None}
+    featured_nemesis = featured_nemesis_data.get("featured")
     esc = lambda v: html.escape(str(v or ""))
     viewer = session.get("authenticated_username") or ""
     is_owner = viewer == username
@@ -4977,6 +5123,45 @@ def hunter_public_page(username):
         + (f'{momentum_remaining} to next Momentum tier' if next_at else 'highest tracked Momentum tier')
     )
 
+    featured_nemesis_html = ""
+    if featured_nemesis:
+        nemesis_escalation = featured_nemesis["escalation"]
+        nemesis_tier = nemesis_escalation["tier"]
+        nemesis_rival = featured_nemesis["rival"]
+        nemesis_leader = nemesis_escalation.get("leader")
+        if nemesis_leader == username:
+            nemesis_record_note = f"{username} leads"
+        elif nemesis_leader == nemesis_rival:
+            nemesis_record_note = f"{nemesis_rival} leads"
+        else:
+            nemesis_record_note = "Rivalry tied"
+
+        featured_nemesis_html = (
+            f'<section class="section featured-nemesis">'
+            f'<div class="eyebrow">😈 FEATURED NEMESIS // PUBLIC RIVALRY</div>'
+            f'<div class="featured-nemesis-card">'
+            f'<div class="featured-nemesis-avatar">{esc(featured_nemesis["avatar"])}</div>'
+            f'<div class="featured-nemesis-copy"><h2>{esc(username)} <span class="vs">VS</span> {esc(nemesis_rival)}</h2>'
+            f'<div class="meta">{esc(featured_nemesis["creature"])} · LEVEL {int(featured_nemesis["level"])} · {esc(nemesis_record_note)}</div>'
+            f'<div class="featured-nemesis-tier">{esc(nemesis_tier["icon"])} {esc(nemesis_tier["label"])} · LEVEL {int(nemesis_tier["level"])}/5</div>'
+            f'</div>'
+            f'<div class="featured-nemesis-score"><b>{int(nemesis_escalation["a_wins"])}</b><span>—</span><b>{int(nemesis_escalation["b_wins"])}</b>'
+            f'<small>{int(nemesis_escalation["total"])} CLASHES</small></div>'
+            f'</div>'
+            f'<div class="actions" style="justify-content:center;margin-top:12px">'
+            f'<a class="btn violet" href="/rivalry/{urllib.parse.quote(username)}/{urllib.parse.quote(nemesis_rival)}">🔥 OPEN FEATURED RIVALRY</a>'
+            f'<a class="btn" href="/?challenge={urllib.parse.quote(nemesis_rival)}&ref={urllib.parse.quote(username)}">⚔️ RUN IT BACK</a>'
+            f'</div>'
+            f'</section>'
+        )
+    elif is_owner:
+        featured_nemesis_html = (
+            '<section class="section featured-nemesis">'
+            '<div class="eyebrow">😈 FEATURED NEMESIS // PUBLIC RIVALRY</div>'
+            '<div class="empty">No Featured Nemesis yet. Mark a rival, complete a Clash, then pin them from your Threat Radar.</div>'
+            '</section>'
+        )
+
     h2h_html = ""
     if viewer and viewer != username:
         h2h = _head_to_head(viewer, username, 5)
@@ -5029,7 +5214,7 @@ def hunter_public_page(username):
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(desc)}"><meta name="twitter:image" content="{esc(image_url)}">
 <style>
 :root{{--bg:#050507;--panel:#111116;--line:#2b2b36;--muted:#9293a4;--text:#f8f8fb;--hot:#b8ff5a;--violet:#9d7bff}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35);position:relative;overflow:hidden}}.hero:after{{content:"";position:absolute;right:-120px;top:-130px;width:340px;height:340px;border-radius:50%;filter:blur(60px);opacity:.45;pointer-events:none}}.hero.aura-building:after{{background:rgba(157,123,255,.13)}}.hero.aura-hot:after{{background:rgba(255,159,67,.2)}}.hero.aura-dominating:after{{background:rgba(255,79,216,.2)}}.hero.aura-unstoppable:after{{background:rgba(255,214,107,.2)}}.hero.aura-mythic:after{{background:rgba(97,244,255,.2)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge,.momentum-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.momentum-badge{{border:1px solid var(--line);background:rgba(255,255,255,.03)}}.momentum-building{{color:#a8a8b8}}.momentum-hot{{color:#ffb34d;border-color:rgba(255,179,77,.35)}}.momentum-dominating{{color:#ff63d7;border-color:rgba(255,99,215,.35)}}.momentum-unstoppable{{color:#ffd66b;border-color:rgba(255,214,107,.38)}}.momentum-mythic{{color:#8ef7ff;border-color:rgba(142,247,255,.4)}}.status-aura{{position:relative;z-index:2;margin-top:16px;border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(9,9,14,.7);display:flex;align-items:center;justify-content:space-between;gap:14px}}.status-aura-left{{display:flex;gap:11px;align-items:center}}.status-aura-icon{{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#0a0a0f;border:1px solid var(--line);font-size:23px}}.status-aura b{{font-size:12px;letter-spacing:1px}}.status-aura span{{display:block;color:var(--muted);font-size:9px;margin-top:3px}}.status-aura strong{{font-size:13px;color:var(--hot);white-space:nowrap}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.hunter-title{{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:999px;border:1px solid rgba(184,255,90,.28);background:rgba(184,255,90,.06);color:var(--hot);font-size:12px;font-weight:900;letter-spacing:1.3px}}.hunter-title small{{color:var(--muted);font-size:9px;letter-spacing:1px}}.title-collection{{border-color:rgba(184,255,90,.18);background:linear-gradient(145deg,rgba(184,255,90,.035),rgba(157,123,255,.035))}}.title-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.title-option{{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#0d0d12;border-radius:17px;padding:13px}}.title-option.selected{{border-color:rgba(184,255,90,.42);box-shadow:0 0 24px rgba(184,255,90,.05)}}.title-option-icon{{font-size:26px}}.title-option-copy{{flex:1;min-width:0}}.title-option-copy b{{display:block;font-size:12px;letter-spacing:.8px}}.title-option-copy span{{display:block;color:var(--muted);font-size:9px;margin-top:4px;letter-spacing:1px}}.title-equip{{border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer}}.title-equip:hover,.title-equip.active{{border-color:var(--hot);color:var(--hot)}}.title-public-state{{font-size:9px;font-weight:900;color:var(--muted);letter-spacing:1px}}.featured-showcase{{display:flex;gap:16px;align-items:center;margin-top:18px;border:1px solid var(--line);border-radius:22px;padding:18px;background:linear-gradient(145deg,#111119,#17131e)}}.featured-big-icon{{width:72px;height:72px;display:grid;place-items:center;border-radius:20px;background:#0a0a0f;border:1px solid var(--line);font-size:38px;flex:0 0 auto}}.featured-showcase h3{{margin:4px 0 2px;font-size:24px}}.featured-tier,.featured-label{{display:inline-block;margin-top:8px;font-size:9px;font-weight:900;letter-spacing:1.2px;color:#ffd86b;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px}}.trophy-room{{border-color:rgba(157,123,255,.28);background:linear-gradient(145deg,rgba(157,123,255,.05),rgba(184,255,90,.025))}}.trophy-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.trophy{{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--line);background:#0d0d12;padding:15px;border-radius:18px}}.trophy.featured{{box-shadow:0 0 28px rgba(255,216,107,.06);border-color:rgba(255,216,107,.38)}}.trophy-pin{{align-self:center;border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}}.trophy-pin:hover,.trophy-pin.active{{border-color:#ffd86b;color:#ffd86b}}.trophy-icon{{font-size:30px;line-height:1}}.trophy-copy{{min-width:0;flex:1}}.trophy-top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.trophy-top b{{font-size:13px;letter-spacing:.8px}}.trophy-top span{{font-size:9px;font-weight:900;letter-spacing:1px;color:var(--muted);border:1px solid var(--line);padding:4px 7px;border-radius:999px}}.trophy p{{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.45}}.trophy-gold{{border-color:rgba(255,212,79,.3)}}.trophy-legendary{{border-color:rgba(184,255,90,.42);box-shadow:0 0 30px rgba(184,255,90,.05)}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.title-grid{{grid-template-columns:1fr}}.trophy-grid{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}h1{{letter-spacing:-2px}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% -20%,#292047 0,#0b0b10 34%,var(--bg) 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:42px 42px}}.shell{{width:min(1060px,100%);margin:auto;padding:22px}}.nav{{display:flex;align-items:center;justify-content:space-between;padding:10px 0 28px}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:var(--hot)}}.back{{color:#fff;text-decoration:none;border:1px solid var(--line);padding:10px 14px;border-radius:999px;font-weight:800}}.hero{{border:1px solid var(--line);border-radius:30px;padding:34px;background:linear-gradient(145deg,rgba(18,18,25,.94),rgba(11,11,16,.86));box-shadow:0 30px 80px rgba(0,0,0,.35);position:relative;overflow:hidden}}.hero:after{{content:"";position:absolute;right:-120px;top:-130px;width:340px;height:340px;border-radius:50%;filter:blur(60px);opacity:.45;pointer-events:none}}.hero.aura-building:after{{background:rgba(157,123,255,.13)}}.hero.aura-hot:after{{background:rgba(255,159,67,.2)}}.hero.aura-dominating:after{{background:rgba(255,79,216,.2)}}.hero.aura-unstoppable:after{{background:rgba(255,214,107,.2)}}.hero.aura-mythic:after{{background:rgba(97,244,255,.2)}}.eyebrow{{color:var(--hot);font-size:11px;letter-spacing:2px;font-weight:950}}.top{{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-top:18px}}.avatar{{width:130px;height:130px;border-radius:32px;border:1px solid #3b3b48;background:radial-gradient(circle at 40% 30%,rgba(184,255,90,.16),rgba(157,123,255,.12),#0c0c11);display:grid;place-items:center;font-size:68px;box-shadow:inset 0 0 40px rgba(157,123,255,.08)}}h1{{font-size:clamp(44px,8vw,86px);line-height:.92;letter-spacing:-4px;margin:0}}.subtitle{{margin-top:12px;color:#b7b7c4;font-weight:800}}.badges{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.verified,.crown,.muted-badge,.momentum-badge{{font-size:11px;font-weight:950;letter-spacing:1px;border-radius:999px;padding:8px 10px}}.verified{{color:var(--hot);border:1px solid rgba(184,255,90,.3);background:rgba(184,255,90,.06)}}.crown{{color:#ffd75a;border:1px solid rgba(255,215,90,.3);background:rgba(255,215,90,.06)}}.muted-badge{{color:#88899a;border:1px solid var(--line)}}.momentum-badge{{border:1px solid var(--line);background:rgba(255,255,255,.03)}}.momentum-building{{color:#a8a8b8}}.momentum-hot{{color:#ffb34d;border-color:rgba(255,179,77,.35)}}.momentum-dominating{{color:#ff63d7;border-color:rgba(255,99,215,.35)}}.momentum-unstoppable{{color:#ffd66b;border-color:rgba(255,214,107,.38)}}.momentum-mythic{{color:#8ef7ff;border-color:rgba(142,247,255,.4)}}.status-aura{{position:relative;z-index:2;margin-top:16px;border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(9,9,14,.7);display:flex;align-items:center;justify-content:space-between;gap:14px}}.status-aura-left{{display:flex;gap:11px;align-items:center}}.status-aura-icon{{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#0a0a0f;border:1px solid var(--line);font-size:23px}}.status-aura b{{font-size:12px;letter-spacing:1px}}.status-aura span{{display:block;color:var(--muted);font-size:9px;margin-top:3px}}.status-aura strong{{font-size:13px;color:var(--hot);white-space:nowrap}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}}.stat{{border:1px solid var(--line);border-radius:18px;padding:16px;background:#0d0d12}}.num{{font-size:26px;font-weight:950}}.label{{font-size:10px;color:var(--muted);letter-spacing:1.4px;margin-top:4px}}.evo{{margin-top:18px}}.bar{{height:10px;background:#20202a;border-radius:99px;overflow:hidden;margin-top:8px}}.bar>i{{display:block;height:100%;width:{d['evolution']['percent']}%;background:linear-gradient(90deg,var(--hot),var(--violet));border-radius:99px}}.season{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.social-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.social-stat{{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.018);display:flex;align-items:baseline;justify-content:space-between;gap:10px}}.social-stat b{{font-size:19px}}.social-stat span{{font-size:9px;color:var(--muted);letter-spacing:1.2px}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.btn{{flex:1;min-width:220px;text-align:center;text-decoration:none;border-radius:16px;padding:16px;font-weight:950}}.hot{{background:var(--hot);color:#08080b}}.violet{{background:var(--violet);color:#fff}}.social-btn{{border:1px solid var(--line);background:#17171e;color:#fff;cursor:pointer}}.section{{margin-top:24px;border:1px solid var(--line);border-radius:24px;padding:24px;background:rgba(17,17,22,.82)}}.section h2{{margin:5px 0 16px;font-size:30px}}.battle{{display:flex;justify-content:space-between;gap:18px;align-items:center;color:#fff;text-decoration:none;border-top:1px solid var(--line);padding:15px 0}}.battle:first-of-type{{border-top:0}}.meta{{font-size:13px;color:var(--muted);line-height:1.5;margin-top:5px}}.outcome{{font-size:12px;font-weight:950;border-radius:999px;padding:8px 10px}}.win{{color:var(--hot);border:1px solid rgba(184,255,90,.3)}}.loss{{color:#ff7a9d;border:1px solid rgba(255,122,157,.3)}}.empty{{color:var(--muted);padding:12px 0}}.hunter-title{{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:999px;border:1px solid rgba(184,255,90,.28);background:rgba(184,255,90,.06);color:var(--hot);font-size:12px;font-weight:900;letter-spacing:1.3px}}.hunter-title small{{color:var(--muted);font-size:9px;letter-spacing:1px}}.title-collection{{border-color:rgba(184,255,90,.18);background:linear-gradient(145deg,rgba(184,255,90,.035),rgba(157,123,255,.035))}}.title-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.title-option{{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#0d0d12;border-radius:17px;padding:13px}}.title-option.selected{{border-color:rgba(184,255,90,.42);box-shadow:0 0 24px rgba(184,255,90,.05)}}.title-option-icon{{font-size:26px}}.title-option-copy{{flex:1;min-width:0}}.title-option-copy b{{display:block;font-size:12px;letter-spacing:.8px}}.title-option-copy span{{display:block;color:var(--muted);font-size:9px;margin-top:4px;letter-spacing:1px}}.title-equip{{border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer}}.title-equip:hover,.title-equip.active{{border-color:var(--hot);color:var(--hot)}}.title-public-state{{font-size:9px;font-weight:900;color:var(--muted);letter-spacing:1px}}.featured-showcase{{display:flex;gap:16px;align-items:center;margin-top:18px;border:1px solid var(--line);border-radius:22px;padding:18px;background:linear-gradient(145deg,#111119,#17131e)}}.featured-big-icon{{width:72px;height:72px;display:grid;place-items:center;border-radius:20px;background:#0a0a0f;border:1px solid var(--line);font-size:38px;flex:0 0 auto}}.featured-showcase h3{{margin:4px 0 2px;font-size:24px}}.featured-tier,.featured-label{{display:inline-block;margin-top:8px;font-size:9px;font-weight:900;letter-spacing:1.2px;color:#ffd86b;border:1px solid rgba(255,216,107,.3);padding:5px 8px;border-radius:999px}}.trophy-room{{border-color:rgba(157,123,255,.28);background:linear-gradient(145deg,rgba(157,123,255,.05),rgba(184,255,90,.025))}}.trophy-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}}.trophy{{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--line);background:#0d0d12;padding:15px;border-radius:18px}}.trophy.featured{{box-shadow:0 0 28px rgba(255,216,107,.06);border-color:rgba(255,216,107,.38)}}.trophy-pin{{align-self:center;border:1px solid var(--line);background:#17171f;color:#fff;border-radius:999px;padding:8px 10px;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}}.trophy-pin:hover,.trophy-pin.active{{border-color:#ffd86b;color:#ffd86b}}.trophy-icon{{font-size:30px;line-height:1}}.trophy-copy{{min-width:0;flex:1}}.trophy-top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.trophy-top b{{font-size:13px;letter-spacing:.8px}}.trophy-top span{{font-size:9px;font-weight:900;letter-spacing:1px;color:var(--muted);border:1px solid var(--line);padding:4px 7px;border-radius:999px}}.trophy p{{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.45}}.trophy-gold{{border-color:rgba(255,212,79,.3)}}.trophy-legendary{{border-color:rgba(184,255,90,.42);box-shadow:0 0 30px rgba(184,255,90,.05)}}.rivalry{{border-color:rgba(184,255,90,.24);background:linear-gradient(145deg,rgba(184,255,90,.04),rgba(157,123,255,.04))}}.rivalry h2{{font-size:clamp(28px,5vw,48px);letter-spacing:-2px}}.vs{{color:var(--hot);font-size:.55em;letter-spacing:2px;margin:0 10px}}.h2h-grid{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:18px}}.h2h-score{{border:1px solid var(--line);border-radius:20px;background:#0d0d12;padding:18px;text-align:center}}.h2h-score strong{{display:block;font-size:42px;line-height:1;color:#fff}}.h2h-score span{{display:block;margin-top:7px;font-size:11px;color:var(--muted);font-weight:900;letter-spacing:1.2px}}.h2h-mid{{text-align:center;min-width:130px}}.h2h-mid b{{display:block;color:var(--hot);font-size:13px}}.h2h-mid span{{display:block;color:var(--muted);font-size:10px;margin-top:5px;letter-spacing:1px}}.h2h-last{{text-align:center;margin-top:12px}}.h2h-recent{{margin-top:10px}}.featured-nemesis-card{{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;border:1px solid rgba(255,79,216,.22);border-radius:20px;padding:16px;background:linear-gradient(120deg,rgba(255,79,216,.07),rgba(157,123,255,.04))}}.featured-nemesis-avatar{{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;background:#09090e;border:1px solid var(--line);font-size:34px}}.featured-nemesis-copy h2{{margin:0;font-size:22px}}.featured-nemesis-tier{{margin-top:8px;color:#ff63d7;font-size:10px;font-weight:950;letter-spacing:1px}}.featured-nemesis-score{{display:grid;grid-template-columns:auto auto auto;gap:7px;align-items:center;text-align:center}}.featured-nemesis-score b{{font-size:25px}}.featured-nemesis-score span{{color:var(--muted)}}.featured-nemesis-score small{{grid-column:1/-1;color:var(--muted);font-size:8px;letter-spacing:1px}}.footer{{text-align:center;color:#626270;padding:40px 0 20px;font-size:12px}}@media(max-width:760px){{.top{{grid-template-columns:1fr}}.title-grid{{grid-template-columns:1fr}}.trophy-grid{{grid-template-columns:1fr}}.h2h-grid{{grid-template-columns:1fr}}.h2h-mid{{order:-1}}.avatar{{width:98px;height:98px;font-size:52px}}.grid,.season{{grid-template-columns:repeat(2,1fr)}}.social-grid{{grid-template-columns:1fr}}.featured-nemesis-card{{grid-template-columns:1fr;text-align:center}}.featured-nemesis-avatar{{margin:auto}}h1{{letter-spacing:-2px}}}}
 </style></head><body><div class="shell"><nav class="nav"><div class="brand">BL3<span>●</span> HUMAN ALPHA NETWORK</div><a class="back" href="/">← LIVE NETWORK</a></nav>
 <section class="hero aura-{esc(momentum_key)}"><div class="eyebrow">PUBLIC HUNTER ID // SEASON {esc(d['season']['key'])}</div><div class="top"><div class="avatar">{esc(d['creature']['avatar'])}</div><div><h1>{esc(d['username'])}</h1><div class="hunter-title">{esc(hunter_title['icon'])} {esc(hunter_title['title'])} <small>{esc(hunter_title['tier'])}</small></div><div class="subtitle">{esc(d['creature']['name'])} // {esc(d['creature']['stage'])} // LEVEL {d['level']}</div><div class="badges">{verified_badge}{crown_badge}{momentum_badge}</div></div></div>
 <div class="status-aura"><div class="status-aura-left"><div class="status-aura-icon">{esc(momentum["icon"])}</div><div><b>{esc(momentum["label"])}</b><span>{esc(momentum_detail)}</span></div></div><strong>🔥 {d["season"]["win_streak"]} STREAK</strong></div>
@@ -5038,11 +5223,12 @@ def hunter_public_page(username):
 <div class="evo"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><b>EVOLUTION</b><span>{d['evolution']['current']} / {d['evolution']['target']} XP</span></div><div class="bar"><i></i></div></div>
 <div class="season"><div class="stat"><div class="num">{rank_text}</div><div class="label">CROWN RANK</div></div><div class="stat"><div class="num">{d['season']['wins']}-{d['season']['losses']}</div><div class="label">SEASON W-L</div></div><div class="stat"><div class="num">🔥 {d['season']['win_streak']}</div><div class="label">WIN STREAK</div></div><div class="stat"><div class="num">#{d['xp_rank'] or '—'}</div><div class="label">XP RANK</div></div></div>
 <div class="actions"><a class="btn hot" href="{esc(challenge_url)}">⚔️ CHALLENGE {esc(username).upper()}</a><a class="btn violet" href="/loadout/{urllib.parse.quote(username)}">🧬 HUNTER LOADOUT</a><a class="btn violet" href="/progress/{urllib.parse.quote(username)}">📈 NEXT UNLOCKS</a><a class="btn violet" href="{esc(page_url)}">🔗 SHARE PROFILE</a><button class="btn social-btn" id="followBtn" onclick="toggleSocial('follow')">👁️ FOLLOW</button><button class="btn social-btn" id="rivalBtn" onclick="toggleSocial('rival')">🎯 MARK RIVAL</button></div>{featured_html}</section>
+{featured_nemesis_html}
 <section class="section title-collection"><div class="eyebrow">🏷️ TITLE COLLECTION // IDENTITY LOADOUT</div><h2>Choose Your Public Title <span class="small">{len(title_options)} AVAILABLE</span></h2><div class="meta">Unlocked titles come from real Trophy Room achievements. The equipped title appears on your public profile and Hunter share card.</div><div class="title-grid">{title_collection}</div></section>
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.5 RIVALRY ESCALATION</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.6 FEATURED NEMESIS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -6071,6 +6257,11 @@ def threat_radar_api(username):
            ORDER BY created_at DESC""",
         (username,)
     ).fetchall()]
+    featured_row = conn.execute(
+        "SELECT rival FROM hunter_featured_nemesis WHERE username = ?",
+        (username,)
+    ).fetchone()
+    featured_nemesis = featured_row["rival"] if featured_row else None
     season_key = _current_season_key()
     conn.close()
 
@@ -6143,6 +6334,7 @@ def threat_radar_api(username):
         "season_key": season_key,
         "rivals": threats[:8],
         "count": len(threats),
+        "featured_nemesis": featured_nemesis,
         "method": "Tracked rivals only; status uses direct Clash record, current season win streak, and rivalry depth."
     })
 
@@ -6399,7 +6591,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🔥 BL3 ARENA V10.5 // RIVALRY ESCALATION")
+    print("😈 BL3 ARENA V10.6 // FEATURED NEMESIS")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
