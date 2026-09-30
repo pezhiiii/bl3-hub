@@ -445,7 +445,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.6";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.7";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -831,11 +831,25 @@ body.pref-reduced-motion *,body.pref-reduced-motion *:before,body.pref-reduced-m
 html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .live,.offline .pulse-live-dot,.offline .spot-live{animation:none!important;box-shadow:none!important}
 @media(prefers-reduced-motion:reduce){.bl3-skeleton:after{animation:none}.network-status{transition:none}}
 @media(max-width:620px){.network-status{top:8px}.network-status-copy span{max-width:210px}.bl3-skeleton-grid{grid-template-columns:1fr}}
+
+/* ===== V13.7 ONBOARDING 2.0 // PRODUCT TOUR ===== */
+.tour-trigger{cursor:pointer}.product-tour-shell{position:fixed;inset:0;z-index:10060;display:none;background:rgba(0,0,0,.56);backdrop-filter:blur(4px);pointer-events:none}.product-tour-shell.show{display:block}.product-tour-panel{pointer-events:auto;position:fixed;right:24px;bottom:24px;z-index:10064;width:min(430px,calc(100vw - 28px));border:1px solid rgba(186,255,90,.25);border-radius:24px;background:linear-gradient(155deg,rgba(18,18,26,.99),rgba(7,7,11,.99));box-shadow:0 28px 110px rgba(0,0,0,.72),0 0 45px rgba(186,255,90,.06);padding:20px}.tour-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.tour-kicker{font-size:8px;letter-spacing:1.7px;color:var(--hot);font-weight:950}.tour-close{border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:10px;padding:8px 9px;font-size:9px;font-weight:900;cursor:pointer}.tour-step-count{font-size:9px;color:var(--muted);font-weight:900}.tour-title{font-size:25px;letter-spacing:-1px;font-weight:950;margin:11px 0 7px}.tour-detail{color:#a6a7b5;font-size:11px;line-height:1.6}.tour-why{margin-top:11px;border:1px solid rgba(161,124,255,.2);border-radius:13px;padding:10px;background:rgba(161,124,255,.05);font-size:9px;color:#c9c4df;line-height:1.5}.tour-progress{display:flex;gap:6px;margin-top:15px}.tour-dot{height:5px;flex:1;border-radius:999px;background:#25252e;border:1px solid rgba(255,255,255,.05)}.tour-dot.done,.tour-dot.active{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px rgba(186,255,90,.18)}.tour-actions{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;margin-top:15px}.tour-actions button{margin:0;width:auto;border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:12px;padding:10px 12px;font-size:9px;font-weight:950;cursor:pointer}.tour-actions .primary{background:var(--hot);border-color:var(--hot);color:#08090a}.tour-actions .back:disabled{opacity:.35;cursor:default}.bl3-tour-focus{position:relative!important;z-index:10062!important;outline:2px solid var(--hot)!important;outline-offset:6px!important;box-shadow:0 0 0 8px rgba(186,255,90,.08),0 0 50px rgba(186,255,90,.14)!important;border-radius:22px!important}.tour-mini-cta{display:inline-flex;align-items:center;gap:6px;margin-left:8px;border:1px solid rgba(186,255,90,.22);background:rgba(186,255,90,.045);color:var(--hot);padding:7px 10px;border-radius:999px;font-size:9px;font-weight:950;cursor:pointer}.tour-complete{color:var(--hot);font-weight:950}.pref-reduced-motion .bl3-tour-focus{scroll-margin-top:90px}@media(max-width:620px){.product-tour-panel{right:14px;left:14px;bottom:14px;width:auto;padding:17px}.tour-title{font-size:22px}.tour-actions{grid-template-columns:1fr 1fr}.tour-actions .tour-skip{grid-column:1/-1;order:3}}
 </style>
 </head>
 <body>
 <a class="skip-link" href="#mainContent">SKIP TO NETWORK</a>
 <div class="network-status" id="networkStatus" role="status" aria-live="polite"><i class="net-dot"></i><div class="network-status-copy"><b id="networkStatusTitle">NETWORK READY</b><span id="networkStatusDetail">BL3 live endpoints are reachable.</span></div><button class="network-retry" id="networkRetryBtn" type="button" onclick="recoverBL3()">RETRY NOW</button></div>
+
+<div class="product-tour-shell" id="productTourShell" role="dialog" aria-modal="true" aria-label="BL3 guided product tour">
+  <div class="product-tour-panel" id="productTourPanel">
+    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V13.7</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
+    <div class="tour-title" id="tourTitle">Meet your Hunter ID</div>
+    <div class="tour-detail" id="tourDetail">Your Passport is the identity layer behind progression, rivalry history and public reputation.</div>
+    <div class="tour-why" id="tourWhy">WHY IT MATTERS · Everything you do in BL3 builds around one persistent Hunter identity.</div>
+    <div class="tour-progress" id="tourProgress"></div>
+    <div class="tour-actions"><button class="back" id="tourBack" type="button" onclick="tourBackStep()">← BACK</button><button class="tour-skip" type="button" onclick="closeProductTour(true)">SKIP TOUR</button><button class="primary" id="tourNext" type="button" onclick="tourNextStep()">NEXT →</button></div>
+  </div>
+</div>
 <div class="settings-shell" id="settingsShell" role="dialog" aria-modal="true" aria-label="BL3 Settings and Preferences" onclick="settingsBackdrop(event)">
   <aside class="settings-panel">
     <div class="settings-head"><div><div class="eyebrow">⚙️ SETTINGS // LOCAL PREFERENCES</div><h2>Make BL3 Yours</h2><div class="meta">Saved on this device. No wallet or personal data is required.</div></div><button class="settings-close" type="button" onclick="closeSettings()">ESC</button></div>
@@ -844,6 +858,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
         <div class="settings-row"><div class="settings-row-copy"><b>Motion</b><span>Follow your system or force reduced motion.</span></div><select class="settings-select" id="prefMotion" onchange="setPreference('motion',this.value)"><option value="system">SYSTEM</option><option value="reduced">REDUCED</option><option value="full">FULL</option></select></div>
         <div class="settings-row"><div class="settings-row-copy"><b>Density</b><span>Comfortable cards or a tighter command-center view.</span></div><select class="settings-select" id="prefDensity" onchange="setPreference('density',this.value)"><option value="comfortable">COMFORTABLE</option><option value="compact">COMPACT</option></select></div>
       </section>
+      <section class="settings-group"><h3>GUIDED EXPERIENCE</h3><div class="meta">Replay the product tour whenever you want.</div><div class="settings-row"><div class="settings-row-copy"><b>Product Tour</b><span>Walk through Passport, Wallet Proof, Discovery and your first Clash.</span></div><button class="btn" style="width:auto;margin:0" type="button" onclick="closeSettings();openProductTour(0,false)">REPLAY TOUR</button></div></section>
       <section class="settings-group"><h3>NETWORK BEHAVIOR</h3><div class="meta">Control passive refresh and where BL3 opens.</div>
         <div class="settings-row"><div class="settings-row-copy"><b>Auto refresh</b><span>Refresh live network signals while this tab is visible.</span></div><button class="settings-toggle" id="prefAutoRefresh" type="button" onclick="togglePreference('autoRefresh')" aria-label="Toggle auto refresh"></button></div>
         <div class="settings-row"><div class="settings-row-copy"><b>Default landing</b><span>Choose the first BL3 view after opening the home page.</span></div><select class="settings-select" id="prefLanding" onchange="setPreference('landing',this.value)"><option value="home">HOME</option><option value="discovery">DISCOVERY</option><option value="clash">ALPHA CLASH</option><option value="activity">ACTIVITY</option></select></div>
@@ -870,7 +885,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.6</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.7</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -879,7 +894,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
   <nav class="nav">
     <div class="brand">BL3<span>●</span></div>
     <div class="pill">THE HUMAN ALPHA NETWORK</div>
-    <div class="nav-right"><button class="pill settings-trigger" type="button" onclick="openSettings()" aria-label="Open BL3 settings">⚙️ SETTINGS</button><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><button class="pill activity-trigger" id="activityCenterTrigger" type="button" onclick="openActivityCenter()" aria-label="Open Activity Center"><span>⚡ ACTIVITY</span> <span class="activity-count" id="activityCenterCount">0</span></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
+    <div class="nav-right"><button class="pill tour-trigger" type="button" onclick="openProductTour(0,false)" aria-label="Open guided product tour">✨ TOUR</button><button class="pill settings-trigger" type="button" onclick="openSettings()" aria-label="Open BL3 settings">⚙️ SETTINGS</button><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><button class="pill activity-trigger" id="activityCenterTrigger" type="button" onclick="openActivityCenter()" aria-label="Open Activity Center"><span>⚡ ACTIVITY</span> <span class="activity-count" id="activityCenterCount">0</span></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
   </nav>
 
   <section class="hero">
@@ -907,7 +922,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V13.6</div>
+            <div class="core-badge">V13.7</div>
           </div>
         </div>
         <div>
@@ -1171,9 +1186,9 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
   <section class="card onboarding" id="firstHunt">
     <div class="onboarding-top">
       <div>
-        <div class="eyebrow">NEW HUNTER // 30 SECOND START</div>
+        <div class="eyebrow">NEW HUNTER // 30 SECOND START · TOUR READY</div>
         <h2>Your First Hunt</h2>
-        <div class="meta">BL3 makes sense after one real loop: claim an identity, prove the wallet behind it, then make one move in the network.</div>
+        <div class="meta">BL3 makes sense after one real loop: claim an identity, prove the wallet behind it, discover the live story, then make one move in the network.</div>
       </div>
       <div style="text-align:right">
         <div class="onboarding-progress" id="onboardingProgress">0 / 3</div>
@@ -1187,6 +1202,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
     </div>
     <div class="onboarding-actions">
       <button class="btn hot" onclick="jumpToPassport()">01 Passport</button>
+      <button class="btn" onclick="openProductTour(0,false)">✨ Guided Tour</button>
       <button class="btn violet" onclick="jumpToWallet()">02 Verify Wallet</button>
       <button class="btn" onclick="jumpToAction()">03 First Move</button>
     </div>
@@ -1338,7 +1354,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/api/meta">API META</a></div></div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.7 ONBOARDING 2.0<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/api/meta">API META</a></div></div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1412,6 +1428,37 @@ let username="demo_user";
 let messageTimer=null;
 let lastBattleShare=null;
 let currentCrown=null;
+
+const BL3_TOUR_KEY="bl3_product_tour_v13_7_seen";
+const BL3_TOUR_STEPS=[
+ {target:"#passportCard",title:"Meet your Hunter ID",detail:"Choose a Hunter name, load the Passport and watch your persistent identity, XP, REP and progression come alive.",why:"Everything you do in BL3 builds around one persistent Hunter identity."},
+ {target:"#walletCard",title:"Prove the identity behind it",detail:"Connect and sign once to bind the Hunter ID to a wallet proof without turning wallet size into a ranking signal.",why:"Verification protects identity ownership while BL3 keeps discovery and competition activity-driven."},
+ {target:"#discoveryEngine",title:"Read the live network",detail:"Discovery shows which Feuds and Hunters matter right now. Signed-in Hunters get a personalized relevance layer on top.",why:"You should always know where the story is moving before choosing your next action."},
+ {target:"#clashCard",title:"Make the first move",detail:"Challenge a Hunter. A real Clash can become a Feud, a Moment, a Cast card, a trend signal and eventually a new discovery loop.",why:"One action can enter the full BL3 social game loop: Clash → Moment → Cast → Challenge → Discovery."}
+];
+let bl3TourIndex=0;let bl3TourAutoOpened=false;
+function clearTourFocus(){document.querySelectorAll(".bl3-tour-focus").forEach(el=>el.classList.remove("bl3-tour-focus"))}
+function tourSeen(){try{return localStorage.getItem(BL3_TOUR_KEY)==="1"}catch(e){return false}}
+function markTourSeen(){try{localStorage.setItem(BL3_TOUR_KEY,"1")}catch(e){}}
+function openProductTour(index=0,auto=false){
+ const sh=document.getElementById("productTourShell");if(!sh)return;bl3TourIndex=Math.max(0,Math.min(BL3_TOUR_STEPS.length-1,Number(index)||0));bl3TourAutoOpened=!!auto;
+ sh.classList.add("show");document.body.style.overflow="hidden";renderProductTour();
+}
+function closeProductTour(markSeen=true){const sh=document.getElementById("productTourShell");if(sh)sh.classList.remove("show");clearTourFocus();document.body.style.overflow="";if(markSeen)markTourSeen()}
+function renderProductTour(){
+ const step=BL3_TOUR_STEPS[bl3TourIndex];if(!step)return;clearTourFocus();
+ const title=document.getElementById("tourTitle"),detail=document.getElementById("tourDetail"),why=document.getElementById("tourWhy"),count=document.getElementById("tourStepCount"),progress=document.getElementById("tourProgress"),back=document.getElementById("tourBack"),next=document.getElementById("tourNext");
+ if(title)title.textContent=step.title;if(detail)detail.textContent=step.detail;if(why)why.textContent="WHY IT MATTERS · "+step.why;if(count)count.textContent="STEP "+(bl3TourIndex+1)+" OF "+BL3_TOUR_STEPS.length;
+ if(progress)progress.innerHTML=BL3_TOUR_STEPS.map((_,i)=>'<i class="tour-dot '+(i<bl3TourIndex?'done':i===bl3TourIndex?'active':'')+'"></i>').join("");if(back)back.disabled=bl3TourIndex===0;if(next)next.textContent=bl3TourIndex===BL3_TOUR_STEPS.length-1?"FINISH ✓":"NEXT →";
+ const target=document.querySelector(step.target);if(target){target.classList.add("bl3-tour-focus");setTimeout(()=>target.scrollIntoView({behavior:motionBehavior(),block:"center"}),60)}
+}
+function tourNextStep(){if(bl3TourIndex>=BL3_TOUR_STEPS.length-1){markTourSeen();show("✨ Tour complete. Your Hunter loop is ready.");closeProductTour(false);return}bl3TourIndex+=1;renderProductTour()}
+function tourBackStep(){if(bl3TourIndex<=0)return;bl3TourIndex-=1;renderProductTour()}
+function maybeAutoStartProductTour(){if(tourSeen()||bl3TourAutoOpened)return;setTimeout(()=>{const modalOpen=document.querySelector(".settings-shell.show,.activity-center-shell.show,.command-palette-shell.show");if(!modalOpen&&!tourSeen())openProductTour(0,true)},1200)}
+window.addEventListener("load",maybeAutoStartProductTour);
+
+
+window.addEventListener("keydown",e=>{if(e.key==="Escape"&&document.getElementById("productTourShell")?.classList.contains("show")){e.preventDefault();closeProductTour(true)}});
 let onboardingDismissed=false;
 try{onboardingDismissed=localStorage.getItem("bl3_onboarding_hidden")==="1"}catch(e){}
 function dismissOnboarding(){
@@ -1438,7 +1485,7 @@ async function loadOnboarding(){
 }
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
-const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v13.6:";
+const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v13.7:";
 let bl3RecoveryNoticeTimer=null;
 let bl3Recovering=false;
 function setNetworkStatus(mode,title,detail,sticky){
@@ -2974,7 +3021,7 @@ function renderActivityCenter(){
  document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
  document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
  document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
- const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.6"):"Sign in to load your Hunter activity.";
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.7"):"Sign in to load your Hunter activity.";
  const items=(Array.isArray(d.items)?d.items:[]).filter(x=>activityPreferenceEnabled(x.type));const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
  if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
  if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
@@ -6446,7 +6493,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.7 ONBOARDING 2.0</div>
 </div></body></html>"""
 
 
@@ -7261,7 +7308,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.7 ONBOARDING 2.0</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -7392,7 +7439,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.7 ONBOARDING 2.0</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -7803,7 +7850,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.7 ONBOARDING 2.0</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -9690,13 +9737,13 @@ def healthz():
         conn = db(); conn.execute("SELECT 1").fetchone(); conn.close()
     except Exception:
         ok, db_status = False, "error"
-    return jsonify({"ok":ok,"service":"bl3","version":"13.6","release":"PRODUCT POLISH","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
+    return jsonify({"ok":ok,"service":"bl3","version":"13.7","release":"ONBOARDING 2.0","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
 
 
 @app.route("/api/meta")
 def api_meta():
     return jsonify({
-        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.6", "release": "PRODUCT POLISH",
+        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.7", "release": "ONBOARDING 2.0",
         "features": ["resilient fetch","offline recovery","session response cache","loading skeletons","connection status","retry recovery","local preferences"],
         "public_endpoints": ["/healthz","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
@@ -9710,7 +9757,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> PRODUCT POLISH</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.6 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> ONBOARDING 2.0</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.7 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/transparency")
@@ -9762,7 +9809,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚙️ BL3 ARENA V13.6 // PRODUCT POLISH")
+    print("✨ BL3 ARENA V13.7 // ONBOARDING 2.0")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
