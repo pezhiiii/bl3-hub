@@ -372,7 +372,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -414,7 +414,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -434,7 +434,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -453,7 +453,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -471,7 +471,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -484,7 +484,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -496,7 +496,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -512,7 +512,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -523,7 +523,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
 .clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
 .clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
@@ -553,7 +553,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes comboBurst{0%{opacity:0;filter:blur(1px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6) rotate(360deg) translateX(150px)}}@keyframes comboToast{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(prefers-reduced-motion:reduce){.combo-burst i,.combo-toast.show{animation:none!important}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .momentum-board{margin:0 0 22px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(16,16,23,.94),rgba(8,8,13,.93));padding:18px;overflow:hidden;position:relative}
 .momentum-board:before{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(45px)}
 .momentum-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.momentum-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.momentum-head .meta{text-align:right;font-size:9px}
@@ -565,7 +565,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .hud-momentum{margin-top:9px;border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.hud-momentum-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.hud-momentum-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.hud-momentum-top b{font-size:10px}.hud-momentum-detail{margin-top:5px;font-size:9px;color:var(--muted)}
 @media(max-width:980px){.momentum-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.momentum-grid{grid-template-columns:1fr}.momentum-head{align-items:flex-start;flex-direction:column}.momentum-head .meta{text-align:left}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .threat-radar{margin:0 0 22px;border:1px solid rgba(255,68,91,.16);border-radius:24px;background:linear-gradient(145deg,rgba(24,10,15,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .threat-radar:before{content:"";position:absolute;left:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,68,91,.08);filter:blur(48px)}
 .threat-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.threat-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.threat-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -581,7 +581,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   *{scroll-behavior:auto!important}
 }
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .revenge-queue{margin:0 0 22px;border:1px solid rgba(255,99,215,.16);border-radius:24px;background:linear-gradient(145deg,rgba(25,10,24,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .revenge-queue:before{content:"";position:absolute;right:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(48px)}
 .revenge-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.revenge-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.revenge-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -593,7 +593,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .revenge-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
 @media(max-width:980px){.revenge-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.revenge-grid{grid-template-columns:1fr}.revenge-head{align-items:flex-start;flex-direction:column}.revenge-head .meta{text-align:left}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .nemesis-duel{margin:0 0 22px;border:1px solid rgba(255,99,215,.18);border-radius:26px;background:linear-gradient(135deg,rgba(29,9,28,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .nemesis-duel:before{content:"";position:absolute;right:-100px;top:-100px;width:290px;height:290px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(50px)}
 .nemesis-duel:after{content:"";position:absolute;left:-90px;bottom:-120px;width:260px;height:260px;border-radius:50%;background:rgba(97,244,255,.05);filter:blur(50px)}
@@ -606,19 +606,19 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .duel-empty{position:relative;z-index:2;border:1px dashed var(--line);border-radius:15px;padding:16px;color:var(--muted);font-size:9px;margin-top:14px}
 @media(max-width:800px){.duel-stage{grid-template-columns:1fr}.duel-vs{margin:auto}.duel-fighter.right{flex-direction:row;text-align:left}.duel-fighter.right .duel-score{margin-left:auto;margin-right:0}}@media(max-width:560px){.duel-head{flex-direction:column;align-items:flex-start}.duel-head .meta{text-align:left}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .feud-pulse{position:relative;z-index:2;margin-top:12px;border:1px solid var(--line);border-radius:15px;padding:11px 12px;background:rgba(255,255,255,.018)}
 .feud-pulse-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.feud-pulse-top b{font-size:9px;letter-spacing:1px}.feud-pulse-top span{font-size:8px;color:var(--muted)}
 .feud-pulse-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.feud-chip{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;border:1px solid var(--line);font-size:9px;font-weight:950;text-decoration:none}.feud-chip.win{color:#a7ffbf;background:rgba(85,255,145,.06);border-color:rgba(85,255,145,.18)}.feud-chip.loss{color:#ff8290;background:rgba(255,68,91,.06);border-color:rgba(255,68,91,.18)}
 .feud-last{margin-top:8px;font-size:8px;color:var(--muted)}.feud-last b{color:#fff}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .duel-path{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.duel-path-step{border:1px solid var(--line);border-radius:11px;padding:8px 6px;text-align:center;background:rgba(255,255,255,.018)}.duel-path-step b{display:block;font-size:14px}.duel-path-step span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.duel-path-step.reached{border-color:rgba(186,255,90,.22)}.duel-path-step.next{border-color:rgba(255,99,215,.34);background:rgba(255,79,216,.055)}.duel-path-step.locked{opacity:.5}@media(max-width:650px){.duel-path{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .duel-chronicle{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.duel-chron-stat{border:1px solid var(--line);border-radius:11px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.duel-chron-stat b{display:block;font-size:14px}.duel-chron-stat span{display:block;font-size:7px;color:var(--muted);margin-top:3px}@media(max-width:650px){.duel-chronicle{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .feud-hall{margin:0 0 22px;border:1px solid rgba(186,255,90,.15);border-radius:26px;background:linear-gradient(145deg,rgba(10,18,12,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .feud-hall:before{content:"";position:absolute;right:-90px;top:-100px;width:260px;height:260px;border-radius:50%;background:rgba(186,255,90,.06);filter:blur(48px)}
 .feud-hall-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-hall-head h2{margin:5px 0 0;font-size:25px;letter-spacing:-1px}.feud-hall-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -627,7 +627,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .feud-hall-empty{color:var(--muted);font-size:8px;border:1px dashed var(--line);border-radius:11px;padding:10px}
 @media(max-width:950px){.feud-hall-columns{grid-template-columns:1fr}}@media(max-width:620px){.feud-hall-head{flex-direction:column;align-items:flex-start}.feud-hall-head .meta{text-align:left}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .feud-spotlight{margin:0 0 22px;border:1px solid rgba(255,214,107,.18);border-radius:26px;padding:18px;background:linear-gradient(135deg,rgba(26,20,8,.92),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-spotlight:before{content:"";position:absolute;left:-90px;top:-110px;width:280px;height:280px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(48px)}
 .feud-spotlight-head{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.feud-spotlight-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-spotlight-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -639,7 +639,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .spot-feud-empty{border:1px dashed var(--line);border-radius:14px;padding:15px;color:var(--muted);font-size:9px}
 @media(max-width:760px){.spot-feud-card{grid-template-columns:1fr}.spot-feud-score{justify-content:center}.spot-feud-side,.spot-feud-side.right{text-align:center}.spot-feud-meta{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.feud-spotlight-head{flex-direction:column;align-items:flex-start}.feud-spotlight-head .meta{text-align:left}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .mission-control{margin:0 0 22px;border:1px solid rgba(97,244,255,.16);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,23,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .mission-control:before{content:"";position:absolute;right:-90px;top:-100px;width:270px;height:270px;border-radius:50%;background:rgba(97,244,255,.06);filter:blur(48px)}
 .mission-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.mission-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.mission-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -648,18 +648,23 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .mission-empty{position:relative;z-index:1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px;margin-top:12px}
 @media(max-width:850px){.mission-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.mission-head{flex-direction:column;align-items:flex-start}.mission-head .meta{text-align:left}.mission-next{align-items:flex-start;flex-direction:column}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .mission-action-deck{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:9px}
 .mission-action-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.018);color:#fff;text-decoration:none;min-width:0}
 .mission-action-card b{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mission-action-card span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.mission-action-card:hover{border-color:rgba(97,244,255,.25)}
 @media(max-width:700px){.mission-action-deck{grid-template-columns:1fr}}
 
-/* ===== V11.6 OPS PULSE ===== */
+/* ===== V11.7 NEMESIS CONTROL ===== */
 .ops-pulse{position:relative;z-index:1;margin-top:10px;border:1px solid rgba(186,255,90,.14);border-radius:16px;padding:11px;background:rgba(186,255,90,.025)}
 .ops-pulse-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ops-pulse-head b{font-size:9px;letter-spacing:1px}.ops-pulse-head span{font-size:8px;color:var(--muted)}
 .ops-pulse-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}.ops-pulse-stat{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.ops-pulse-stat b{display:block;font-size:13px}.ops-pulse-stat span{display:block;font-size:7px;color:var(--muted);margin-top:2px}
 .ops-pulse-feed{display:grid;gap:6px;margin-top:8px}.ops-pulse-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-decoration:none;color:#fff;border-top:1px solid var(--line);padding-top:7px}.ops-pulse-row:first-child{border-top:none}.ops-pulse-row i{font-style:normal}.ops-pulse-row b{font-size:8px}.ops-pulse-row span{font-size:7px;color:var(--muted)}.ops-pulse-row em{font-size:7px;color:var(--muted);font-style:normal}
 @media(max-width:780px){.ops-pulse-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.ops-pulse-grid{grid-template-columns:1fr 1fr}}
+
+/* ===== V11.7 NEMESIS CONTROL ===== */
+.duel-actions .danger-clear{border-color:rgba(255,68,91,.28);background:rgba(255,68,91,.08);color:#ff9aa7}
+.nemesis-control-note{position:relative;z-index:2;margin-top:8px;font-size:8px;color:var(--muted);text-align:right}
+.feud-chip.neutral{color:var(--muted);background:rgba(255,255,255,.025);border-color:var(--line)}
 </style>
 </head>
 <body>
@@ -695,7 +700,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V11.6</div>
+            <div class="core-badge">V11.7</div>
           </div>
         </div>
         <div>
@@ -1075,7 +1080,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.6 OPS PULSE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.7 NEMESIS CONTROL</div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1432,14 +1437,31 @@ async function loadNemesisDuel(){
    +'<div class="duel-chron-stat"><b>'+Number((chron.longest_streaks||{})[rival]||0)+'</b><span>RIVAL BEST STREAK</span></div>'
    +'</div>'
    +'<div class="feud-pulse"><div class="feud-pulse-top"><b>⚡ FEUD PULSE // LAST '+Math.min(6,pulse.length)+' CLASHES</b><span>'+escapeHtml(rs.holder?((rs.holder===ownerName?"YOU":rs.holder)+" · "+Number(rs.count||0)+" STRAIGHT"):"NO ACTIVE RIVALRY STREAK")+'</span></div>'
-   +'<div class="feud-pulse-row">'+(pulse.length?pulse.map(p=>'<a class="feud-chip '+(p.owner_result==="W"?"win":"loss")+'" href="/clash/'+Number(p.battle_id||0)+'">'+escapeHtml(p.owner_result||"—")+'</a>').join(""):'<span style="font-size:8px;color:var(--muted)">No recent direct clashes.</span>')+'</div>'
+   +'<div class="feud-pulse-row">'+(pulse.length?pulse.map(p=>'<a class="feud-chip '+(p.owner_result==="W"?"win":(p.owner_result==="L"?"loss":"neutral"))+'" href="/clash/'+Number(p.battle_id||0)+'">'+escapeHtml(p.owner_result||"—")+'</a>').join(""):'<span style="font-size:8px;color:var(--muted)">No recent direct clashes.</span>')+'</div>'
    +'<div class="feud-last">LAST BLOOD: <b>'+escapeHtml(f.last_winner||"—")+'</b></div></div>'
    +'<div class="duel-actions">'
    +'<a href="/rivalry/'+encodeURIComponent(ownerName)+'/'+encodeURIComponent(rival)+'">🔥 OPEN RIVALRY</a>'
    +'<a href="/rivalry/'+encodeURIComponent(ownerName)+'/'+encodeURIComponent(rival)+'/chronicle.svg">📜 CHRONICLE CARD</a>'
    +'<button class="js-share-nemesis" data-owner="'+escapeHtml(ownerName)+'" data-rival="'+escapeHtml(rival)+'">📣 COPY RIVALRY LINK</button>'
    +'<button class="primary js-featured-target" data-rival="'+escapeHtml(rival)+'">⚔️ RUN IT BACK</button>'
-   +'</div>';
+   +'<button class="danger-clear js-clear-nemesis">🧹 CLEAR FEATURED</button>'
+   +'</div>'
+   +'<div class="nemesis-control-note">Clearing Featured Nemesis changes your pinned profile feud only; rivalry history stays intact.</div>';
+}
+
+async function clearFeaturedNemesis(){
+ currentUser();
+ const d=await jsonFetch("/api/featured-nemesis/"+encodeURIComponent(username),{
+   method:"DELETE"
+ });
+ show(d.message||"Featured Nemesis cleared.");
+ if(d.success){
+   await Promise.allSettled([
+     loadThreatRadar(),
+     loadNemesisDuel(),
+     loadMissionControl()
+   ]);
+ }
 }
 
 async function featureNemesis(name){
@@ -1451,8 +1473,11 @@ async function featureNemesis(name){
  });
  show(d.message||"Featured Nemesis updated.");
  if(d.success){
-   loadThreatRadar();
-   loadNemesisDuel();
+   await Promise.allSettled([
+     loadThreatRadar(),
+     loadNemesisDuel(),
+     loadMissionControl()
+   ]);
  }
 }
 
@@ -1944,7 +1969,7 @@ async function loadHunterHUD(){
 }
 
 document.addEventListener("click",(ev)=>{
- const btn=ev.target.closest(".js-revenge-target,.js-threat-target,.js-feature-nemesis,.js-featured-target,.js-share-nemesis");
+ const btn=ev.target.closest(".js-revenge-target,.js-threat-target,.js-feature-nemesis,.js-featured-target,.js-share-nemesis,.js-clear-nemesis");
  if(!btn)return;
  const rival=btn.dataset.rival||"";
  if(btn.classList.contains("js-revenge-target"))targetRevengeRival(rival);
@@ -1952,6 +1977,7 @@ document.addEventListener("click",(ev)=>{
  else if(btn.classList.contains("js-feature-nemesis"))featureNemesis(rival);
  else if(btn.classList.contains("js-featured-target"))targetFeaturedNemesis(rival);
  else if(btn.classList.contains("js-share-nemesis"))shareFeaturedNemesis(btn.dataset.owner||username,rival);
+ else if(btn.classList.contains("js-clear-nemesis"))clearFeaturedNemesis();
 });
 
 async function loadUser(){
@@ -4750,7 +4776,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.6 OPS PULSE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.7 NEMESIS CONTROL</div>
 </div></body></html>"""
 
 
@@ -5565,7 +5591,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.6 OPS PULSE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.7 NEMESIS CONTROL</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -5696,7 +5722,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.6 OPS PULSE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.7 NEMESIS CONTROL</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -5759,7 +5785,7 @@ def _featured_nemesis(username):
         pulse.append({
             "battle_id": int(battle.get("id") or 0),
             "winner": winner,
-            "owner_result": "W" if winner == username else "L",
+            "owner_result": ("W" if winner == username else ("L" if winner == rival else "—")),
             "created_at": battle.get("created_at") or ""
         })
 
@@ -5799,7 +5825,7 @@ def _featured_nemesis(username):
     }
 
 
-@app.route("/api/featured-nemesis/<username>", methods=["GET", "POST"])
+@app.route("/api/featured-nemesis/<username>", methods=["GET", "POST", "DELETE"])
 def featured_nemesis_api(username):
     data = _featured_nemesis(username)
     if data is None:
@@ -5811,8 +5837,32 @@ def featured_nemesis_api(username):
     if session.get("authenticated_username") != username:
         return jsonify({
             "success": False,
-            "message": "🔐 Sign in with this Hunter ID to feature a Nemesis."
+            "message": "🔐 Sign in with this Hunter ID to manage Featured Nemesis."
         }), 401
+
+    if request.method == "DELETE":
+        conn = db()
+        row = conn.execute(
+            "SELECT rival FROM hunter_featured_nemesis WHERE username = ?",
+            (username,)
+        ).fetchone()
+        conn.execute(
+            "DELETE FROM hunter_featured_nemesis WHERE username = ?",
+            (username,)
+        )
+        conn.commit()
+        conn.close()
+        previous = row["rival"] if row else None
+        return jsonify({
+            "success": True,
+            "message": (
+                f"🧹 {previous} removed from Featured Nemesis."
+                if previous else
+                "No Featured Nemesis was active."
+            ),
+            "username": username,
+            "featured": None
+        })
 
     payload = request.get_json(silent=True) or {}
     rival = str(payload.get("rival", "")).strip()
@@ -6077,7 +6127,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.6 OPS PULSE</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V11.7 NEMESIS CONTROL</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -7736,7 +7786,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V11.6 // OPS PULSE")
+    print("😈 BL3 ARENA V11.7 // NEMESIS CONTROL")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
