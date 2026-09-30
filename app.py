@@ -363,7 +363,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -405,7 +405,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -425,7 +425,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -444,7 +444,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -462,7 +462,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -475,7 +475,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -487,7 +487,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -503,7 +503,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -514,7 +514,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
 .clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
 .clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
@@ -544,7 +544,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes comboBurst{0%{opacity:0;filter:blur(1px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6) rotate(360deg) translateX(150px)}}@keyframes comboToast{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(prefers-reduced-motion:reduce){.combo-burst i,.combo-toast.show{animation:none!important}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .momentum-board{margin:0 0 22px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(16,16,23,.94),rgba(8,8,13,.93));padding:18px;overflow:hidden;position:relative}
 .momentum-board:before{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(45px)}
 .momentum-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.momentum-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.momentum-head .meta{text-align:right;font-size:9px}
@@ -556,7 +556,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .hud-momentum{margin-top:9px;border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.hud-momentum-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.hud-momentum-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.hud-momentum-top b{font-size:10px}.hud-momentum-detail{margin-top:5px;font-size:9px;color:var(--muted)}
 @media(max-width:980px){.momentum-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.momentum-grid{grid-template-columns:1fr}.momentum-head{align-items:flex-start;flex-direction:column}.momentum-head .meta{text-align:left}}
 
-/* ===== V10.3 LIVE SIGNAL ENGINE ===== */
+/* ===== V10.4 REVENGE QUEUE ===== */
 .threat-radar{margin:0 0 22px;border:1px solid rgba(255,68,91,.16);border-radius:24px;background:linear-gradient(145deg,rgba(24,10,15,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .threat-radar:before{content:"";position:absolute;left:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,68,91,.08);filter:blur(48px)}
 .threat-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.threat-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.threat-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -571,6 +571,18 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   .pulse-track,.pulse-live-dot,.spot-fade,.war-dot,.combo-burst i,.combo-toast.show,.war-alert-shell.show,.war-mini-toast.show,.replay-step,.clash-replay-shell.show{animation:none!important}
   *{scroll-behavior:auto!important}
 }
+
+/* ===== V10.4 REVENGE QUEUE ===== */
+.revenge-queue{margin:0 0 22px;border:1px solid rgba(255,99,215,.16);border-radius:24px;background:linear-gradient(145deg,rgba(25,10,24,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
+.revenge-queue:before{content:"";position:absolute;right:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(48px)}
+.revenge-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.revenge-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.revenge-head .meta{text-align:right;font-size:9px;max-width:430px}
+.revenge-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:14px}
+.revenge-card{border:1px solid var(--line);border-radius:17px;padding:12px;background:rgba(255,255,255,.022)}
+.revenge-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.revenge-id{display:flex;gap:9px;align-items:center;min-width:0}.revenge-avatar{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#09090e;border:1px solid var(--line);font-size:23px}.revenge-name{min-width:0}.revenge-name b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.revenge-name span{display:block;font-size:8px;color:var(--muted);margin-top:3px}
+.revenge-state{text-align:right}.revenge-state b{display:block;font-size:8px;letter-spacing:.7px}.revenge-state span{display:block;font-size:8px;color:var(--muted);margin-top:3px}.revenge-open .revenge-state b{color:#e7e7f0}.revenge-urgent .revenge-state b{color:#ffb34d}.revenge-blood .revenge-state b{color:#ff63d7}
+.revenge-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.revenge-actions a,.revenge-actions button{border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.025);color:#fff;padding:8px 9px;text-decoration:none;font-size:8px;font-weight:900;cursor:pointer}.revenge-actions .runback{grid-column:1/-1;background:linear-gradient(100deg,rgba(255,79,216,.15),rgba(255,68,91,.1));border-color:rgba(255,99,215,.28)}
+.revenge-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
+@media(max-width:980px){.revenge-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.revenge-grid{grid-template-columns:1fr}.revenge-head{align-items:flex-start;flex-direction:column}.revenge-head .meta{text-align:left}}
 </style>
 </head>
 <body>
@@ -606,7 +618,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V10.3</div>
+            <div class="core-badge">V10.4</div>
           </div>
         </div>
         <div>
@@ -662,6 +674,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     <a class="command-link" id="commandProgressLink" href="#passportCard"><b>📈 NEXT UNLOCKS</b><span>Progress radar</span></a>
     <a class="command-link" href="#momentumBoard"><b>🔥 MOMENTUM</b><span>Live streak status</span></a>
     <a class="command-link" href="#threatRadar"><b>😈 THREAT RADAR</b><span>Track your Nemeses</span></a>
+    <a class="command-link" href="#revengeQueue"><b>🩸 REVENGE QUEUE</b><span>Run it back</span></a>
   </section>
 
   <section class="threat-radar" id="threatRadar">
@@ -670,6 +683,14 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
       <div class="meta" id="threatRadarMeta">Uses only Hunters you marked as rivals and your real direct Clash history.</div>
     </div>
     <div class="threat-grid" id="threatRadarGrid"><div class="threat-empty">Verify your Hunter ID to scan tracked rivals.</div></div>
+  </section>
+
+  <section class="revenge-queue" id="revengeQueue">
+    <div class="revenge-head">
+      <div><div class="eyebrow">🩸 REVENGE QUEUE // PRIVATE VIEW</div><h2>Run It Back</h2></div>
+      <div class="meta" id="revengeQueueMeta">Tracked rivals who won your latest direct Clash appear here.</div>
+    </div>
+    <div class="revenge-grid" id="revengeQueueGrid"><div class="revenge-empty">Verify your Hunter ID to scan revenge targets.</div></div>
   </section>
 
   <section class="momentum-board" id="momentumBoard">
@@ -936,7 +957,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.3 LIVE SIGNAL ENGINE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.4 REVENGE QUEUE</div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1037,6 +1058,47 @@ async function loadOnboarding(){
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
 async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
+
+function targetRevengeRival(name){
+ const opponent=document.getElementById("battleOpponent");
+ if(opponent)opponent.value=name;
+ document.getElementById("clashCard")?.scrollIntoView({behavior:"smooth",block:"center"});
+ show("🩸 Revenge target locked: "+name);
+}
+
+async function loadRevengeQueue(){
+ currentUser();
+ const d=await jsonFetch("/api/revenge-queue/"+encodeURIComponent(username));
+ const grid=document.getElementById("revengeQueueGrid");
+ const meta=document.getElementById("revengeQueueMeta");
+ if(!grid)return;
+
+ if(!d?.success){
+   grid.innerHTML='<div class="revenge-empty">'+escapeHtml(d?.message||"Verify your Hunter ID to scan revenge targets.")+'</div>';
+   return;
+ }
+
+ const rows=Array.isArray(d.targets)?d.targets:[];
+ if(meta)meta.textContent=Number(d.count||0)+" open revenge target"+(Number(d.count||0)===1?"":"s")+" · tracked rivals only";
+
+ if(!rows.length){
+   grid.innerHTML='<div class="revenge-empty">Queue clear. None of your tracked rivals currently owns the last direct Clash against you.</div>';
+   return;
+ }
+
+ grid.innerHTML=rows.map(r=>{
+   const s=r.state||{};
+   return '<div class="revenge-card revenge-'+escapeHtml(s.key||"open")+'">'
+     +'<div class="revenge-top"><div class="revenge-id"><div class="revenge-avatar">'+escapeHtml(r.avatar||"👾")+'</div>'
+     +'<div class="revenge-name"><b>'+escapeHtml(r.username)+'</b><span>'+escapeHtml(r.creature||"Hunter")+' · LVL '+Number(r.level||1)+'</span></div></div>'
+     +'<div class="revenge-state"><b>'+escapeHtml((s.icon||"⚔️")+" "+(s.label||"RUN IT BACK"))+'</b><span>'+Number(r.loss_streak||0)+' straight direct loss'+(Number(r.loss_streak||0)===1?"":"es")+'</span></div></div>'
+     +'<div class="revenge-actions">'
+     +'<a href="/clash/'+Number(r.last_battle_id||0)+'">LAST CLASH</a>'
+     +'<a href="/rivalry/'+encodeURIComponent(username)+'/'+encodeURIComponent(r.username)+'">RIVALRY</a>'
+     +'<button class="runback" onclick="targetRevengeRival('+JSON.stringify(r.username).replace(/"/g,"&quot;")+')">🩸 RUN IT BACK</button>'
+     +'</div></div>';
+ }).join("");
+}
 
 function targetThreatRival(name){
  const opponent=document.getElementById("battleOpponent");
@@ -1532,7 +1594,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadThreatRadar(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadThreatRadar(); await loadRevengeQueue(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
 }
 async function refreshLiveSignals(){
  if(document.hidden)return;
@@ -3779,7 +3841,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </section>
 <section class="section"><div class="eyebrow">RIVALRY MILESTONES</div><h2>Badges Earned by the Story</h2><div class="milestones">{badges_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.3 LIVE SIGNAL ENGINE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.4 REVENGE QUEUE</div>
 </div></body></html>"""
 
 
@@ -4594,7 +4656,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.3 LIVE SIGNAL ENGINE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.4 REVENGE QUEUE</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -4719,7 +4781,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.3 LIVE SIGNAL ENGINE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.4 REVENGE QUEUE</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -4905,7 +4967,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.3 LIVE SIGNAL ENGINE</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V10.4 REVENGE QUEUE</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -5802,6 +5864,118 @@ def activity_api():
     return jsonify({"success": True, "events": events[:limit]})
 
 
+@app.route("/api/revenge-queue/<username>")
+def revenge_queue_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({
+            "success": False,
+            "message": "🔐 Sign in with this Hunter ID to open the Revenge Queue."
+        }), 401
+
+    conn = db()
+    exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+    if exists is None:
+        conn.close()
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+
+    tracked = {
+        r["target"] for r in conn.execute(
+            """SELECT target FROM hunter_connections
+               WHERE owner = ? AND kind = 'rival'""",
+            (username,)
+        ).fetchall()
+    }
+
+    rows = conn.execute(
+        """SELECT id, challenger, opponent, winner, created_at
+           FROM creature_battles
+           WHERE challenger = ? OR opponent = ?
+           ORDER BY id DESC LIMIT 200""",
+        (username, username)
+    ).fetchall()
+
+    users = {
+        r["username"]: r
+        for r in conn.execute("SELECT username, xp FROM users").fetchall()
+    }
+    conn.close()
+
+    by_rival = {}
+    for row in rows:
+        rival = row["opponent"] if row["challenger"] == username else row["challenger"]
+        if rival not in tracked:
+            continue
+
+        item = by_rival.setdefault(rival, {
+            "username": rival,
+            "last_battle_id": int(row["id"]),
+            "last_created_at": row["created_at"],
+            "last_winner": row["winner"],
+            "loss_streak": 0,
+            "seen_first": False
+        })
+
+        # First row per rival is their latest direct Clash.
+        if not item["seen_first"]:
+            item["last_battle_id"] = int(row["id"])
+            item["last_created_at"] = row["created_at"]
+            item["last_winner"] = row["winner"]
+            item["seen_first"] = True
+
+        # Count consecutive direct losses from the newest result backward.
+        if item["loss_streak"] >= 0:
+            if row["winner"] != username:
+                item["loss_streak"] += 1
+            else:
+                item["loss_streak"] = -item["loss_streak"] - 1
+
+    queue = []
+    for rival, item in by_rival.items():
+        # Decode sentinel: only rivals whose latest run begins with one or more losses.
+        if item["last_winner"] == username:
+            continue
+
+        raw = item["loss_streak"]
+        loss_streak = raw if raw >= 0 else (-raw - 1)
+        if loss_streak <= 0:
+            continue
+
+        user = users.get(rival)
+        xp = int(user["xp"] or 0) if user else 0
+        creature = _creature_from_xp(xp)
+
+        if loss_streak >= 3:
+            state = {"key": "blood", "icon": "🩸", "label": "BLOOD FEUD"}
+        elif loss_streak == 2:
+            state = {"key": "urgent", "icon": "🔥", "label": "REVENGE DUE"}
+        else:
+            state = {"key": "open", "icon": "⚔️", "label": "RUN IT BACK"}
+
+        queue.append({
+            "username": rival,
+            "avatar": creature["avatar"],
+            "creature": creature["name"],
+            "level": max(1, xp // 100 + 1),
+            "loss_streak": loss_streak,
+            "last_battle_id": item["last_battle_id"],
+            "last_created_at": item["last_created_at"],
+            "state": state
+        })
+
+    queue.sort(
+        key=lambda x: (x["loss_streak"], x["last_battle_id"]),
+        reverse=True
+    )
+
+    return jsonify({
+        "success": True,
+        "username": username,
+        "count": len(queue),
+        "targets": queue[:8],
+        "method": "Tracked rivals only. Queue contains rivals who won the latest direct Clash against you; urgency grows with consecutive direct losses."
+    })
+
+
 @app.route("/api/threat-radar/<username>")
 def threat_radar_api(username):
     if session.get("authenticated_username") != username:
@@ -6150,7 +6324,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V10.3 // LIVE SIGNAL ENGINE")
+    print("🩸 BL3 ARENA V10.4 // REVENGE QUEUE")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
