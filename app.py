@@ -9,20 +9,130 @@ import urllib.request
 import urllib.error
 import html
 import threading
+import logging
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("BL3_SECRET_KEY") or secrets.token_hex(32)
-# V13.9 trust posture: HttpOnly + SameSite by default. Enable Secure cookies on HTTPS deployments.
+# V14.0 trust posture: HttpOnly + SameSite by default. Enable Secure cookies on HTTPS deployments.
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("BL3_SECURE_COOKIES", "0") == "1"
 
 DB = os.environ.get("BL3_DB_PATH", "bl3.db")
 
-# ===== V13.9 PERFORMANCE + OBSERVABILITY =====
+
+# ===== V14.0 PRODUCTION READINESS =====
+BL3_ENV = (os.environ.get("BL3_ENV") or "development").strip().lower()
+BL3_PUBLIC_URL = (os.environ.get("BL3_PUBLIC_URL") or "").strip().rstrip("/")
+BL3_ADMIN_TOKEN = os.environ.get("BL3_ADMIN_TOKEN") or ""
+BL3_BACKUP_DIR = os.environ.get("BL3_BACKUP_DIR") or os.path.join(os.path.dirname(os.path.abspath(DB)) or ".", "backups")
+BL3_LOG_JSON = os.environ.get("BL3_LOG_JSON", "1") == "1"
+BL3_RATE_LIMIT = os.environ.get("BL3_RATE_LIMIT", "1") == "1"
+BL3_RATE_WINDOW = max(10, int(os.environ.get("BL3_RATE_WINDOW", "60") or 60))
+BL3_RATE_MAX = max(30, int(os.environ.get("BL3_RATE_MAX", "120") or 120))
+BL3_AUTH_RATE_MAX = max(5, int(os.environ.get("BL3_AUTH_RATE_MAX", "20") or 20))
+
+_PROD_STARTED_AT = time.time()
+_PROD_WARNINGS = []
+_RATE_LOCK = threading.RLock()
+_RATE_BUCKETS = defaultdict(deque)
+
+_logger = logging.getLogger("bl3")
+if not _logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    _logger.addHandler(_handler)
+_logger.setLevel(logging.INFO)
+
+def _log_event(event, **fields):
+    payload = {"ts": datetime.utcnow().isoformat(timespec="seconds") + "Z", "event": event, **fields}
+    if BL3_LOG_JSON:
+        _logger.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    else:
+        _logger.info("BL3 %s %s", event, " ".join(f"{k}={v}" for k,v in fields.items()))
+
+def _startup_checks():
+    warnings = []
+    if BL3_ENV in ("production", "prod") and not os.environ.get("BL3_SECRET_KEY"):
+        warnings.append("BL3_SECRET_KEY is not set; production sessions would rotate on restart.")
+    if BL3_PUBLIC_URL.startswith("https://") and not app.config.get("SESSION_COOKIE_SECURE"):
+        warnings.append("BL3_PUBLIC_URL uses HTTPS but BL3_SECURE_COOKIES is not enabled.")
+    db_dir = os.path.dirname(os.path.abspath(DB)) or "."
+    if not os.access(db_dir, os.W_OK):
+        warnings.append("Database directory is not writable.")
+    try:
+        os.makedirs(BL3_BACKUP_DIR, exist_ok=True)
+        test_path = os.path.join(BL3_BACKUP_DIR, ".bl3-write-test")
+        with open(test_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(test_path)
+    except Exception:
+        warnings.append("Backup directory is not writable.")
+    if BL3_ENV in ("production", "prod") and not BL3_ADMIN_TOKEN:
+        warnings.append("BL3_ADMIN_TOKEN is not set; protected backup actions are disabled.")
+    _PROD_WARNINGS[:] = warnings
+    _log_event("startup_checks", env=BL3_ENV, warnings=len(warnings), db=DB, secure_cookie=bool(app.config.get("SESSION_COOKIE_SECURE")))
+    return warnings
+
+def _rate_identity():
+    auth = session.get("authenticated_username")
+    if auth:
+        return "user:" + str(auth)[:80]
+    rid = session.get("_rate_id")
+    if not rid:
+        rid = secrets.token_hex(8)
+        session["_rate_id"] = rid
+    return "session:" + rid
+
+def _rate_check(limit):
+    now = time.time()
+    key = (_rate_identity(), request.path, request.method)
+    with _RATE_LOCK:
+        q = _RATE_BUCKETS[key]
+        cutoff = now - BL3_RATE_WINDOW
+        while q and q[0] < cutoff:
+            q.popleft()
+        if len(q) >= limit:
+            retry = max(1, int(BL3_RATE_WINDOW - (now - q[0])))
+            return False, retry
+        q.append(now)
+    return True, 0
+
+def _same_origin_ok():
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return True
+    origin = (request.headers.get("Origin") or "").strip().rstrip("/")
+    if not origin:
+        site = (request.headers.get("Sec-Fetch-Site") or "").lower()
+        return site in ("", "same-origin", "same-site", "none")
+    expected = BL3_PUBLIC_URL or request.host_url.rstrip("/")
+    return origin == expected
+
+def _admin_ok():
+    if not BL3_ADMIN_TOKEN:
+        return False
+    supplied = request.headers.get("X-BL3-Admin-Token") or ""
+    return secrets.compare_digest(str(supplied), str(BL3_ADMIN_TOKEN))
+
+def _db_backup(label="manual"):
+    os.makedirs(BL3_BACKUP_DIR, exist_ok=True)
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    safe = "".join(c for c in str(label) if c.isalnum() or c in "-_")[:32] or "backup"
+    target = os.path.join(BL3_BACKUP_DIR, f"bl3-{stamp}-{safe}.db")
+    src_conn = sqlite3.connect(DB)
+    dst_conn = sqlite3.connect(target)
+    try:
+        src_conn.backup(dst_conn)
+    finally:
+        dst_conn.close()
+        src_conn.close()
+    return target
+
+# ===== V14.0 PERFORMANCE + OBSERVABILITY =====
 _OBS_LOCK = threading.RLock()
 _OBS_STARTED_AT = time.time()
 _OBS_SLOW_MS = max(50, int(os.environ.get("BL3_SLOW_MS", "500") or 500))
@@ -416,6 +526,7 @@ def get_user(username):
     return user
 # Initialize / migrate database when the app starts in production
 init_db()
+_startup_checks()
 
 @app.route("/")
 def home():
@@ -472,7 +583,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.9";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V14.0";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -859,11 +970,11 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 @media(prefers-reduced-motion:reduce){.bl3-skeleton:after{animation:none}.network-status{transition:none}}
 @media(max-width:620px){.network-status{top:8px}.network-status-copy span{max-width:210px}.bl3-skeleton-grid{grid-template-columns:1fr}}
 
-/* ===== V13.9 TRUST CENTER // PRODUCT TOUR ===== */
+/* ===== V14.0 TRUST CENTER // PRODUCT TOUR ===== */
 .tour-trigger{cursor:pointer}.product-tour-shell{position:fixed;inset:0;z-index:10060;display:none;background:rgba(0,0,0,.56);backdrop-filter:blur(4px);pointer-events:none}.product-tour-shell.show{display:block}.product-tour-panel{pointer-events:auto;position:fixed;right:24px;bottom:24px;z-index:10064;width:min(430px,calc(100vw - 28px));border:1px solid rgba(186,255,90,.25);border-radius:24px;background:linear-gradient(155deg,rgba(18,18,26,.99),rgba(7,7,11,.99));box-shadow:0 28px 110px rgba(0,0,0,.72),0 0 45px rgba(186,255,90,.06);padding:20px}.tour-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.tour-kicker{font-size:8px;letter-spacing:1.7px;color:var(--hot);font-weight:950}.tour-close{border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:10px;padding:8px 9px;font-size:9px;font-weight:900;cursor:pointer}.tour-step-count{font-size:9px;color:var(--muted);font-weight:900}.tour-title{font-size:25px;letter-spacing:-1px;font-weight:950;margin:11px 0 7px}.tour-detail{color:#a6a7b5;font-size:11px;line-height:1.6}.tour-why{margin-top:11px;border:1px solid rgba(161,124,255,.2);border-radius:13px;padding:10px;background:rgba(161,124,255,.05);font-size:9px;color:#c9c4df;line-height:1.5}.tour-progress{display:flex;gap:6px;margin-top:15px}.tour-dot{height:5px;flex:1;border-radius:999px;background:#25252e;border:1px solid rgba(255,255,255,.05)}.tour-dot.done,.tour-dot.active{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px rgba(186,255,90,.18)}.tour-actions{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;margin-top:15px}.tour-actions button{margin:0;width:auto;border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:12px;padding:10px 12px;font-size:9px;font-weight:950;cursor:pointer}.tour-actions .primary{background:var(--hot);border-color:var(--hot);color:#08090a}.tour-actions .back:disabled{opacity:.35;cursor:default}.bl3-tour-focus{position:relative!important;z-index:10062!important;outline:2px solid var(--hot)!important;outline-offset:6px!important;box-shadow:0 0 0 8px rgba(186,255,90,.08),0 0 50px rgba(186,255,90,.14)!important;border-radius:22px!important}.tour-mini-cta{display:inline-flex;align-items:center;gap:6px;margin-left:8px;border:1px solid rgba(186,255,90,.22);background:rgba(186,255,90,.045);color:var(--hot);padding:7px 10px;border-radius:999px;font-size:9px;font-weight:950;cursor:pointer}.tour-complete{color:var(--hot);font-weight:950}.pref-reduced-motion .bl3-tour-focus{scroll-margin-top:90px}@media(max-width:620px){.product-tour-panel{right:14px;left:14px;bottom:14px;width:auto;padding:17px}.tour-title{font-size:22px}.tour-actions{grid-template-columns:1fr 1fr}.tour-actions .tour-skip{grid-column:1/-1;order:3}}
 
 
-/* ===== V13.9 TRUST CENTER + SECURITY UX ===== */
+/* ===== V14.0 TRUST CENTER + SECURITY UX ===== */
 .trust-trigger{cursor:pointer}.trust-trigger.secure{border-color:rgba(97,244,255,.28);color:var(--cyan)}
 .trust-shell{position:fixed;inset:0;z-index:10070;display:none;background:rgba(0,0,0,.64);backdrop-filter:blur(9px)}.trust-shell.show{display:block}.trust-panel{position:absolute;right:0;top:0;height:100%;width:min(570px,100vw);background:linear-gradient(155deg,#0d1318,#08080d 44%);border-left:1px solid rgba(97,244,255,.18);box-shadow:-34px 0 110px rgba(0,0,0,.62);display:flex;flex-direction:column}.trust-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:22px;border-bottom:1px solid var(--line)}.trust-head h2{margin:5px 0 0;font-size:29px;letter-spacing:-1.1px}.trust-close{border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;border-radius:11px;padding:9px 11px;cursor:pointer;font-weight:900}.trust-body{overflow:auto;padding:15px 18px 24px}.trust-hero{border:1px solid rgba(97,244,255,.2);border-radius:20px;padding:16px;background:linear-gradient(135deg,rgba(97,244,255,.06),rgba(161,124,255,.05))}.trust-hero-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.trust-state{display:inline-flex;align-items:center;gap:7px;font-size:9px;font-weight:950;letter-spacing:1px;color:var(--muted)}.trust-state i{width:8px;height:8px;border-radius:50%;background:#666875}.trust-state.ok{color:var(--cyan)}.trust-state.ok i{background:var(--cyan);box-shadow:0 0 14px rgba(97,244,255,.55)}.trust-wallet{font-size:20px;font-weight:950;margin-top:12px}.trust-sub{font-size:9px;color:var(--muted);line-height:1.55;margin-top:5px}.trust-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.trust-stat{border:1px solid var(--line);border-radius:14px;padding:11px;background:rgba(255,255,255,.02)}.trust-stat b{display:block;font-size:11px}.trust-stat span{display:block;margin-top:4px;color:var(--muted);font-size:8px;line-height:1.4}.trust-section{border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:10px;background:rgba(255,255,255,.018)}.trust-section h3{font-size:11px;margin:0 0 9px;letter-spacing:.7px}.trust-check{display:grid;grid-template-columns:24px 1fr;gap:9px;padding:9px 0;border-top:1px solid rgba(255,255,255,.07)}.trust-check:first-of-type{border-top:0}.trust-check i{font-style:normal;width:23px;height:23px;border-radius:8px;display:grid;place-items:center;background:rgba(186,255,90,.07);border:1px solid rgba(186,255,90,.15);font-size:11px}.trust-check b{display:block;font-size:9px}.trust-check span{display:block;color:var(--muted);font-size:8px;line-height:1.5;margin-top:3px}.trust-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.trust-actions button,.trust-actions a{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.035);color:#fff;padding:9px 11px;font-size:8px;font-weight:950;text-decoration:none;cursor:pointer}.trust-actions .danger{border-color:rgba(255,122,157,.3);color:#ff9ab2}.trust-disclaimer{margin-top:10px;color:#7f8190;font-size:8px;line-height:1.55}.trust-offline{color:var(--muted);border:1px dashed var(--line);border-radius:14px;padding:14px;font-size:9px}
 @media(max-width:620px){.trust-panel{width:100vw}.trust-grid{grid-template-columns:1fr}.trust-head{padding:18px}.trust-body{padding:12px 14px 20px}}
@@ -882,7 +993,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 
 <div class="product-tour-shell" id="productTourShell" role="dialog" aria-modal="true" aria-label="BL3 guided product tour">
   <div class="product-tour-panel" id="productTourPanel">
-    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V13.9</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
+    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V14.0</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
     <div class="tour-title" id="tourTitle">Meet your Hunter ID</div>
     <div class="tour-detail" id="tourDetail">Your Passport is the identity layer behind progression, rivalry history and public reputation.</div>
     <div class="tour-why" id="tourWhy">WHY IT MATTERS · Everything you do in BL3 builds around one persistent Hunter identity.</div>
@@ -925,7 +1036,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.9</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V14.0</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -962,7 +1073,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V13.9</div>
+            <div class="core-badge">V14.0</div>
           </div>
         </div>
         <div>
@@ -1394,7 +1505,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.9 PERFORMANCE + OBSERVABILITY<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/ops">OPS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/trust">TRUST CENTER</a><span>•</span><a href="/api/meta">API META</a></div></div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.0 PRODUCTION READINESS<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/production">PRODUCTION</a><span>•</span><a href="/ops">OPS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/trust">TRUST CENTER</a><span>•</span><a href="/api/meta">API META</a></div></div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1470,7 +1581,7 @@ let lastBattleShare=null;
 let currentCrown=null;
 
 
-// ===== V13.9 TRUST CENTER =====
+// ===== V14.0 TRUST CENTER =====
 let bl3TrustOpen=false;
 function trustCenterBackdrop(e){if(e.target?.id==="trustCenterShell")closeTrustCenter()}
 function closeTrustCenter(){const sh=document.getElementById("trustCenterShell");if(sh)sh.classList.remove("show");bl3TrustOpen=false}
@@ -1478,7 +1589,7 @@ function fmtTrustAge(seconds){seconds=Math.max(0,Number(seconds||0));if(seconds<
 function trustYesNo(v){return v?"ENABLED":"OFF"}
 async function openTrustCenter(){const sh=document.getElementById("trustCenterShell"),body=document.getElementById("trustCenterBody");if(!sh||!body)return;sh.classList.add("show");bl3TrustOpen=true;body.innerHTML='<div class="bl3-skeleton"><div class="bl3-skeleton-line short"></div><div class="bl3-skeleton-line mid"></div><div class="bl3-skeleton-line"></div></div>';const d=await jsonFetch("/api/trust-center",{cache:"no-store"});if(!d?.success){body.innerHTML='<div class="trust-offline">Trust status is temporarily unavailable. <button class="network-retry" onclick="openTrustCenter()">RETRY</button></div>';return}renderTrustCenter(d)}
 function renderTrustCenter(d){const body=document.getElementById("trustCenterBody");if(!body)return;const auth=!!d.authenticated,checks=Array.isArray(d.checks)?d.checks:[];const state=auth?'VERIFIED SESSION':'PUBLIC SESSION';const wallet=auth?escapeHtml(d.wallet_preview||"Verified wallet"):'No wallet session active';body.innerHTML=''
- +'<div class="trust-hero"><div class="trust-hero-top"><span class="trust-state '+(auth?'ok':'')+'"><i></i>'+state+'</span><span class="hud-unlock-badge">V13.9</span></div><div class="trust-wallet">'+wallet+'</div><div class="trust-sub">'+escapeHtml(auth?((d.username||"Hunter")+" · wallet signature verified"):'BL3 public browsing does not require a wallet signature.')+'</div>'
+ +'<div class="trust-hero"><div class="trust-hero-top"><span class="trust-state '+(auth?'ok':'')+'"><i></i>'+state+'</span><span class="hud-unlock-badge">V14.0</span></div><div class="trust-wallet">'+wallet+'</div><div class="trust-sub">'+escapeHtml(auth?((d.username||"Hunter")+" · wallet signature verified"):'BL3 public browsing does not require a wallet signature.')+'</div>'
  +'<div class="trust-grid"><div class="trust-stat"><b>'+escapeHtml(d.signature_method||"EIP-191 personal_sign")+'</b><span>SIGNATURE METHOD</span></div><div class="trust-stat"><b>'+escapeHtml(auth?fmtTrustAge(d.session_age_seconds):"—")+'</b><span>SESSION AGE</span></div><div class="trust-stat"><b>'+trustYesNo(d.cookie?.http_only)+'</b><span>HTTPONLY COOKIE</span></div><div class="trust-stat"><b>'+escapeHtml(String(d.cookie?.same_site||"Lax").toUpperCase())+'</b><span>SAMESITE POLICY</span></div></div></div>'
  +'<section class="trust-section"><h3>SECURITY CHECKS</h3>'+checks.map(c=>'<div class="trust-check"><i>'+escapeHtml(c.icon||"✓")+'</i><div><b>'+escapeHtml(c.title||"CHECK")+'</b><span>'+escapeHtml(c.detail||"")+'</span></div></div>').join("")+'</section>'
  +'<section class="trust-section"><h3>PRIVACY SUMMARY</h3><div class="trust-check"><i>🧭</i><div><b>DISCOVERY DOES NOT USE WALLET VALUE</b><span>Public and personalized discovery use BL3 activity signals, not wallet balance or paid ranking boosts.</span></div></div><div class="trust-check"><i>🔁</i><div><b>VIRAL ATTRIBUTION IS LIGHTWEIGHT</b><span>Moment CTA attribution stores action, source Moment, target and time; it is not designed around IP or wallet-value profiling.</span></div></div><div class="trust-check"><i>⚠️</i><div><b>NO EXTERNAL SECURITY AUDIT CLAIM</b><span>BL3 exposes its current security posture here, but this interface does not claim an independent smart-contract or application audit.</span></div></div></section>'
@@ -3077,7 +3188,7 @@ function renderActivityCenter(){
  document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
  document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
  document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
- const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.9"):"Sign in to load your Hunter activity.";
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V14.0"):"Sign in to load your Hunter activity.";
  const items=(Array.isArray(d.items)?d.items:[]).filter(x=>activityPreferenceEnabled(x.type));const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
  if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
  if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
@@ -6597,7 +6708,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.9 PERFORMANCE + OBSERVABILITY</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.0 PRODUCTION READINESS</div>
 </div></body></html>"""
 
 
@@ -7412,7 +7523,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.9 PERFORMANCE + OBSERVABILITY</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.0 PRODUCTION READINESS</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -7543,7 +7654,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.9 PERFORMANCE + OBSERVABILITY</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.0 PRODUCTION READINESS</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -7954,7 +8065,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.9 PERFORMANCE + OBSERVABILITY</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.0 PRODUCTION READINESS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -9695,6 +9806,22 @@ def performance_timer_start():
     request._bl3_started_at = time.perf_counter()
 
 
+@app.before_request
+def production_request_guard():
+    if BL3_RATE_LIMIT and request.method not in ("GET", "HEAD", "OPTIONS") and request.path.startswith("/api/"):
+        auth_sensitive = request.path.startswith("/api/auth/")
+        ok, retry = _rate_check(BL3_AUTH_RATE_MAX if auth_sensitive else BL3_RATE_MAX)
+        if not ok:
+            _log_event("rate_limited", route=request.path, method=request.method)
+            response = jsonify({"success":False,"message":"Too many requests. Try again shortly.","retry_after":retry})
+            response.status_code = 429
+            response.headers["Retry-After"] = str(retry)
+            return response
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.path.startswith("/api/") and not _same_origin_ok():
+        _log_event("csrf_origin_block", route=request.path, method=request.method)
+        return jsonify({"success":False,"message":"Cross-site write blocked by BL3 security policy."}), 403
+
+
 @app.after_request
 def quality_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -9709,6 +9836,10 @@ def quality_headers(response):
         response.headers.setdefault("Server-Timing", f"app;dur={elapsed_ms:.1f}")
         response.headers.setdefault("X-BL3-Response-Ms", f"{elapsed_ms:.1f}")
         _record_observation(response, elapsed_ms)
+        status = int(getattr(response, "status_code", 0) or 0)
+        if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
+            _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
+    response.headers.setdefault("X-BL3-Version", "14.0")
     return response
 
 
@@ -9728,6 +9859,7 @@ def global_search_api():
         {"type": "command", "icon": "👾", "title": "Hunter Passport", "subtitle": "Open identity and progression", "url": "#passportCard", "keywords": "passport profile identity hunter"},
         {"type": "command", "icon": "🔥", "title": "Network Heat", "subtitle": "Scan hot Hunters and matchups", "url": "#networkHeatmap", "keywords": "heat network hot hunters rivalry"},
         {"type": "command", "icon": "📊", "title": "Performance Console", "subtitle": "Inspect latency, slow routes and cache state", "url": "/ops", "keywords": "performance observability metrics latency slow cache ops"},
+        {"type": "command", "icon": "🚀", "title": "Production Readiness", "subtitle": "Inspect deployment posture and startup checks", "url": "/production", "keywords": "production deploy config security backup diagnostics rate limit"},
     ]
 
     results = []
@@ -9842,7 +9974,7 @@ def robots_txt():
 @app.route("/sitemap.xml")
 def sitemap_xml():
     base = html.escape(_public_origin(), quote=True)
-    body = "".join(f"<url><loc>{base}{path}</loc></url>" for path in ("/", "/status", "/transparency", "/trust"))
+    body = "".join(f"<url><loc>{base}{path}</loc></url>" for path in ("/", "/status", "/production", "/transparency", "/trust"))
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>', mimetype="application/xml")
 
 
@@ -9893,6 +10025,47 @@ def _observability_snapshot():
     }
 
 
+@app.route("/api/deployment")
+def deployment_diagnostics_api():
+    db_exists = os.path.exists(DB)
+    db_size = os.path.getsize(DB) if db_exists else 0
+    return jsonify({
+        "success": True,
+        "version": "V14.0",
+        "engine": "production-readiness-v14.0",
+        "environment": BL3_ENV,
+        "uptime_seconds": int(max(0, time.time() - _PROD_STARTED_AT)),
+        "database": {"reachable": db_exists, "size_bytes": db_size, "path_mode": "custom" if os.environ.get("BL3_DB_PATH") else "default"},
+        "cookies": {"http_only": bool(app.config.get("SESSION_COOKIE_HTTPONLY")), "same_site": app.config.get("SESSION_COOKIE_SAMESITE"), "secure": bool(app.config.get("SESSION_COOKIE_SECURE"))},
+        "rate_limit": {"enabled": BL3_RATE_LIMIT, "window_seconds": BL3_RATE_WINDOW, "default_max": BL3_RATE_MAX, "auth_max": BL3_AUTH_RATE_MAX},
+        "backups": {"enabled": bool(BL3_ADMIN_TOKEN), "directory_ready": os.path.isdir(BL3_BACKUP_DIR)},
+        "warnings": list(_PROD_WARNINGS)
+    })
+
+@app.route("/admin/db-backup", methods=["POST"])
+def admin_db_backup():
+    if not _admin_ok():
+        return jsonify({"success":False,"message":"Admin backup is disabled or unauthorized."}), 403
+    try:
+        target = _db_backup("manual")
+        _log_event("db_backup", filename=os.path.basename(target), bytes=os.path.getsize(target))
+        return jsonify({"success":True,"message":"SQLite backup created.","filename":os.path.basename(target),"bytes":os.path.getsize(target)})
+    except Exception as exc:
+        _log_event("db_backup_failed", error=type(exc).__name__)
+        return jsonify({"success":False,"message":"Backup failed."}), 500
+
+@app.route("/production")
+def production_readiness_page():
+    warnings = list(_PROD_WARNINGS)
+    rows = "".join("<div class='warn'>⚠️ " + html.escape(w) + "</div>" for w in warnings) or "<div class='ok'>✓ No startup warnings detected.</div>"
+    secure = "ON" if app.config.get("SESSION_COOKIE_SECURE") else "OFF"
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#050507'><title>BL3 Production Readiness</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:920px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2a2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151b,#09090e);margin-top:18px}h1{font-size:clamp(42px,8vw,76px);margin:8px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #282b33;border-radius:15px;padding:13px}.stat b{display:block;font-size:17px}.stat span,.muted{font-size:9px;color:#9296a5}.ok{color:#baff5a;padding:10px 0}.warn{color:#ffd66b;padding:10px 0;border-top:1px solid #292b33}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> V14.0</div><div class='hero'><div class='ok'>● PRODUCTION READINESS</div><h1>Deploy with eyes open.</h1><p class='muted'>Config checks, same-origin write protection, lightweight rate limiting, structured diagnostics and protected SQLite backup controls.</p><div class='grid'><div class='stat'><b>__ENV__</b><span>ENVIRONMENT</span></div><div class='stat'><b>__SECURE__</b><span>SECURE COOKIE</span></div><div class='stat'><b>__RATE__</b><span>WRITE LIMIT</span></div><div class='stat'><b>__WARNINGS__</b><span>STARTUP WARNINGS</span></div></div></div><div class='panel'><h2>Startup checks</h2>__ROWS__</div><p><a href='/'>← Back to BL3</a> · <a href='/api/deployment'>Deployment JSON</a> · <a href='/ops'>Ops</a> · <a href='/status'>Status</a></p></div></body></html>"""
+    return (page.replace("__ENV__", html.escape(BL3_ENV.upper()))
+                .replace("__SECURE__", secure)
+                .replace("__RATE__", f"{BL3_RATE_MAX}/{BL3_RATE_WINDOW}s")
+                .replace("__WARNINGS__", str(len(warnings)))
+                .replace("__ROWS__", rows))
+
 @app.route("/api/observability")
 def observability_api():
     return jsonify(_observability_snapshot())
@@ -9917,8 +10090,8 @@ def healthz():
 def api_meta():
     return jsonify({
         "success": True, "name": "BL3 // Human Alpha Network", "version": "13.9", "release": "PERFORMANCE + OBSERVABILITY",
-        "features": ["performance observability","request timing","slow route diagnostics","rivalry cache diagnostics","trust center","wallet session status","gasless signature UX","session logout","resilient fetch","offline recovery","global search","activity center","personalized discovery","product tour"],
-        "public_endpoints": ["/healthz","/ops","/api/observability","/trust","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
+        "features": ["production readiness","config validation","same-origin write protection","lightweight rate limiting","structured request logging","protected sqlite backup","deployment diagnostics","performance observability","request timing","slow route diagnostics","rivalry cache diagnostics","trust center","wallet session status","gasless signature UX","session logout","resilient fetch","offline recovery","global search","activity center","personalized discovery","product tour"],
+        "public_endpoints": ["/healthz","/production","/api/deployment","/ops","/api/observability","/trust","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
     })
 
@@ -9930,7 +10103,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> TRUST CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.9 · database reachable · lightweight observability online</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · Ops console: <a href="/ops">/ops</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> TRUST CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V14.0 · production checks online · database reachable · observability online</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · Ops console: <a href="/ops">/ops</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/trust")
@@ -9988,8 +10161,11 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📊 BL3 ARENA V13.9 // PERFORMANCE + OBSERVABILITY")
+    print("🚀 BL3 ARENA V14.0 // PRODUCTION READINESS")
     print("💾 SQLite enabled")
+    print("🛡️ Production readiness checks enabled")
+    print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
+    print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
     print("👛 Wallet profile enabled")
