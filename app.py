@@ -425,7 +425,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -467,7 +467,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -487,7 +487,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -506,7 +506,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -524,7 +524,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -537,7 +537,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -549,7 +549,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -565,7 +565,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -576,7 +576,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
 .clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
 .clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
@@ -606,7 +606,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes comboBurst{0%{opacity:0;filter:blur(1px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6) rotate(360deg) translateX(150px)}}@keyframes comboToast{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(prefers-reduced-motion:reduce){.combo-burst i,.combo-toast.show{animation:none!important}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .momentum-board{margin:0 0 22px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(16,16,23,.94),rgba(8,8,13,.93));padding:18px;overflow:hidden;position:relative}
 .momentum-board:before{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(45px)}
 .momentum-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.momentum-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.momentum-head .meta{text-align:right;font-size:9px}
@@ -618,7 +618,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .hud-momentum{margin-top:9px;border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.hud-momentum-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.hud-momentum-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.hud-momentum-top b{font-size:10px}.hud-momentum-detail{margin-top:5px;font-size:9px;color:var(--muted)}
 @media(max-width:980px){.momentum-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.momentum-grid{grid-template-columns:1fr}.momentum-head{align-items:flex-start;flex-direction:column}.momentum-head .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .threat-radar{margin:0 0 22px;border:1px solid rgba(255,68,91,.16);border-radius:24px;background:linear-gradient(145deg,rgba(24,10,15,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .threat-radar:before{content:"";position:absolute;left:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,68,91,.08);filter:blur(48px)}
 .threat-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.threat-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.threat-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -634,7 +634,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   *{scroll-behavior:auto!important}
 }
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .revenge-queue{margin:0 0 22px;border:1px solid rgba(255,99,215,.16);border-radius:24px;background:linear-gradient(145deg,rgba(25,10,24,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .revenge-queue:before{content:"";position:absolute;right:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(48px)}
 .revenge-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.revenge-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.revenge-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -646,7 +646,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .revenge-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
 @media(max-width:980px){.revenge-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.revenge-grid{grid-template-columns:1fr}.revenge-head{align-items:flex-start;flex-direction:column}.revenge-head .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .nemesis-duel{margin:0 0 22px;border:1px solid rgba(255,99,215,.18);border-radius:26px;background:linear-gradient(135deg,rgba(29,9,28,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .nemesis-duel:before{content:"";position:absolute;right:-100px;top:-100px;width:290px;height:290px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(50px)}
 .nemesis-duel:after{content:"";position:absolute;left:-90px;bottom:-120px;width:260px;height:260px;border-radius:50%;background:rgba(97,244,255,.05);filter:blur(50px)}
@@ -659,25 +659,25 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .duel-empty{position:relative;z-index:2;border:1px dashed var(--line);border-radius:15px;padding:16px;color:var(--muted);font-size:9px;margin-top:14px}
 @media(max-width:800px){.duel-stage{grid-template-columns:1fr}.duel-vs{margin:auto}.duel-fighter.right{flex-direction:row;text-align:left}.duel-fighter.right .duel-score{margin-left:auto;margin-right:0}}@media(max-width:560px){.duel-head{flex-direction:column;align-items:flex-start}.duel-head .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .feud-pulse{position:relative;z-index:2;margin-top:12px;border:1px solid var(--line);border-radius:15px;padding:11px 12px;background:rgba(255,255,255,.018)}
 .feud-pulse-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.feud-pulse-top b{font-size:9px;letter-spacing:1px}.feud-pulse-top span{font-size:8px;color:var(--muted)}
 .feud-pulse-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.feud-chip{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;border:1px solid var(--line);font-size:9px;font-weight:950;text-decoration:none}.feud-chip.win{color:#a7ffbf;background:rgba(85,255,145,.06);border-color:rgba(85,255,145,.18)}.feud-chip.loss{color:#ff8290;background:rgba(255,68,91,.06);border-color:rgba(255,68,91,.18)}
 .feud-last{margin-top:8px;font-size:8px;color:var(--muted)}.feud-last b{color:#fff}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .duel-path{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.duel-path-step{border:1px solid var(--line);border-radius:11px;padding:8px 6px;text-align:center;background:rgba(255,255,255,.018)}.duel-path-step b{display:block;font-size:14px}.duel-path-step span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.duel-path-step.reached{border-color:rgba(186,255,90,.22)}.duel-path-step.next{border-color:rgba(255,99,215,.34);background:rgba(255,79,216,.055)}.duel-path-step.locked{opacity:.5}@media(max-width:650px){.duel-path{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .duel-stakes{position:relative;z-index:2;margin-top:12px;border:1px solid rgba(255,214,107,.2);border-radius:18px;padding:14px;background:linear-gradient(120deg,rgba(255,214,107,.055),rgba(255,79,216,.035));overflow:hidden}
 .duel-stakes:after{content:"";position:absolute;right:-55px;top:-70px;width:150px;height:150px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(34px);pointer-events:none}
 .duel-stakes>*{position:relative;z-index:1}.duel-stakes-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.duel-stakes-kicker{font-size:8px;letter-spacing:1.5px;color:var(--gold);font-weight:950}.duel-stakes h3{font-size:20px;margin:5px 0 4px;letter-spacing:-.7px}.duel-stakes-tag{white-space:nowrap;border:1px solid rgba(255,214,107,.25);border-radius:999px;padding:6px 8px;color:var(--gold);font-size:8px;font-weight:950;letter-spacing:1px}.duel-stakes-copy{color:var(--muted);font-size:9px;line-height:1.5;max-width:700px}.duel-stakes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:11px}.duel-stake-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.02)}.duel-stake-card b{display:block;font-size:11px}.duel-stake-card span{display:block;color:var(--muted);font-size:8px;line-height:1.45;margin-top:4px}.duel-stake-card.hot{border-color:rgba(255,79,216,.22);background:rgba(255,79,216,.035)}.duel-stake-card.gold{border-color:rgba(255,214,107,.22);background:rgba(255,214,107,.035)}
 @media(max-width:700px){.duel-stakes-top{flex-direction:column}.duel-stakes-grid{grid-template-columns:1fr}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .duel-chronicle{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.duel-chron-stat{border:1px solid var(--line);border-radius:11px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.duel-chron-stat b{display:block;font-size:14px}.duel-chron-stat span{display:block;font-size:7px;color:var(--muted);margin-top:3px}@media(max-width:650px){.duel-chronicle{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .feud-hall{margin:0 0 22px;border:1px solid rgba(186,255,90,.15);border-radius:26px;background:linear-gradient(145deg,rgba(10,18,12,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .feud-hall:before{content:"";position:absolute;right:-90px;top:-100px;width:260px;height:260px;border-radius:50%;background:rgba(186,255,90,.06);filter:blur(48px)}
 .feud-hall-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-hall-head h2{margin:5px 0 0;font-size:25px;letter-spacing:-1px}.feud-hall-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -686,7 +686,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .feud-hall-empty{color:var(--muted);font-size:8px;border:1px dashed var(--line);border-radius:11px;padding:10px}
 @media(max-width:950px){.feud-hall-columns{grid-template-columns:1fr}}@media(max-width:620px){.feud-hall-head{flex-direction:column;align-items:flex-start}.feud-hall-head .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .feud-spotlight{margin:0 0 22px;border:1px solid rgba(255,214,107,.18);border-radius:26px;padding:18px;background:linear-gradient(135deg,rgba(26,20,8,.92),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-spotlight:before{content:"";position:absolute;left:-90px;top:-110px;width:280px;height:280px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(48px)}
 .feud-spotlight-head{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.feud-spotlight-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-spotlight-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -698,7 +698,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .spot-feud-empty{border:1px dashed var(--line);border-radius:14px;padding:15px;color:var(--muted);font-size:9px}
 @media(max-width:760px){.spot-feud-card{grid-template-columns:1fr}.spot-feud-score{justify-content:center}.spot-feud-side,.spot-feud-side.right{text-align:center}.spot-feud-meta{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.feud-spotlight-head{flex-direction:column;align-items:flex-start}.feud-spotlight-head .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .mission-control{margin:0 0 22px;border:1px solid rgba(97,244,255,.16);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,23,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .mission-control:before{content:"";position:absolute;right:-90px;top:-100px;width:270px;height:270px;border-radius:50%;background:rgba(97,244,255,.06);filter:blur(48px)}
 .mission-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.mission-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.mission-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -707,31 +707,31 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .mission-empty{position:relative;z-index:1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px;margin-top:12px}
 @media(max-width:850px){.mission-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.mission-head{flex-direction:column;align-items:flex-start}.mission-head .meta{text-align:left}.mission-next{align-items:flex-start;flex-direction:column}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .mission-action-deck{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:9px}
 .mission-action-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.018);color:#fff;text-decoration:none;min-width:0}
 .mission-action-card b{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mission-action-card span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.mission-action-card:hover{border-color:rgba(97,244,255,.25)}
 @media(max-width:700px){.mission-action-deck{grid-template-columns:1fr}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .ops-pulse{position:relative;z-index:1;margin-top:10px;border:1px solid rgba(186,255,90,.14);border-radius:16px;padding:11px;background:rgba(186,255,90,.025)}
 .ops-pulse-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ops-pulse-head b{font-size:9px;letter-spacing:1px}.ops-pulse-head span{font-size:8px;color:var(--muted)}
 .ops-pulse-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}.ops-pulse-stat{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.ops-pulse-stat b{display:block;font-size:13px}.ops-pulse-stat span{display:block;font-size:7px;color:var(--muted);margin-top:2px}
 .ops-pulse-feed{display:grid;gap:6px;margin-top:8px}.ops-pulse-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-decoration:none;color:#fff;border-top:1px solid var(--line);padding-top:7px}.ops-pulse-row:first-child{border-top:none}.ops-pulse-row i{font-style:normal}.ops-pulse-row b{font-size:8px}.ops-pulse-row span{font-size:7px;color:var(--muted)}.ops-pulse-row em{font-size:7px;color:var(--muted);font-style:normal}
 @media(max-width:780px){.ops-pulse-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.ops-pulse-grid{grid-template-columns:1fr 1fr}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .duel-actions .danger-clear{border-color:rgba(255,68,91,.28);background:rgba(255,68,91,.08);color:#ff9aa7}
 .nemesis-control-note{position:relative;z-index:2;margin-top:8px;font-size:8px;color:var(--muted);text-align:right}
 .feud-chip.neutral{color:var(--muted);background:rgba(255,255,255,.025);border-color:var(--line)}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .crown-war.private-intel .war-count{color:#9ea0b2;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.025)}
 .crown-war.private-intel .war-status span:after{content:" // PUBLIC VIEW";color:#8c8e9d}
 .crown-war.private-intel .war-dot{background:#9ea0b2;box-shadow:0 0 14px rgba(158,160,178,.35)}
 .crown-intel-note{font-size:8px;color:var(--muted);margin-top:7px;letter-spacing:.4px}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .feud-events{margin:0 0 22px;border:1px solid rgba(255,79,216,.18);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(24,8,22,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-events:before{content:"";position:absolute;left:-90px;top:-100px;width:280px;height:280px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(52px)}
 .feud-events-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-events-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-events-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -741,7 +741,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes feudBurst{from{opacity:0;transform:translate(-50%,-10px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
 @media(max-width:760px){.feud-event-list{grid-template-columns:1fr}.feud-events-head{flex-direction:column;align-items:flex-start}.feud-events-head .meta{text-align:left}}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .feud-moments{margin:0 0 22px;border:1px solid rgba(97,244,255,.18);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,24,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-moments:before{content:"";position:absolute;right:-100px;top:-110px;width:290px;height:290px;border-radius:50%;background:rgba(97,244,255,.07);filter:blur(54px)}
 .feud-moments-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-moments-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-moments-head .meta{text-align:right;font-size:9px;max-width:440px}
@@ -752,7 +752,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @media(max-width:760px){.feud-moment-list{grid-template-columns:1fr}.feud-moments-head{flex-direction:column;align-items:flex-start}.feud-moments-head .meta{text-align:left}}
 .moment-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.moment-actions .moment-share,.moment-actions a{border:1px solid rgba(97,244,255,.22);border-radius:9px;background:rgba(97,244,255,.05);color:var(--cyan);padding:6px 8px;font-size:7px;font-weight:900;cursor:pointer;text-decoration:none}.moment-actions a{border-color:rgba(161,124,255,.24);color:#cbbcff;background:rgba(161,124,255,.055)}
 
-/* ===== V12.9 VIRAL SCORE ===== */
+/* ===== V13.0 DISCOVERY ENGINE ===== */
 .trending-feuds{margin:0 0 22px;border:1px solid rgba(255,214,107,.2);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(26,19,8,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .trending-feuds:before{content:"";position:absolute;left:-90px;top:-120px;width:300px;height:300px;border-radius:50%;background:rgba(255,214,107,.075);filter:blur(56px)}
 .trending-feuds-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.trending-feuds-head h2{margin:5px 0 0;font-size:28px;letter-spacing:-1.1px}.trending-feuds-head .meta{text-align:right;font-size:9px;max-width:470px}
@@ -760,6 +760,18 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .trend-rank{display:flex;align-items:center;justify-content:space-between;gap:10px}.trend-rank b{font-size:10px;color:var(--gold)}.trend-badge{font-size:7px;letter-spacing:1px;border:1px solid rgba(255,214,107,.22);border-radius:999px;padding:4px 6px;color:var(--gold);background:rgba(255,214,107,.05)}
 .trend-pair{font-size:16px;font-weight:950;letter-spacing:-.4px;margin:9px 0 5px}.trend-score{font-size:32px;font-weight:950;color:var(--gold);line-height:1}.trend-score span{font-size:8px;color:var(--muted);letter-spacing:1px;margin-left:4px}.trend-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}.trend-stat{border:1px solid var(--line);border-radius:11px;padding:7px;text-align:center;background:rgba(255,255,255,.018)}.trend-stat b{display:block;font-size:11px}.trend-stat span{display:block;font-size:6px;color:var(--muted);margin-top:2px}.trending-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:15px;color:var(--muted);font-size:9px}
 @media(max-width:900px){.trending-feud-grid{grid-template-columns:1fr 1fr}}@media(max-width:620px){.trending-feud-grid{grid-template-columns:1fr}.trending-feuds-head{flex-direction:column;align-items:flex-start}.trending-feuds-head .meta{text-align:left}}
+
+
+/* ===== V13.0 DISCOVERY ENGINE ===== */
+.discovery-engine{margin:0 0 22px;border:1px solid rgba(97,244,255,.19);border-radius:28px;padding:19px;background:linear-gradient(145deg,rgba(7,18,24,.96),rgba(10,8,15,.97));position:relative;overflow:hidden}
+.discovery-engine:before{content:"";position:absolute;right:-110px;top:-140px;width:330px;height:330px;border-radius:50%;background:rgba(97,244,255,.075);filter:blur(62px)}
+.discovery-engine:after{content:"";position:absolute;left:-100px;bottom:-150px;width:300px;height:300px;border-radius:50%;background:rgba(161,124,255,.07);filter:blur(58px)}
+.discovery-engine-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:14px}.discovery-engine-head h2{margin:5px 0 0;font-size:30px;letter-spacing:-1.2px}.discovery-engine-head .meta{text-align:right;font-size:9px;max-width:500px}
+.discovery-columns{position:relative;z-index:1;display:grid;grid-template-columns:1.08fr .92fr;gap:10px;margin-top:15px}.discovery-col{border:1px solid var(--line);border-radius:20px;padding:13px;background:rgba(255,255,255,.018)}.discovery-col-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:9px}.discovery-col-head b{font-size:10px;letter-spacing:1.2px}.discovery-col-head span{font-size:7px;color:var(--muted)}
+.discovery-feud-list,.discovery-hunter-list{display:grid;gap:8px}.discovery-feud{border:1px solid var(--line);border-radius:16px;padding:12px;background:rgba(255,255,255,.02)}.discovery-feud-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.discovery-feud-rank{font-size:8px;color:var(--gold);font-weight:950;letter-spacing:1px}.discovery-feud-badge{font-size:7px;color:var(--gold);border:1px solid rgba(255,214,107,.22);border-radius:999px;padding:4px 6px}.discovery-feud h3{font-size:15px;margin:8px 0 5px}.discovery-reason{font-size:8px;color:var(--muted);line-height:1.45}.discovery-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.discovery-actions a{border:1px solid var(--line);border-radius:10px;padding:7px 9px;color:#fff;text-decoration:none;font-size:7px;font-weight:900;background:rgba(255,255,255,.025)}.discovery-actions a.hot{background:rgba(186,255,90,.08);border-color:rgba(186,255,90,.24);color:var(--hot)}
+.discovery-hunter{display:grid;grid-template-columns:40px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:16px;padding:10px;background:rgba(255,255,255,.02)}.discovery-hunter-avatar{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:#090d11;border:1px solid rgba(97,244,255,.18);font-size:21px}.discovery-hunter-main b{display:block;font-size:10px}.discovery-hunter-main span{display:block;font-size:8px;color:var(--muted);margin-top:3px;line-height:1.4}.discovery-hunter-score{text-align:right}.discovery-hunter-score b{display:block;color:var(--cyan);font-size:15px}.discovery-hunter-score span{display:block;font-size:6px;color:var(--muted)}.discovery-hunter .discovery-actions{grid-column:2/-1;margin-top:0}
+.discovery-empty{border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
+@media(max-width:900px){.discovery-columns{grid-template-columns:1fr}}@media(max-width:620px){.discovery-engine-head{flex-direction:column;align-items:flex-start}.discovery-engine-head .meta{text-align:left}.discovery-hunter{grid-template-columns:36px 1fr}.discovery-hunter-score{grid-column:2;text-align:left}.discovery-hunter .discovery-actions{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -858,6 +870,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     <a class="command-link" href="#feudEvents"><b>💥 FEUD EVENTS</b><span>Escalation milestones</span></a>
     <a class="command-link" href="#feudMoments"><b>🎬 FEUD MOMENTS</b><span>Shareable story beats</span></a>
     <a class="command-link" href="#trendingFeuds"><b>📈 TRENDING FEUDS</b><span>Viral score leaderboard</span></a>
+    <a class="command-link" href="#discoveryEngine"><b>📡 DISCOVERY</b><span>Find the live story</span></a>
     <a class="command-link" href="#missionControl"><b>🛰️ MISSION CONTROL</b><span>Your private next move</span></a>
   </section>
 
@@ -902,6 +915,24 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
       <div class="meta" id="trendingFeudsMeta">Trend Score combines story heat, CTA activity, challenge intent and freshness — no wallet size or paid boost.</div>
     </div>
     <div class="trending-feud-grid" id="trendingFeudsBody"><div class="trending-empty">Waiting for enough Feud activity to rank…</div></div>
+  </section>
+
+
+  <section class="discovery-engine" id="discoveryEngine">
+    <div class="discovery-engine-head">
+      <div><div class="eyebrow">📡 DISCOVERY ENGINE // START HERE</div><h2>Find The Live Story</h2></div>
+      <div class="meta" id="discoveryEngineMeta">A public feed of Feuds and Hunters with recent story momentum. No wallet weighting, paid placement or hidden boost.</div>
+    </div>
+    <div class="discovery-columns">
+      <div class="discovery-col">
+        <div class="discovery-col-head"><b>⚔️ FEUDS TO WATCH</b><span>STORY + NETWORK REACTION</span></div>
+        <div class="discovery-feud-list" id="discoveryFeuds"><div class="discovery-empty">Scanning the live story…</div></div>
+      </div>
+      <div class="discovery-col">
+        <div class="discovery-col-head"><b>👾 HUNTERS TO CHALLENGE</b><span>FROM ACTIVE FEUDS</span></div>
+        <div class="discovery-hunter-list" id="discoveryHunters"><div class="discovery-empty">Mapping Hunters around active Feuds…</div></div>
+      </div>
+    </div>
   </section>
 
   <div class="moment-burst" id="feudMomentBurst"><div class="ico" id="feudMomentBurstIcon">🎬</div><b>FEUD MOMENT</b><strong id="feudMomentBurstTitle">STORY BEAT</strong><span id="feudMomentBurstDetail"></span></div>
@@ -1207,7 +1238,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.9 VIRAL SCORE</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.0 DISCOVERY ENGINE</div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1459,7 +1490,7 @@ async function refreshFeudLive(force=false){
    const momentChanged=feudLiveLatestMoment!==0&&nextMoment!==feudLiveLatestMoment;
    feudLiveLatestMoment=nextMoment;
    if(force||changed||eventChanged||momentChanged){
-     await Promise.allSettled([loadHallOfFeuds(),loadSeasonFeudSpotlight(),loadFeudEvents(),loadFeudMoments(),loadTrendingFeuds()]);
+     await Promise.allSettled([loadHallOfFeuds(),loadSeasonFeudSpotlight(),loadFeudEvents(),loadFeudMoments(),loadTrendingFeuds(),loadDiscoveryEngine()]);
    }
    return changed;
  }finally{
@@ -1544,6 +1575,31 @@ async function loadTrendingFeuds(){
  const rows=Array.isArray(d.feuds)?d.feuds:[];
  if(meta)meta.textContent=(d.window_hours||168)+"h window · heat + CTA + challenge intent + freshness · ⚙️ "+(d.engine||"standard");
  body.innerHTML=rows.length?rows.map((r,i)=>'<a class="trend-feud-card" href="'+escapeHtml(r.rivalry_url||"#")+'"><div class="trend-rank"><b>#'+(i+1)+' TRENDING</b><span class="trend-badge">'+escapeHtml(r.trend_label||"RISING")+'</span></div><div class="trend-pair">'+escapeHtml(r.hunter_a||"Hunter A")+' ⚔️ '+escapeHtml(r.hunter_b||"Hunter B")+'</div><div class="trend-score">'+Number(r.trend_score||0)+'<span>TREND SCORE</span></div><div class="trend-meta"><div class="trend-stat"><b>'+Number(r.moments||0)+'</b><span>MOMENTS</span></div><div class="trend-stat"><b>'+Number(r.viral_clicks||0)+'</b><span>CTA CLICKS</span></div><div class="trend-stat"><b>'+Number(r.challenge_intent||0)+'</b><span>CHALLENGE INTENT</span></div></div></a>').join(""):'<div class="trending-empty">No Feud has enough recent story + viral activity yet. Create a Moment, share it, then let the network react.</div>';
+}
+
+async function loadDiscoveryEngine(){
+ const d=await jsonFetch("/api/discovery-engine?feuds=4&hunters=6&window_hours=168");
+ const feudBody=document.getElementById("discoveryFeuds");
+ const hunterBody=document.getElementById("discoveryHunters");
+ const meta=document.getElementById("discoveryEngineMeta");
+ if(!feudBody||!hunterBody)return;
+ if(!d?.success){
+   feudBody.innerHTML='<div class="discovery-empty">Could not load Discovery Engine.</div>';
+   hunterBody.innerHTML='<div class="discovery-empty">Discovery is temporarily offline.</div>';
+   return;
+ }
+ const feuds=Array.isArray(d.feuds)?d.feuds:[];
+ const hunters=Array.isArray(d.hunters)?d.hunters:[];
+ if(meta)meta.textContent=(d.window_hours||168)+"h discovery window · public story momentum only · ⚙️ "+(d.engine||"standard");
+ feudBody.innerHTML=feuds.length?feuds.map((r,i)=>
+   '<div class="discovery-feud"><div class="discovery-feud-top"><span class="discovery-feud-rank">#'+(i+1)+' DISCOVER</span><span class="discovery-feud-badge">'+escapeHtml(r.trend_label||"WATCHING")+'</span></div>'+
+   '<h3>'+escapeHtml(r.hunter_a||"Hunter A")+' ⚔️ '+escapeHtml(r.hunter_b||"Hunter B")+'</h3>'+
+   '<div class="discovery-reason">'+escapeHtml(r.discovery_reason||"Recent Feud activity is pulling network attention.")+'</div>'+
+   '<div class="discovery-actions"><a href="'+escapeHtml(r.rivalry_url||"#")+'">OPEN RIVALRY</a><a class="hot" href="'+escapeHtml(r.challenge_a_url||"#")+'">CHALLENGE '+escapeHtml(r.hunter_a||"HUNTER")+'</a><a class="hot" href="'+escapeHtml(r.challenge_b_url||"#")+'">CHALLENGE '+escapeHtml(r.hunter_b||"HUNTER")+'</a></div></div>'
+ ).join(""):'<div class="discovery-empty">No live Feud story yet. The first shareable Clash Moment will seed Discovery.</div>';
+ hunterBody.innerHTML=hunters.length?hunters.map(h=>
+   '<div class="discovery-hunter"><div class="discovery-hunter-avatar">'+escapeHtml(h.avatar||"👾")+'</div><div class="discovery-hunter-main"><b>'+escapeHtml(h.username||"Hunter")+' · LVL '+Number(h.level||1)+'</b><span>'+escapeHtml(h.why_now||"Active in the live story")+'</span></div><div class="discovery-hunter-score"><b>'+Number(h.discovery_score||0)+'</b><span>DISCOVERY</span></div><div class="discovery-actions"><a href="'+escapeHtml(h.profile_url||"#")+'">PROFILE</a><a class="hot" href="'+escapeHtml(h.challenge_url||"#")+'">⚔️ CHALLENGE</a></div></div>'
+ ).join(""):'<div class="discovery-empty">No Hunter candidates yet. As Feuds generate Moments, Hunters will surface here.</div>';
 }
 
 async function loadSeasonFeudSpotlight(){
@@ -1656,7 +1712,7 @@ async function loadNemesisDuel(){
  const ownerAvatar=document.getElementById("hunterAvatar")?.textContent||document.getElementById("hudCreature")?.textContent||"👾";
  const ownerName=username||"Hunter";
  const rival=f.rival||"Rival";
- if(meta)meta.textContent=(t.icon||"⚔️")+" "+(t.label||"RIVALRY")+" · "+Number(e.total||0)+" direct clashes · ⚙️ "+(f.engine||"viral-score-v12.9");
+ if(meta)meta.textContent=(t.icon||"⚔️")+" "+(t.label||"RIVALRY")+" · "+Number(e.total||0)+" direct clashes · ⚙️ "+(f.engine||"discovery-v13.0");
 
  body.innerHTML=''
    +'<div class="duel-stage">'
@@ -2245,7 +2301,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadThreatRadar(); await loadRevengeQueue(); await loadMissionControl(); await loadOpsPulse(); await loadSeasonFeudSpotlight(); await loadHallOfFeuds(); await loadFeudEvents(); await loadFeudMoments(); await loadTrendingFeuds(); await loadNemesisDuel(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadThreatRadar(); await loadRevengeQueue(); await loadMissionControl(); await loadOpsPulse(); await loadSeasonFeudSpotlight(); await loadHallOfFeuds(); await loadFeudEvents(); await loadFeudMoments(); await loadTrendingFeuds(); await loadDiscoveryEngine(); await loadNemesisDuel(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
 }
 async function refreshLiveSignals(){
  if(document.hidden)return;
@@ -2449,7 +2505,7 @@ function hydrateChallenge(){
  if(el)el.value=target;
  const moment=(p.get("moment")||"").trim();
  const source=(p.get("source")||"").trim();
- const suffix=(source==="feud-moment"&&moment)?(" · from Feud Moment #"+moment):"";
+ const suffix=(source==="feud-moment"&&moment)?(" · from Feud Moment #"+moment):(source==="discovery-v13"?" · from Discovery Engine":"");
  show("⚔️ Challenge detected: "+target+" is waiting in the arena"+suffix+".");
 }
 
@@ -4471,7 +4527,7 @@ def _record_feud_moment(conn, battle_id, challenger, opponent, winner, challenge
     return moment
 
 
-# V12.9 VIRAL SCORE builds on the process-local Feud snapshots. A tiny COUNT/MAX signature query protects
+# V13.0 DISCOVERY ENGINE builds on the process-local Feud snapshots. A tiny COUNT/MAX signature query protects
 # against external DB changes while avoiding a full rivalry-history scan on every request.
 _RIVALRY_CACHE_LOCK = threading.RLock()
 _RIVALRY_CACHE = {}
@@ -4877,7 +4933,7 @@ def _season_feud_spotlight():
         return {
             "season_key": season_key,
             "spotlight": None,
-            "engine": "snapshot-score-v12.9",
+            "engine": "snapshot-discovery-v13.0",
             "cache": {"season": season_cache, "all_time": "not-needed"}
         }
 
@@ -4924,7 +4980,7 @@ def _season_feud_spotlight():
     return {
         "season_key": season_key,
         "spotlight": ranked[0],
-        "engine": "snapshot-score-v12.9",
+        "engine": "snapshot-discovery-v13.0",
         "cache": {"season": season_cache, "all_time": all_time_cache}
     }
 
@@ -4952,7 +5008,7 @@ def feud_live_state_api():
         "latest_feud_moment_id": latest_feud_moment_id,
         "all_time_completed": int(all_time_sig[0]),
         "season_completed": int(season_sig[0]),
-        "engine": "viral-score-v12.9",
+        "engine": "discovery-v13.0",
         "poll_after_ms": 12000
     })
 
@@ -4976,7 +5032,7 @@ def feud_events_api():
         "success": True,
         "events": [dict(r) for r in rows],
         "total_events": total,
-        "engine": "viral-score-v12.9"
+        "engine": "discovery-v13.0"
     })
 
 
@@ -5070,7 +5126,152 @@ def trending_feuds_api():
         "feuds": rows,
         "window_hours": window_hours,
         "method": "Trend Score = story heat + organic CTA activity + challenge intent + freshness. No paid boosts or wallet weighting.",
-        "engine": "viral-score-v12.9"
+        "engine": "discovery-v13.0"
+    })
+
+
+def _discovery_reason(feud):
+    label = str(feud.get("trend_label") or "WATCHING")
+    moments = int(feud.get("moments") or 0)
+    challenge = int(feud.get("challenge_intent") or 0)
+    clicks = int(feud.get("viral_clicks") or 0)
+    if "ON FIRE" in label:
+        return f"Network reaction is peaking: {moments} story moments and {challenge} challenge intents in the active window."
+    if "SURGING" in label:
+        return f"This Feud is accelerating with {clicks} CTA reactions and {challenge} challenge intents."
+    if challenge > 0:
+        return f"Viewers are converting into challengers: {challenge} challenge intents across {moments} recent moments."
+    return f"Fresh story activity is building: {moments} recent moment{'s' if moments != 1 else ''} in the discovery window."
+
+
+def _discovery_engine_rows(feud_limit=4, hunter_limit=6, window_hours=168):
+    """Public discovery from BL3-native activity only. No wallet value or paid placement."""
+    feud_limit = max(1, min(8, int(feud_limit or 4)))
+    hunter_limit = max(1, min(12, int(hunter_limit or 6)))
+    window_hours = max(1, min(24 * 30, int(window_hours or 168)))
+
+    # Pull a slightly wider trend set so Hunter discovery does not mirror only the top card.
+    trend_rows = _trending_feud_rows(limit=max(12, feud_limit), window_hours=window_hours)
+    feuds = []
+    hunter_scores = {}
+    for rank, row in enumerate(trend_rows, start=1):
+        item = dict(row)
+        a = str(item.get("hunter_a") or "").strip()
+        b = str(item.get("hunter_b") or "").strip()
+        item["discovery_reason"] = _discovery_reason(item)
+        item["challenge_a_url"] = "/?challenge=" + urllib.parse.quote(a) + "&source=discovery-v13"
+        item["challenge_b_url"] = "/?challenge=" + urllib.parse.quote(b) + "&source=discovery-v13"
+        item["discovery_rank"] = rank
+        if rank <= feud_limit:
+            feuds.append(item)
+
+        base = int(item.get("trend_score") or 0)
+        intent = int(item.get("challenge_intent") or 0)
+        moments = int(item.get("moments") or 0)
+        clicks = int(item.get("viral_clicks") or 0)
+        heat = int(item.get("max_heat") or 0)
+        for hunter, rival in ((a, b), (b, a)):
+            if not hunter:
+                continue
+            h = hunter_scores.setdefault(hunter, {
+                "username": hunter, "discovery_score": 0, "feud_count": 0,
+                "challenge_intent": 0, "moments": 0, "viral_clicks": 0,
+                "max_heat": 0, "rivals": set(), "hottest_feud": ""
+            })
+            # Trend score carries the story signal; intent and heat reward actual interaction.
+            contribution = max(1, base // 2) + intent * 4 + heat * 8
+            h["discovery_score"] += contribution
+            h["feud_count"] += 1
+            h["challenge_intent"] += intent
+            h["moments"] += moments
+            h["viral_clicks"] += clicks
+            h["max_heat"] = max(h["max_heat"], heat)
+            h["rivals"].add(rival)
+            if not h["hottest_feud"]:
+                h["hottest_feud"] = rival
+
+    # Add identity context in one pass. If the trend graph is empty, bootstrap with top XP Hunters
+    # so first-time visitors still have somewhere to start.
+    conn = db()
+    names = list(hunter_scores.keys())
+    if not names:
+        seed_rows = conn.execute("SELECT username, xp FROM users ORDER BY xp DESC LIMIT ?", (hunter_limit,)).fetchall()
+        for r in seed_rows:
+            hunter_scores[r["username"]] = {
+                "username": r["username"], "discovery_score": 0, "feud_count": 0,
+                "challenge_intent": 0, "moments": 0, "viral_clicks": 0,
+                "max_heat": 0, "rivals": set(), "hottest_feud": ""
+            }
+        names = list(hunter_scores.keys())
+
+    user_map = {}
+    rep_map = {}
+    win_map = {}
+    if names:
+        ph = ",".join("?" for _ in names)
+        for r in conn.execute(f"SELECT username, xp FROM users WHERE username IN ({ph})", names).fetchall():
+            user_map[r["username"]] = int(r["xp"] or 0)
+        for r in conn.execute(f"SELECT username, COALESCE(SUM(points),0) AS n FROM reputation_events WHERE username IN ({ph}) GROUP BY username", names).fetchall():
+            rep_map[r["username"]] = int(r["n"] or 0)
+        for r in conn.execute(f"SELECT winner AS username, COUNT(*) AS n FROM creature_battles WHERE winner IN ({ph}) GROUP BY winner", names).fetchall():
+            win_map[r["username"]] = int(r["n"] or 0)
+    conn.close()
+
+    hunters = []
+    for name, h in hunter_scores.items():
+        xp = int(user_map.get(name, 0))
+        creature = _creature_from_xp(xp)
+        rival_count = len(h["rivals"])
+        if h["feud_count"]:
+            why = f"{h['feud_count']} active Feud{'s' if h['feud_count'] != 1 else ''} · {h['moments']} Moments · {h['challenge_intent']} challenge intents"
+        else:
+            why = "Established Hunter waiting for the next live story."
+        hunters.append({
+            "username": name,
+            "xp": xp,
+            "level": max(1, (xp // 100) + 1),
+            "avatar": creature["avatar"],
+            "reputation": int(rep_map.get(name, 0)),
+            "wins": int(win_map.get(name, 0)),
+            "discovery_score": int(h["discovery_score"]),
+            "feud_count": int(h["feud_count"]),
+            "rival_count": rival_count,
+            "challenge_intent": int(h["challenge_intent"]),
+            "max_heat": int(h["max_heat"]),
+            "why_now": why,
+            "profile_url": "/hunter/" + urllib.parse.quote(name),
+            "challenge_url": "/?challenge=" + urllib.parse.quote(name) + "&source=discovery-v13"
+        })
+
+    hunters.sort(key=lambda h: (int(h["discovery_score"]), int(h["challenge_intent"]), int(h["reputation"]), int(h["xp"])), reverse=True)
+    return feuds, hunters[:hunter_limit]
+
+
+@app.route("/api/discovery-engine")
+def discovery_engine_api():
+    try:
+        feud_limit = int(request.args.get("feuds", 4))
+    except (TypeError, ValueError):
+        feud_limit = 4
+    try:
+        hunter_limit = int(request.args.get("hunters", 6))
+    except (TypeError, ValueError):
+        hunter_limit = 6
+    try:
+        window_hours = int(request.args.get("window_hours", 168))
+    except (TypeError, ValueError):
+        window_hours = 168
+    feud_limit = max(1, min(8, feud_limit))
+    hunter_limit = max(1, min(12, hunter_limit))
+    window_hours = max(1, min(24 * 30, window_hours))
+    feuds, hunters = _discovery_engine_rows(feud_limit, hunter_limit, window_hours)
+    return jsonify({
+        "success": True,
+        "feuds": feuds,
+        "hunters": hunters,
+        "window_hours": window_hours,
+        "method": "Discovery ranks BL3-native story momentum and interaction only. No paid placement or wallet-value weighting.",
+        "engine": "discovery-v13.0"
     })
 
 
@@ -5108,7 +5309,7 @@ def feud_moments_api():
         "success": True,
         "moments": moments,
         "total_moments": total,
-        "engine": "viral-score-v12.9"
+        "engine": "discovery-v13.0"
     })
 
 
@@ -5225,7 +5426,7 @@ def feud_moment_cast_kit_api(moment_id):
             },
             "viral_loop": loop_stats
         },
-        "engine": "viral-score-v12.9"
+        "engine": "discovery-v13.0"
     })
 
 
@@ -5335,7 +5536,7 @@ def _rivalry_records(limit=6):
         "closest": closest,
         "wildest": wildest,
         "total_rivalries": len(records),
-        "engine": "snapshot-score-v12.9",
+        "engine": "snapshot-discovery-v13.0",
         "cache": cache_state
     }
 
@@ -5732,7 +5933,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.9 VIRAL SCORE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.0 DISCOVERY ENGINE</div>
 </div></body></html>"""
 
 
@@ -6547,7 +6748,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.9 VIRAL SCORE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.0 DISCOVERY ENGINE</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -6678,7 +6879,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.9 VIRAL SCORE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.0 DISCOVERY ENGINE</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -6782,7 +6983,7 @@ def _featured_nemesis(username):
             "last_winner": h2h.get("last_winner"),
             "chronicle": _rivalry_chronicle(username, rival),
             "stakes": stakes,
-            "engine": "viral-score-v12.9"
+            "engine": "discovery-v13.0"
         }
     }
 
@@ -7089,7 +7290,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.9 VIRAL SCORE</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.0 DISCOVERY ENGINE</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -8754,7 +8955,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚙️ BL3 ARENA V12.0 // FEUD ENGINE")
+    print("📡 BL3 ARENA V13.0 // DISCOVERY ENGINE")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
