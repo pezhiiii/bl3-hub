@@ -445,7 +445,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.3";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.4";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -806,14 +806,33 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .command-result{width:100%;display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;border:1px solid transparent;border-radius:14px;background:transparent;color:#fff;padding:10px;text-align:left;cursor:pointer}.command-result:hover,.command-result.active{background:rgba(186,255,90,.055);border-color:rgba(186,255,90,.2)}
 .command-result-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#09090e;border:1px solid var(--line);font-size:17px}.command-result-copy{min-width:0}.command-result-copy b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.command-result-copy span{display:block;margin-top:3px;font-size:8px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.command-result-type{font-size:7px;color:var(--hot);border:1px solid rgba(186,255,90,.16);border-radius:999px;padding:4px 6px;letter-spacing:.8px;font-weight:900}.command-empty{padding:28px 18px;text-align:center;color:var(--muted);font-size:10px}.command-palette-foot{display:flex;gap:12px;flex-wrap:wrap;padding:10px 15px;border-top:1px solid var(--line);font-size:8px;color:var(--muted)}.command-palette-foot kbd{color:#fff;border:1px solid var(--line);padding:2px 5px;border-radius:5px;background:#09090e}
 @media(max-width:620px){.command-palette-shell{padding:7vh 10px 12px}.command-palette{max-height:86vh;border-radius:19px}.command-search-trigger kbd{display:none}.command-result{grid-template-columns:34px 1fr}.command-result-type{display:none}}
+
+/* ===== V13.4 ACTIVITY CENTER ===== */
+.activity-trigger{position:relative;cursor:pointer}.activity-trigger .activity-count{display:none;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ff4fd8;color:#fff;font-size:9px;font-weight:950;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(255,79,216,.35)}.activity-trigger.hot .activity-count{display:inline-flex}
+.activity-center-shell{position:fixed;inset:0;z-index:10040;display:none;background:rgba(0,0,0,.62);backdrop-filter:blur(8px)}.activity-center-shell.show{display:block}.activity-center-panel{position:absolute;right:0;top:0;height:100%;width:min(560px,100vw);background:linear-gradient(160deg,#111119,#08080d);border-left:1px solid rgba(255,255,255,.12);box-shadow:-30px 0 100px rgba(0,0,0,.58);display:flex;flex-direction:column}
+.activity-center-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:22px;border-bottom:1px solid var(--line)}.activity-center-head h2{margin:5px 0 0;font-size:28px;letter-spacing:-1px}.activity-center-head .meta{font-size:9px}.activity-close{border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;border-radius:11px;padding:9px 11px;cursor:pointer;font-weight:900}
+.activity-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;padding:14px 18px;border-bottom:1px solid var(--line)}.activity-summary .sum{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.022)}.activity-summary b{display:block;font-size:17px}.activity-summary span{display:block;font-size:7px;color:var(--muted);margin-top:3px;letter-spacing:.8px}
+.activity-tabs{display:flex;gap:7px;padding:12px 18px;border-bottom:1px solid var(--line);overflow:auto}.activity-tab{white-space:nowrap;border:1px solid var(--line);background:rgba(255,255,255,.025);color:#fff;border-radius:999px;padding:8px 11px;font-size:8px;font-weight:950;cursor:pointer}.activity-tab.active{background:var(--hot);color:#08090a;border-color:var(--hot)}
+.activity-center-body{padding:12px 18px 24px;overflow:auto;flex:1}.activity-item{border:1px solid var(--line);border-radius:15px;padding:12px;margin-top:8px;background:rgba(255,255,255,.022)}.activity-item.unread{border-color:rgba(186,255,90,.3);background:rgba(186,255,90,.04)}.activity-item-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.activity-item b{font-size:11px}.activity-item .meta{font-size:9px;margin-top:4px}.activity-item-time{font-size:8px;color:var(--muted);white-space:nowrap}.activity-item-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.activity-item-actions button,.activity-item-actions a{border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03);color:#fff;padding:8px 10px;font-size:8px;font-weight:900;text-decoration:none;cursor:pointer}.activity-item-actions .primary{background:var(--hot);border-color:var(--hot);color:#08090a}.activity-empty{border:1px dashed var(--line);border-radius:15px;padding:18px;color:var(--muted);font-size:10px;margin-top:8px}.activity-center-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}.activity-center-foot button{flex:1;margin:0}
+@media(max-width:620px){.activity-center-panel{width:100vw}.activity-summary{grid-template-columns:1fr 1fr}.activity-center-head{padding:18px}.activity-center-body{padding:10px 14px 20px}}
 </style>
 </head>
 <body>
 <a class="skip-link" href="#mainContent">SKIP TO NETWORK</a>
+<div class="activity-center-shell" id="activityCenterShell" role="dialog" aria-modal="true" aria-label="BL3 Activity Center" onclick="activityCenterBackdrop(event)">
+  <aside class="activity-center-panel" id="activityCenterPanel">
+    <div class="activity-center-head"><div><div class="eyebrow">⚡ ACTIVITY CENTER // PRIVATE</div><h2>Everything That Needs You</h2><div class="meta" id="activityCenterMeta">Sign in to load your Hunter activity.</div></div><button class="activity-close" type="button" onclick="closeActivityCenter()">ESC</button></div>
+    <div class="activity-summary"><div class="sum"><b id="acPending">0</b><span>CHALLENGES</span></div><div class="sum"><b id="acUnread">0</b><span>UNREAD SIGNALS</span></div><div class="sum"><b id="acUnlocks">0</b><span>NEW UNLOCKS</span></div><div class="sum"><b id="acFeuds">0</b><span>FEUD UPDATES</span></div></div>
+    <div class="activity-tabs" id="activityTabs"><button class="activity-tab active" data-ac-tab="all">ALL</button><button class="activity-tab" data-ac-tab="challenge">CHALLENGES</button><button class="activity-tab" data-ac-tab="signal">SIGNALS</button><button class="activity-tab" data-ac-tab="unlock">UNLOCKS</button><button class="activity-tab" data-ac-tab="feud">FEUDS</button></div>
+    <div class="activity-center-body" id="activityCenterBody"><div class="activity-empty">Hunter authentication required.</div></div>
+    <div class="activity-center-foot"><button class="btn" type="button" onclick="loadActivityCenter()">↻ REFRESH</button><button class="btn violet" type="button" onclick="markActivitySeen()">✓ MARK SEEN</button></div>
+  </aside>
+</div>
+
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.3</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.4</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -822,7 +841,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   <nav class="nav">
     <div class="brand">BL3<span>●</span></div>
     <div class="pill">THE HUMAN ALPHA NETWORK</div>
-    <div class="nav-right"><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
+    <div class="nav-right"><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><button class="pill activity-trigger" id="activityCenterTrigger" type="button" onclick="openActivityCenter()" aria-label="Open Activity Center"><span>⚡ ACTIVITY</span> <span class="activity-count" id="activityCenterCount">0</span></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
   </nav>
 
   <section class="hero">
@@ -2582,7 +2601,7 @@ async function sendChallengeRequest(){
  if(opponent===username){show("You cannot challenge yourself.");return}
  const d=await jsonFetch("/api/challenges",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({challenger:username,opponent})});
  show(d.message||"Challenge request finished");
- if(d.success)await loadInbox();
+ if(d.success){await loadInbox();await loadActivityCenter();}
 }
 async function loadInbox(){
  currentUser();
@@ -2611,7 +2630,7 @@ async function acceptChallenge(id){
 async function declineChallenge(id){
  const d=await jsonFetch("/api/challenges/"+id+"/decline",{method:"POST"});
  show(d.message||"Challenge declined");
- if(d.success)await loadInbox();
+ if(d.success){await loadInbox();await loadActivityCenter();}
 }
 
 async function loadSignals(){
@@ -2797,7 +2816,53 @@ document.addEventListener("keydown",e=>{
  else if(e.key==="Enter"){e.preventDefault();activateCommandResult(commandPaletteIndex)}
 });
 
-loadUser();loadArenas();
+
+let activityCenterData=null;
+let activityCenterTab="all";
+function openActivityCenter(){
+ const shell=document.getElementById("activityCenterShell");if(!shell)return;
+ shell.classList.add("show");document.body.style.overflow="hidden";loadActivityCenter();
+}
+function closeActivityCenter(){const shell=document.getElementById("activityCenterShell");if(!shell)return;shell.classList.remove("show");document.body.style.overflow=""}
+function activityCenterBackdrop(e){if(e.target?.id==="activityCenterShell")closeActivityCenter()}
+function activityIcon(type){return ({challenge:"⚔️",signal:"⚡",unlock:"✨",feud:"🩸"})[type]||"•"}
+function updateActivityBadge(total){
+ const badge=document.getElementById("activityCenterCount"),trigger=document.getElementById("activityCenterTrigger");
+ total=Number(total||0);if(badge)badge.textContent=total>99?"99+":String(total);if(trigger)trigger.classList.toggle("hot",total>0);
+}
+function renderActivityCenter(){
+ const d=activityCenterData||{},root=document.getElementById("activityCenterBody");if(!root)return;
+ const summary=d.summary||{};
+ document.getElementById("acPending").textContent=Number(summary.pending_challenges||0);
+ document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
+ document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
+ document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.4"):"Sign in to load your Hunter activity.";
+ const items=Array.isArray(d.items)?d.items:[];const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
+ if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
+ if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
+ root.innerHTML=filtered.map(item=>{
+   const acts=Array.isArray(item.actions)?item.actions:[];
+   return '<article class="activity-item '+(item.unread?'unread':'')+'"><div class="activity-item-top"><div><b>'+escapeHtml((item.icon||activityIcon(item.type))+" "+(item.title||"Activity"))+'</b><div class="meta">'+escapeHtml(item.detail||"")+'</div></div><span class="activity-item-time">'+escapeHtml(relativeTime(item.created_at))+'</span></div>'+
+     (acts.length?'<div class="activity-item-actions">'+acts.map(a=>a.method==='POST'?'<button class="'+(a.primary?'primary':'')+'" onclick="activityAction(\''+escapeHtml(a.action||'')+'\','+Number(item.entity_id||0)+')">'+escapeHtml(a.label||"OPEN")+'</button>':'<a class="'+(a.primary?'primary':'')+'" href="'+escapeHtml(a.url||'#')+'">'+escapeHtml(a.label||"OPEN")+'</a>').join("")+'</div>':'')+'</article>';
+ }).join("");
+}
+async function loadActivityCenter(){
+ currentUser();const d=await jsonFetch("/api/activity-center/"+encodeURIComponent(username));activityCenterData=d;
+ if(d?.success){updateActivityBadge(d.summary?.attention_total||0)}else{updateActivityBadge(0)}renderActivityCenter();
+}
+async function markActivitySeen(){
+ currentUser();const d=await jsonFetch("/api/activity-center/"+encodeURIComponent(username)+"/mark-seen",{method:"POST"});show(d.message||"Activity updated");if(d.success){await loadActivityCenter();await loadSignals();}
+}
+async function activityAction(action,id){
+ if(action==="accept"){await acceptChallenge(id);await loadActivityCenter();return}
+ if(action==="decline"){await declineChallenge(id);await loadActivityCenter();return}
+}
+document.querySelectorAll("[data-ac-tab]").forEach(btn=>btn.addEventListener("click",()=>{activityCenterTab=btn.dataset.acTab||"all";document.querySelectorAll("[data-ac-tab]").forEach(b=>b.classList.toggle("active",b===btn));renderActivityCenter()}));
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&document.getElementById("activityCenterShell")?.classList.contains("show")){e.preventDefault();closeActivityCenter()}});
+setInterval(()=>{if(document.visibilityState==="visible")loadActivityCenter();},20000);
+
+loadUser();loadArenas();loadActivityCenter();
 
 hydrateChallenge();
 </script>
@@ -8297,6 +8362,100 @@ def notifications_read_all_api(username):
     return jsonify({"success": True, "message": "✓ All Hunter signals marked read."})
 
 
+
+@app.route("/api/activity-center/<username>")
+def activity_center_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "🔐 Sign in as this Hunter ID to open Activity Center."}), 401
+    conn = db()
+    pending = [dict(r) for r in conn.execute(
+        """SELECT id, challenger, opponent, status, created_at
+           FROM challenge_requests WHERE opponent = ? AND status = 'pending'
+           ORDER BY id DESC LIMIT 20""", (username,)
+    ).fetchall()]
+    notes = [dict(r) for r in conn.execute(
+        """SELECT id, kind, title, detail, link, is_read, created_at
+           FROM notifications WHERE username = ? ORDER BY id DESC LIMIT 30""", (username,)
+    ).fetchall()]
+    unlocks = [dict(r) for r in conn.execute(
+        """SELECT id, unlock_key, kind, icon, title, detail, created_at, is_seen
+           FROM hunter_unlock_events WHERE username = ? ORDER BY id DESC LIMIT 20""", (username,)
+    ).fetchall()]
+    feud_events = [dict(r) for r in conn.execute(
+        """SELECT id, battle_id, hunter_a, hunter_b, winner, icon, label, created_at
+           FROM feud_events WHERE hunter_a = ? OR hunter_b = ? ORDER BY id DESC LIMIT 12""", (username, username)
+    ).fetchall()]
+    feud_moments = [dict(r) for r in conn.execute(
+        """SELECT id, battle_id, hunter_a, hunter_b, winner, loser, icon, label, detail, created_at
+           FROM feud_moments WHERE hunter_a = ? OR hunter_b = ? ORDER BY id DESC LIMIT 12""", (username, username)
+    ).fetchall()]
+    conn.close()
+
+    items = []
+    for c in pending:
+        items.append({
+            "type": "challenge", "entity_id": c["id"], "icon": "⚔️", "unread": True,
+            "title": f"{c['challenger']} challenged you",
+            "detail": f"Challenge request #{c['id']} is waiting for your response.",
+            "created_at": c["created_at"],
+            "actions": [
+                {"label": "ACCEPT ⚔️", "method": "POST", "action": "accept", "primary": True},
+                {"label": "DECLINE", "method": "POST", "action": "decline"}
+            ]
+        })
+    for n in notes:
+        items.append({
+            "type": "signal", "entity_id": n["id"], "icon": "⚡", "unread": not bool(n["is_read"]),
+            "title": n["title"], "detail": n["detail"], "created_at": n["created_at"],
+            "actions": ([{"label": "OPEN SIGNAL ↗", "url": n["link"]}] if n.get("link") else [])
+        })
+    for u in unlocks:
+        items.append({
+            "type": "unlock", "entity_id": u["id"], "icon": u["icon"] or "✨", "unread": not bool(u["is_seen"]),
+            "title": u["title"], "detail": u["detail"], "created_at": u["created_at"],
+            "actions": [{"label": "OPEN PASSPORT", "url": "/#passportCard", "primary": True}]
+        })
+    for f in feud_events:
+        rival = f["hunter_b"] if f["hunter_a"] == username else f["hunter_a"]
+        items.append({
+            "type": "feud", "entity_id": f["id"], "icon": f["icon"] or "🩸", "unread": False,
+            "title": f["label"], "detail": f"{username} vs {rival} · Clash #{f['battle_id']} · winner {f['winner']}",
+            "created_at": f["created_at"],
+            "actions": [{"label": "OPEN RIVALRY", "url": f"/rivalry/{urllib.parse.quote(username)}/{urllib.parse.quote(rival)}"}]
+        })
+    for m in feud_moments:
+        rival = m["hunter_b"] if m["hunter_a"] == username else m["hunter_a"]
+        items.append({
+            "type": "feud", "entity_id": m["id"], "icon": m["icon"] or "🎬", "unread": False,
+            "title": m["label"], "detail": m["detail"], "created_at": m["created_at"],
+            "actions": [{"label": "OPEN MOMENT", "url": f"/feud-moment/{m['id']}"}, {"label": "OPEN CLASH", "url": f"/clash/{m['battle_id']}"}]
+        })
+    items.sort(key=lambda x: (x.get("created_at") or "", x.get("entity_id") or 0), reverse=True)
+    unread_signals = sum(1 for n in notes if not bool(n["is_read"]))
+    unseen_unlocks = sum(1 for u in unlocks if not bool(u["is_seen"]))
+    feud_updates = len(feud_events) + len(feud_moments)
+    summary = {
+        "pending_challenges": len(pending),
+        "unread_signals": unread_signals,
+        "unseen_unlocks": unseen_unlocks,
+        "feud_updates": feud_updates,
+        "attention_total": len(pending) + unread_signals + unseen_unlocks
+    }
+    return jsonify({"success": True, "username": username, "summary": summary, "items": items[:60], "engine": "activity-center-v13.4"})
+
+
+@app.route("/api/activity-center/<username>/mark-seen", methods=["POST"])
+def activity_center_mark_seen_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "🔐 Sign in as this Hunter ID first."}), 401
+    conn = db()
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE username = ?", (username,))
+    conn.execute("UPDATE hunter_unlock_events SET is_seen = 1 WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "✓ Signals and unlocks marked seen. Pending challenges stay active."})
+
+
 @app.route("/api/network-heat")
 def network_heat_api():
     """
@@ -9403,7 +9562,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> GLOBAL SEARCH</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.3 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> ACTIVITY CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.4 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/transparency")
