@@ -20,7 +20,7 @@ from eth_account.messages import encode_defunct
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("BL3_SECRET_KEY") or secrets.token_hex(32)
-# V15.0 trust posture: HttpOnly + SameSite by default. Enable Secure cookies on HTTPS deployments.
+# V15.1 trust posture: HttpOnly + SameSite by default. Enable Secure cookies on HTTPS deployments.
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("BL3_SECURE_COOKIES", "0") == "1"
@@ -28,7 +28,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("BL3_SECURE_COOKIES", "0") 
 DB = os.environ.get("BL3_DB_PATH", "bl3.db")
 
 
-# ===== V15.0 ADMIN CONTROL CENTER =====
+# ===== V15.1 ADMIN CONTROL CENTER =====
 BL3_ENV = (os.environ.get("BL3_ENV") or "development").strip().lower()
 BL3_PUBLIC_URL = (os.environ.get("BL3_PUBLIC_URL") or "").strip().rstrip("/")
 BL3_ADMIN_TOKEN = os.environ.get("BL3_ADMIN_TOKEN") or ""
@@ -44,7 +44,7 @@ _PROD_WARNINGS = []
 _RATE_LOCK = threading.RLock()
 _RATE_BUCKETS = defaultdict(deque)
 
-# V15.0 persistent audit trail + process-local action mirror. No IP, token, wallet or request body is stored.
+# V15.1 persistent audit trail + process-local action mirror. No IP, token, wallet or request body is stored.
 _ADMIN_ACTION_LOCK = threading.RLock()
 _ADMIN_ACTIONS = deque(maxlen=40)
 
@@ -226,7 +226,7 @@ def _db_backup(label="manual"):
         src_conn.close()
     return target
 
-# ===== V15.0 PERFORMANCE + OBSERVABILITY =====
+# ===== V15.1 PERFORMANCE + OBSERVABILITY =====
 _OBS_LOCK = threading.RLock()
 _OBS_STARTED_AT = time.time()
 _OBS_SLOW_MS = max(50, int(os.environ.get("BL3_SLOW_MS", "500") or 500))
@@ -517,7 +517,7 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_feud_viral_clicks_moment ON feud_viral_clicks(moment_id, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_feud_viral_clicks_action ON feud_viral_clicks(action_key, id DESC)")
 
-    # V15.0: persistent admin audit trail with a SHA-256 hash chain.
+    # V15.1: persistent admin audit trail with a SHA-256 hash chain.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS admin_audit_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -533,7 +533,7 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_events(id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_audit_type ON admin_audit_events(event_type, id DESC)")
 
-    # V15.0: admin-authored release changelog entries. Drafts remain private; only published entries are public.
+    # V15.1: admin-authored release changelog entries. Drafts remain private; only published entries are public.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS release_changelog (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -554,7 +554,7 @@ def init_db():
         conn.execute("ALTER TABLE release_changelog ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_release_feed_public ON release_changelog(status, pinned DESC, id DESC)")
 
-    # V15.0: per-Hunter release read state and in-app subscription preferences.
+    # V15.1: per-Hunter release read state and in-app subscription preferences.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_release_state (
             username TEXT PRIMARY KEY,
@@ -565,6 +565,22 @@ def init_db():
             updated_at TEXT NOT NULL
         )
     """)
+
+    # V15.1: operator-controlled launch timeline. No deploy/restore action is stored or executed here.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS launch_timeline_milestones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            launch_key TEXT NOT NULL,
+            milestone_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            note TEXT DEFAULT '',
+            completed_at TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            UNIQUE(launch_key, milestone_key)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_timeline_key_id ON launch_timeline_milestones(launch_key, id)")
 
     # V8.8: baseline of already-known unlocks + feed of newly discovered unlock events.
     conn.execute("""
@@ -748,7 +764,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V15.0";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V15.1";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -1135,17 +1151,17 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 @media(prefers-reduced-motion:reduce){.bl3-skeleton:after{animation:none}.network-status{transition:none}}
 @media(max-width:620px){.network-status{top:8px}.network-status-copy span{max-width:210px}.bl3-skeleton-grid{grid-template-columns:1fr}}
 
-/* ===== V15.0 TRUST CENTER // PRODUCT TOUR ===== */
+/* ===== V15.1 TRUST CENTER // PRODUCT TOUR ===== */
 .tour-trigger{cursor:pointer}.product-tour-shell{position:fixed;inset:0;z-index:10060;display:none;pointer-events:none}.product-tour-shell.show{display:block}.product-tour-shell:before{content:"";position:fixed;inset:0;background:rgba(0,0,0,.18);pointer-events:none}.product-tour-spotlight{position:fixed;z-index:10063;border:2px solid var(--hot);border-radius:22px;box-shadow:0 0 0 9999px rgba(0,0,0,.52),0 0 50px rgba(186,255,90,.18);pointer-events:none;transition:left .2s ease,top .2s ease,width .2s ease,height .2s ease}.product-tour-panel{pointer-events:auto;position:fixed;right:24px;bottom:24px;z-index:10064;width:min(430px,calc(100vw - 28px));border:1px solid rgba(186,255,90,.25);border-radius:24px;background:linear-gradient(155deg,rgba(18,18,26,.99),rgba(7,7,11,.99));box-shadow:0 28px 110px rgba(0,0,0,.72),0 0 45px rgba(186,255,90,.06);padding:20px}.tour-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.tour-kicker{font-size:8px;letter-spacing:1.7px;color:var(--hot);font-weight:950}.tour-close{border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:10px;padding:8px 9px;font-size:9px;font-weight:900;cursor:pointer}.tour-step-count{font-size:9px;color:var(--muted);font-weight:900}.tour-title{font-size:25px;letter-spacing:-1px;font-weight:950;margin:11px 0 7px}.tour-detail{color:#a6a7b5;font-size:11px;line-height:1.6}.tour-why{margin-top:11px;border:1px solid rgba(161,124,255,.2);border-radius:13px;padding:10px;background:rgba(161,124,255,.05);font-size:9px;color:#c9c4df;line-height:1.5}.tour-progress{display:flex;gap:6px;margin-top:15px}.tour-dot{height:5px;flex:1;border-radius:999px;background:#25252e;border:1px solid rgba(255,255,255,.05)}.tour-dot.done,.tour-dot.active{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px rgba(186,255,90,.18)}.tour-actions{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;margin-top:15px}.tour-actions button{margin:0;width:auto;border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:12px;padding:10px 12px;font-size:9px;font-weight:950;cursor:pointer}.tour-actions .primary{background:var(--hot);border-color:var(--hot);color:#08090a}.tour-actions .back:disabled{opacity:.35;cursor:default}.bl3-tour-focus{scroll-margin-top:96px!important}.product-tour-panel.tour-left{left:24px;right:auto}.product-tour-panel.tour-right{right:24px;left:auto}.tour-mini-cta{display:inline-flex;align-items:center;gap:6px;margin-left:8px;border:1px solid rgba(186,255,90,.22);background:rgba(186,255,90,.045);color:var(--hot);padding:7px 10px;border-radius:999px;font-size:9px;font-weight:950;cursor:pointer}.tour-complete{color:var(--hot);font-weight:950}.pref-reduced-motion .bl3-tour-focus{scroll-margin-top:90px}@media(max-width:620px){.product-tour-panel{right:14px;left:14px;bottom:14px;width:auto;padding:17px}.tour-title{font-size:22px}.tour-actions{grid-template-columns:1fr 1fr}.tour-actions .tour-skip{grid-column:1/-1;order:3}}
 
 
-/* ===== V15.0 TRUST CENTER + SECURITY UX ===== */
+/* ===== V15.1 TRUST CENTER + SECURITY UX ===== */
 .trust-trigger{cursor:pointer}.trust-trigger.secure{border-color:rgba(97,244,255,.28);color:var(--cyan)}
 .trust-shell{position:fixed;inset:0;z-index:10070;display:none;background:rgba(0,0,0,.64);backdrop-filter:blur(9px)}.trust-shell.show{display:block}.trust-panel{position:absolute;right:0;top:0;height:100%;width:min(570px,100vw);background:linear-gradient(155deg,#0d1318,#08080d 44%);border-left:1px solid rgba(97,244,255,.18);box-shadow:-34px 0 110px rgba(0,0,0,.62);display:flex;flex-direction:column}.trust-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:22px;border-bottom:1px solid var(--line)}.trust-head h2{margin:5px 0 0;font-size:29px;letter-spacing:-1.1px}.trust-close{border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;border-radius:11px;padding:9px 11px;cursor:pointer;font-weight:900}.trust-body{overflow:auto;padding:15px 18px 24px}.trust-hero{border:1px solid rgba(97,244,255,.2);border-radius:20px;padding:16px;background:linear-gradient(135deg,rgba(97,244,255,.06),rgba(161,124,255,.05))}.trust-hero-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.trust-state{display:inline-flex;align-items:center;gap:7px;font-size:9px;font-weight:950;letter-spacing:1px;color:var(--muted)}.trust-state i{width:8px;height:8px;border-radius:50%;background:#666875}.trust-state.ok{color:var(--cyan)}.trust-state.ok i{background:var(--cyan);box-shadow:0 0 14px rgba(97,244,255,.55)}.trust-wallet{font-size:20px;font-weight:950;margin-top:12px}.trust-sub{font-size:9px;color:var(--muted);line-height:1.55;margin-top:5px}.trust-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.trust-stat{border:1px solid var(--line);border-radius:14px;padding:11px;background:rgba(255,255,255,.02)}.trust-stat b{display:block;font-size:11px}.trust-stat span{display:block;margin-top:4px;color:var(--muted);font-size:8px;line-height:1.4}.trust-section{border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:10px;background:rgba(255,255,255,.018)}.trust-section h3{font-size:11px;margin:0 0 9px;letter-spacing:.7px}.trust-check{display:grid;grid-template-columns:24px 1fr;gap:9px;padding:9px 0;border-top:1px solid rgba(255,255,255,.07)}.trust-check:first-of-type{border-top:0}.trust-check i{font-style:normal;width:23px;height:23px;border-radius:8px;display:grid;place-items:center;background:rgba(186,255,90,.07);border:1px solid rgba(186,255,90,.15);font-size:11px}.trust-check b{display:block;font-size:9px}.trust-check span{display:block;color:var(--muted);font-size:8px;line-height:1.5;margin-top:3px}.trust-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.trust-actions button,.trust-actions a{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.035);color:#fff;padding:9px 11px;font-size:8px;font-weight:950;text-decoration:none;cursor:pointer}.trust-actions .danger{border-color:rgba(255,122,157,.3);color:#ff9ab2}.trust-disclaimer{margin-top:10px;color:#7f8190;font-size:8px;line-height:1.55}.trust-offline{color:var(--muted);border:1px dashed var(--line);border-radius:14px;padding:14px;font-size:9px}
 @media(max-width:620px){.trust-panel{width:100vw}.trust-grid{grid-template-columns:1fr}.trust-head{padding:18px}.trust-body{padding:12px 14px 20px}}
 
 
-/* ===== V15.0 LAUNCH COMMAND ===== */
+/* ===== V15.1 LAUNCH COMMAND ===== */
 .release-signal-trigger{display:inline-flex;align-items:center;gap:6px}.release-signal-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:rgba(97,244,255,.12);border:1px solid rgba(97,244,255,.22);color:var(--cyan);font-size:8px;font-weight:950}.release-signal-trigger.has-new{border-color:rgba(97,244,255,.32);box-shadow:0 0 20px rgba(97,244,255,.08)}
 .whats-new-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(3,4,8,.78);backdrop-filter:blur(9px);z-index:10070}.whats-new-shell.show{display:flex}.whats-new-card{width:min(640px,100%);border:1px solid rgba(97,244,255,.24);border-radius:28px;padding:25px;background:radial-gradient(circle at 90% 0,rgba(97,244,255,.09),transparent 35%),linear-gradient(145deg,#12131bee,#08090fee);box-shadow:0 35px 120px rgba(0,0,0,.65)}.whats-new-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.whats-new-kicker{color:var(--cyan);font-size:9px;font-weight:950;letter-spacing:1.6px}.whats-new-version{font-size:9px;color:var(--hot);border:1px solid rgba(186,255,90,.2);border-radius:999px;padding:5px 8px}.whats-new-card h2{font-size:clamp(30px,6vw,48px);margin:10px 0 8px;letter-spacing:-1.5px}.whats-new-card p{color:#a4a7b5;line-height:1.65}.whats-new-highlights{display:grid;gap:8px;margin:14px 0}.whats-new-item{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:rgba(255,255,255,.025);font-size:10px;color:#d8dae4}.whats-new-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:17px}.whats-new-actions button,.whats-new-actions a{border:1px solid var(--line);border-radius:12px;background:#0d1016;color:#fff;padding:10px 12px;font-weight:900;font-size:9px;text-decoration:none;cursor:pointer}.whats-new-actions .hot{background:var(--hot);color:#070907;border-color:var(--hot)}
 @media(max-width:620px){.release-signal-trigger span:first-child{display:none}.whats-new-card{padding:20px}.whats-new-actions>*{flex:1 1 100%;text-align:center}}
@@ -1165,7 +1181,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 <div class="product-tour-shell" id="productTourShell" role="dialog" aria-modal="true" aria-label="BL3 guided product tour">
   <div class="product-tour-spotlight" id="productTourSpotlight" aria-hidden="true"></div>
   <div class="product-tour-panel" id="productTourPanel">
-    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V15.0</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
+    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V15.1</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
     <div class="tour-title" id="tourTitle">Meet your Hunter ID</div>
     <div class="tour-detail" id="tourDetail">Your Passport is the identity layer behind progression, rivalry history and public reputation.</div>
     <div class="tour-why" id="tourWhy">WHY IT MATTERS · Everything you do in BL3 builds around one persistent Hunter identity.</div>
@@ -1208,7 +1224,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V15.0</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V15.1</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -1245,7 +1261,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V15.0</div>
+            <div class="core-badge">V15.1</div>
           </div>
         </div>
         <div>
@@ -1677,7 +1693,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.0 ADMIN CONTROL CENTER<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/production">PRODUCTION</a><span>•</span><a href="/data-safety">DATA SAFETY</a><span>•</span><a href="/ops">OPS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/trust">TRUST CENTER</a><span>•</span><a href="/admin/control-center">ADMIN</a><span>•</span><a href="/admin/incidents">INCIDENTS</a><span>•</span><a href="/admin/releases">RELEASES</a><span>•</span><a href="/admin/launch-command">LAUNCH</a><span>•</span><a href="/api/meta">API META</a></div></div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.1 ADMIN CONTROL CENTER<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/production">PRODUCTION</a><span>•</span><a href="/data-safety">DATA SAFETY</a><span>•</span><a href="/ops">OPS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/trust">TRUST CENTER</a><span>•</span><a href="/admin/control-center">ADMIN</a><span>•</span><a href="/admin/incidents">INCIDENTS</a><span>•</span><a href="/admin/releases">RELEASES</a><span>•</span><a href="/admin/launch-command">LAUNCH</a><span>•</span><a href="/admin/launch-timeline">TIMELINE</a><span>•</span><a href="/api/meta">API META</a></div></div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1753,7 +1769,7 @@ let lastBattleShare=null;
 let currentCrown=null;
 
 
-// ===== V15.0 TRUST CENTER =====
+// ===== V15.1 TRUST CENTER =====
 let bl3TrustOpen=false;
 function trustCenterBackdrop(e){if(e.target?.id==="trustCenterShell")closeTrustCenter()}
 function closeTrustCenter(){const sh=document.getElementById("trustCenterShell");if(sh)sh.classList.remove("show");bl3TrustOpen=false}
@@ -1761,7 +1777,7 @@ function fmtTrustAge(seconds){seconds=Math.max(0,Number(seconds||0));if(seconds<
 function trustYesNo(v){return v?"ENABLED":"OFF"}
 async function openTrustCenter(){const sh=document.getElementById("trustCenterShell"),body=document.getElementById("trustCenterBody");if(!sh||!body)return;sh.classList.add("show");bl3TrustOpen=true;body.innerHTML='<div class="bl3-skeleton"><div class="bl3-skeleton-line short"></div><div class="bl3-skeleton-line mid"></div><div class="bl3-skeleton-line"></div></div>';const d=await jsonFetch("/api/trust-center",{cache:"no-store"});if(!d?.success){body.innerHTML='<div class="trust-offline">Trust status is temporarily unavailable. <button class="network-retry" onclick="openTrustCenter()">RETRY</button></div>';return}renderTrustCenter(d)}
 function renderTrustCenter(d){const body=document.getElementById("trustCenterBody");if(!body)return;const auth=!!d.authenticated,checks=Array.isArray(d.checks)?d.checks:[];const state=auth?'VERIFIED SESSION':'PUBLIC SESSION';const wallet=auth?escapeHtml(d.wallet_preview||"Verified wallet"):'No wallet session active';body.innerHTML=''
- +'<div class="trust-hero"><div class="trust-hero-top"><span class="trust-state '+(auth?'ok':'')+'"><i></i>'+state+'</span><span class="hud-unlock-badge">V15.0</span></div><div class="trust-wallet">'+wallet+'</div><div class="trust-sub">'+escapeHtml(auth?((d.username||"Hunter")+" · wallet signature verified"):'BL3 public browsing does not require a wallet signature.')+'</div>'
+ +'<div class="trust-hero"><div class="trust-hero-top"><span class="trust-state '+(auth?'ok':'')+'"><i></i>'+state+'</span><span class="hud-unlock-badge">V15.1</span></div><div class="trust-wallet">'+wallet+'</div><div class="trust-sub">'+escapeHtml(auth?((d.username||"Hunter")+" · wallet signature verified"):'BL3 public browsing does not require a wallet signature.')+'</div>'
  +'<div class="trust-grid"><div class="trust-stat"><b>'+escapeHtml(d.signature_method||"EIP-191 personal_sign")+'</b><span>SIGNATURE METHOD</span></div><div class="trust-stat"><b>'+escapeHtml(auth?fmtTrustAge(d.session_age_seconds):"—")+'</b><span>SESSION AGE</span></div><div class="trust-stat"><b>'+trustYesNo(d.cookie?.http_only)+'</b><span>HTTPONLY COOKIE</span></div><div class="trust-stat"><b>'+escapeHtml(String(d.cookie?.same_site||"Lax").toUpperCase())+'</b><span>SAMESITE POLICY</span></div></div></div>'
  +'<section class="trust-section"><h3>SECURITY CHECKS</h3>'+checks.map(c=>'<div class="trust-check"><i>'+escapeHtml(c.icon||"✓")+'</i><div><b>'+escapeHtml(c.title||"CHECK")+'</b><span>'+escapeHtml(c.detail||"")+'</span></div></div>').join("")+'</section>'
  +'<section class="trust-section"><h3>PRIVACY SUMMARY</h3><div class="trust-check"><i>🧭</i><div><b>DISCOVERY DOES NOT USE WALLET VALUE</b><span>Public and personalized discovery use BL3 activity signals, not wallet balance or paid ranking boosts.</span></div></div><div class="trust-check"><i>🔁</i><div><b>VIRAL ATTRIBUTION IS LIGHTWEIGHT</b><span>Moment CTA attribution stores action, source Moment, target and time; it is not designed around IP or wallet-value profiling.</span></div></div><div class="trust-check"><i>⚠️</i><div><b>NO EXTERNAL SECURITY AUDIT CLAIM</b><span>BL3 exposes its current security posture here, but this interface does not claim an independent smart-contract or application audit.</span></div></div></section>'
@@ -1834,7 +1850,7 @@ async function loadOnboarding(){
 }
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
-const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v15.0:";
+const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v15.1:";
 let bl3RecoveryNoticeTimer=null;
 let bl3Recovering=false;
 function setNetworkStatus(mode,title,detail,sticky){
@@ -3370,7 +3386,7 @@ function renderActivityCenter(){
  document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
  document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
  document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
- const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V15.0"):"Sign in to load your Hunter activity.";
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V15.1"):"Sign in to load your Hunter activity.";
  const items=(Array.isArray(d.items)?d.items:[]).filter(x=>activityPreferenceEnabled(x.type));const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
  if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
  if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
@@ -3410,7 +3426,7 @@ function primeProductPolish(){
 document.addEventListener("DOMContentLoaded",primeProductPolish,{once:true});
 
 
-// ===== V15.0 LAUNCH COMMAND =====
+// ===== V15.1 LAUNCH COMMAND =====
 let bl3LatestReleaseId=0;
 function closeWhatsNew(){document.getElementById("whatsNewShell")?.classList.remove("show")}
 function remindReleaseLater(){if(bl3LatestReleaseId)sessionStorage.setItem("bl3_release_remind_"+bl3LatestReleaseId,"1");closeWhatsNew()}
@@ -3423,7 +3439,7 @@ setTimeout(loadReleaseSignals,800);setInterval(()=>{if(document.visibilityState=
 
 <div class="whats-new-shell" id="whatsNewShell" role="dialog" aria-modal="true" aria-labelledby="whatsNewTitle">
   <div class="whats-new-card">
-    <div class="whats-new-top"><div><div class="whats-new-kicker">📡 WHAT'S NEW // BL3 RELEASE FEED</div><div class="meta" id="whatsNewMeta">NEW RELEASE</div></div><div class="whats-new-version" id="whatsNewVersion">V15.0</div></div>
+    <div class="whats-new-top"><div><div class="whats-new-kicker">📡 WHAT'S NEW // BL3 RELEASE FEED</div><div class="meta" id="whatsNewMeta">NEW RELEASE</div></div><div class="whats-new-version" id="whatsNewVersion">V15.1</div></div>
     <h2 id="whatsNewTitle">BL3 just shipped.</h2>
     <p id="whatsNewSummary">Open the latest release notes to see what changed.</p>
     <div class="whats-new-highlights" id="whatsNewHighlights"></div>
@@ -6911,7 +6927,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.0 ADMIN CONTROL CENTER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.1 ADMIN CONTROL CENTER</div>
 </div></body></html>"""
 
 
@@ -7726,7 +7742,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.0 ADMIN CONTROL CENTER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.1 ADMIN CONTROL CENTER</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -7857,7 +7873,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.0 ADMIN CONTROL CENTER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.1 ADMIN CONTROL CENTER</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -8268,7 +8284,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.0 ADMIN CONTROL CENTER</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V15.1 ADMIN CONTROL CENTER</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -10043,7 +10059,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "15.0")
+    response.headers.setdefault("X-BL3-Version", "15.1")
     return response
 
 
@@ -10072,6 +10088,7 @@ def global_search_api():
         {"type": "command", "icon": "🚨", "title": "Incident Center", "subtitle": "Assess incidents and follow safe recovery playbooks", "url": "/admin/incidents", "keywords": "incident recovery outage database backup errors slow audit playbook admin"},
         {"type": "command", "icon": "🚀", "title": "Release Center", "subtitle": "Run deploy preflight and inspect GO / HOLD readiness", "url": "/admin/releases", "keywords": "release deploy preflight go hold checklist readiness launch admin"},
         {"type": "command", "icon": "🛰️", "title": "Launch Command", "subtitle": "Unify preflight, incidents, backups, audit and launch readiness", "url": "/admin/launch-command", "keywords": "launch command launch center go hold preflight incidents backup audit health readiness admin"},
+        {"type": "command", "icon": "🗺️", "title": "Launch Timeline", "subtitle": "Track preflight, backup, notes, launch window and post-launch checks", "url": "/admin/launch-timeline", "keywords": "launch timeline milestones preflight backup validate notes launch window post launch checklist admin"},
         {"type": "command", "icon": "📣", "title": "Announcement Center", "subtitle": "Generate release copy and manage changelog drafts", "url": "/admin/announcements", "keywords": "announcement changelog patch notes release notes discord x warpcast farcaster copy admin"},
         {"type": "command", "icon": "📝", "title": "Public Changelog", "subtitle": "Read published BL3 release notes", "url": "/changelog", "keywords": "changelog releases patch notes updates history public"},
         {"type": "command", "icon": "📡", "title": "Release Feed", "subtitle": "See what is new in BL3 and recent published updates", "url": "/releases", "keywords": "release feed updates whats new unread subscriber signals changelog versions"},
@@ -10229,8 +10246,8 @@ def _observability_snapshot():
 
     return {
         "success": True,
-        "version": "15.0",
-        "release": "LAUNCH COMMAND",
+        "version": "15.1",
+        "release": "LAUNCH TIMELINE + MILESTONES",
         "slow_threshold_ms": _OBS_SLOW_MS,
         "summary": summary,
         "routes": rows[:15],
@@ -10346,7 +10363,7 @@ def _data_safety_snapshot(include_files=False):
     latest = backups[0] if backups else None
     public_history = [{"modified_at": b["modified_at"], "bytes": b["bytes"], "age_hours": b["age_hours"]} for b in backups[:8]]
     data = {
-        "success": True, "version": "V15.0", "engine": "admin-control-v15.0", "database": integrity,
+        "success": True, "version": "V15.1", "engine": "admin-control-v15.1", "database": integrity,
         "maintenance": maintenance,
         "backups": {
             "count": len(backups), "latest_at": latest.get("modified_at") if latest else None,
@@ -10375,8 +10392,8 @@ def admin_backup_inventory():
 def data_maintenance_api():
     response = jsonify({
         "success": True,
-        "version": "V15.0",
-        "engine": "admin-control-v15.0",
+        "version": "V15.1",
+        "engine": "admin-control-v15.1",
         "maintenance": _db_maintenance_report(),
         "integrity": _db_integrity_report(),
         "policy": "Read-only diagnostics only; no automatic VACUUM or restore action is exposed."
@@ -10408,10 +10425,10 @@ def data_safety_page():
         f'<div class="history-row"><b>{html.escape(str(x.get("modified_at") or "unknown"))}</b><span>{int(x.get("bytes") or 0):,} bytes · {html.escape(str(x.get("age_hours") or 0))}h ago</span></div>'
         for x in hist
     ) or '<div class="note">No backups found yet.</div>'
-    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Data Safety</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:980px;margin:auto}}.brand{{font-size:25px;font-weight:950}}.brand span,a,.ok{{color:#baff5a}}.warn{{color:#ffd66b}}.hero,.panel{{border:1px solid #2b2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151a,#09090e);margin-top:18px}}h1{{font-size:clamp(42px,8vw,76px);margin:8px 0}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}}.stat{{border:1px solid #292d35;border-radius:15px;padding:13px}}.stat b{{display:block;font-size:18px}}.stat span,.muted{{font-size:9px;color:#9296a5}}.note{{padding:12px;border:1px solid #30333c;border-radius:14px;margin-top:10px;color:#b8bac6}}.history{{display:grid;gap:8px;margin-top:12px}}.history-row{{display:flex;justify-content:space-between;gap:14px;border:1px solid #2b2e36;border-radius:14px;padding:12px;background:#0b0c10}}.history-row b{{font-size:10px}}.history-row span{{font-size:9px;color:#9296a5;text-align:right}}@media(max-width:700px){{.grid{{grid-template-columns:1fr 1fr}}.history-row{{align-items:flex-start;flex-direction:column}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0</div><div class="hero"><div class="{state_class}">● {state}</div><h1>Data Safety Center</h1><p class="muted">SQLite integrity, backup history and read-only maintenance diagnostics. No one-click restore or automatic VACUUM is exposed.</p><div class="grid"><div class="stat"><b>{html.escape(str(dbs.get("quick_check","unknown")).upper())}</b><span>QUICK CHECK</span></div><div class="stat"><b>{int(b.get("count") or 0)}</b><span>BACKUPS</span></div><div class="stat"><b>{html.escape(str(m.get("journal_mode") or "unknown").upper())}</b><span>JOURNAL MODE</span></div><div class="stat"><b>{round(float(m.get("free_ratio") or 0)*100,1)}%</b><span>FREE PAGES</span></div></div></div><div class="panel"><h2>Backup history</h2><div class="history">{hist_html}</div></div><div class="panel"><h2>Maintenance diagnostics</h2><div class="note">Page count: {int(m.get("page_count") or 0):,} · Page size: {int(m.get("page_size") or 0):,} bytes · Free pages: {int(m.get("freelist_pages") or 0):,}</div><div class="note">Estimated reusable space: {int(m.get("estimated_free_bytes") or 0):,} bytes</div><div class="note">{html.escape(str(m.get("advice") or "No maintenance advice available."))}</div><div class="note">Restore policy: validate a backup first, then perform restore as an explicit operator action outside the public web UI.</div></div><p><a href="/">← Back to BL3</a> · <a href="/api/data-safety">Data Safety JSON</a> · <a href="/api/data-maintenance">Maintenance JSON</a> · <a href="/production">Production</a> · <a href="/ops">Ops</a></p></div></body></html>'''
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Data Safety</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:980px;margin:auto}}.brand{{font-size:25px;font-weight:950}}.brand span,a,.ok{{color:#baff5a}}.warn{{color:#ffd66b}}.hero,.panel{{border:1px solid #2b2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151a,#09090e);margin-top:18px}}h1{{font-size:clamp(42px,8vw,76px);margin:8px 0}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}}.stat{{border:1px solid #292d35;border-radius:15px;padding:13px}}.stat b{{display:block;font-size:18px}}.stat span,.muted{{font-size:9px;color:#9296a5}}.note{{padding:12px;border:1px solid #30333c;border-radius:14px;margin-top:10px;color:#b8bac6}}.history{{display:grid;gap:8px;margin-top:12px}}.history-row{{display:flex;justify-content:space-between;gap:14px;border:1px solid #2b2e36;border-radius:14px;padding:12px;background:#0b0c10}}.history-row b{{font-size:10px}}.history-row span{{font-size:9px;color:#9296a5;text-align:right}}@media(max-width:700px){{.grid{{grid-template-columns:1fr 1fr}}.history-row{{align-items:flex-start;flex-direction:column}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1</div><div class="hero"><div class="{state_class}">● {state}</div><h1>Data Safety Center</h1><p class="muted">SQLite integrity, backup history and read-only maintenance diagnostics. No one-click restore or automatic VACUUM is exposed.</p><div class="grid"><div class="stat"><b>{html.escape(str(dbs.get("quick_check","unknown")).upper())}</b><span>QUICK CHECK</span></div><div class="stat"><b>{int(b.get("count") or 0)}</b><span>BACKUPS</span></div><div class="stat"><b>{html.escape(str(m.get("journal_mode") or "unknown").upper())}</b><span>JOURNAL MODE</span></div><div class="stat"><b>{round(float(m.get("free_ratio") or 0)*100,1)}%</b><span>FREE PAGES</span></div></div></div><div class="panel"><h2>Backup history</h2><div class="history">{hist_html}</div></div><div class="panel"><h2>Maintenance diagnostics</h2><div class="note">Page count: {int(m.get("page_count") or 0):,} · Page size: {int(m.get("page_size") or 0):,} bytes · Free pages: {int(m.get("freelist_pages") or 0):,}</div><div class="note">Estimated reusable space: {int(m.get("estimated_free_bytes") or 0):,} bytes</div><div class="note">{html.escape(str(m.get("advice") or "No maintenance advice available."))}</div><div class="note">Restore policy: validate a backup first, then perform restore as an explicit operator action outside the public web UI.</div></div><p><a href="/">← Back to BL3</a> · <a href="/api/data-safety">Data Safety JSON</a> · <a href="/api/data-maintenance">Maintenance JSON</a> · <a href="/production">Production</a> · <a href="/ops">Ops</a></p></div></body></html>'''
 
 
-# ===== V15.0 ADMIN CONTROL CENTER =====
+# ===== V15.1 ADMIN CONTROL CENTER =====
 def _admin_warning_center():
     warnings = []
     for text in _PROD_WARNINGS:
@@ -10448,8 +10465,8 @@ def _admin_control_snapshot():
     latest = backups[0] if backups else None
     return {
         "success": True,
-        "version": "V15.0",
-        "engine": "admin-control-v15.0",
+        "version": "V15.1",
+        "engine": "admin-control-v15.1",
         "environment": BL3_ENV,
         "admin_actions_enabled": bool(BL3_ADMIN_TOKEN),
         "session_authenticated": bool(_admin_ok()),
@@ -10497,7 +10514,7 @@ def admin_logout():
         _admin_action("admin_logout", True, "browser session closed")
     return jsonify({"success":True,"message":"Admin session ended."})
 
-# ===== V15.0 EXPORTS + REPORTS =====
+# ===== V15.1 EXPORTS + REPORTS =====
 _EXPORT_DATASETS = ("leaderboard", "clashes", "feud_moments", "feud_events")
 
 def _report_iso(dt=None):
@@ -10558,8 +10575,8 @@ def _report_snapshot():
         conn.close()
     return {
         "success": True,
-        "version": "V15.0",
-        "engine": "exports-reports-v15.0",
+        "version": "V15.1",
+        "engine": "exports-reports-v15.1",
         "generated_at": _report_iso(),
         "scope": "safe operational snapshot; wallet values, IPs, request bodies and proof URLs are excluded",
         "counts": counts,
@@ -10585,8 +10602,8 @@ def _weekly_report_snapshot():
     obs = _observability_snapshot().get("summary", {})
     return {
         "success": True,
-        "version": "V15.0",
-        "engine": "weekly-ops-v15.0",
+        "version": "V15.1",
+        "engine": "weekly-ops-v15.1",
         "window": {"days": 7, "from_utc": since + "Z", "to_utc": _report_iso(now)},
         "activity": {"clashes": clashes, "feud_moments": moments, "feud_events": feud_events, "reputation_events": rep_events, "active_hunters": active_hunters},
         "process_observability": obs,
@@ -10600,8 +10617,8 @@ def admin_reports_api():
         return jsonify({"success": False, "message": "Admin authentication required."}), 403
     payload = {
         "success": True,
-        "version": "V15.0",
-        "engine": "exports-reports-v15.0",
+        "version": "V15.1",
+        "engine": "exports-reports-v15.1",
         "datasets": [{"key": k, "csv": f"/admin/export/{k}.csv"} for k in _EXPORT_DATASETS],
         "reports": {"snapshot": "/admin/report/snapshot.json", "weekly": "/admin/report/weekly.json"},
         "privacy": "Exports intentionally omit wallet addresses, IPs, request bodies and proof URLs.",
@@ -10652,7 +10669,7 @@ def admin_report_weekly_json():
 def admin_reports_page():
     if not _admin_ok():
         return redirect("/admin/control-center")
-    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Exports + Reports</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#211b3d,#07080c 34%,#050507 68%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1080px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2b2f38;border-radius:26px;padding:23px;background:linear-gradient(145deg,#11141ceb,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,72px);margin:8px 0}.muted{color:#9397a6;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.item{border:1px solid #2e323c;border-radius:18px;padding:16px;background:#0b0d12}.item b{display:block;font-size:16px}.item p{font-size:10px;color:#9296a5;min-height:34px}.actions{display:flex;gap:7px;flex-wrap:wrap}.actions a{border:1px solid #313642;border-radius:11px;padding:9px 11px;text-decoration:none;color:#fff;font-size:9px;font-weight:900}.actions a.hot{background:#baff5a;color:#080a06;border-color:#baff5a}.note{border:1px solid #30343d;border-radius:14px;padding:12px;color:#aeb1bd;font-size:10px;margin-top:10px}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // EXPORTS + REPORTS</div><div class="hero"><div style="color:#baff5a">● ADMIN-ONLY DATA PORTABILITY</div><h1>Export what matters. Leave secrets behind.</h1><p class="muted">Safe CSV exports for leaderboard, Clashes and Feud history plus JSON operational snapshots. Wallet addresses, IPs, request bodies and proof URLs are intentionally excluded.</p></div><div class="panel"><h2>CSV datasets</h2><div class="grid"><div class="item"><b>Leaderboard</b><p>Rank, username, XP and streak.</p><div class="actions"><a class="hot" href="/admin/export/leaderboard.csv">DOWNLOAD CSV</a></div></div><div class="item"><b>Clashes</b><p>Completed battle history and seasonal context.</p><div class="actions"><a class="hot" href="/admin/export/clashes.csv">DOWNLOAD CSV</a></div></div><div class="item"><b>Feud moments</b><p>Story-grade rivalry moments and intensity.</p><div class="actions"><a class="hot" href="/admin/export/feud_moments.csv">DOWNLOAD CSV</a></div></div><div class="item"><b>Feud events</b><p>Escalation milestones and tier changes.</p><div class="actions"><a class="hot" href="/admin/export/feud_events.csv">DOWNLOAD CSV</a></div></div></div></div><div class="panel"><h2>Operational reports</h2><div class="grid"><div class="item"><b>Snapshot report</b><p>Counts, top Hunters, recent Clashes, observability and Data Safety posture.</p><div class="actions"><a class="hot" href="/admin/report/snapshot.json">DOWNLOAD JSON</a></div></div><div class="item"><b>Weekly ops summary</b><p>Last 7 days of Clash, Feud, REP and active-Hunter activity plus current process metrics.</p><div class="actions"><a class="hot" href="/admin/report/weekly.json">DOWNLOAD JSON</a></div></div></div><div class="note">Reports are generated on demand. Process observability resets when the app process restarts; persisted database activity does not.</div></div><p><a href="/admin/control-center">← Admin Control Center</a> · <a href="/">BL3 home</a></p></div></body></html>'''
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Exports + Reports</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#211b3d,#07080c 34%,#050507 68%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1080px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2b2f38;border-radius:26px;padding:23px;background:linear-gradient(145deg,#11141ceb,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,72px);margin:8px 0}.muted{color:#9397a6;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.item{border:1px solid #2e323c;border-radius:18px;padding:16px;background:#0b0d12}.item b{display:block;font-size:16px}.item p{font-size:10px;color:#9296a5;min-height:34px}.actions{display:flex;gap:7px;flex-wrap:wrap}.actions a{border:1px solid #313642;border-radius:11px;padding:9px 11px;text-decoration:none;color:#fff;font-size:9px;font-weight:900}.actions a.hot{background:#baff5a;color:#080a06;border-color:#baff5a}.note{border:1px solid #30343d;border-radius:14px;padding:12px;color:#aeb1bd;font-size:10px;margin-top:10px}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // EXPORTS + REPORTS</div><div class="hero"><div style="color:#baff5a">● ADMIN-ONLY DATA PORTABILITY</div><h1>Export what matters. Leave secrets behind.</h1><p class="muted">Safe CSV exports for leaderboard, Clashes and Feud history plus JSON operational snapshots. Wallet addresses, IPs, request bodies and proof URLs are intentionally excluded.</p></div><div class="panel"><h2>CSV datasets</h2><div class="grid"><div class="item"><b>Leaderboard</b><p>Rank, username, XP and streak.</p><div class="actions"><a class="hot" href="/admin/export/leaderboard.csv">DOWNLOAD CSV</a></div></div><div class="item"><b>Clashes</b><p>Completed battle history and seasonal context.</p><div class="actions"><a class="hot" href="/admin/export/clashes.csv">DOWNLOAD CSV</a></div></div><div class="item"><b>Feud moments</b><p>Story-grade rivalry moments and intensity.</p><div class="actions"><a class="hot" href="/admin/export/feud_moments.csv">DOWNLOAD CSV</a></div></div><div class="item"><b>Feud events</b><p>Escalation milestones and tier changes.</p><div class="actions"><a class="hot" href="/admin/export/feud_events.csv">DOWNLOAD CSV</a></div></div></div></div><div class="panel"><h2>Operational reports</h2><div class="grid"><div class="item"><b>Snapshot report</b><p>Counts, top Hunters, recent Clashes, observability and Data Safety posture.</p><div class="actions"><a class="hot" href="/admin/report/snapshot.json">DOWNLOAD JSON</a></div></div><div class="item"><b>Weekly ops summary</b><p>Last 7 days of Clash, Feud, REP and active-Hunter activity plus current process metrics.</p><div class="actions"><a class="hot" href="/admin/report/weekly.json">DOWNLOAD JSON</a></div></div></div><div class="note">Reports are generated on demand. Process observability resets when the app process restarts; persisted database activity does not.</div></div><p><a href="/admin/control-center">← Admin Control Center</a> · <a href="/">BL3 home</a></p></div></body></html>'''
 
 
 @app.route("/api/admin/control-center")
@@ -10663,7 +10680,7 @@ def admin_control_center_api():
     response.headers["Cache-Control"] = "no-store"
     return response
 
-# ===== V15.0 LAUNCH COMMAND =====
+# ===== V15.1 LAUNCH COMMAND =====
 def _audit_summary():
     events = _audit_events(500)
     ok_count = sum(1 for x in events if x.get("outcome") == "ok")
@@ -10681,7 +10698,7 @@ def admin_audit_api():
     limit=max(1,min(int(request.args.get("limit",100) or 100),500))
     event_type=str(request.args.get("event_type") or "").strip()
     outcome=str(request.args.get("outcome") or "").strip().lower()
-    response=jsonify({"success":True,"version":"V15.0","engine":"audit-trail-v15.0","summary":_audit_summary(),"events":_audit_events(limit,event_type,outcome),"privacy":"Audit records do not store IP addresses, admin tokens, wallet addresses or request bodies."})
+    response=jsonify({"success":True,"version":"V15.1","engine":"audit-trail-v15.1","summary":_audit_summary(),"events":_audit_events(limit,event_type,outcome),"privacy":"Audit records do not store IP addresses, admin tokens, wallet addresses or request bodies."})
     response.headers["Cache-Control"]="no-store"
     return response
 
@@ -10702,7 +10719,7 @@ def admin_audit_csv():
 def admin_audit_page():
     if not _admin_ok():
         return redirect("/admin/control-center")
-    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Audit Trail</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#251938,#08090d 32%,#050507 68%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1120px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a,.good{color:#baff5a}.hero,.panel{border:1px solid #2d3039;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11131aee,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,72px);margin:8px 0}.muted{color:#9497a5;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #2e323b;border-radius:15px;padding:12px;background:#0b0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9296a5}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters input,.filters select,.filters button,.filters a{border:1px solid #30343e;border-radius:11px;padding:10px 11px;background:#0d1016;color:#fff;text-decoration:none}.filters button{cursor:pointer;font-weight:900}.event{display:grid;grid-template-columns:72px 1fr 170px;gap:12px;border-top:1px solid #252932;padding:12px 0}.event:first-child{border-top:0}.badge{font-size:8px;font-weight:950;border:1px solid #31512a;border-radius:999px;padding:4px 7px;color:#baff5a;display:inline-block}.bad{border-color:#5b2c38;color:#ff91a8}.event b{font-size:11px}.event p{margin:4px 0 0;color:#a2a5b2;font-size:10px}.event small{color:#7f8391;font-size:8px;word-break:break-all}.chain{padding:11px;border:1px solid #31422a;border-radius:14px;background:#0c1209}.chain.bad{border-color:#5b2c38;background:#170b0f}.empty{color:#8d909d;padding:12px}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.event{grid-template-columns:1fr}.filters>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // AUDIT TRAIL</div><div class="hero"><div class="good">● TAMPER-EVIDENT ADMIN HISTORY</div><h1>Know what changed.</h1><p class="muted">Persistent admin actions, exports, backup operations and safe configuration snapshots. Events are chained with SHA-256 hashes. No IP, token, wallet or request-body values are recorded.</p><div id="stats" class="grid"></div></div><div class="panel"><div id="chain" class="chain">Verifying chain…</div><div class="filters" style="margin-top:12px"><input id="type" placeholder="event type"><select id="outcome"><option value="">all outcomes</option><option value="ok">ok</option><option value="failed">failed</option></select><button onclick="loadAudit()">FILTER</button><a href="/admin/audit.csv">DOWNLOAD CSV</a><a href="/admin/control-center">CONTROL CENTER</a></div></div><div class="panel"><h2>Change history</h2><div id="events" class="empty">Loading…</div></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));async function loadAudit(){const q=new URLSearchParams({limit:'200'});const t=document.getElementById('type').value.trim(),o=document.getElementById('outcome').value;if(t)q.set('event_type',t);if(o)q.set('outcome',o);const r=await fetch('/api/admin/audit?'+q.toString(),{cache:'no-store'}),d=await r.json();if(!r.ok){document.getElementById('events').textContent=d.message||'Unable to load audit trail.';return}const s=d.summary||{},c=s.chain||{};document.getElementById('stats').innerHTML=[['EVENTS',s.count||0],['OK',s.ok||0],['FAILED',s.failed||0],['CHAIN',c.valid?'VALID':'CHECK']].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');const ch=document.getElementById('chain');ch.className='chain'+(c.valid?'':' bad');ch.innerHTML='<b>SHA-256 CHAIN: '+(c.valid?'VALID ✓':'CHECK REQUIRED ✕')+'</b><div class="muted">'+esc(c.events||0)+' events · last hash '+esc(c.last_hash_prefix||'—')+(c.broken_at?' · broken at #'+esc(c.broken_at):'')+'</div>';document.getElementById('events').innerHTML=(d.events||[]).map(e=>'<div class="event"><div><span class="badge '+(e.outcome==='ok'?'':'bad')+'">'+esc(e.outcome)+'</span><small>#'+esc(e.id)+'</small></div><div><b>'+esc(e.event_type)+'</b><p>'+esc(e.detail||'—')+'</p><small>'+esc(e.actor)+' · '+esc(e.created_at)+'</small></div><small>'+esc(String(e.event_hash||'').slice(0,20))+'…</small></div>').join('')||'<div class="empty">No matching audit events.</div>'}loadAudit()</script></body></html>'''
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Audit Trail</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#251938,#08090d 32%,#050507 68%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1120px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a,.good{color:#baff5a}.hero,.panel{border:1px solid #2d3039;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11131aee,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,72px);margin:8px 0}.muted{color:#9497a5;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #2e323b;border-radius:15px;padding:12px;background:#0b0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9296a5}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters input,.filters select,.filters button,.filters a{border:1px solid #30343e;border-radius:11px;padding:10px 11px;background:#0d1016;color:#fff;text-decoration:none}.filters button{cursor:pointer;font-weight:900}.event{display:grid;grid-template-columns:72px 1fr 170px;gap:12px;border-top:1px solid #252932;padding:12px 0}.event:first-child{border-top:0}.badge{font-size:8px;font-weight:950;border:1px solid #31512a;border-radius:999px;padding:4px 7px;color:#baff5a;display:inline-block}.bad{border-color:#5b2c38;color:#ff91a8}.event b{font-size:11px}.event p{margin:4px 0 0;color:#a2a5b2;font-size:10px}.event small{color:#7f8391;font-size:8px;word-break:break-all}.chain{padding:11px;border:1px solid #31422a;border-radius:14px;background:#0c1209}.chain.bad{border-color:#5b2c38;background:#170b0f}.empty{color:#8d909d;padding:12px}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.event{grid-template-columns:1fr}.filters>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // AUDIT TRAIL</div><div class="hero"><div class="good">● TAMPER-EVIDENT ADMIN HISTORY</div><h1>Know what changed.</h1><p class="muted">Persistent admin actions, exports, backup operations and safe configuration snapshots. Events are chained with SHA-256 hashes. No IP, token, wallet or request-body values are recorded.</p><div id="stats" class="grid"></div></div><div class="panel"><div id="chain" class="chain">Verifying chain…</div><div class="filters" style="margin-top:12px"><input id="type" placeholder="event type"><select id="outcome"><option value="">all outcomes</option><option value="ok">ok</option><option value="failed">failed</option></select><button onclick="loadAudit()">FILTER</button><a href="/admin/audit.csv">DOWNLOAD CSV</a><a href="/admin/control-center">CONTROL CENTER</a></div></div><div class="panel"><h2>Change history</h2><div id="events" class="empty">Loading…</div></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));async function loadAudit(){const q=new URLSearchParams({limit:'200'});const t=document.getElementById('type').value.trim(),o=document.getElementById('outcome').value;if(t)q.set('event_type',t);if(o)q.set('outcome',o);const r=await fetch('/api/admin/audit?'+q.toString(),{cache:'no-store'}),d=await r.json();if(!r.ok){document.getElementById('events').textContent=d.message||'Unable to load audit trail.';return}const s=d.summary||{},c=s.chain||{};document.getElementById('stats').innerHTML=[['EVENTS',s.count||0],['OK',s.ok||0],['FAILED',s.failed||0],['CHAIN',c.valid?'VALID':'CHECK']].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');const ch=document.getElementById('chain');ch.className='chain'+(c.valid?'':' bad');ch.innerHTML='<b>SHA-256 CHAIN: '+(c.valid?'VALID ✓':'CHECK REQUIRED ✕')+'</b><div class="muted">'+esc(c.events||0)+' events · last hash '+esc(c.last_hash_prefix||'—')+(c.broken_at?' · broken at #'+esc(c.broken_at):'')+'</div>';document.getElementById('events').innerHTML=(d.events||[]).map(e=>'<div class="event"><div><span class="badge '+(e.outcome==='ok'?'':'bad')+'">'+esc(e.outcome)+'</span><small>#'+esc(e.id)+'</small></div><div><b>'+esc(e.event_type)+'</b><p>'+esc(e.detail||'—')+'</p><small>'+esc(e.actor)+' · '+esc(e.created_at)+'</small></div><small>'+esc(String(e.event_hash||'').slice(0,20))+'…</small></div>').join('')||'<div class="empty">No matching audit events.</div>'}loadAudit()</script></body></html>'''
 
 @app.route("/admin/diagnostics-refresh", methods=["POST"])
 def admin_diagnostics_refresh():
@@ -10715,8 +10732,8 @@ def admin_diagnostics_refresh():
 @app.route("/admin/control-center")
 def admin_control_center_page():
     if not _admin_ok():
-        return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Admin Login</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;min-height:100vh;display:grid;place-items:center;padding:22px}.card{width:min(520px,100%);border:1px solid #30333c;border-radius:28px;padding:26px;background:linear-gradient(145deg,#12131a,#09090e);box-shadow:0 30px 100px #0008}.brand{font-weight:950;font-size:24px}.brand span{color:#baff5a}h1{font-size:42px;margin:12px 0}.muted{color:#9296a5;line-height:1.6}input,button{width:100%;padding:13px 14px;border-radius:13px;border:1px solid #30333c;background:#0d0f14;color:#fff;margin-top:10px}button{background:#baff5a;color:#090b06;font-weight:950;cursor:pointer}.err{color:#ff8ba3;font-size:11px;margin-top:10px}</style></head><body><div class="card"><div class="brand">BL3<span>●</span> V15.0</div><h1>Admin Control Center</h1><p class="muted">Protected operations dashboard. Enter the BL3 admin token to open a browser session for up to one hour. The token is submitted in the request body, never in the URL.</p><form id="f"><input id="token" type="password" autocomplete="current-password" placeholder="BL3_ADMIN_TOKEN" required><button>OPEN CONTROL CENTER</button></form><div id="m" class="err"></div><p class="muted"><a style="color:#baff5a" href="/">← Back to BL3</a></p></div><script>document.getElementById('f').onsubmit=async(e)=>{e.preventDefault();const r=await fetch('/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:document.getElementById('token').value})});const d=await r.json();if(d.success)location.reload();else document.getElementById('m').textContent=d.message||'Login failed.'}</script></body></html>'''
-    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Admin Control Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#201b38 0,#08090d 28%,#050507 62%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #292d36;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11131aeb,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,74px);margin:8px 0}.muted{color:#9296a5}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:18px}.stat{border:1px solid #2c3038;border-radius:15px;padding:12px;background:#0b0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9296a5;letter-spacing:.8px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}.warn{border:1px solid #554529;border-radius:14px;padding:11px;margin-top:8px;background:#17130b}.critical{border-color:#5a2733;background:#190c10}.good{color:#baff5a}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button,.actions a{border:1px solid #30343e;border-radius:12px;padding:10px 12px;background:#0d1016;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.row{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #252932;padding:10px 0;font-size:10px}.row:first-child{border-top:0}.row span{color:#9296a5;text-align:right}.msg{margin-top:10px;color:#61f4ff;font-size:10px}@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.columns{grid-template-columns:1fr}}@media(max-width:520px){.grid{grid-template-columns:1fr}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // ADMIN CONTROL CENTER</div><div class="hero"><div class="good">● PROTECTED OPERATIONS</div><h1>Operate BL3 from one place.</h1><p class="muted">Health, deployment warnings, backups, database maintenance and process-local observability. No restore button is exposed.</p><div id="summary" class="grid"></div></div><div class="panel"><h2>Quick actions</h2><div class="actions"><button class="hot" onclick="createBackup()">CREATE BACKUP</button><button onclick="validateLatest()">VALIDATE LATEST</button><button onclick="refreshAll()">REFRESH DIAGNOSTICS</button><a href="/data-safety">DATA SAFETY</a><a href="/ops">OPS CONSOLE</a><a href="/production">PRODUCTION</a><a href="/admin/reports">EXPORTS + REPORTS</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/admin/incidents">INCIDENT CENTER</a><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/announcements">ANNOUNCEMENTS</a><a href="/admin/launch-command">LAUNCH COMMAND</a><button onclick="logoutAdmin()">LOG OUT</button></div><div id="msg" class="msg"></div></div><div class="columns"><div class="panel"><h2>Warnings</h2><div id="warnings" class="muted">Loading…</div></div><div class="panel"><h2>Database + backups</h2><div id="db" class="muted">Loading…</div></div></div><div class="columns"><div class="panel"><h2>Performance</h2><div id="perf" class="muted">Loading…</div></div><div class="panel"><h2>Recent admin actions</h2><div id="actions" class="muted">Loading…</div></div></div><p><a href="/">← Back to BL3</a></p></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const s=d.system||{},b=d.backups||{},m=((d.database||{}).maintenance||{}),o=((d.observability||{}).summary||{});document.getElementById('summary').innerHTML=[['DB',s.database_healthy?'HEALTHY':'CHECK'],['BACKUPS',b.count||0],['WARNINGS',(d.warnings||[]).length],['AVG LATENCY',(o.avg_ms||0)+' ms'],['5XX',o.errors||0]].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');document.getElementById('warnings').innerHTML=(d.warnings||[]).map(w=>'<div class="warn '+(w.level==='critical'?'critical':'')+'"><b>'+esc(w.code)+'</b><div class="muted">'+esc(w.message)+'</div></div>').join('')||'<div class="good">No active warnings.</div>';const latest=b.latest||{};document.getElementById('db').innerHTML='<div class="row"><b>Integrity</b><span>'+esc(((d.database||{}).integrity||{}).quick_check||'unknown')+'</span></div><div class="row"><b>Journal</b><span>'+esc(m.journal_mode||'unknown')+'</span></div><div class="row"><b>Free pages</b><span>'+Number((m.free_ratio||0)*100).toFixed(1)+'%</span></div><div class="row"><b>Latest backup</b><span>'+esc(latest.filename||'none')+'</span></div><div class="row"><b>Backup age</b><span>'+esc(latest.age_hours??'—')+' h</span></div>';document.getElementById('perf').innerHTML='<div class="row"><b>Requests</b><span>'+esc(o.requests||0)+'</span></div><div class="row"><b>Slow</b><span>'+esc(o.slow_requests||0)+'</span></div><div class="row"><b>Average</b><span>'+esc(o.avg_ms||0)+' ms</span></div><div class="row"><b>Max</b><span>'+esc(o.max_ms||0)+' ms</span></div>';document.getElementById('actions').innerHTML=(d.recent_admin_actions||[]).map(a=>'<div class="row"><b>'+esc(a.action)+(a.ok?' ✓':' ✕')+'</b><span>'+esc(a.utc)+'<br>'+esc(a.detail||'')+'</span></div>').join('')||'No admin actions yet.'}async function load(){try{render(await api('/api/admin/control-center'))}catch(e){document.getElementById('msg').textContent=e.message}}async function createBackup(){try{document.getElementById('msg').textContent='Creating backup…';const d=await api('/admin/db-backup',{method:'POST'});document.getElementById('msg').textContent=d.message+' '+(d.filename||'');await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function validateLatest(){try{if(!state||!state.backups||!state.backups.latest){throw new Error('No backup available to validate.')}const fn=state.backups.latest.filename;const d=await api('/admin/backup-validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});document.getElementById('msg').textContent='Validation: '+(d.healthy?'HEALTHY':'CHECK REQUIRED')+' · '+fn;await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshAll(){try{render(await api('/admin/diagnostics-refresh',{method:'POST'}));document.getElementById('msg').textContent='Diagnostics refreshed.'}catch(e){document.getElementById('msg').textContent=e.message}}async function logoutAdmin(){try{await api('/admin/logout',{method:'POST'});location.reload()}catch(e){document.getElementById('msg').textContent=e.message}}load();setInterval(load,15000)</script></body></html>'''
+        return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Admin Login</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;min-height:100vh;display:grid;place-items:center;padding:22px}.card{width:min(520px,100%);border:1px solid #30333c;border-radius:28px;padding:26px;background:linear-gradient(145deg,#12131a,#09090e);box-shadow:0 30px 100px #0008}.brand{font-weight:950;font-size:24px}.brand span{color:#baff5a}h1{font-size:42px;margin:12px 0}.muted{color:#9296a5;line-height:1.6}input,button{width:100%;padding:13px 14px;border-radius:13px;border:1px solid #30333c;background:#0d0f14;color:#fff;margin-top:10px}button{background:#baff5a;color:#090b06;font-weight:950;cursor:pointer}.err{color:#ff8ba3;font-size:11px;margin-top:10px}</style></head><body><div class="card"><div class="brand">BL3<span>●</span> V15.1</div><h1>Admin Control Center</h1><p class="muted">Protected operations dashboard. Enter the BL3 admin token to open a browser session for up to one hour. The token is submitted in the request body, never in the URL.</p><form id="f"><input id="token" type="password" autocomplete="current-password" placeholder="BL3_ADMIN_TOKEN" required><button>OPEN CONTROL CENTER</button></form><div id="m" class="err"></div><p class="muted"><a style="color:#baff5a" href="/">← Back to BL3</a></p></div><script>document.getElementById('f').onsubmit=async(e)=>{e.preventDefault();const r=await fetch('/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:document.getElementById('token').value})});const d=await r.json();if(d.success)location.reload();else document.getElementById('m').textContent=d.message||'Login failed.'}</script></body></html>'''
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Admin Control Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#201b38 0,#08090d 28%,#050507 62%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #292d36;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11131aeb,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,74px);margin:8px 0}.muted{color:#9296a5}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:18px}.stat{border:1px solid #2c3038;border-radius:15px;padding:12px;background:#0b0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9296a5;letter-spacing:.8px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}.warn{border:1px solid #554529;border-radius:14px;padding:11px;margin-top:8px;background:#17130b}.critical{border-color:#5a2733;background:#190c10}.good{color:#baff5a}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button,.actions a{border:1px solid #30343e;border-radius:12px;padding:10px 12px;background:#0d1016;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.row{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #252932;padding:10px 0;font-size:10px}.row:first-child{border-top:0}.row span{color:#9296a5;text-align:right}.msg{margin-top:10px;color:#61f4ff;font-size:10px}@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.columns{grid-template-columns:1fr}}@media(max-width:520px){.grid{grid-template-columns:1fr}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // ADMIN CONTROL CENTER</div><div class="hero"><div class="good">● PROTECTED OPERATIONS</div><h1>Operate BL3 from one place.</h1><p class="muted">Health, deployment warnings, backups, database maintenance and process-local observability. No restore button is exposed.</p><div id="summary" class="grid"></div></div><div class="panel"><h2>Quick actions</h2><div class="actions"><button class="hot" onclick="createBackup()">CREATE BACKUP</button><button onclick="validateLatest()">VALIDATE LATEST</button><button onclick="refreshAll()">REFRESH DIAGNOSTICS</button><a href="/data-safety">DATA SAFETY</a><a href="/ops">OPS CONSOLE</a><a href="/production">PRODUCTION</a><a href="/admin/reports">EXPORTS + REPORTS</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/admin/incidents">INCIDENT CENTER</a><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/announcements">ANNOUNCEMENTS</a><a href="/admin/launch-command">LAUNCH COMMAND</a><button onclick="logoutAdmin()">LOG OUT</button></div><div id="msg" class="msg"></div></div><div class="columns"><div class="panel"><h2>Warnings</h2><div id="warnings" class="muted">Loading…</div></div><div class="panel"><h2>Database + backups</h2><div id="db" class="muted">Loading…</div></div></div><div class="columns"><div class="panel"><h2>Performance</h2><div id="perf" class="muted">Loading…</div></div><div class="panel"><h2>Recent admin actions</h2><div id="actions" class="muted">Loading…</div></div></div><p><a href="/">← Back to BL3</a></p></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const s=d.system||{},b=d.backups||{},m=((d.database||{}).maintenance||{}),o=((d.observability||{}).summary||{});document.getElementById('summary').innerHTML=[['DB',s.database_healthy?'HEALTHY':'CHECK'],['BACKUPS',b.count||0],['WARNINGS',(d.warnings||[]).length],['AVG LATENCY',(o.avg_ms||0)+' ms'],['5XX',o.errors||0]].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');document.getElementById('warnings').innerHTML=(d.warnings||[]).map(w=>'<div class="warn '+(w.level==='critical'?'critical':'')+'"><b>'+esc(w.code)+'</b><div class="muted">'+esc(w.message)+'</div></div>').join('')||'<div class="good">No active warnings.</div>';const latest=b.latest||{};document.getElementById('db').innerHTML='<div class="row"><b>Integrity</b><span>'+esc(((d.database||{}).integrity||{}).quick_check||'unknown')+'</span></div><div class="row"><b>Journal</b><span>'+esc(m.journal_mode||'unknown')+'</span></div><div class="row"><b>Free pages</b><span>'+Number((m.free_ratio||0)*100).toFixed(1)+'%</span></div><div class="row"><b>Latest backup</b><span>'+esc(latest.filename||'none')+'</span></div><div class="row"><b>Backup age</b><span>'+esc(latest.age_hours??'—')+' h</span></div>';document.getElementById('perf').innerHTML='<div class="row"><b>Requests</b><span>'+esc(o.requests||0)+'</span></div><div class="row"><b>Slow</b><span>'+esc(o.slow_requests||0)+'</span></div><div class="row"><b>Average</b><span>'+esc(o.avg_ms||0)+' ms</span></div><div class="row"><b>Max</b><span>'+esc(o.max_ms||0)+' ms</span></div>';document.getElementById('actions').innerHTML=(d.recent_admin_actions||[]).map(a=>'<div class="row"><b>'+esc(a.action)+(a.ok?' ✓':' ✕')+'</b><span>'+esc(a.utc)+'<br>'+esc(a.detail||'')+'</span></div>').join('')||'No admin actions yet.'}async function load(){try{render(await api('/api/admin/control-center'))}catch(e){document.getElementById('msg').textContent=e.message}}async function createBackup(){try{document.getElementById('msg').textContent='Creating backup…';const d=await api('/admin/db-backup',{method:'POST'});document.getElementById('msg').textContent=d.message+' '+(d.filename||'');await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function validateLatest(){try{if(!state||!state.backups||!state.backups.latest){throw new Error('No backup available to validate.')}const fn=state.backups.latest.filename;const d=await api('/admin/backup-validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});document.getElementById('msg').textContent='Validation: '+(d.healthy?'HEALTHY':'CHECK REQUIRED')+' · '+fn;await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshAll(){try{render(await api('/admin/diagnostics-refresh',{method:'POST'}));document.getElementById('msg').textContent='Diagnostics refreshed.'}catch(e){document.getElementById('msg').textContent=e.message}}async function logoutAdmin(){try{await api('/admin/logout',{method:'POST'});location.reload()}catch(e){document.getElementById('msg').textContent=e.message}}load();setInterval(load,15000)</script></body></html>'''
 
 @app.route("/api/deployment")
 def deployment_diagnostics_api():
@@ -10724,8 +10741,8 @@ def deployment_diagnostics_api():
     db_size = os.path.getsize(DB) if db_exists else 0
     return jsonify({
         "success": True,
-        "version": "V15.0",
-        "engine": "admin-control-v15.0",
+        "version": "V15.1",
+        "engine": "admin-control-v15.1",
         "environment": BL3_ENV,
         "uptime_seconds": int(max(0, time.time() - _PROD_STARTED_AT)),
         "database": {"reachable": db_exists, "size_bytes": db_size, "path_mode": "custom" if os.environ.get("BL3_DB_PATH") else "default"},
@@ -10754,7 +10771,7 @@ def production_readiness_page():
     warnings = list(_PROD_WARNINGS)
     rows = "".join("<div class='warn'>⚠️ " + html.escape(w) + "</div>" for w in warnings) or "<div class='ok'>✓ No startup warnings detected.</div>"
     secure = "ON" if app.config.get("SESSION_COOKIE_SECURE") else "OFF"
-    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#050507'><title>BL3 Production Readiness</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:920px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2a2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151b,#09090e);margin-top:18px}h1{font-size:clamp(42px,8vw,76px);margin:8px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #282b33;border-radius:15px;padding:13px}.stat b{display:block;font-size:17px}.stat span,.muted{font-size:9px;color:#9296a5}.ok{color:#baff5a;padding:10px 0}.warn{color:#ffd66b;padding:10px 0;border-top:1px solid #292b33}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> V15.0</div><div class='hero'><div class='ok'>● PRODUCTION READINESS</div><h1>Deploy with eyes open.</h1><p class='muted'>Config checks, same-origin write protection, lightweight rate limiting, structured diagnostics and protected SQLite backup controls, backup history and read-only maintenance diagnostics.</p><div class='grid'><div class='stat'><b>__ENV__</b><span>ENVIRONMENT</span></div><div class='stat'><b>__SECURE__</b><span>SECURE COOKIE</span></div><div class='stat'><b>__RATE__</b><span>WRITE LIMIT</span></div><div class='stat'><b>__WARNINGS__</b><span>STARTUP WARNINGS</span></div></div></div><div class='panel'><h2>Startup checks</h2>__ROWS__</div><p><a href='/'>← Back to BL3</a> · <a href='/api/deployment'>Deployment JSON</a> · <a href='/ops'>Ops</a> · <a href='/status'>Status</a></p></div></body></html>"""
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#050507'><title>BL3 Production Readiness</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:920px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2a2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151b,#09090e);margin-top:18px}h1{font-size:clamp(42px,8vw,76px);margin:8px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #282b33;border-radius:15px;padding:13px}.stat b{display:block;font-size:17px}.stat span,.muted{font-size:9px;color:#9296a5}.ok{color:#baff5a;padding:10px 0}.warn{color:#ffd66b;padding:10px 0;border-top:1px solid #292b33}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> V15.1</div><div class='hero'><div class='ok'>● PRODUCTION READINESS</div><h1>Deploy with eyes open.</h1><p class='muted'>Config checks, same-origin write protection, lightweight rate limiting, structured diagnostics and protected SQLite backup controls, backup history and read-only maintenance diagnostics.</p><div class='grid'><div class='stat'><b>__ENV__</b><span>ENVIRONMENT</span></div><div class='stat'><b>__SECURE__</b><span>SECURE COOKIE</span></div><div class='stat'><b>__RATE__</b><span>WRITE LIMIT</span></div><div class='stat'><b>__WARNINGS__</b><span>STARTUP WARNINGS</span></div></div></div><div class='panel'><h2>Startup checks</h2>__ROWS__</div><p><a href='/'>← Back to BL3</a> · <a href='/api/deployment'>Deployment JSON</a> · <a href='/ops'>Ops</a> · <a href='/status'>Status</a></p></div></body></html>"""
     return (page.replace("__ENV__", html.escape(BL3_ENV.upper()))
                 .replace("__SECURE__", secure)
                 .replace("__RATE__", f"{BL3_RATE_MAX}/{BL3_RATE_WINDOW}s")
@@ -10772,7 +10789,7 @@ def ops_console():
 
 
 
-# ===== V15.0 LAUNCH COMMAND =====
+# ===== V15.1 LAUNCH COMMAND =====
 def _incident_assessment():
     warnings = _admin_warning_center()
     integrity = _db_integrity_report()
@@ -10846,7 +10863,7 @@ def _incident_assessment():
     incidents.sort(key=lambda x: severity_rank.get(x.get("severity"),0), reverse=True)
     top=incidents[0]["severity"] if incidents else "none"
     state="critical" if top=="critical" else ("degraded" if incidents else "operational")
-    return {"success":True,"version":"V15.0","engine":"incident-center-v15.0","state":state,
+    return {"success":True,"version":"V15.1","engine":"incident-center-v15.1","state":state,
             "top_severity":top,"incident_count":len(incidents),"incidents":incidents,
             "signals":{"database":integrity,"latest_backup":latest,"audit_chain":audit,
                        "observability":summary,"warnings":warnings},
@@ -10865,7 +10882,7 @@ def admin_incidents_api():
 def admin_incidents_page():
     if not _admin_ok():
         return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Incident Center</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;min-height:100vh;display:grid;place-items:center;padding:22px}.card{width:min(520px,100%);border:1px solid #34313b;border-radius:26px;background:#101117;padding:24px}h1{margin:8px 0;font-size:42px}p{color:#9699a8;line-height:1.6}a{color:#baff5a}</style></head><body><div class="card"><div style="color:#ff91a8">● PROTECTED OPERATIONS</div><h1>Incident Center</h1><p>Open an authenticated Admin Control Center session first, then return here.</p><p><a href="/admin/control-center">OPEN ADMIN CONTROL CENTER</a></p></div></body></html>''', 403
-    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Incident Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,#32131d,#09090d 34%,#050507 70%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1120px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a,.good{color:#baff5a}.hero,.panel{border:1px solid #322f39;border-radius:26px;padding:22px;background:linear-gradient(145deg,#141218ef,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,76px);margin:8px 0}.muted{color:#989aa8;line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #32313a;border-radius:15px;padding:12px;background:#0d0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9294a2}.incident{border:1px solid #49323a;border-radius:18px;padding:16px;margin-top:10px;background:#160d11}.incident.medium{border-color:#544724;background:#161309}.incident.critical{border-color:#7b2e41;background:#200b11}.sev{font-size:8px;font-weight:950;letter-spacing:1px;color:#ff91a8}.medium .sev{color:#ffd66b}.incident h3{margin:6px 0}.playbook{margin:10px 0 0;padding-left:20px;color:#b8bbc7;font-size:11px;line-height:1.6}.signal{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #292a32;padding:10px 0;font-size:10px}.signal:first-child{border-top:0}.signal span{color:#9699a7;text-align:right}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a,.actions button{border:1px solid #353740;border-radius:11px;padding:10px 11px;background:#0d1015;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}@media(max-width:720px){.grid{grid-template-columns:1fr 1fr}.signal{align-items:flex-start;flex-direction:column}.signal span{text-align:left}}@media(max-width:480px){.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // INCIDENT CENTER</div><div class="hero"><div id="state" class="good">● ASSESSING CURRENT SIGNALS</div><h1>Diagnose first. Recover safely.</h1><p class="muted">BL3 combines database integrity, backup age, audit-chain verification and process observability into one incident view. Recovery guidance is intentionally non-destructive.</p><div id="summary" class="grid"></div></div><div class="panel"><h2>Active incidents</h2><div id="incidents" class="muted">Loading…</div></div><div class="panel"><h2>Recovery signals</h2><div id="signals" class="muted">Loading…</div><div class="actions" style="margin-top:14px"><button class="hot" onclick="loadIncidents()">REFRESH ASSESSMENT</button><a href="/admin/control-center">CONTROL CENTER</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/data-safety">DATA SAFETY</a><a href="/ops">OPS CONSOLE</a></div></div><div class="panel"><h2>Safety policy</h2><p class="muted">No restore, VACUUM, delete, rollback or file replacement is executed from this page. Backups should be validated before any explicit operator-led recovery.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));async function loadIncidents(){const r=await fetch('/api/admin/incidents',{cache:'no-store'}),d=await r.json();if(!r.ok){document.getElementById('incidents').textContent=d.message||'Unable to load Incident Center.';return}const st=d.state||'operational';document.getElementById('state').textContent='● '+st.toUpperCase()+' · '+(d.incident_count||0)+' ACTIVE INCIDENTS';const sig=d.signals||{},db=sig.database||{},ba=sig.latest_backup||{},ac=sig.audit_chain||{},ob=sig.observability||{};document.getElementById('summary').innerHTML=[['STATE',st.toUpperCase()],['INCIDENTS',d.incident_count||0],['DB',db.quick_check||'unknown'],['AUDIT',ac.valid?'VALID':'CHECK']].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');document.getElementById('incidents').innerHTML=(d.incidents||[]).map(i=>'<div class="incident '+esc(i.severity)+'"><div class="sev">'+esc(i.severity).toUpperCase()+' · '+esc(i.code)+'</div><h3>'+esc(i.title)+'</h3><div class="muted">'+esc(i.detail)+'</div><ol class="playbook">'+(i.playbook||[]).map(p=>'<li>'+esc(p)+'</li>').join('')+'</ol></div>').join('')||'<div class="good">No active incident conditions detected by the current checks.</div>';document.getElementById('signals').innerHTML='<div class="signal"><b>Database quick_check</b><span>'+esc(db.quick_check||'unknown')+'</span></div><div class="signal"><b>Latest backup</b><span>'+esc(ba.filename||'none')+' · '+esc(ba.age_hours??'—')+'h</span></div><div class="signal"><b>Audit chain</b><span>'+(ac.valid?'VALID':'CHECK')+' · '+esc(ac.events||0)+' events</span></div><div class="signal"><b>Observed requests</b><span>'+esc(ob.requests||0)+' · '+esc(ob.errors||0)+' errors · '+esc(ob.slow_requests||0)+' slow</span></div>'}loadIncidents();setInterval(loadIncidents,15000)</script></body></html>'''
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Incident Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,#32131d,#09090d 34%,#050507 70%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1120px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a,.good{color:#baff5a}.hero,.panel{border:1px solid #322f39;border-radius:26px;padding:22px;background:linear-gradient(145deg,#141218ef,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,76px);margin:8px 0}.muted{color:#989aa8;line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #32313a;border-radius:15px;padding:12px;background:#0d0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9294a2}.incident{border:1px solid #49323a;border-radius:18px;padding:16px;margin-top:10px;background:#160d11}.incident.medium{border-color:#544724;background:#161309}.incident.critical{border-color:#7b2e41;background:#200b11}.sev{font-size:8px;font-weight:950;letter-spacing:1px;color:#ff91a8}.medium .sev{color:#ffd66b}.incident h3{margin:6px 0}.playbook{margin:10px 0 0;padding-left:20px;color:#b8bbc7;font-size:11px;line-height:1.6}.signal{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #292a32;padding:10px 0;font-size:10px}.signal:first-child{border-top:0}.signal span{color:#9699a7;text-align:right}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a,.actions button{border:1px solid #353740;border-radius:11px;padding:10px 11px;background:#0d1015;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}@media(max-width:720px){.grid{grid-template-columns:1fr 1fr}.signal{align-items:flex-start;flex-direction:column}.signal span{text-align:left}}@media(max-width:480px){.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // INCIDENT CENTER</div><div class="hero"><div id="state" class="good">● ASSESSING CURRENT SIGNALS</div><h1>Diagnose first. Recover safely.</h1><p class="muted">BL3 combines database integrity, backup age, audit-chain verification and process observability into one incident view. Recovery guidance is intentionally non-destructive.</p><div id="summary" class="grid"></div></div><div class="panel"><h2>Active incidents</h2><div id="incidents" class="muted">Loading…</div></div><div class="panel"><h2>Recovery signals</h2><div id="signals" class="muted">Loading…</div><div class="actions" style="margin-top:14px"><button class="hot" onclick="loadIncidents()">REFRESH ASSESSMENT</button><a href="/admin/control-center">CONTROL CENTER</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/data-safety">DATA SAFETY</a><a href="/ops">OPS CONSOLE</a></div></div><div class="panel"><h2>Safety policy</h2><p class="muted">No restore, VACUUM, delete, rollback or file replacement is executed from this page. Backups should be validated before any explicit operator-led recovery.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));async function loadIncidents(){const r=await fetch('/api/admin/incidents',{cache:'no-store'}),d=await r.json();if(!r.ok){document.getElementById('incidents').textContent=d.message||'Unable to load Incident Center.';return}const st=d.state||'operational';document.getElementById('state').textContent='● '+st.toUpperCase()+' · '+(d.incident_count||0)+' ACTIVE INCIDENTS';const sig=d.signals||{},db=sig.database||{},ba=sig.latest_backup||{},ac=sig.audit_chain||{},ob=sig.observability||{};document.getElementById('summary').innerHTML=[['STATE',st.toUpperCase()],['INCIDENTS',d.incident_count||0],['DB',db.quick_check||'unknown'],['AUDIT',ac.valid?'VALID':'CHECK']].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');document.getElementById('incidents').innerHTML=(d.incidents||[]).map(i=>'<div class="incident '+esc(i.severity)+'"><div class="sev">'+esc(i.severity).toUpperCase()+' · '+esc(i.code)+'</div><h3>'+esc(i.title)+'</h3><div class="muted">'+esc(i.detail)+'</div><ol class="playbook">'+(i.playbook||[]).map(p=>'<li>'+esc(p)+'</li>').join('')+'</ol></div>').join('')||'<div class="good">No active incident conditions detected by the current checks.</div>';document.getElementById('signals').innerHTML='<div class="signal"><b>Database quick_check</b><span>'+esc(db.quick_check||'unknown')+'</span></div><div class="signal"><b>Latest backup</b><span>'+esc(ba.filename||'none')+' · '+esc(ba.age_hours??'—')+'h</span></div><div class="signal"><b>Audit chain</b><span>'+(ac.valid?'VALID':'CHECK')+' · '+esc(ac.events||0)+' events</span></div><div class="signal"><b>Observed requests</b><span>'+esc(ob.requests||0)+' · '+esc(ob.errors||0)+' errors · '+esc(ob.slow_requests||0)+' slow</span></div>'}loadIncidents();setInterval(loadIncidents,15000)</script></body></html>'''
 
 @app.route("/healthz")
 def healthz():
@@ -10874,10 +10891,10 @@ def healthz():
         conn = db(); conn.execute("SELECT 1").fetchone(); conn.close()
     except Exception:
         ok, db_status = False, "error"
-    return jsonify({"ok":ok,"service":"bl3","version":"15.0","release":"LAUNCH COMMAND","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
+    return jsonify({"ok":ok,"service":"bl3","version":"15.1","release":"LAUNCH TIMELINE + MILESTONES","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
 
 
-# ===== V15.0 LAUNCH COMMAND =====
+# ===== V15.1 LAUNCH COMMAND =====
 def _latest_backup_validation(filename):
     if not filename:
         return {"validated": False, "event_id": None, "created_at": None}
@@ -10947,8 +10964,8 @@ def _release_preflight():
     warnings = [c for c in checks if not c["ok"]]
     return {
         "success": True,
-        "version": "V15.0",
-        "engine": "release-center-v15.0",
+        "version": "V15.1",
+        "engine": "release-center-v15.1",
         "verdict": verdict,
         "release_score": int(score),
         "checklist": checks,
@@ -10992,8 +11009,8 @@ def admin_release_report():
     result = _release_preflight()
     payload = {
         "name":"BL3 release readiness report",
-        "version":"V15.0",
-        "target_release":"V15.0",
+        "version":"V15.1",
+        "target_release":"V15.1",
         "verdict":result.get("verdict"),
         "release_score":result.get("release_score"),
         "generated_at":result.get("generated_at"),
@@ -11011,7 +11028,7 @@ def admin_release_report():
     _admin_action("release_report_export", True, f'{payload["verdict"]} · score {payload["release_score"]}/100')
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     response = Response(body, mimetype="application/json; charset=utf-8")
-    response.headers["Content-Disposition"] = 'attachment; filename="bl3-release-readiness-v15.0.json"'
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-release-readiness-v15.1.json"'
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -11020,13 +11037,209 @@ def admin_release_report():
 def admin_releases_page():
     if not _admin_ok():
         return redirect("/admin/control-center")
-    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Release Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#1e3824,#0a0b0e 34%,#050507 70%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1150px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a,.go{color:#baff5a}.hero,.panel{border:1px solid #30353b;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11151aef,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,76px);margin:8px 0}.muted{color:#969aa7;line-height:1.6}.verdict{display:inline-flex;border:1px solid #385b2e;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:950;letter-spacing:1.2px}.verdict.hold{color:#ff91a8;border-color:#6a3140}.verdict.caution{color:#ffd66b;border-color:#665326}.score{font-size:clamp(54px,9vw,96px);font-weight:950;line-height:.9;margin:18px 0}.score small{font-size:18px;color:#8f93a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.check{border:1px solid #30343d;border-radius:16px;padding:13px;background:#0b0d11}.check.bad{border-color:#583641;background:#150c10}.check.caution.bad{border-color:#5d502c;background:#161309}.check-top{display:flex;justify-content:space-between;gap:10px}.check b{font-size:11px}.badge{font-size:8px;font-weight:950;color:#baff5a}.bad .badge{color:#ff91a8}.caution.bad .badge{color:#ffd66b}.detail{font-size:9px;color:#989ba8;margin-top:7px;line-height:1.5}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a,.actions button{border:1px solid #343941;border-radius:11px;padding:10px 12px;background:#0d1015;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.note{border-top:1px solid #292d34;padding:11px 0;font-size:10px}.note span{color:#969aa7;float:right}@media(max-width:720px){.grid{grid-template-columns:1fr}.note span{float:none;display:block;margin-top:5px}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // RELEASE CENTER</div><div class="hero"><div id="verdict" class="verdict">ASSESSING</div><h1>Deploy with evidence, not hope.</h1><div id="score" class="score">—<small>/100</small></div><p class="muted">Preflight combines database integrity, backup readiness, audit-chain verification, incident state, security posture and process observability. It never executes a deployment.</p></div><div class="panel"><h2>Deploy checklist</h2><div id="checks" class="grid"><div class="muted">Loading preflight…</div></div></div><div class="panel"><h2>Preflight actions</h2><div class="actions"><button class="hot" onclick="refreshPreflight()">REFRESH PREFLIGHT</button><button onclick="createBackup()">CREATE BACKUP</button><button onclick="validateLatest()">VALIDATE LATEST</button><a href="/admin/report/release.json">EXPORT RELEASE REPORT</a><a href="/admin/incidents">INCIDENT CENTER</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/production">PRODUCTION</a><a href="/admin/control-center">CONTROL CENTER</a></div><div id="msg" class="muted" style="margin-top:10px"></div></div><div class="panel"><h2>Current release signals</h2><div id="signals" class="muted">Loading…</div></div><div class="panel"><h2>Safety policy</h2><p class="muted">A GO verdict is advisory readiness evidence, not a deployment command. No deploy, restore, rollback, VACUUM, delete or file replacement is exposed here.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const v=d.verdict||'HOLD',el=document.getElementById('verdict');el.textContent=v;el.className='verdict '+(v==='HOLD'?'hold':(v==='GO WITH CAUTION'?'caution':'go'));document.getElementById('score').innerHTML=esc(d.release_score||0)+'<small>/100</small>';document.getElementById('checks').innerHTML=(d.checklist||[]).map(c=>'<div class="check '+(!c.ok?'bad ':'')+esc(c.severity||'')+'"><div class="check-top"><b>'+esc(c.title)+'</b><span class="badge">'+(c.ok?'PASS':'CHECK')+' · '+esc(c.weight)+' pts</span></div><div class="detail">'+esc(c.detail)+'</div></div>').join('');const b=d.latest_backup||{},a=d.audit_chain||{},i=d.incident_summary||{},p=d.performance||{},dp=d.deployment||{};document.getElementById('signals').innerHTML='<div class="note"><b>Latest backup</b><span>'+esc(b.filename||'none')+' · '+esc(b.age_hours??'—')+'h</span></div><div class="note"><b>Audit chain</b><span>'+(a.valid?'VALID':'CHECK')+' · '+esc(a.events||0)+' events</span></div><div class="note"><b>Incidents</b><span>'+esc(i.count||0)+' · '+esc(i.top_severity||'none')+'</span></div><div class="note"><b>Performance</b><span>'+esc(p.errors||0)+' errors · '+esc(p.slow_requests||0)+' slow</span></div><div class="note"><b>Environment</b><span>'+esc(dp.environment||'unknown')+' · secure cookie '+(dp.secure_cookie?'ON':'OFF')+'</span></div>'}async function load(){try{render(await api('/api/admin/releases/preflight'))}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshPreflight(){try{render(await api('/admin/releases/preflight-refresh',{method:'POST'}));document.getElementById('msg').textContent='Preflight refreshed and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}async function createBackup(){try{const d=await api('/admin/db-backup',{method:'POST'});document.getElementById('msg').textContent=d.message+' '+(d.filename||'');await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function validateLatest(){try{if(!state||!state.latest_backup)throw new Error('No backup available to validate.');const fn=state.latest_backup.filename;const d=await api('/admin/backup-validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});document.getElementById('msg').textContent='Validation: '+(d.healthy?'HEALTHY':'CHECK REQUIRED')+' · '+fn;await load()}catch(e){document.getElementById('msg').textContent=e.message}}load()</script></body></html>'''
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Release Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#1e3824,#0a0b0e 34%,#050507 70%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1150px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a,.go{color:#baff5a}.hero,.panel{border:1px solid #30353b;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11151aef,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,76px);margin:8px 0}.muted{color:#969aa7;line-height:1.6}.verdict{display:inline-flex;border:1px solid #385b2e;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:950;letter-spacing:1.2px}.verdict.hold{color:#ff91a8;border-color:#6a3140}.verdict.caution{color:#ffd66b;border-color:#665326}.score{font-size:clamp(54px,9vw,96px);font-weight:950;line-height:.9;margin:18px 0}.score small{font-size:18px;color:#8f93a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.check{border:1px solid #30343d;border-radius:16px;padding:13px;background:#0b0d11}.check.bad{border-color:#583641;background:#150c10}.check.caution.bad{border-color:#5d502c;background:#161309}.check-top{display:flex;justify-content:space-between;gap:10px}.check b{font-size:11px}.badge{font-size:8px;font-weight:950;color:#baff5a}.bad .badge{color:#ff91a8}.caution.bad .badge{color:#ffd66b}.detail{font-size:9px;color:#989ba8;margin-top:7px;line-height:1.5}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a,.actions button{border:1px solid #343941;border-radius:11px;padding:10px 12px;background:#0d1015;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.note{border-top:1px solid #292d34;padding:11px 0;font-size:10px}.note span{color:#969aa7;float:right}@media(max-width:720px){.grid{grid-template-columns:1fr}.note span{float:none;display:block;margin-top:5px}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // RELEASE CENTER</div><div class="hero"><div id="verdict" class="verdict">ASSESSING</div><h1>Deploy with evidence, not hope.</h1><div id="score" class="score">—<small>/100</small></div><p class="muted">Preflight combines database integrity, backup readiness, audit-chain verification, incident state, security posture and process observability. It never executes a deployment.</p></div><div class="panel"><h2>Deploy checklist</h2><div id="checks" class="grid"><div class="muted">Loading preflight…</div></div></div><div class="panel"><h2>Preflight actions</h2><div class="actions"><button class="hot" onclick="refreshPreflight()">REFRESH PREFLIGHT</button><button onclick="createBackup()">CREATE BACKUP</button><button onclick="validateLatest()">VALIDATE LATEST</button><a href="/admin/report/release.json">EXPORT RELEASE REPORT</a><a href="/admin/incidents">INCIDENT CENTER</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/production">PRODUCTION</a><a href="/admin/control-center">CONTROL CENTER</a></div><div id="msg" class="muted" style="margin-top:10px"></div></div><div class="panel"><h2>Current release signals</h2><div id="signals" class="muted">Loading…</div></div><div class="panel"><h2>Safety policy</h2><p class="muted">A GO verdict is advisory readiness evidence, not a deployment command. No deploy, restore, rollback, VACUUM, delete or file replacement is exposed here.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const v=d.verdict||'HOLD',el=document.getElementById('verdict');el.textContent=v;el.className='verdict '+(v==='HOLD'?'hold':(v==='GO WITH CAUTION'?'caution':'go'));document.getElementById('score').innerHTML=esc(d.release_score||0)+'<small>/100</small>';document.getElementById('checks').innerHTML=(d.checklist||[]).map(c=>'<div class="check '+(!c.ok?'bad ':'')+esc(c.severity||'')+'"><div class="check-top"><b>'+esc(c.title)+'</b><span class="badge">'+(c.ok?'PASS':'CHECK')+' · '+esc(c.weight)+' pts</span></div><div class="detail">'+esc(c.detail)+'</div></div>').join('');const b=d.latest_backup||{},a=d.audit_chain||{},i=d.incident_summary||{},p=d.performance||{},dp=d.deployment||{};document.getElementById('signals').innerHTML='<div class="note"><b>Latest backup</b><span>'+esc(b.filename||'none')+' · '+esc(b.age_hours??'—')+'h</span></div><div class="note"><b>Audit chain</b><span>'+(a.valid?'VALID':'CHECK')+' · '+esc(a.events||0)+' events</span></div><div class="note"><b>Incidents</b><span>'+esc(i.count||0)+' · '+esc(i.top_severity||'none')+'</span></div><div class="note"><b>Performance</b><span>'+esc(p.errors||0)+' errors · '+esc(p.slow_requests||0)+' slow</span></div><div class="note"><b>Environment</b><span>'+esc(dp.environment||'unknown')+' · secure cookie '+(dp.secure_cookie?'ON':'OFF')+'</span></div>'}async function load(){try{render(await api('/api/admin/releases/preflight'))}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshPreflight(){try{render(await api('/admin/releases/preflight-refresh',{method:'POST'}));document.getElementById('msg').textContent='Preflight refreshed and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}async function createBackup(){try{const d=await api('/admin/db-backup',{method:'POST'});document.getElementById('msg').textContent=d.message+' '+(d.filename||'');await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function validateLatest(){try{if(!state||!state.latest_backup)throw new Error('No backup available to validate.');const fn=state.latest_backup.filename;const d=await api('/admin/backup-validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});document.getElementById('msg').textContent='Validation: '+(d.healthy?'HEALTHY':'CHECK REQUIRED')+' · '+fn;await load()}catch(e){document.getElementById('msg').textContent=e.message}}load()</script></body></html>'''
 
 
-# ===== V15.0 LAUNCH COMMAND =====
+# ===== V15.1 LAUNCH COMMAND =====
 
-# ===== V15.0 LAUNCH COMMAND =====
+# ===== V15.1 LAUNCH TIMELINE + MILESTONES =====
+_LAUNCH_TIMELINE_DEFAULTS = [
+    ("preflight", "Preflight readiness"),
+    ("backup", "Fresh recovery backup"),
+    ("validate", "Validate latest backup"),
+    ("publish_notes", "Publish launch notes"),
+    ("launch_window", "Launch window acknowledged"),
+    ("post_launch", "Post-launch health check"),
+]
+
+
+def _launch_timeline_key():
+    return "V15.1"
+
+
+def _ensure_launch_timeline():
+    launch_key = _launch_timeline_key()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = db()
+    try:
+        for key, title in _LAUNCH_TIMELINE_DEFAULTS:
+            conn.execute(
+                """INSERT OR IGNORE INTO launch_timeline_milestones
+                   (launch_key,milestone_key,title,status,note,completed_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (launch_key, key, title, "pending", "", "", now),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return launch_key
+
+
+def _launch_timeline_rows():
+    launch_key = _ensure_launch_timeline()
+    conn = db()
+    try:
+        rows = conn.execute(
+            """SELECT id,launch_key,milestone_key,title,status,note,completed_at,updated_at
+               FROM launch_timeline_milestones WHERE launch_key=? ORDER BY id ASC""",
+            (launch_key,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _launch_timeline_state(sync_live=False):
+    if sync_live:
+        _sync_launch_timeline_from_live_signals()
+    rows = _launch_timeline_rows()
+    completed = sum(1 for r in rows if r.get("status") == "complete")
+    skipped = sum(1 for r in rows if r.get("status") == "skipped")
+    pending = sum(1 for r in rows if r.get("status") == "pending")
+    total = len(rows)
+    pct = round((completed / max(1, total)) * 100)
+    next_item = next((r for r in rows if r.get("status") == "pending"), None)
+    return {
+        "success": True,
+        "version": "V15.1",
+        "engine": "launch-timeline-v15.1",
+        "launch_key": _launch_timeline_key(),
+        "milestones": rows,
+        "summary": {"total": total, "completed": completed, "skipped": skipped, "pending": pending, "progress_percent": pct},
+        "next_milestone": next_item,
+        "policy": "Timeline status is operator evidence only. It never deploys, restores, rolls back, deletes, VACUUMs or replaces production files.",
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+
+
+def _sync_launch_timeline_from_live_signals():
+    launch_key = _ensure_launch_timeline()
+    preflight = _release_preflight()
+    backups = _backup_inventory(8)
+    latest = backups[0] if backups else None
+    validation = _latest_backup_validation((latest or {}).get("filename"))
+    published = _changelog_rows(True, 30) if "_changelog_rows" in globals() else []
+    current_published = any(str(x.get("version") or "").strip().upper() == launch_key.upper() for x in published)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    automatic = {
+        "preflight": (preflight.get("verdict") != "HOLD", f'{preflight.get("verdict")} · {int(preflight.get("release_score") or 0)}/100'),
+        "backup": (bool(latest) and float((latest or {}).get("age_hours") or 999999) < 24.0, (f'{latest.get("filename")} · {float(latest.get("age_hours") or 0):.1f}h' if latest else "No backup available")),
+        "validate": (bool(validation.get("validated")), (f'validation event #{validation.get("event_id")}' if validation.get("validated") else "Latest backup validation pending")),
+        "publish_notes": (current_published, ("Published V15.1 changelog entry detected" if current_published else "Publish V15.1 notes from Announcement Center")),
+    }
+    conn = db()
+    try:
+        for key, (ok, note) in automatic.items():
+            row = conn.execute(
+                "SELECT status FROM launch_timeline_milestones WHERE launch_key=? AND milestone_key=?",
+                (launch_key, key),
+            ).fetchone()
+            if ok and row and row["status"] == "pending":
+                conn.execute(
+                    """UPDATE launch_timeline_milestones
+                       SET status='complete', note=?, completed_at=?, updated_at=?
+                       WHERE launch_key=? AND milestone_key=?""",
+                    (str(note)[:300], now, now, launch_key, key),
+                )
+            elif row and row["status"] == "pending":
+                conn.execute(
+                    "UPDATE launch_timeline_milestones SET note=?, updated_at=? WHERE launch_key=? AND milestone_key=?",
+                    (str(note)[:300], now, launch_key, key),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _launch_timeline_phase_status():
+    state = _launch_timeline_state(False)
+    summary = state.get("summary") or {}
+    if int(summary.get("pending") or 0) == 0:
+        return "pass"
+    return "caution"
+
+
+def _launch_timeline_phase_detail():
+    state = _launch_timeline_state(False)
+    s = state.get("summary") or {}
+    nxt = state.get("next_milestone") or {}
+    detail = f'{int(s.get("completed") or 0)}/{int(s.get("total") or 0)} milestones complete'
+    if nxt:
+        detail += f' · next: {nxt.get("title")}'
+    return detail
+
+
+@app.route("/api/admin/launch-timeline")
+def admin_launch_timeline_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "message": "Launch Timeline is disabled or unauthorized."}), 403
+    response = jsonify(_launch_timeline_state(False))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/admin/launch-timeline/sync", methods=["POST"])
+def admin_launch_timeline_sync():
+    if not _admin_ok():
+        return jsonify({"success": False, "message": "Launch Timeline is disabled or unauthorized."}), 403
+    state = _launch_timeline_state(True)
+    _admin_action("launch_timeline_sync", True, f'{state["summary"]["completed"]}/{state["summary"]["total"]} complete')
+    response = jsonify(state)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/admin/launch-timeline/update", methods=["POST"])
+def admin_launch_timeline_update():
+    if not _admin_ok():
+        return jsonify({"success": False, "message": "Launch Timeline is disabled or unauthorized."}), 403
+    payload = request.get_json(silent=True) or {}
+    key = str(payload.get("milestone_key") or "").strip().lower()
+    status = str(payload.get("status") or "pending").strip().lower()
+    note = " ".join(str(payload.get("note") or "").split())[:300]
+    allowed_keys = {k for k, _ in _LAUNCH_TIMELINE_DEFAULTS}
+    if key not in allowed_keys or status not in {"pending", "complete", "skipped"}:
+        return jsonify({"success": False, "message": "Invalid milestone or status."}), 400
+    launch_key = _ensure_launch_timeline()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    completed_at = now if status == "complete" else ""
+    conn = db()
+    try:
+        conn.execute(
+            """UPDATE launch_timeline_milestones
+               SET status=?, note=?, completed_at=?, updated_at=?
+               WHERE launch_key=? AND milestone_key=?""",
+            (status, note, completed_at, now, launch_key, key),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _admin_action("launch_timeline_update", True, f'{key} · {status}')
+    return jsonify(_launch_timeline_state(False))
+
+
+@app.route("/admin/report/launch-timeline.json")
+def admin_launch_timeline_report():
+    if not _admin_ok():
+        return jsonify({"success": False, "message": "Launch Timeline report is disabled or unauthorized."}), 403
+    payload = _launch_timeline_state(False)
+    _admin_action("launch_timeline_report_export", True, f'{payload["summary"]["completed"]}/{payload["summary"]["total"]} complete')
+    response = Response(json.dumps(payload, ensure_ascii=False, indent=2), mimetype="application/json; charset=utf-8")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-launch-timeline-v15.1.json"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/admin/launch-timeline")
+def admin_launch_timeline_page():
+    if not _admin_ok():
+        return redirect("/admin/control-center")
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Launch Timeline</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#241a3f,#081018 38%,#050507 74%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1100px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #303540;border-radius:27px;padding:22px;background:linear-gradient(145deg,#11151dee,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(44px,7vw,78px);line-height:.95;margin:10px 0}.kicker{color:#61f4ff;font-size:10px;font-weight:950;letter-spacing:1.5px}.muted{color:#979ba9;line-height:1.6}.meter{height:9px;background:#11141a;border:1px solid #303640;border-radius:999px;overflow:hidden;margin:16px 0}.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#9d7bff,#61f4ff,#baff5a);transition:.3s}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #303640;border-radius:15px;padding:12px;background:#0b0e13}.stat b{display:block;font-size:21px}.stat span{font-size:8px;color:#9498a7}.timeline{display:grid;gap:10px}.mile{display:grid;grid-template-columns:46px 1fr auto;gap:12px;align-items:start;border:1px solid #303640;border-radius:18px;padding:14px;background:#0a0d12}.dot{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;border:1px solid #414752;font-weight:950}.mile.complete{border-color:#36572d}.mile.complete .dot{background:#baff5a;color:#081006;border-color:#baff5a}.mile.skipped{border-color:#665326}.mile.skipped .dot{color:#ffd66b}.mile h3{margin:1px 0 5px;font-size:14px}.meta{font-size:9px;color:#969aa8;line-height:1.5}.actions{display:flex;gap:6px;flex-wrap:wrap}.actions button,.actions a{border:1px solid #353b45;border-radius:10px;padding:8px 9px;background:#0d1116;color:#fff;text-decoration:none;cursor:pointer;font-size:8px;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.top-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.top-actions>*{border:1px solid #353b45;border-radius:11px;padding:10px 11px;background:#0d1116;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.top-actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}@media(max-width:700px){.summary{grid-template-columns:1fr 1fr}.mile{grid-template-columns:40px 1fr}.mile>.actions{grid-column:1/-1}}@media(max-width:460px){.summary{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // LAUNCH TIMELINE</div><div class="hero"><div class="kicker">MILESTONES // OPERATOR EVIDENCE</div><h1>From preflight to post-launch.</h1><p class="muted">Track the launch sequence without turning the dashboard into a dangerous deploy button. Live evidence can complete safe milestones; launch-window and post-launch confirmation remain explicit operator actions.</p><div class="meter"><i id="meter"></i></div><div id="summary" class="summary"></div><div class="top-actions"><button class="hot" onclick="syncLive()">SYNC LIVE EVIDENCE</button><a href="/admin/launch-command">LAUNCH COMMAND</a><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/announcements">ANNOUNCEMENTS</a><a href="/admin/report/launch-timeline.json">EXPORT TIMELINE</a></div><div id="msg" class="muted" style="margin-top:10px"></div></div><div class="panel"><div class="kicker">LAUNCH SEQUENCE</div><h2>Milestones</h2><div id="timeline" class="timeline"><div class="muted">Loading timeline…</div></div></div><div class="panel"><h2>Safety boundary</h2><p class="muted">This timeline records operator evidence only. It does not deploy code, restore databases, roll back releases, delete data, execute VACUUM or replace production files.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const s=d.summary||{};document.getElementById('meter').style.width=(s.progress_percent||0)+'%';document.getElementById('summary').innerHTML=[['PROGRESS',(s.progress_percent||0)+'%'],['COMPLETE',s.completed||0],['PENDING',s.pending||0],['SKIPPED',s.skipped||0]].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');document.getElementById('timeline').innerHTML=(d.milestones||[]).map((m,i)=>'<div class="mile '+esc(m.status)+'"><div class="dot">'+(m.status==='complete'?'✓':(m.status==='skipped'?'—':(i+1)))+'</div><div><h3>'+esc(m.title)+'</h3><div class="meta">'+esc(m.status.toUpperCase())+(m.note?' · '+esc(m.note):'')+(m.completed_at?' · '+esc(m.completed_at):'')+'</div></div><div class="actions"><button class="hot" onclick="setStatus(\''+esc(m.milestone_key)+'\',\'complete\')">COMPLETE</button><button onclick="setStatus(\''+esc(m.milestone_key)+'\',\'pending\')">PENDING</button><button onclick="setStatus(\''+esc(m.milestone_key)+'\',\'skipped\')">SKIP</button></div></div>').join('')}async function load(){try{render(await api('/api/admin/launch-timeline'))}catch(e){document.getElementById('msg').textContent=e.message}}async function syncLive(){try{render(await api('/admin/launch-timeline/sync',{method:'POST'}));document.getElementById('msg').textContent='Live evidence synced and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}async function setStatus(key,status){try{render(await api('/admin/launch-timeline/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({milestone_key:key,status})}));document.getElementById('msg').textContent=key+' → '+status}catch(e){document.getElementById('msg').textContent=e.message}}load()</script></body></html>'''
+
+
+# ===== V15.1 LAUNCH COMMAND =====
 def _launch_command_snapshot():
+
     preflight = _release_preflight()
     incidents = _incident_assessment()
     audit = _audit_verify_chain()
@@ -11044,13 +11257,14 @@ def _launch_command_snapshot():
         {"key":"audit","title":"Audit evidence","status":"pass" if audit.get("valid") else "hold","detail":(f'{int(audit.get("events") or 0)} audit events verified.' if audit.get("valid") else 'Audit hash chain requires review.'),"url":"/admin/audit"},
         {"key":"incidents","title":"Incident posture","status":"hold" if critical else ("caution" if high else "pass"),"detail":(f'{len(critical)} critical incident(s) active.' if critical else (f'{len(high)} high-severity incident(s) active.' if high else 'No critical or high-severity incidents detected.')),"url":"/admin/incidents"},
         {"key":"release","title":"Release preflight","status":"hold" if preflight.get("verdict") == "HOLD" else ("caution" if preflight.get("verdict") == "GO WITH CAUTION" else "pass"),"detail":f'{preflight.get("verdict")} · readiness {int(preflight.get("release_score") or 0)}/100',"url":"/admin/releases"},
-        {"key":"comms","title":"Launch communications","status":"pass","detail":"Announcement Center and public Release Feed are available for launch notes.","url":"/admin/announcements"}
+        {"key":"comms","title":"Launch communications","status":"pass","detail":"Announcement Center and public Release Feed are available for launch notes.","url":"/admin/announcements"},
+        {"key":"timeline","title":"Launch timeline","status":_launch_timeline_phase_status(),"detail":_launch_timeline_phase_detail(),"url":"/admin/launch-timeline"}
     ]
     if any(p["status"] == "hold" for p in phases): state = "HOLD"
     elif any(p["status"] == "caution" for p in phases) or warnings: state = "CAUTION"
     else: state = "READY"
     return {
-        "success": True,"version": "V15.0","engine": "launch-command-v15.0","state": state,
+        "success": True,"version": "V15.1","engine": "launch-command-v15.1","state": state,
         "release_verdict": preflight.get("verdict"),"release_score": int(preflight.get("release_score") or 0),
         "phases": phases,"warnings": warnings,
         "incidents": {"state": incidents.get("state"),"count": int(incidents.get("incident_count") or 0),"top_severity": incidents.get("top_severity") or "none"},
@@ -11078,12 +11292,12 @@ def admin_launch_command_report():
     if not _admin_ok(): return jsonify({"success":False,"message":"Launch report is disabled or unauthorized."}), 403
     payload = _launch_command_snapshot(); _admin_action("launch_report_export", payload.get("state") != "HOLD", f'{payload.get("state")} · release {payload.get("release_score")}/100')
     response = Response(json.dumps(payload, ensure_ascii=False, indent=2), mimetype="application/json; charset=utf-8")
-    response.headers["Content-Disposition"] = 'attachment; filename="bl3-launch-command-v15.0.json"'; response.headers["Cache-Control"] = "no-store"; return response
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-launch-command-v15.1.json"'; response.headers["Cache-Control"] = "no-store"; return response
 
 @app.route("/admin/launch-command")
 def admin_launch_command_page():
     if not _admin_ok(): return redirect("/admin/control-center")
-    return r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Launch Command</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% 0,#15351d,#101022 30%,#050507 70%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2d3338;border-radius:28px;padding:23px;background:linear-gradient(145deg,#11161aee,#090a0fee);margin-top:16px}.hero{position:relative;overflow:hidden}.kicker{color:#61f4ff;font-size:10px;font-weight:950;letter-spacing:1.7px}.state{display:inline-flex;border:1px solid #3e5e33;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:950;letter-spacing:1.3px;color:#baff5a}.state.hold{color:#ff91a8;border-color:#653240}.state.caution{color:#ffd66b;border-color:#665326}.hero h1{font-size:clamp(48px,8vw,86px);line-height:.92;margin:14px 0}.score{font-size:58px;font-weight:950}.score small{font-size:14px;color:#9297a4}.muted{color:#989ca9;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.phase{border:1px solid #303641;border-radius:18px;padding:15px;background:#0b0e13}.phase.pass{border-color:#34552b}.phase.caution{border-color:#5b4e2a}.phase.hold{border-color:#5e2f3a;background:#150c10}.phase-top{display:flex;justify-content:space-between;gap:10px}.badge{font-size:8px;font-weight:950}.pass .badge{color:#baff5a}.caution .badge{color:#ffd66b}.hold .badge{color:#ff91a8}.phase p{font-size:9px;color:#999daa;line-height:1.5}.phase a{font-size:8px;text-decoration:none}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a,.actions button{border:1px solid #343a43;border-radius:11px;padding:10px 12px;background:#0d1116;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.row{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #282d35;padding:10px 0;font-size:10px}.row:first-child{border-top:0}.row span{color:#969aa7;text-align:right}@media(max-width:820px){.grid{grid-template-columns:1fr 1fr}}@media(max-width:560px){.grid{grid-template-columns:1fr}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // LAUNCH COMMAND</div><div class="hero"><div id="state" class="state">ASSESSING</div><h1>One room.<br>Launch with evidence.</h1><div id="score" class="score">—<small>/100 RELEASE READINESS</small></div><p class="muted">Launch Command unifies release preflight, incident posture, recovery readiness, audit evidence, performance and launch communications. It coordinates evidence only — it never executes a deploy.</p></div><div class="panel"><div class="kicker">LAUNCH PHASES</div><h2>Command checklist</h2><div id="phases" class="grid"><div class="muted">Loading launch state…</div></div></div><div class="panel"><div class="kicker">COMMAND ACTIONS</div><h2>Open the right console</h2><div class="actions"><button class="hot" onclick="refreshLaunch()">REFRESH LAUNCH STATE</button><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/incidents">INCIDENT CENTER</a><a href="/data-safety">DATA SAFETY</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/ops">OPS CONSOLE</a><a href="/admin/announcements">ANNOUNCEMENTS</a><a href="/releases">PUBLIC RELEASE FEED</a><a href="/admin/report/launch.json">EXPORT LAUNCH REPORT</a><a href="/admin/control-center">CONTROL CENTER</a></div><div id="msg" class="muted" style="margin-top:10px"></div></div><div class="panel"><div class="kicker">LIVE SIGNALS</div><h2>Launch snapshot</h2><div id="signals" class="muted">Loading…</div></div><div class="panel"><h2>Safety boundary</h2><p class="muted">READY is an operational-readiness signal, not permission to make destructive changes. No deploy, restore, rollback, delete, VACUUM or production file replacement is exposed from Launch Command.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const s=d.state||'HOLD',el=document.getElementById('state');el.textContent=s;el.className='state '+(s==='HOLD'?'hold':(s==='CAUTION'?'caution':''));document.getElementById('score').innerHTML=esc(d.release_score||0)+'<small>/100 RELEASE READINESS</small>';document.getElementById('phases').innerHTML=(d.phases||[]).map(p=>'<div class="phase '+esc(p.status)+'"><div class="phase-top"><b>'+esc(p.title)+'</b><span class="badge">'+esc(p.status).toUpperCase()+'</span></div><p>'+esc(p.detail)+'</p><a href="'+esc(p.url)+'">OPEN →</a></div>').join('');const b=d.backup||{},a=d.audit||{},i=d.incidents||{},p=d.performance||{};document.getElementById('signals').innerHTML='<div class="row"><b>Release verdict</b><span>'+esc(d.release_verdict||'—')+'</span></div><div class="row"><b>Latest backup</b><span>'+esc(b.filename||'none')+(b.age_hours!=null?' · '+esc(b.age_hours)+'h':'')+'</span></div><div class="row"><b>Audit chain</b><span>'+(a.valid?'VALID':'CHECK')+' · '+esc(a.events||0)+' events</span></div><div class="row"><b>Incidents</b><span>'+esc(i.count||0)+' · '+esc(i.top_severity||'none')+'</span></div><div class="row"><b>Process health</b><span>'+esc(p.errors||0)+' errors · '+esc(p.slow_requests||0)+' slow · '+esc(p.avg_ms||0)+' ms avg</span></div><div class="row"><b>Generated</b><span>'+esc(d.generated_at||'')+'</span></div>'}async function load(){try{render(await api('/api/admin/launch-command'))}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshLaunch(){try{render(await api('/admin/launch-command/refresh',{method:'POST'}));document.getElementById('msg').textContent='Launch state refreshed and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}load();setInterval(load,15000)</script></body></html>"""
+    return r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Launch Command</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% 0,#15351d,#101022 30%,#050507 70%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2d3338;border-radius:28px;padding:23px;background:linear-gradient(145deg,#11161aee,#090a0fee);margin-top:16px}.hero{position:relative;overflow:hidden}.kicker{color:#61f4ff;font-size:10px;font-weight:950;letter-spacing:1.7px}.state{display:inline-flex;border:1px solid #3e5e33;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:950;letter-spacing:1.3px;color:#baff5a}.state.hold{color:#ff91a8;border-color:#653240}.state.caution{color:#ffd66b;border-color:#665326}.hero h1{font-size:clamp(48px,8vw,86px);line-height:.92;margin:14px 0}.score{font-size:58px;font-weight:950}.score small{font-size:14px;color:#9297a4}.muted{color:#989ca9;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.phase{border:1px solid #303641;border-radius:18px;padding:15px;background:#0b0e13}.phase.pass{border-color:#34552b}.phase.caution{border-color:#5b4e2a}.phase.hold{border-color:#5e2f3a;background:#150c10}.phase-top{display:flex;justify-content:space-between;gap:10px}.badge{font-size:8px;font-weight:950}.pass .badge{color:#baff5a}.caution .badge{color:#ffd66b}.hold .badge{color:#ff91a8}.phase p{font-size:9px;color:#999daa;line-height:1.5}.phase a{font-size:8px;text-decoration:none}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a,.actions button{border:1px solid #343a43;border-radius:11px;padding:10px 12px;background:#0d1116;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.row{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #282d35;padding:10px 0;font-size:10px}.row:first-child{border-top:0}.row span{color:#969aa7;text-align:right}@media(max-width:820px){.grid{grid-template-columns:1fr 1fr}}@media(max-width:560px){.grid{grid-template-columns:1fr}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // LAUNCH COMMAND</div><div class="hero"><div id="state" class="state">ASSESSING</div><h1>One room.<br>Launch with evidence.</h1><div id="score" class="score">—<small>/100 RELEASE READINESS</small></div><p class="muted">Launch Command unifies release preflight, incident posture, recovery readiness, audit evidence, performance and launch communications. It coordinates evidence only — it never executes a deploy.</p></div><div class="panel"><div class="kicker">LAUNCH PHASES</div><h2>Command checklist</h2><div id="phases" class="grid"><div class="muted">Loading launch state…</div></div></div><div class="panel"><div class="kicker">COMMAND ACTIONS</div><h2>Open the right console</h2><div class="actions"><button class="hot" onclick="refreshLaunch()">REFRESH LAUNCH STATE</button><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/incidents">INCIDENT CENTER</a><a href="/data-safety">DATA SAFETY</a><a href="/admin/audit">AUDIT TRAIL</a><a href="/ops">OPS CONSOLE</a><a href="/admin/announcements">ANNOUNCEMENTS</a><a href="/admin/launch-timeline">LAUNCH TIMELINE</a><a href="/releases">PUBLIC RELEASE FEED</a><a href="/admin/report/launch.json">EXPORT LAUNCH REPORT</a><a href="/admin/control-center">CONTROL CENTER</a></div><div id="msg" class="muted" style="margin-top:10px"></div></div><div class="panel"><div class="kicker">LIVE SIGNALS</div><h2>Launch snapshot</h2><div id="signals" class="muted">Loading…</div></div><div class="panel"><h2>Safety boundary</h2><p class="muted">READY is an operational-readiness signal, not permission to make destructive changes. No deploy, restore, rollback, delete, VACUUM or production file replacement is exposed from Launch Command.</p></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const s=d.state||'HOLD',el=document.getElementById('state');el.textContent=s;el.className='state '+(s==='HOLD'?'hold':(s==='CAUTION'?'caution':''));document.getElementById('score').innerHTML=esc(d.release_score||0)+'<small>/100 RELEASE READINESS</small>';document.getElementById('phases').innerHTML=(d.phases||[]).map(p=>'<div class="phase '+esc(p.status)+'"><div class="phase-top"><b>'+esc(p.title)+'</b><span class="badge">'+esc(p.status).toUpperCase()+'</span></div><p>'+esc(p.detail)+'</p><a href="'+esc(p.url)+'">OPEN →</a></div>').join('');const b=d.backup||{},a=d.audit||{},i=d.incidents||{},p=d.performance||{};document.getElementById('signals').innerHTML='<div class="row"><b>Release verdict</b><span>'+esc(d.release_verdict||'—')+'</span></div><div class="row"><b>Latest backup</b><span>'+esc(b.filename||'none')+(b.age_hours!=null?' · '+esc(b.age_hours)+'h':'')+'</span></div><div class="row"><b>Audit chain</b><span>'+(a.valid?'VALID':'CHECK')+' · '+esc(a.events||0)+' events</span></div><div class="row"><b>Incidents</b><span>'+esc(i.count||0)+' · '+esc(i.top_severity||'none')+'</span></div><div class="row"><b>Process health</b><span>'+esc(p.errors||0)+' errors · '+esc(p.slow_requests||0)+' slow · '+esc(p.avg_ms||0)+' ms avg</span></div><div class="row"><b>Generated</b><span>'+esc(d.generated_at||'')+'</span></div>'}async function load(){try{render(await api('/api/admin/launch-command'))}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshLaunch(){try{render(await api('/admin/launch-command/refresh',{method:'POST'}));document.getElementById('msg').textContent='Launch state refreshed and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}load();setInterval(load,15000)</script></body></html>"""
 
 def _announcement_text(value, limit=600):
     return " ".join(str(value or "").replace("\r", "\n").split())[:max(1, int(limit))]
@@ -11105,7 +11319,7 @@ def _announcement_highlights(value, limit=8):
 
 
 def _announcement_templates(version, title, summary, highlights):
-    version = _announcement_text(version, 32) or "V15.0"
+    version = _announcement_text(version, 32) or "V15.1"
     title = _announcement_text(title, 100) or "BL3 update"
     summary = _announcement_text(summary, 360) or "A new BL3 release is ready."
     highlights = _announcement_highlights(highlights, 8)
@@ -11166,7 +11380,7 @@ def _announcement_defaults():
     verdict = str(preflight.get("verdict") or "NOT CHECKED")
     score = int(preflight.get("release_score") or 0)
     return {
-        "version": "V15.0",
+        "version": "V15.1",
         "title": "Announcement Center + Changelog",
         "summary": f"BL3 adds an admin release-copy workspace and a public changelog flow. Current release preflight: {verdict} ({score}/100).",
         "highlights": [
@@ -11185,8 +11399,8 @@ def admin_announcements_api():
     defaults = _announcement_defaults()
     return jsonify({
         "success": True,
-        "version": "V15.0",
-        "engine": "announcement-center-v15.0",
+        "version": "V15.1",
+        "engine": "announcement-center-v15.1",
         "defaults": defaults,
         "templates": _announcement_templates(defaults["version"], defaults["title"], defaults["summary"], defaults["highlights"]),
         "entries": _changelog_rows(False, 25),
@@ -11199,7 +11413,7 @@ def admin_announcement_generate():
     if not _admin_ok():
         return jsonify({"success": False, "message": "Admin authentication required."}), 403
     payload = request.get_json(silent=True) or {}
-    version = _announcement_text(payload.get("version"), 32) or "V15.0"
+    version = _announcement_text(payload.get("version"), 32) or "V15.1"
     title = _announcement_text(payload.get("title"), 100) or "BL3 update"
     summary = _announcement_text(payload.get("summary"), 360)
     highlights = _announcement_highlights(payload.get("highlights"), 8)
@@ -11213,7 +11427,7 @@ def admin_announcement_save():
     if not _admin_ok():
         return jsonify({"success": False, "message": "Admin authentication required."}), 403
     payload = request.get_json(silent=True) or {}
-    version = _announcement_text(payload.get("version"), 32) or "V15.0"
+    version = _announcement_text(payload.get("version"), 32) or "V15.1"
     title = _announcement_text(payload.get("title"), 100) or "BL3 update"
     summary = _announcement_text(payload.get("summary"), 600)
     highlights = _announcement_highlights(payload.get("highlights"), 8)
@@ -11262,7 +11476,7 @@ def admin_announcement_publish():
 
 @app.route("/api/changelog")
 def public_changelog_api():
-    response = jsonify({"success": True, "version": "15.0", "entries": _changelog_rows(True, 50)})
+    response = jsonify({"success": True, "version": "15.1", "entries": _changelog_rows(True, 50)})
     response.headers["Cache-Control"] = "public, max-age=60"
     return response
 
@@ -11283,7 +11497,7 @@ def public_changelog_page():
 
 
 
-# ===== V15.0 LAUNCH COMMAND =====
+# ===== V15.1 LAUNCH COMMAND =====
 def _release_feed_rows(limit=40, important_only=False):
     limit=max(1,min(int(limit or 40),100)); conn=db()
     try:
@@ -11327,7 +11541,7 @@ def _release_unread_payload(username):
 @app.route("/api/releases/feed")
 def releases_feed_api():
     important=str(request.args.get("important") or "").lower() in ("1","true","yes")
-    r=jsonify({"success":True,"version":"15.0","engine":"release-feed-v15.0","entries":_release_feed_rows(60,important)}); r.headers["Cache-Control"]="public, max-age=45"; return r
+    r=jsonify({"success":True,"version":"15.1","engine":"release-feed-v15.1","entries":_release_feed_rows(60,important)}); r.headers["Cache-Control"]="public, max-age=45"; return r
 
 @app.route("/api/releases/unread")
 def releases_unread_api():
@@ -11369,7 +11583,7 @@ def releases_page():
         rtype=html.escape(str(entry.get("release_type") or "feature").upper()); highlights="".join(f'<li>{html.escape(str(x))}</li>' for x in (entry.get("highlights") or [])); pin='<span class="pin">PINNED</span>' if entry.get("pinned") else ''
         cards.append('<article class="entry"><div class="top"><div><span class="type">'+rtype+'</span>'+pin+'</div><span>'+html.escape(str(entry.get("published_at") or entry.get("created_at") or ""))+'</span></div><div class="version">'+html.escape(str(entry.get("version") or "BL3"))+'</div><h2>'+html.escape(str(entry.get("title") or "BL3 update"))+'</h2><p>'+html.escape(str(entry.get("summary") or ""))+'</p>'+(("<ul>"+highlights+"</ul>") if highlights else "")+'</article>')
     body="".join(cards) or '<div class="empty">No published releases yet.</div>'
-    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Release Feed</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% 0,#092835,#10111a 30%,#050507 68%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:940px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,a{color:#baff5a}.hero,.entry,.empty{border:1px solid #2f333d;border-radius:24px;padding:22px;background:linear-gradient(145deg,#11151cee,#080a0fee);margin-top:16px}.hero{border-color:#26414a}.hero h1{font-size:clamp(46px,8vw,80px);margin:8px 0}.muted,.entry p,.entry li{color:#9fa4b2;line-height:1.65}.top{display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#828897}.type,.pin{display:inline-block;border:1px solid #31515b;border-radius:999px;padding:5px 7px;color:#61f4ff;font-weight:900;margin-right:6px}.pin{color:#baff5a;border-color:#3d5832}.version{color:#baff5a;font-size:10px;font-weight:950;letter-spacing:1.3px;margin-top:14px}.entry h2{margin:7px 0 5px;font-size:27px}.entry ul{padding-left:20px}.empty{color:#9296a5}.links{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.links a{border:1px solid #303541;border-radius:11px;padding:9px 11px;text-decoration:none;color:#fff;font-size:9px;font-weight:900}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> RELEASE FEED</div><div class="hero"><div style="color:#61f4ff;font-size:10px;font-weight:900;letter-spacing:1.5px">WHAT'S NEW // V15.0</div><h1>BL3 keeps shipping.</h1><p class="muted">Published product updates, fixes, security notes and improvements — one feed for the Human Alpha Network.</p><div class="links"><a href="/">BL3 HOME</a><a href="/changelog">FULL CHANGELOG</a></div></div>'''+body+'''</div></body></html>'''
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Release Feed</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% 0,#092835,#10111a 30%,#050507 68%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:940px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,a{color:#baff5a}.hero,.entry,.empty{border:1px solid #2f333d;border-radius:24px;padding:22px;background:linear-gradient(145deg,#11151cee,#080a0fee);margin-top:16px}.hero{border-color:#26414a}.hero h1{font-size:clamp(46px,8vw,80px);margin:8px 0}.muted,.entry p,.entry li{color:#9fa4b2;line-height:1.65}.top{display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#828897}.type,.pin{display:inline-block;border:1px solid #31515b;border-radius:999px;padding:5px 7px;color:#61f4ff;font-weight:900;margin-right:6px}.pin{color:#baff5a;border-color:#3d5832}.version{color:#baff5a;font-size:10px;font-weight:950;letter-spacing:1.3px;margin-top:14px}.entry h2{margin:7px 0 5px;font-size:27px}.entry ul{padding-left:20px}.empty{color:#9296a5}.links{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.links a{border:1px solid #303541;border-radius:11px;padding:9px 11px;text-decoration:none;color:#fff;font-size:9px;font-weight:900}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> RELEASE FEED</div><div class="hero"><div style="color:#61f4ff;font-size:10px;font-weight:900;letter-spacing:1.5px">WHAT'S NEW // V15.1</div><h1>BL3 keeps shipping.</h1><p class="muted">Published product updates, fixes, security notes and improvements — one feed for the Human Alpha Network.</p><div class="links"><a href="/">BL3 HOME</a><a href="/changelog">FULL CHANGELOG</a></div></div>'''+body+'''</div></body></html>'''
 
 @app.route("/admin/releases/pin",methods=["POST"])
 def admin_release_pin():
@@ -11390,14 +11604,14 @@ def admin_release_pin():
 def admin_announcements_page():
     if not _admin_ok():
         return _admin_login_page("Open Announcement Center")
-    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Announcement Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,#291a45,#08090d 34%,#050507 72%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #30323c;border-radius:26px;padding:22px;background:linear-gradient(145deg,#12131bee,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,76px);margin:8px 0}.muted{color:#989ba8;line-height:1.6}.form{display:grid;grid-template-columns:180px 1fr;gap:10px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:9px;color:#9296a5;font-weight:900;letter-spacing:1px}.field input,.field textarea{width:100%;border:1px solid #343740;border-radius:13px;background:#0b0d12;color:#fff;padding:12px;font:inherit}.field textarea{min-height:110px;resize:vertical}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.actions button,.actions a{border:1px solid #343842;border-radius:11px;padding:10px 12px;background:#0d1015;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.copy{position:relative;border:1px solid #30343d;border-radius:18px;padding:16px;background:#0a0c11}.copy h3{margin:0 0 10px}.copy pre{white-space:pre-wrap;word-break:break-word;color:#c9cbd5;font-family:Inter,system-ui,Arial;font-size:11px;line-height:1.55;min-height:110px}.copy button{position:absolute;right:12px;top:12px;border:1px solid #383d48;border-radius:9px;background:#11151b;color:#fff;padding:7px 9px;cursor:pointer}.entry{border-top:1px solid #292d35;padding:12px 0}.entry:first-child{border-top:0}.entry .top{display:flex;justify-content:space-between;gap:10px}.entry b{font-size:11px}.entry span{font-size:9px;color:#9296a5}.badge{border:1px solid #3d444c;border-radius:999px;padding:4px 7px;font-size:8px}.badge.published{color:#baff5a;border-color:#405f31}.msg{font-size:10px;color:#61f4ff;margin-top:10px}@media(max-width:760px){.grid,.form{grid-template-columns:1fr}.field.full{grid-column:auto}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.0 // ANNOUNCEMENT CENTER</div><div class="hero"><div style="color:#baff5a;font-size:10px;font-weight:900;letter-spacing:1.5px">RELEASE COMMUNICATIONS</div><h1>One brief. Every channel.</h1><p class="muted">Generate copy-ready drafts for Discord, X and Warpcast, save changelog drafts, then publish release notes explicitly when they are ready.</p></div><div class="panel"><h2>Release brief</h2><div class="form"><div class="field"><label>VERSION</label><input id="version"></div><div class="field"><label>TITLE</label><input id="title"></div><div class="field full"><label>SUMMARY</label><textarea id="summary"></textarea></div><div class="field full"><label>HIGHLIGHTS · ONE PER LINE</label><textarea id="highlights"></textarea></div></div><div class="actions"><button class="hot" onclick="generate()">GENERATE COPY</button><button onclick="saveDraft()">SAVE CHANGELOG DRAFT</button><a href="/changelog">PUBLIC CHANGELOG</a><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/control-center">CONTROL CENTER</a></div><div id="msg" class="msg"></div></div><div class="panel"><h2>Copy kit</h2><div class="grid"><div class="copy"><h3>X draft</h3><button onclick="copyBox('x')">COPY</button><pre id="x"></pre></div><div class="copy"><h3>Discord</h3><button onclick="copyBox('discord')">COPY</button><pre id="discord"></pre></div><div class="copy"><h3>Warpcast</h3><button onclick="copyBox('warpcast')">COPY</button><pre id="warpcast"></pre></div><div class="copy"><h3>Changelog</h3><button onclick="copyBox('changelog')">COPY</button><pre id="changelog"></pre></div></div></div><div class="panel"><h2>Changelog workspace</h2><div id="entries" class="muted">Loading…</div></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function payload(){return{version:document.getElementById('version').value,title:document.getElementById('title').value,summary:document.getElementById('summary').value,highlights:document.getElementById('highlights').value.split(/\n+/).map(x=>x.trim()).filter(Boolean)}}function renderTemplates(t){['x','discord','warpcast','changelog'].forEach(k=>document.getElementById(k).textContent=(t||{})[k]||'')}function renderEntries(items){document.getElementById('entries').innerHTML=(items||[]).map(e=>'<div class="entry"><div class="top"><b>#'+esc(e.id)+' · '+esc(e.version)+' · '+esc(e.title)+'</b><span><i class="badge '+esc(e.status)+'">'+esc(e.status)+'</i> · '+esc(e.published_at||e.created_at||'')+'</span></div><div class="muted" style="margin-top:6px">'+esc(e.summary||'')+'</div>'+(e.status!=='published'?'<div class="actions"><button onclick="publishEntry('+Number(e.id)+')">PUBLISH</button></div>':'')+'</div>').join('')||'No changelog entries yet.'}async function load(){try{state=await api('/api/admin/announcements');const d=state.defaults||{};document.getElementById('version').value=d.version||'V15.0';document.getElementById('title').value=d.title||'';document.getElementById('summary').value=d.summary||'';document.getElementById('highlights').value=(d.highlights||[]).join('\n');renderTemplates(state.templates);renderEntries(state.entries)}catch(e){document.getElementById('msg').textContent=e.message}}async function generate(){try{const d=await api('/admin/announcements/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});renderTemplates(d.templates);document.getElementById('msg').textContent='Copy kit generated and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}async function saveDraft(){try{const d=await api('/admin/announcements/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});document.getElementById('msg').textContent=d.message+' #'+d.id;await refreshEntries()}catch(e){document.getElementById('msg').textContent=e.message}}async function publishEntry(id){try{const d=await api('/admin/announcements/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});document.getElementById('msg').textContent=d.message+' #'+d.id;await refreshEntries()}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshEntries(){const d=await api('/api/admin/announcements');renderEntries(d.entries)}async function copyBox(id){const value=document.getElementById(id).textContent||'';try{await navigator.clipboard.writeText(value);document.getElementById('msg').textContent=id.toUpperCase()+' copied.'}catch(e){document.getElementById('msg').textContent='Clipboard unavailable; select the text manually.'}}load()</script></body></html>'''
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Announcement Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,#291a45,#08090d 34%,#050507 72%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #30323c;border-radius:26px;padding:22px;background:linear-gradient(145deg,#12131bee,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,76px);margin:8px 0}.muted{color:#989ba8;line-height:1.6}.form{display:grid;grid-template-columns:180px 1fr;gap:10px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:9px;color:#9296a5;font-weight:900;letter-spacing:1px}.field input,.field textarea{width:100%;border:1px solid #343740;border-radius:13px;background:#0b0d12;color:#fff;padding:12px;font:inherit}.field textarea{min-height:110px;resize:vertical}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.actions button,.actions a{border:1px solid #343842;border-radius:11px;padding:10px 12px;background:#0d1015;color:#fff;text-decoration:none;cursor:pointer;font-weight:900}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.copy{position:relative;border:1px solid #30343d;border-radius:18px;padding:16px;background:#0a0c11}.copy h3{margin:0 0 10px}.copy pre{white-space:pre-wrap;word-break:break-word;color:#c9cbd5;font-family:Inter,system-ui,Arial;font-size:11px;line-height:1.55;min-height:110px}.copy button{position:absolute;right:12px;top:12px;border:1px solid #383d48;border-radius:9px;background:#11151b;color:#fff;padding:7px 9px;cursor:pointer}.entry{border-top:1px solid #292d35;padding:12px 0}.entry:first-child{border-top:0}.entry .top{display:flex;justify-content:space-between;gap:10px}.entry b{font-size:11px}.entry span{font-size:9px;color:#9296a5}.badge{border:1px solid #3d444c;border-radius:999px;padding:4px 7px;font-size:8px}.badge.published{color:#baff5a;border-color:#405f31}.msg{font-size:10px;color:#61f4ff;margin-top:10px}@media(max-width:760px){.grid,.form{grid-template-columns:1fr}.field.full{grid-column:auto}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V15.1 // ANNOUNCEMENT CENTER</div><div class="hero"><div style="color:#baff5a;font-size:10px;font-weight:900;letter-spacing:1.5px">RELEASE COMMUNICATIONS</div><h1>One brief. Every channel.</h1><p class="muted">Generate copy-ready drafts for Discord, X and Warpcast, save changelog drafts, then publish release notes explicitly when they are ready.</p></div><div class="panel"><h2>Release brief</h2><div class="form"><div class="field"><label>VERSION</label><input id="version"></div><div class="field"><label>TITLE</label><input id="title"></div><div class="field full"><label>SUMMARY</label><textarea id="summary"></textarea></div><div class="field full"><label>HIGHLIGHTS · ONE PER LINE</label><textarea id="highlights"></textarea></div></div><div class="actions"><button class="hot" onclick="generate()">GENERATE COPY</button><button onclick="saveDraft()">SAVE CHANGELOG DRAFT</button><a href="/changelog">PUBLIC CHANGELOG</a><a href="/admin/releases">RELEASE CENTER</a><a href="/admin/control-center">CONTROL CENTER</a></div><div id="msg" class="msg"></div></div><div class="panel"><h2>Copy kit</h2><div class="grid"><div class="copy"><h3>X draft</h3><button onclick="copyBox('x')">COPY</button><pre id="x"></pre></div><div class="copy"><h3>Discord</h3><button onclick="copyBox('discord')">COPY</button><pre id="discord"></pre></div><div class="copy"><h3>Warpcast</h3><button onclick="copyBox('warpcast')">COPY</button><pre id="warpcast"></pre></div><div class="copy"><h3>Changelog</h3><button onclick="copyBox('changelog')">COPY</button><pre id="changelog"></pre></div></div></div><div class="panel"><h2>Changelog workspace</h2><div id="entries" class="muted">Loading…</div></div></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function payload(){return{version:document.getElementById('version').value,title:document.getElementById('title').value,summary:document.getElementById('summary').value,highlights:document.getElementById('highlights').value.split(/\n+/).map(x=>x.trim()).filter(Boolean)}}function renderTemplates(t){['x','discord','warpcast','changelog'].forEach(k=>document.getElementById(k).textContent=(t||{})[k]||'')}function renderEntries(items){document.getElementById('entries').innerHTML=(items||[]).map(e=>'<div class="entry"><div class="top"><b>#'+esc(e.id)+' · '+esc(e.version)+' · '+esc(e.title)+'</b><span><i class="badge '+esc(e.status)+'">'+esc(e.status)+'</i> · '+esc(e.published_at||e.created_at||'')+'</span></div><div class="muted" style="margin-top:6px">'+esc(e.summary||'')+'</div>'+(e.status!=='published'?'<div class="actions"><button onclick="publishEntry('+Number(e.id)+')">PUBLISH</button></div>':'')+'</div>').join('')||'No changelog entries yet.'}async function load(){try{state=await api('/api/admin/announcements');const d=state.defaults||{};document.getElementById('version').value=d.version||'V15.1';document.getElementById('title').value=d.title||'';document.getElementById('summary').value=d.summary||'';document.getElementById('highlights').value=(d.highlights||[]).join('\n');renderTemplates(state.templates);renderEntries(state.entries)}catch(e){document.getElementById('msg').textContent=e.message}}async function generate(){try{const d=await api('/admin/announcements/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});renderTemplates(d.templates);document.getElementById('msg').textContent='Copy kit generated and recorded in the audit trail.'}catch(e){document.getElementById('msg').textContent=e.message}}async function saveDraft(){try{const d=await api('/admin/announcements/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});document.getElementById('msg').textContent=d.message+' #'+d.id;await refreshEntries()}catch(e){document.getElementById('msg').textContent=e.message}}async function publishEntry(id){try{const d=await api('/admin/announcements/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});document.getElementById('msg').textContent=d.message+' #'+d.id;await refreshEntries()}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshEntries(){const d=await api('/api/admin/announcements');renderEntries(d.entries)}async function copyBox(id){const value=document.getElementById(id).textContent||'';try{await navigator.clipboard.writeText(value);document.getElementById('msg').textContent=id.toUpperCase()+' copied.'}catch(e){document.getElementById('msg').textContent='Clipboard unavailable; select the text manually.'}}load()</script></body></html>'''
 
 
 @app.route("/api/meta")
 def api_meta():
     return jsonify({
-        "success": True, "name": "BL3 // Human Alpha Network", "version": "15.0", "release": "LAUNCH COMMAND",
-        "features": ["admin control center","announcement center","public changelog","release copy kit","release center","deploy checklist","GO / HOLD preflight","release readiness report","incident center","recovery playbook","admin warning center","admin browser session","safe admin action history","data safety","database integrity","backup center","backup history","database maintenance diagnostics","backup validation","tour collision fix","production readiness","config validation","same-origin write protection","lightweight rate limiting","structured request logging","protected sqlite backup","deployment diagnostics","performance observability","request timing","slow route diagnostics","rivalry cache diagnostics","trust center","wallet session status","gasless signature UX","session logout","resilient fetch","offline recovery","global search","activity center","personalized discovery","product tour"],
+        "success": True, "name": "BL3 // Human Alpha Network", "version": "15.1", "release": "LAUNCH TIMELINE + MILESTONES",
+        "features": ["launch timeline","launch milestones","admin control center","announcement center","public changelog","release copy kit","release center","deploy checklist","GO / HOLD preflight","release readiness report","incident center","recovery playbook","admin warning center","admin browser session","safe admin action history","data safety","database integrity","backup center","backup history","database maintenance diagnostics","backup validation","tour collision fix","production readiness","config validation","same-origin write protection","lightweight rate limiting","structured request logging","protected sqlite backup","deployment diagnostics","performance observability","request timing","slow route diagnostics","rivalry cache diagnostics","trust center","wallet session status","gasless signature UX","session logout","resilient fetch","offline recovery","global search","activity center","personalized discovery","product tour"],
         "admin_endpoints": ["/admin/control-center","/admin/announcements","/api/admin/announcements","/admin/announcements/generate","/admin/announcements/save","/admin/announcements/publish","/api/admin/control-center","/admin/reports","/api/admin/reports","/admin/export/<dataset>.csv","/admin/report/snapshot.json","/admin/report/weekly.json","/admin/audit","/api/admin/audit","/admin/audit.csv","/admin/incidents","/api/admin/incidents","/admin/releases","/api/admin/releases/preflight","/admin/releases/preflight-refresh","/admin/report/release.json","/admin/db-backup","/admin/backup-validate","/admin/diagnostics-refresh"],
         "public_endpoints": ["/healthz","/changelog","/api/changelog","/production","/data-safety","/api/data-safety","/api/data-maintenance","/api/deployment","/ops","/api/observability","/trust","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
@@ -11411,7 +11625,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> TRUST CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V15.0 · production checks online · database reachable · observability online</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · Ops console: <a href="/ops">/ops</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> TRUST CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V15.1 · production checks online · database reachable · observability online</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · Ops console: <a href="/ops">/ops</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/trust")
@@ -11469,7 +11683,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🛰️ BL3 ARENA V15.0 // LAUNCH COMMAND")
+    print("🛰️ BL3 ARENA V15.1 // LAUNCH TIMELINE + MILESTONES")
     print("💾 SQLite enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
