@@ -445,7 +445,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.5";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.6";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -817,15 +817,25 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @media(max-width:620px){.activity-center-panel{width:100vw}.activity-summary{grid-template-columns:1fr 1fr}.activity-center-head{padding:18px}.activity-center-body{padding:10px 14px 20px}}
 
 
-/* ===== V13.5 SETTINGS + PREFERENCES ===== */
+/* ===== V13.6 PRODUCT POLISH ===== */
 .settings-trigger{cursor:pointer}.settings-shell{position:fixed;inset:0;z-index:10050;display:none;background:rgba(0,0,0,.62);backdrop-filter:blur(8px)}.settings-shell.show{display:block}.settings-panel{position:absolute;right:0;top:0;height:100%;width:min(540px,100vw);background:linear-gradient(160deg,#111119,#08080d);border-left:1px solid rgba(255,255,255,.12);box-shadow:-30px 0 100px rgba(0,0,0,.58);display:flex;flex-direction:column}.settings-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:22px;border-bottom:1px solid var(--line)}.settings-head h2{margin:5px 0 0;font-size:28px;letter-spacing:-1px}.settings-close{border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;border-radius:11px;padding:9px 11px;cursor:pointer;font-weight:900}.settings-body{padding:16px 18px 24px;overflow:auto}.settings-group{border:1px solid var(--line);border-radius:18px;padding:15px;margin-bottom:10px;background:rgba(255,255,255,.02)}.settings-group h3{font-size:12px;letter-spacing:.7px;margin:0 0 4px}.settings-group>.meta{font-size:9px;margin-bottom:12px}.settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid rgba(255,255,255,.07)}.settings-row:first-of-type{border-top:0}.settings-row-copy b{display:block;font-size:10px}.settings-row-copy span{display:block;font-size:8px;color:var(--muted);margin-top:3px;line-height:1.45}.settings-select{width:min(210px,48%);margin:0;padding:9px 11px;font-size:10px}.settings-toggle{width:42px;height:24px;border-radius:999px;border:1px solid var(--line);background:#17171f;position:relative;cursor:pointer;flex:0 0 auto}.settings-toggle:after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;left:2px;top:2px;background:#8c8d99;transition:.18s}.settings-toggle.on{background:rgba(186,255,90,.12);border-color:rgba(186,255,90,.35)}.settings-toggle.on:after{left:20px;background:var(--hot);box-shadow:0 0 14px rgba(186,255,90,.35)}.settings-checks{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.settings-check{border:1px solid var(--line);border-radius:12px;padding:9px;background:rgba(255,255,255,.018);display:flex;align-items:center;gap:8px;font-size:9px;cursor:pointer}.settings-check input{width:auto;margin:0;accent-color:#baff5a}.settings-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}.settings-foot button{flex:1;margin:0}.settings-saved{color:var(--hot);font-size:9px;font-weight:900;min-height:16px;margin-top:8px}
 body.pref-compact .card,body.pref-compact .heat-panel,body.pref-compact .mission-control,body.pref-compact .feud-hall,body.pref-compact .feud-spotlight,body.pref-compact .discovery-engine,body.pref-compact .trending-feuds{padding-top:14px!important;padding-bottom:14px!important}body.pref-compact .command-link,body.pref-compact .command-label{min-height:58px;padding:10px}body.pref-compact .hero-copy{padding-top:36px;padding-bottom:36px}body.pref-compact .section-title{margin-top:24px}
 body.pref-reduced-motion *,body.pref-reduced-motion *:before,body.pref-reduced-motion *:after{scroll-behavior:auto!important;animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}.settings-muted{opacity:.55}
 @media(max-width:620px){.settings-panel{width:100vw}.settings-head{padding:18px}.settings-body{padding:12px 14px 20px}.settings-row{align-items:flex-start}.settings-select{width:48%}.settings-checks{grid-template-columns:1fr 1fr}}
+
+
+/* ===== V13.6 PRODUCT POLISH // RESILIENT UX ===== */
+.network-status{position:fixed;left:50%;top:14px;z-index:12050;transform:translate(-50%,-150%);display:flex;align-items:center;gap:10px;max-width:min(760px,calc(100vw - 24px));padding:10px 12px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(10,10,15,.96);box-shadow:0 18px 60px rgba(0,0,0,.48);backdrop-filter:blur(18px);transition:transform .22s ease,opacity .22s ease;opacity:0}.network-status.show{transform:translate(-50%,0);opacity:1}.network-status.offline{border-color:rgba(255,122,157,.34);background:rgba(30,9,15,.97)}.network-status.recovered{border-color:rgba(186,255,90,.28)}.network-status .net-dot{width:8px;height:8px;border-radius:50%;background:var(--hot);box-shadow:0 0 14px var(--hot);flex:0 0 auto}.network-status.offline .net-dot{background:#ff7a9d;box-shadow:0 0 14px rgba(255,122,157,.65)}.network-status-copy{min-width:0;flex:1}.network-status-copy b{display:block;font-size:10px;letter-spacing:1px}.network-status-copy span{display:block;margin-top:2px;color:var(--muted);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.network-retry{border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.045);color:#fff;padding:7px 9px;font-size:8px;font-weight:950;cursor:pointer}.network-retry:hover{background:#fff;color:#08080a}
+.bl3-skeleton{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.025);min-height:72px}.bl3-skeleton:after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);animation:bl3Shimmer 1.2s linear infinite}.bl3-skeleton-line{height:8px;border-radius:999px;background:rgba(255,255,255,.07);margin:12px}.bl3-skeleton-line.short{width:42%}.bl3-skeleton-line.mid{width:68%}.bl3-skeleton-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.bl3-skeleton-stack{display:grid;gap:8px}.bl3-stale-badge{display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(255,214,107,.24);border-radius:999px;padding:4px 7px;color:var(--gold);font-size:7px;font-weight:950;letter-spacing:.8px}.bl3-recovery{border:1px dashed rgba(255,122,157,.28);border-radius:16px;padding:14px;background:rgba(255,122,157,.035)}.bl3-recovery b{display:block;font-size:11px}.bl3-recovery span{display:block;color:var(--muted);font-size:9px;line-height:1.5;margin-top:4px}.bl3-recovery button{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.04);color:#fff;padding:8px 10px;font-size:8px;font-weight:900;cursor:pointer}.is-busy{pointer-events:none;opacity:.68}.is-busy:after{content:" …"}.offline-muted{opacity:.62;filter:saturate(.72)}
+@keyframes bl3Shimmer{to{transform:translateX(100%)}}
+html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .live,.offline .pulse-live-dot,.offline .spot-live{animation:none!important;box-shadow:none!important}
+@media(prefers-reduced-motion:reduce){.bl3-skeleton:after{animation:none}.network-status{transition:none}}
+@media(max-width:620px){.network-status{top:8px}.network-status-copy span{max-width:210px}.bl3-skeleton-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <a class="skip-link" href="#mainContent">SKIP TO NETWORK</a>
+<div class="network-status" id="networkStatus" role="status" aria-live="polite"><i class="net-dot"></i><div class="network-status-copy"><b id="networkStatusTitle">NETWORK READY</b><span id="networkStatusDetail">BL3 live endpoints are reachable.</span></div><button class="network-retry" id="networkRetryBtn" type="button" onclick="recoverBL3()">RETRY NOW</button></div>
 <div class="settings-shell" id="settingsShell" role="dialog" aria-modal="true" aria-label="BL3 Settings and Preferences" onclick="settingsBackdrop(event)">
   <aside class="settings-panel">
     <div class="settings-head"><div><div class="eyebrow">⚙️ SETTINGS // LOCAL PREFERENCES</div><h2>Make BL3 Yours</h2><div class="meta">Saved on this device. No wallet or personal data is required.</div></div><button class="settings-close" type="button" onclick="closeSettings()">ESC</button></div>
@@ -860,7 +870,7 @@ body.pref-reduced-motion *,body.pref-reduced-motion *:before,body.pref-reduced-m
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.5</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.6</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -897,7 +907,7 @@ body.pref-reduced-motion *,body.pref-reduced-motion *:before,body.pref-reduced-m
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V13.5</div>
+            <div class="core-badge">V13.6</div>
           </div>
         </div>
         <div>
@@ -1428,7 +1438,63 @@ async function loadOnboarding(){
 }
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
-async function jsonFetch(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}return d}
+const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v13.6:";
+let bl3RecoveryNoticeTimer=null;
+let bl3Recovering=false;
+function setNetworkStatus(mode,title,detail,sticky){
+ const el=document.getElementById("networkStatus");if(!el)return;
+ el.classList.remove("offline","recovered");if(mode)el.classList.add(mode);
+ const t=document.getElementById("networkStatusTitle"),d=document.getElementById("networkStatusDetail");
+ if(t)t.textContent=title||"NETWORK READY";if(d)d.textContent=detail||"";
+ el.classList.add("show");document.documentElement.classList.toggle("offline",mode==="offline");
+ clearTimeout(bl3RecoveryNoticeTimer);if(!sticky)bl3RecoveryNoticeTimer=setTimeout(()=>el.classList.remove("show"),2600);
+}
+function skeletonHTML(count=3){
+ count=Math.max(1,Math.min(6,Number(count)||3));
+ return '<div class="bl3-skeleton-stack">'+Array.from({length:count},()=>'<div class="bl3-skeleton"><div class="bl3-skeleton-line short"></div><div class="bl3-skeleton-line mid"></div><div class="bl3-skeleton-line"></div></div>').join("")+'</div>';
+}
+function setLoadingSkeleton(el,count=3){if(el)el.innerHTML=skeletonHTML(count)}
+function recoveryHTML(title,detail,retryFn){return '<div class="bl3-recovery"><b>'+escapeHtml(title||"Signal interrupted")+'</b><span>'+escapeHtml(detail||"BL3 could not refresh this lane.")+'</span>'+(retryFn?'<button type="button" onclick="'+retryFn+'">↻ RETRY</button>':'')+'</div>'}
+function cacheRecoveryPayload(key,data){try{sessionStorage.setItem(BL3_RECOVERY_CACHE_PREFIX+key,JSON.stringify({saved_at:Date.now(),data}))}catch(e){}}
+function readRecoveryPayload(key){try{const raw=sessionStorage.getItem(BL3_RECOVERY_CACHE_PREFIX+key);if(!raw)return null;const parsed=JSON.parse(raw);if(!parsed||!parsed.data)return null;return parsed}catch(e){return null}}
+async function jsonFetch(url,options){
+ options=options||{};const method=String(options.method||"GET").toUpperCase();const canCache=method==="GET"&&String(url).startsWith("/api/");
+ const cacheKey=String(url);const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),9000);
+ const fetchOptions={...options,signal:controller.signal,headers:{"Accept":"application/json",...(options.headers||{})}};
+ try{
+   const r=await fetch(url,fetchOptions);clearTimeout(timeout);let d={};
+   try{d=await r.json()}catch(e){d={success:false,message:"Invalid server response"}}
+   if(!r.ok&&d&&typeof d==="object")d.http_status=r.status;
+   if(canCache&&r.ok&&d&&d.success!==false)cacheRecoveryPayload(cacheKey,d);
+   if(!navigator.onLine)setNetworkStatus("offline","OFFLINE MODE","Browser reports no connection. Showing the last available state where possible.",true);
+   return d;
+ }catch(e){
+   clearTimeout(timeout);const cached=canCache?readRecoveryPayload(cacheKey):null;
+   const offline=!navigator.onLine;setNetworkStatus("offline",offline?"YOU'RE OFFLINE":"NETWORK DELAY",offline?"BL3 will recover automatically when your connection returns.":"The request timed out. Cached data is used when available.",true);
+   if(cached){return {...cached.data,_stale:true,_offline:offline,_cached_at:cached.saved_at}}
+   return {success:false,_recoverable:true,_offline:offline,message:offline?"Offline — reconnect to refresh this signal.":"Network timeout — retry in a moment."};
+ }
+}
+async function recoverBL3(){
+ if(bl3Recovering)return;bl3Recovering=true;const btn=document.getElementById("networkRetryBtn");if(btn)btn.classList.add("is-busy");
+ try{
+   const health=await jsonFetch("/healthz");
+   if(health?.ok){setNetworkStatus("recovered","SIGNAL RESTORED","BL3 is reachable again. Refreshing live lanes…",false);document.documentElement.classList.remove("offline");
+     const jobs=[];["loadNetworkPulse","loadTrendingFeuds","loadDiscoveryEngine","loadFeudEvents","loadFeudMoments","loadActivityCenter"].forEach(name=>{if(typeof window[name]==="function")jobs.push(Promise.resolve().then(()=>window[name]()).catch(()=>null))});await Promise.allSettled(jobs);
+   }else{setNetworkStatus("offline","STILL RECONNECTING","BL3 is not reachable yet. Your last available state stays on screen.",true)}
+ }finally{bl3Recovering=false;if(btn)btn.classList.remove("is-busy")}
+}
+window.addEventListener("offline",()=>setNetworkStatus("offline","YOU'RE OFFLINE","Live refresh is paused. Cached network state remains available where possible.",true));
+window.addEventListener("online",()=>{setNetworkStatus("recovered","CONNECTION RESTORED","Checking BL3 live services…",false);setTimeout(recoverBL3,250)});
+window.addEventListener("unhandledrejection",()=>{if(!navigator.onLine)setNetworkStatus("offline","YOU'RE OFFLINE","A live request could not complete. Cached state is preserved.",true)});
+
+
+
+
+function noteStalePayload(data,metaId){
+ if(!data?._stale)return;const el=document.getElementById(metaId);if(!el)return;
+ if(!el.querySelector?.(".bl3-stale-badge")){const badge=document.createElement("span");badge.className="bl3-stale-badge";badge.textContent="◷ CACHED";badge.title="Showing the last successful response while BL3 reconnects.";el.appendChild(document.createTextNode(" "));el.appendChild(badge)}
+}
 
 function targetRevengeRival(name){
  const opponent=document.getElementById("battleOpponent");
@@ -2908,7 +2974,7 @@ function renderActivityCenter(){
  document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
  document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
  document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
- const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.5"):"Sign in to load your Hunter activity.";
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.6"):"Sign in to load your Hunter activity.";
  const items=(Array.isArray(d.items)?d.items:[]).filter(x=>activityPreferenceEnabled(x.type));const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
  if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
  if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
@@ -2938,6 +3004,14 @@ loadUser();loadArenas();loadActivityCenter();
 setTimeout(applyDefaultLanding,450);
 
 hydrateChallenge();
+
+
+function primeProductPolish(){
+ const targets=[["networkPulseTrack",3],["trendingFeudsBody",3],["discoveryBody",3],["feudMomentsBody",3],["feudEventsBody",3]];
+ targets.forEach(([id,n])=>{const el=document.getElementById(id);if(el&&/Loading|Scanning|Waiting|Calculating/i.test(el.textContent||""))setLoadingSkeleton(el,n)});
+ if(!navigator.onLine)setNetworkStatus("offline","YOU'RE OFFLINE","BL3 opened in resilient mode. Cached state will be used where available.",true);
+}
+document.addEventListener("DOMContentLoaded",primeProductPolish,{once:true});
 </script>
 </body>
 </html>
@@ -9616,14 +9690,14 @@ def healthz():
         conn = db(); conn.execute("SELECT 1").fetchone(); conn.close()
     except Exception:
         ok, db_status = False, "error"
-    return jsonify({"ok":ok,"service":"bl3","version":"13.5","release":"SETTINGS + PREFERENCES","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
+    return jsonify({"ok":ok,"service":"bl3","version":"13.6","release":"PRODUCT POLISH","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
 
 
 @app.route("/api/meta")
 def api_meta():
     return jsonify({
-        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.5", "release": "SETTINGS + PREFERENCES",
-        "features": ["local preferences","reduced motion","compact density","activity filters","default landing"],
+        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.6", "release": "PRODUCT POLISH",
+        "features": ["resilient fetch","offline recovery","session response cache","loading skeletons","connection status","retry recovery","local preferences"],
         "public_endpoints": ["/healthz","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
     })
@@ -9636,7 +9710,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> SETTINGS + PREFERENCES</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.5 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> PRODUCT POLISH</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.6 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/transparency")
@@ -9688,7 +9762,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("⚙️ BL3 ARENA V13.5 // SETTINGS + PREFERENCES")
+    print("⚙️ BL3 ARENA V13.6 // PRODUCT POLISH")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
