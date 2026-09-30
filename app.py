@@ -435,7 +435,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -445,7 +445,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.1";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.3";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -477,7 +477,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -497,7 +497,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -516,7 +516,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -534,7 +534,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -547,7 +547,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -559,7 +559,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -575,7 +575,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -586,7 +586,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
 .clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
 .clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
@@ -616,7 +616,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes comboBurst{0%{opacity:0;filter:blur(1px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6) rotate(360deg) translateX(150px)}}@keyframes comboToast{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(prefers-reduced-motion:reduce){.combo-burst i,.combo-toast.show{animation:none!important}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .momentum-board{margin:0 0 22px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(16,16,23,.94),rgba(8,8,13,.93));padding:18px;overflow:hidden;position:relative}
 .momentum-board:before{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(45px)}
 .momentum-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.momentum-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.momentum-head .meta{text-align:right;font-size:9px}
@@ -628,7 +628,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .hud-momentum{margin-top:9px;border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.hud-momentum-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.hud-momentum-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.hud-momentum-top b{font-size:10px}.hud-momentum-detail{margin-top:5px;font-size:9px;color:var(--muted)}
 @media(max-width:980px){.momentum-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.momentum-grid{grid-template-columns:1fr}.momentum-head{align-items:flex-start;flex-direction:column}.momentum-head .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .threat-radar{margin:0 0 22px;border:1px solid rgba(255,68,91,.16);border-radius:24px;background:linear-gradient(145deg,rgba(24,10,15,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .threat-radar:before{content:"";position:absolute;left:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,68,91,.08);filter:blur(48px)}
 .threat-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.threat-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.threat-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -644,7 +644,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   *{scroll-behavior:auto!important}
 }
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .revenge-queue{margin:0 0 22px;border:1px solid rgba(255,99,215,.16);border-radius:24px;background:linear-gradient(145deg,rgba(25,10,24,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .revenge-queue:before{content:"";position:absolute;right:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(48px)}
 .revenge-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.revenge-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.revenge-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -656,7 +656,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .revenge-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
 @media(max-width:980px){.revenge-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.revenge-grid{grid-template-columns:1fr}.revenge-head{align-items:flex-start;flex-direction:column}.revenge-head .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .nemesis-duel{margin:0 0 22px;border:1px solid rgba(255,99,215,.18);border-radius:26px;background:linear-gradient(135deg,rgba(29,9,28,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .nemesis-duel:before{content:"";position:absolute;right:-100px;top:-100px;width:290px;height:290px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(50px)}
 .nemesis-duel:after{content:"";position:absolute;left:-90px;bottom:-120px;width:260px;height:260px;border-radius:50%;background:rgba(97,244,255,.05);filter:blur(50px)}
@@ -669,25 +669,25 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .duel-empty{position:relative;z-index:2;border:1px dashed var(--line);border-radius:15px;padding:16px;color:var(--muted);font-size:9px;margin-top:14px}
 @media(max-width:800px){.duel-stage{grid-template-columns:1fr}.duel-vs{margin:auto}.duel-fighter.right{flex-direction:row;text-align:left}.duel-fighter.right .duel-score{margin-left:auto;margin-right:0}}@media(max-width:560px){.duel-head{flex-direction:column;align-items:flex-start}.duel-head .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .feud-pulse{position:relative;z-index:2;margin-top:12px;border:1px solid var(--line);border-radius:15px;padding:11px 12px;background:rgba(255,255,255,.018)}
 .feud-pulse-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.feud-pulse-top b{font-size:9px;letter-spacing:1px}.feud-pulse-top span{font-size:8px;color:var(--muted)}
 .feud-pulse-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.feud-chip{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;border:1px solid var(--line);font-size:9px;font-weight:950;text-decoration:none}.feud-chip.win{color:#a7ffbf;background:rgba(85,255,145,.06);border-color:rgba(85,255,145,.18)}.feud-chip.loss{color:#ff8290;background:rgba(255,68,91,.06);border-color:rgba(255,68,91,.18)}
 .feud-last{margin-top:8px;font-size:8px;color:var(--muted)}.feud-last b{color:#fff}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .duel-path{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.duel-path-step{border:1px solid var(--line);border-radius:11px;padding:8px 6px;text-align:center;background:rgba(255,255,255,.018)}.duel-path-step b{display:block;font-size:14px}.duel-path-step span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.duel-path-step.reached{border-color:rgba(186,255,90,.22)}.duel-path-step.next{border-color:rgba(255,99,215,.34);background:rgba(255,79,216,.055)}.duel-path-step.locked{opacity:.5}@media(max-width:650px){.duel-path{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .duel-stakes{position:relative;z-index:2;margin-top:12px;border:1px solid rgba(255,214,107,.2);border-radius:18px;padding:14px;background:linear-gradient(120deg,rgba(255,214,107,.055),rgba(255,79,216,.035));overflow:hidden}
 .duel-stakes:after{content:"";position:absolute;right:-55px;top:-70px;width:150px;height:150px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(34px);pointer-events:none}
 .duel-stakes>*{position:relative;z-index:1}.duel-stakes-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.duel-stakes-kicker{font-size:8px;letter-spacing:1.5px;color:var(--gold);font-weight:950}.duel-stakes h3{font-size:20px;margin:5px 0 4px;letter-spacing:-.7px}.duel-stakes-tag{white-space:nowrap;border:1px solid rgba(255,214,107,.25);border-radius:999px;padding:6px 8px;color:var(--gold);font-size:8px;font-weight:950;letter-spacing:1px}.duel-stakes-copy{color:var(--muted);font-size:9px;line-height:1.5;max-width:700px}.duel-stakes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:11px}.duel-stake-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.02)}.duel-stake-card b{display:block;font-size:11px}.duel-stake-card span{display:block;color:var(--muted);font-size:8px;line-height:1.45;margin-top:4px}.duel-stake-card.hot{border-color:rgba(255,79,216,.22);background:rgba(255,79,216,.035)}.duel-stake-card.gold{border-color:rgba(255,214,107,.22);background:rgba(255,214,107,.035)}
 @media(max-width:700px){.duel-stakes-top{flex-direction:column}.duel-stakes-grid{grid-template-columns:1fr}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .duel-chronicle{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.duel-chron-stat{border:1px solid var(--line);border-radius:11px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.duel-chron-stat b{display:block;font-size:14px}.duel-chron-stat span{display:block;font-size:7px;color:var(--muted);margin-top:3px}@media(max-width:650px){.duel-chronicle{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .feud-hall{margin:0 0 22px;border:1px solid rgba(186,255,90,.15);border-radius:26px;background:linear-gradient(145deg,rgba(10,18,12,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .feud-hall:before{content:"";position:absolute;right:-90px;top:-100px;width:260px;height:260px;border-radius:50%;background:rgba(186,255,90,.06);filter:blur(48px)}
 .feud-hall-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-hall-head h2{margin:5px 0 0;font-size:25px;letter-spacing:-1px}.feud-hall-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -696,7 +696,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .feud-hall-empty{color:var(--muted);font-size:8px;border:1px dashed var(--line);border-radius:11px;padding:10px}
 @media(max-width:950px){.feud-hall-columns{grid-template-columns:1fr}}@media(max-width:620px){.feud-hall-head{flex-direction:column;align-items:flex-start}.feud-hall-head .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .feud-spotlight{margin:0 0 22px;border:1px solid rgba(255,214,107,.18);border-radius:26px;padding:18px;background:linear-gradient(135deg,rgba(26,20,8,.92),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-spotlight:before{content:"";position:absolute;left:-90px;top:-110px;width:280px;height:280px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(48px)}
 .feud-spotlight-head{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.feud-spotlight-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-spotlight-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -708,7 +708,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .spot-feud-empty{border:1px dashed var(--line);border-radius:14px;padding:15px;color:var(--muted);font-size:9px}
 @media(max-width:760px){.spot-feud-card{grid-template-columns:1fr}.spot-feud-score{justify-content:center}.spot-feud-side,.spot-feud-side.right{text-align:center}.spot-feud-meta{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.feud-spotlight-head{flex-direction:column;align-items:flex-start}.feud-spotlight-head .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .mission-control{margin:0 0 22px;border:1px solid rgba(97,244,255,.16);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,23,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .mission-control:before{content:"";position:absolute;right:-90px;top:-100px;width:270px;height:270px;border-radius:50%;background:rgba(97,244,255,.06);filter:blur(48px)}
 .mission-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.mission-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.mission-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -717,31 +717,31 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .mission-empty{position:relative;z-index:1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px;margin-top:12px}
 @media(max-width:850px){.mission-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.mission-head{flex-direction:column;align-items:flex-start}.mission-head .meta{text-align:left}.mission-next{align-items:flex-start;flex-direction:column}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .mission-action-deck{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:9px}
 .mission-action-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.018);color:#fff;text-decoration:none;min-width:0}
 .mission-action-card b{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mission-action-card span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.mission-action-card:hover{border-color:rgba(97,244,255,.25)}
 @media(max-width:700px){.mission-action-deck{grid-template-columns:1fr}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .ops-pulse{position:relative;z-index:1;margin-top:10px;border:1px solid rgba(186,255,90,.14);border-radius:16px;padding:11px;background:rgba(186,255,90,.025)}
 .ops-pulse-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ops-pulse-head b{font-size:9px;letter-spacing:1px}.ops-pulse-head span{font-size:8px;color:var(--muted)}
 .ops-pulse-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}.ops-pulse-stat{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.ops-pulse-stat b{display:block;font-size:13px}.ops-pulse-stat span{display:block;font-size:7px;color:var(--muted);margin-top:2px}
 .ops-pulse-feed{display:grid;gap:6px;margin-top:8px}.ops-pulse-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-decoration:none;color:#fff;border-top:1px solid var(--line);padding-top:7px}.ops-pulse-row:first-child{border-top:none}.ops-pulse-row i{font-style:normal}.ops-pulse-row b{font-size:8px}.ops-pulse-row span{font-size:7px;color:var(--muted)}.ops-pulse-row em{font-size:7px;color:var(--muted);font-style:normal}
 @media(max-width:780px){.ops-pulse-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.ops-pulse-grid{grid-template-columns:1fr 1fr}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .duel-actions .danger-clear{border-color:rgba(255,68,91,.28);background:rgba(255,68,91,.08);color:#ff9aa7}
 .nemesis-control-note{position:relative;z-index:2;margin-top:8px;font-size:8px;color:var(--muted);text-align:right}
 .feud-chip.neutral{color:var(--muted);background:rgba(255,255,255,.025);border-color:var(--line)}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .crown-war.private-intel .war-count{color:#9ea0b2;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.025)}
 .crown-war.private-intel .war-status span:after{content:" // PUBLIC VIEW";color:#8c8e9d}
 .crown-war.private-intel .war-dot{background:#9ea0b2;box-shadow:0 0 14px rgba(158,160,178,.35)}
 .crown-intel-note{font-size:8px;color:var(--muted);margin-top:7px;letter-spacing:.4px}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .feud-events{margin:0 0 22px;border:1px solid rgba(255,79,216,.18);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(24,8,22,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-events:before{content:"";position:absolute;left:-90px;top:-100px;width:280px;height:280px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(52px)}
 .feud-events-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-events-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-events-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -751,7 +751,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes feudBurst{from{opacity:0;transform:translate(-50%,-10px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
 @media(max-width:760px){.feud-event-list{grid-template-columns:1fr}.feud-events-head{flex-direction:column;align-items:flex-start}.feud-events-head .meta{text-align:left}}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .feud-moments{margin:0 0 22px;border:1px solid rgba(97,244,255,.18);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,24,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-moments:before{content:"";position:absolute;right:-100px;top:-110px;width:290px;height:290px;border-radius:50%;background:rgba(97,244,255,.07);filter:blur(54px)}
 .feud-moments-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-moments-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-moments-head .meta{text-align:right;font-size:9px;max-width:440px}
@@ -762,7 +762,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @media(max-width:760px){.feud-moment-list{grid-template-columns:1fr}.feud-moments-head{flex-direction:column;align-items:flex-start}.feud-moments-head .meta{text-align:left}}
 .moment-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.moment-actions .moment-share,.moment-actions a{border:1px solid rgba(97,244,255,.22);border-radius:9px;background:rgba(97,244,255,.05);color:var(--cyan);padding:6px 8px;font-size:7px;font-weight:900;cursor:pointer;text-decoration:none}.moment-actions a{border-color:rgba(161,124,255,.24);color:#cbbcff;background:rgba(161,124,255,.055)}
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .trending-feuds{margin:0 0 22px;border:1px solid rgba(255,214,107,.2);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(26,19,8,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .trending-feuds:before{content:"";position:absolute;left:-90px;top:-120px;width:300px;height:300px;border-radius:50%;background:rgba(255,214,107,.075);filter:blur(56px)}
 .trending-feuds-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.trending-feuds-head h2{margin:5px 0 0;font-size:28px;letter-spacing:-1.1px}.trending-feuds-head .meta{text-align:right;font-size:9px;max-width:470px}
@@ -772,7 +772,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @media(max-width:900px){.trending-feud-grid{grid-template-columns:1fr 1fr}}@media(max-width:620px){.trending-feud-grid{grid-template-columns:1fr}.trending-feuds-head{flex-direction:column;align-items:flex-start}.trending-feuds-head .meta{text-align:left}}
 
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 .discovery-engine{margin:0 0 22px;border:1px solid rgba(97,244,255,.19);border-radius:28px;padding:19px;background:linear-gradient(145deg,rgba(7,18,24,.96),rgba(10,8,15,.97));position:relative;overflow:hidden}
 .discovery-engine:before{content:"";position:absolute;right:-110px;top:-140px;width:330px;height:330px;border-radius:50%;background:rgba(97,244,255,.075);filter:blur(62px)}
 .discovery-engine:after{content:"";position:absolute;left:-100px;bottom:-150px;width:300px;height:300px;border-radius:50%;background:rgba(161,124,255,.07);filter:blur(58px)}
@@ -781,23 +781,48 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .discovery-feud-list,.discovery-hunter-list{display:grid;gap:8px}.discovery-feud{border:1px solid var(--line);border-radius:16px;padding:12px;background:rgba(255,255,255,.02)}.discovery-feud-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.discovery-feud-rank{font-size:8px;color:var(--gold);font-weight:950;letter-spacing:1px}.discovery-feud-badge{font-size:7px;color:var(--gold);border:1px solid rgba(255,214,107,.22);border-radius:999px;padding:4px 6px}.discovery-feud h3{font-size:15px;margin:8px 0 5px}.discovery-reason{font-size:8px;color:var(--muted);line-height:1.45}.discovery-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.discovery-actions a{border:1px solid var(--line);border-radius:10px;padding:7px 9px;color:#fff;text-decoration:none;font-size:7px;font-weight:900;background:rgba(255,255,255,.025)}.discovery-actions a.hot{background:rgba(186,255,90,.08);border-color:rgba(186,255,90,.24);color:var(--hot)}
 .discovery-hunter{display:grid;grid-template-columns:40px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:16px;padding:10px;background:rgba(255,255,255,.02)}.discovery-hunter-avatar{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:#090d11;border:1px solid rgba(97,244,255,.18);font-size:21px}.discovery-hunter-main b{display:block;font-size:10px}.discovery-hunter-main span{display:block;font-size:8px;color:var(--muted);margin-top:3px;line-height:1.4}.discovery-hunter-score{text-align:right}.discovery-hunter-score b{display:block;color:var(--cyan);font-size:15px}.discovery-hunter-score span{display:block;font-size:6px;color:var(--muted)}.discovery-hunter .discovery-actions{grid-column:2/-1;margin-top:0}
 .discovery-empty{border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
+.discovery-empty b{display:block;color:#fff;font-size:11px;margin-bottom:5px}.discovery-empty span{display:block;line-height:1.5}.discovery-empty a{display:inline-flex;margin-top:9px;border:1px solid rgba(97,244,255,.22);border-radius:10px;padding:8px 10px;color:var(--cyan);text-decoration:none;font-size:8px;font-weight:950;background:rgba(97,244,255,.045)}
+.discovery-personal{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(97,244,255,.22);border-radius:999px;padding:5px 8px;color:var(--cyan);font-size:7px;font-weight:950;letter-spacing:.8px;margin-left:6px}.discovery-hunter-score small{display:block;font-size:6px;color:var(--hot);margin-top:3px}.discovery-match{font-size:7px;color:var(--hot);margin-top:4px}
 @media(max-width:900px){.discovery-columns{grid-template-columns:1fr}}@media(max-width:620px){.discovery-engine-head{flex-direction:column;align-items:flex-start}.discovery-engine-head .meta{text-align:left}.discovery-hunter{grid-template-columns:36px 1fr}.discovery-hunter-score{grid-column:2;text-align:left}.discovery-hunter .discovery-actions{grid-column:1/-1}}
-</style>
 
-/* ===== V13.1 QUALITY LAYER ===== */
+/* ===== V13.3 GLOBAL SEARCH ===== */
 :focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
 .skip-link{position:fixed;left:12px;top:12px;z-index:11000;transform:translateY(-160%);background:#fff;color:#050507;padding:10px 14px;border-radius:10px;font-weight:950;text-decoration:none;transition:.18s}
 .skip-link:focus{transform:translateY(0)}
 .quality-footer{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:8px}.quality-footer a{color:#8f91a3;text-decoration:none}.quality-footer a:hover,.quality-footer a:focus-visible{color:var(--cyan)}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
+
+
+/* ===== V13.3 GLOBAL SEARCH + COMMAND PALETTE ===== */
+.command-search-trigger{cursor:pointer;font:inherit}.command-search-trigger kbd{font-size:8px;color:var(--muted);margin-left:6px;border:1px solid var(--line);padding:2px 5px;border-radius:6px;background:#07070b}
+.command-palette-shell{position:fixed;inset:0;z-index:12000;display:none;align-items:flex-start;justify-content:center;padding:10vh 16px 24px;background:rgba(2,2,5,.68);backdrop-filter:blur(10px)}
+.command-palette-shell.show{display:flex}
+.command-palette{width:min(760px,100%);max-height:min(720px,80vh);display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.14);border-radius:24px;background:linear-gradient(145deg,rgba(18,18,27,.99),rgba(7,7,11,.99));box-shadow:0 36px 140px rgba(0,0,0,.72);overflow:hidden}
+.command-palette-head{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid var(--line)}
+.command-palette-icon{font-size:22px}.command-palette-input{margin:0!important;border:0!important;background:transparent!important;border-radius:0!important;font-size:17px;font-weight:800;box-shadow:none!important}.command-palette-input:focus{outline:none}
+.command-palette-esc{border:1px solid var(--line);border-radius:8px;background:#0c0c12;color:var(--muted);padding:6px 8px;font-size:8px;font-weight:900;white-space:nowrap}
+.command-palette-meta{display:flex;justify-content:space-between;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line);font-size:8px;letter-spacing:1px;color:var(--muted)}
+.command-results{overflow:auto;padding:8px}.command-group-label{padding:9px 9px 5px;font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:950}
+.command-result{width:100%;display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;border:1px solid transparent;border-radius:14px;background:transparent;color:#fff;padding:10px;text-align:left;cursor:pointer}.command-result:hover,.command-result.active{background:rgba(186,255,90,.055);border-color:rgba(186,255,90,.2)}
+.command-result-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#09090e;border:1px solid var(--line);font-size:17px}.command-result-copy{min-width:0}.command-result-copy b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.command-result-copy span{display:block;margin-top:3px;font-size:8px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.command-result-type{font-size:7px;color:var(--hot);border:1px solid rgba(186,255,90,.16);border-radius:999px;padding:4px 6px;letter-spacing:.8px;font-weight:900}.command-empty{padding:28px 18px;text-align:center;color:var(--muted);font-size:10px}.command-palette-foot{display:flex;gap:12px;flex-wrap:wrap;padding:10px 15px;border-top:1px solid var(--line);font-size:8px;color:var(--muted)}.command-palette-foot kbd{color:#fff;border:1px solid var(--line);padding:2px 5px;border-radius:5px;background:#09090e}
+@media(max-width:620px){.command-palette-shell{padding:7vh 10px 12px}.command-palette{max-height:86vh;border-radius:19px}.command-search-trigger kbd{display:none}.command-result{grid-template-columns:34px 1fr}.command-result-type{display:none}}
+</style>
 </head>
 <body>
 <a class="skip-link" href="#mainContent">SKIP TO NETWORK</a>
+<div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
+  <div class="command-palette" id="commandPalette">
+    <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.3</span></div>
+    <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
+    <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
+  </div>
+</div>
 <div class="shell" id="mainContent" tabindex="-1">
   <nav class="nav">
     <div class="brand">BL3<span>●</span></div>
     <div class="pill">THE HUMAN ALPHA NETWORK</div>
-    <div class="nav-right"><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
+    <div class="nav-right"><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
   </nav>
 
   <section class="hero">
@@ -939,15 +964,15 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   <section class="discovery-engine" id="discoveryEngine">
     <div class="discovery-engine-head">
       <div><div class="eyebrow">📡 DISCOVERY ENGINE // START HERE</div><h2>Find The Live Story</h2></div>
-      <div class="meta" id="discoveryEngineMeta">A public feed of Feuds and Hunters with recent story momentum. No wallet weighting, paid placement or hidden boost.</div>
+      <div class="meta" id="discoveryEngineMeta">Public story momentum by default. Signed-in Hunters get relevance from real Clash history, tracked rivals and power proximity — never wallet value or paid placement.</div>
     </div>
     <div class="discovery-columns">
       <div class="discovery-col">
-        <div class="discovery-col-head"><b>⚔️ FEUDS TO WATCH</b><span>STORY + NETWORK REACTION</span></div>
+        <div class="discovery-col-head"><b>⚔️ FEUDS TO WATCH</b><span>STORY + PERSONAL RELEVANCE</span></div>
         <div class="discovery-feud-list" id="discoveryFeuds"><div class="discovery-empty">Scanning the live story…</div></div>
       </div>
       <div class="discovery-col">
-        <div class="discovery-col-head"><b>👾 HUNTERS TO CHALLENGE</b><span>FROM ACTIVE FEUDS</span></div>
+        <div class="discovery-col-head"><b>👾 HUNTERS TO CHALLENGE</b><span>SMART MATCHES + ACTIVE FEUDS</span></div>
         <div class="discovery-hunter-list" id="discoveryHunters"><div class="discovery-empty">Mapping Hunters around active Feuds…</div></div>
       </div>
     </div>
@@ -1256,7 +1281,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.1 QUALITY LAYER<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/api/meta">API META</a></div></div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/api/meta">API META</a></div></div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1596,28 +1621,35 @@ async function loadTrendingFeuds(){
 }
 
 async function loadDiscoveryEngine(){
- const d=await jsonFetch("/api/discovery-engine?feuds=4&hunters=6&window_hours=168");
+ currentUser();
+ let d=await jsonFetch("/api/personalized-discovery/"+encodeURIComponent(username)+"?feuds=4&hunters=6&window_hours=168");
+ if(!d?.success){
+   d=await jsonFetch("/api/discovery-engine?feuds=4&hunters=6&window_hours=168");
+ }
  const feudBody=document.getElementById("discoveryFeuds");
  const hunterBody=document.getElementById("discoveryHunters");
  const meta=document.getElementById("discoveryEngineMeta");
  if(!feudBody||!hunterBody)return;
  if(!d?.success){
-   feudBody.innerHTML='<div class="discovery-empty">Could not load Discovery Engine.</div>';
-   hunterBody.innerHTML='<div class="discovery-empty">Discovery is temporarily offline.</div>';
+   feudBody.innerHTML='<div class="discovery-empty"><b>Discovery is offline.</b><span>The network story could not be loaded right now.</span><a href="#arenaSection">OPEN LIVE ARENAS</a></div>';
+   hunterBody.innerHTML='<div class="discovery-empty"><b>No match data yet.</b><span>Load your Hunter identity or try again in a moment.</span><a href="#passportCard">OPEN PASSPORT</a></div>';
    return;
  }
  const feuds=Array.isArray(d.feuds)?d.feuds:[];
  const hunters=Array.isArray(d.hunters)?d.hunters:[];
- if(meta)meta.textContent=(d.window_hours||168)+"h discovery window · public story momentum only · ⚙️ "+(d.engine||"standard");
+ const personalized=!!d.personalized;
+ if(meta)meta.innerHTML=(d.window_hours||168)+"h discovery window · "+(personalized?'<span class="discovery-personal">✦ PERSONALIZED</span>':'PUBLIC STORY')+" · ⚙️ "+escapeHtml(d.engine||"standard");
+ const empty=d.empty_state||{};
  feudBody.innerHTML=feuds.length?feuds.map((r,i)=>
-   '<div class="discovery-feud"><div class="discovery-feud-top"><span class="discovery-feud-rank">#'+(i+1)+' DISCOVER</span><span class="discovery-feud-badge">'+escapeHtml(r.trend_label||"WATCHING")+'</span></div>'+
-   '<h3>'+escapeHtml(r.hunter_a||"Hunter A")+' ⚔️ '+escapeHtml(r.hunter_b||"Hunter B")+'</h3>'+
-   '<div class="discovery-reason">'+escapeHtml(r.discovery_reason||"Recent Feud activity is pulling network attention.")+'</div>'+
+   '<div class="discovery-feud"><div class="discovery-feud-top"><span class="discovery-feud-rank">#'+(i+1)+' '+(personalized?'FOR YOU':'DISCOVER')+'</span><span class="discovery-feud-badge">'+escapeHtml(r.trend_label||"WATCHING")+'</span></div>'+ 
+   '<h3>'+escapeHtml(r.hunter_a||"Hunter A")+' ⚔️ '+escapeHtml(r.hunter_b||"Hunter B")+'</h3>'+ 
+   '<div class="discovery-reason">'+escapeHtml(r.discovery_reason||"Recent Feud activity is pulling network attention.")+'</div>'+ 
+   (r.personal_reason?'<div class="discovery-match">✦ '+escapeHtml(r.personal_reason)+'</div>':'')+
    '<div class="discovery-actions"><a href="'+escapeHtml(r.rivalry_url||"#")+'">OPEN RIVALRY</a><a class="hot" href="'+escapeHtml(r.challenge_a_url||"#")+'">CHALLENGE '+escapeHtml(r.hunter_a||"HUNTER")+'</a><a class="hot" href="'+escapeHtml(r.challenge_b_url||"#")+'">CHALLENGE '+escapeHtml(r.hunter_b||"HUNTER")+'</a></div></div>'
- ).join(""):'<div class="discovery-empty">No live Feud story yet. The first shareable Clash Moment will seed Discovery.</div>';
+ ).join(""):'<div class="discovery-empty"><b>'+escapeHtml(empty.feud_title||"No live Feud story yet.")+'</b><span>'+escapeHtml(empty.feud_detail||"The first shareable Clash Moment will seed Discovery.")+'</span><a href="'+escapeHtml(empty.feud_action_url||"#clashCard")+'">'+escapeHtml(empty.feud_action_label||"START A CLASH")+'</a></div>';
  hunterBody.innerHTML=hunters.length?hunters.map(h=>
-   '<div class="discovery-hunter"><div class="discovery-hunter-avatar">'+escapeHtml(h.avatar||"👾")+'</div><div class="discovery-hunter-main"><b>'+escapeHtml(h.username||"Hunter")+' · LVL '+Number(h.level||1)+'</b><span>'+escapeHtml(h.why_now||"Active in the live story")+'</span></div><div class="discovery-hunter-score"><b>'+Number(h.discovery_score||0)+'</b><span>DISCOVERY</span></div><div class="discovery-actions"><a href="'+escapeHtml(h.profile_url||"#")+'">PROFILE</a><a class="hot" href="'+escapeHtml(h.challenge_url||"#")+'">⚔️ CHALLENGE</a></div></div>'
- ).join(""):'<div class="discovery-empty">No Hunter candidates yet. As Feuds generate Moments, Hunters will surface here.</div>';
+   '<div class="discovery-hunter"><div class="discovery-hunter-avatar">'+escapeHtml(h.avatar||"👾")+'</div><div class="discovery-hunter-main"><b>'+escapeHtml(h.username||"Hunter")+' · LVL '+Number(h.level||1)+'</b><span>'+escapeHtml(h.why_now||"Active in the live story")+'</span>'+(h.personal_reason?'<div class="discovery-match">✦ '+escapeHtml(h.personal_reason)+'</div>':'')+'</div><div class="discovery-hunter-score"><b>'+Number(h.personal_score??h.discovery_score??0)+'</b><span>'+(personalized?'MATCH':'DISCOVERY')+'</span>'+(h.power_gap!=null?'<small>Δ '+Number(h.power_gap)+' XP</small>':'')+'</div><div class="discovery-actions"><a href="'+escapeHtml(h.profile_url||"#")+'">PROFILE</a><a class="hot" href="'+escapeHtml(h.challenge_url||"#")+'">⚔️ CHALLENGE</a></div></div>'
+ ).join(""):'<div class="discovery-empty"><b>'+escapeHtml(empty.hunter_title||"No Hunter candidates yet.")+'</b><span>'+escapeHtml(empty.hunter_detail||"As Feuds generate Moments, Hunters will surface here.")+'</span><a href="'+escapeHtml(empty.hunter_action_url||"#networkHeatmap")+'">'+escapeHtml(empty.hunter_action_label||"SCAN THE NETWORK")+'</a></div>';
 }
 
 async function loadSeasonFeudSpotlight(){
@@ -1730,7 +1762,7 @@ async function loadNemesisDuel(){
  const ownerAvatar=document.getElementById("hunterAvatar")?.textContent||document.getElementById("hudCreature")?.textContent||"👾";
  const ownerName=username||"Hunter";
  const rival=f.rival||"Rival";
- if(meta)meta.textContent=(t.icon||"⚔️")+" "+(t.label||"RIVALRY")+" · "+Number(e.total||0)+" direct clashes · ⚙️ "+(f.engine||"discovery-v13.0");
+ if(meta)meta.textContent=(t.icon||"⚔️")+" "+(t.label||"RIVALRY")+" · "+Number(e.total||0)+" direct clashes · ⚙️ "+(f.engine||"discovery-v13.2");
 
  body.innerHTML=''
    +'<div class="duel-stage">'
@@ -2523,7 +2555,7 @@ function hydrateChallenge(){
  if(el)el.value=target;
  const moment=(p.get("moment")||"").trim();
  const source=(p.get("source")||"").trim();
- const suffix=(source==="feud-moment"&&moment)?(" · from Feud Moment #"+moment):(source==="discovery-v13"?" · from Discovery Engine":"");
+ const suffix=(source==="feud-moment"&&moment)?(" · from Feud Moment #"+moment):(source.startsWith("discovery-v13")?" · from Discovery Engine":"");
  show("⚔️ Challenge detected: "+target+" is waiting in the arena"+suffix+".");
 }
 
@@ -2709,6 +2741,62 @@ async function markPaid(id){
  show(d.message||"Payment status updated");if(d.success){await loadArenas();await loadUser()}
 }
 async function createArena(){currentUser();const body={creator:username,title:document.getElementById("arenaTitle").value.trim(),description:document.getElementById("arenaDescription").value.trim(),category:document.getElementById("arenaCategory").value,bounty_amount:document.getElementById("arenaBounty").value,deadline:document.getElementById("arenaDeadline").value.trim()};const d=await jsonFetch("/api/arenas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});show(d.message||"Arena request finished");if(d.success)loadArenas()}
+let commandPaletteItems=[];
+let commandPaletteIndex=0;
+let commandPaletteTimer=null;
+
+function openCommandPalette(){
+ const shell=document.getElementById("commandPaletteShell"),input=document.getElementById("commandPaletteInput");
+ if(!shell||!input)return;
+ shell.classList.add("show");document.body.style.overflow="hidden";
+ input.value="";commandPaletteIndex=0;
+ setTimeout(()=>input.focus(),20);
+ runGlobalSearch("");
+}
+function closeCommandPalette(){
+ const shell=document.getElementById("commandPaletteShell");if(!shell)return;
+ shell.classList.remove("show");document.body.style.overflow="";
+}
+function commandPaletteBackdrop(e){if(e.target?.id==="commandPaletteShell")closeCommandPalette()}
+function commandTypeIcon(type){return ({hunter:"👾",rivalry:"⚔️",clash:"💥",arena:"🎯",moment:"🎬",command:"⌘"})[type]||"🔎"}
+function renderCommandResults(items){
+ const root=document.getElementById("commandResults"),status=document.getElementById("commandPaletteStatus");if(!root)return;
+ commandPaletteItems=Array.isArray(items)?items:[];commandPaletteIndex=Math.min(commandPaletteIndex,Math.max(0,commandPaletteItems.length-1));
+ if(status)status.textContent=commandPaletteItems.length?commandPaletteItems.length+" RESULTS // GLOBAL INDEX":"GLOBAL SEARCH // NO MATCH";
+ if(!commandPaletteItems.length){root.innerHTML='<div class="command-empty">No match yet. Try a Hunter name, Clash number, feud, or command.</div>';return}
+ root.innerHTML=commandPaletteItems.map((item,i)=>'<button class="command-result '+(i===commandPaletteIndex?'active':'')+'" type="button" data-command-index="'+i+'"><span class="command-result-icon">'+escapeHtml(item.icon||commandTypeIcon(item.type))+'</span><span class="command-result-copy"><b>'+escapeHtml(item.title||"Result")+'</b><span>'+escapeHtml(item.subtitle||"")+'</span></span><span class="command-result-type">'+escapeHtml((item.type||"result").toUpperCase())+'</span></button>').join("");
+ root.querySelectorAll("[data-command-index]").forEach(btn=>btn.addEventListener("click",()=>activateCommandResult(Number(btn.dataset.commandIndex))));
+ const active=root.querySelector(".command-result.active");if(active)active.scrollIntoView({block:"nearest"});
+}
+async function runGlobalSearch(query){
+ const status=document.getElementById("commandPaletteStatus");if(status)status.textContent="SEARCHING BL3…";
+ const d=await jsonFetch("/api/global-search?q="+encodeURIComponent(query||""));
+ if(!d?.success){renderCommandResults([]);if(status)status.textContent="SEARCH UNAVAILABLE";return}
+ renderCommandResults(d.results||[]);
+}
+function activateCommandResult(index){
+ const item=commandPaletteItems[index];if(!item)return;closeCommandPalette();
+ const url=item.url||"#";
+ if(url.startsWith("#")){const el=document.querySelector(url);if(el)el.scrollIntoView({behavior:motionBehavior(),block:"start"});return}
+ if(item.new_tab){window.open(url,"_blank","noopener");return}
+ window.location.href=url;
+}
+function moveCommandSelection(delta){
+ if(!commandPaletteItems.length)return;
+ commandPaletteIndex=(commandPaletteIndex+delta+commandPaletteItems.length)%commandPaletteItems.length;renderCommandResults(commandPaletteItems);
+}
+const commandInput=document.getElementById("commandPaletteInput");
+if(commandInput){commandInput.addEventListener("input",()=>{clearTimeout(commandPaletteTimer);commandPaletteIndex=0;commandPaletteTimer=setTimeout(()=>runGlobalSearch(commandInput.value.trim()),120)});}
+document.addEventListener("keydown",e=>{
+ const shell=document.getElementById("commandPaletteShell"),open=!!shell?.classList.contains("show");
+ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();open?closeCommandPalette():openCommandPalette();return}
+ if(!open)return;
+ if(e.key==="Escape"){e.preventDefault();closeCommandPalette()}
+ else if(e.key==="ArrowDown"){e.preventDefault();moveCommandSelection(1)}
+ else if(e.key==="ArrowUp"){e.preventDefault();moveCommandSelection(-1)}
+ else if(e.key==="Enter"){e.preventDefault();activateCommandResult(commandPaletteIndex)}
+});
+
 loadUser();loadArenas();
 
 hydrateChallenge();
@@ -4545,7 +4633,7 @@ def _record_feud_moment(conn, battle_id, challenger, opponent, winner, challenge
     return moment
 
 
-# V13.1 QUALITY LAYER builds on the process-local Feud snapshots. A tiny COUNT/MAX signature query protects
+# V13.3 GLOBAL SEARCH builds on the process-local Feud snapshots. A tiny COUNT/MAX signature query protects
 # against external DB changes while avoiding a full rivalry-history scan on every request.
 _RIVALRY_CACHE_LOCK = threading.RLock()
 _RIVALRY_CACHE = {}
@@ -4951,7 +5039,7 @@ def _season_feud_spotlight():
         return {
             "season_key": season_key,
             "spotlight": None,
-            "engine": "snapshot-discovery-v13.0",
+            "engine": "snapshot-discovery-v13.2",
             "cache": {"season": season_cache, "all_time": "not-needed"}
         }
 
@@ -4998,7 +5086,7 @@ def _season_feud_spotlight():
     return {
         "season_key": season_key,
         "spotlight": ranked[0],
-        "engine": "snapshot-discovery-v13.0",
+        "engine": "snapshot-discovery-v13.2",
         "cache": {"season": season_cache, "all_time": all_time_cache}
     }
 
@@ -5026,7 +5114,7 @@ def feud_live_state_api():
         "latest_feud_moment_id": latest_feud_moment_id,
         "all_time_completed": int(all_time_sig[0]),
         "season_completed": int(season_sig[0]),
-        "engine": "discovery-v13.0",
+        "engine": "discovery-v13.2",
         "poll_after_ms": 12000
     })
 
@@ -5050,7 +5138,7 @@ def feud_events_api():
         "success": True,
         "events": [dict(r) for r in rows],
         "total_events": total,
-        "engine": "discovery-v13.0"
+        "engine": "discovery-v13.2"
     })
 
 
@@ -5144,7 +5232,7 @@ def trending_feuds_api():
         "feuds": rows,
         "window_hours": window_hours,
         "method": "Trend Score = story heat + organic CTA activity + challenge intent + freshness. No paid boosts or wallet weighting.",
-        "engine": "discovery-v13.0"
+        "engine": "discovery-v13.2"
     })
 
 
@@ -5265,6 +5353,190 @@ def _discovery_engine_rows(feud_limit=4, hunter_limit=6, window_hours=168):
     return feuds, hunters[:hunter_limit]
 
 
+
+def _personalized_discovery(username, feud_limit=4, hunter_limit=6, window_hours=168):
+    """Personal relevance layered on public discovery. Uses BL3-native behavior only."""
+    feud_limit = max(1, min(8, int(feud_limit or 4)))
+    hunter_limit = max(1, min(12, int(hunter_limit or 6)))
+    window_hours = max(1, min(24 * 30, int(window_hours or 168)))
+
+    public_feuds, public_hunters = _discovery_engine_rows(max(8, feud_limit), max(12, hunter_limit), window_hours)
+    conn = db()
+    me = conn.execute("SELECT username, xp FROM users WHERE username = ?", (username,)).fetchone()
+    if me is None:
+        conn.close()
+        return None
+    my_xp = int(me["xp"] or 0)
+
+    tracked_rivals = {r["target"] for r in conn.execute(
+        "SELECT target FROM hunter_connections WHERE owner = ? AND kind = 'rival'", (username,)
+    ).fetchall()}
+    followed = {r["target"] for r in conn.execute(
+        "SELECT target FROM hunter_connections WHERE owner = ? AND kind = 'follow'", (username,)
+    ).fetchall()}
+
+    battle_rows = conn.execute(
+        """SELECT id, challenger, opponent, winner FROM creature_battles
+           WHERE challenger = ? OR opponent = ? ORDER BY id DESC LIMIT 400""",
+        (username, username)
+    ).fetchall()
+    history = {}
+    for r in battle_rows:
+        rival = r["opponent"] if r["challenger"] == username else r["challenger"]
+        h = history.setdefault(rival, {"clashes": 0, "wins": 0, "losses": 0, "last_winner": None})
+        h["clashes"] += 1
+        if h["last_winner"] is None:
+            h["last_winner"] = r["winner"]
+        if r["winner"] == username:
+            h["wins"] += 1
+        elif r["winner"] == rival:
+            h["losses"] += 1
+
+    # Add Hunters not currently trending so personalized discovery can surface a clean first matchup.
+    candidate_rows = conn.execute(
+        "SELECT username, xp FROM users WHERE username <> ? ORDER BY xp DESC LIMIT 80", (username,)
+    ).fetchall()
+    rep_rows = conn.execute(
+        "SELECT username, COALESCE(SUM(points),0) AS n FROM reputation_events GROUP BY username"
+    ).fetchall()
+    rep_map = {r["username"]: int(r["n"] or 0) for r in rep_rows}
+    win_rows = conn.execute(
+        "SELECT winner AS username, COUNT(*) AS n FROM creature_battles GROUP BY winner"
+    ).fetchall()
+    win_map = {r["username"]: int(r["n"] or 0) for r in win_rows}
+    conn.close()
+
+    base_map = {h["username"]: dict(h) for h in public_hunters if h.get("username") != username}
+    for r in candidate_rows:
+        name = str(r["username"] or "").strip()
+        if not name or name == username:
+            continue
+        if name not in base_map:
+            xp = int(r["xp"] or 0)
+            creature = _creature_from_xp(xp)
+            base_map[name] = {
+                "username": name, "xp": xp, "level": max(1, xp // 100 + 1),
+                "avatar": creature["avatar"], "reputation": int(rep_map.get(name, 0)),
+                "wins": int(win_map.get(name, 0)), "discovery_score": 0, "feud_count": 0,
+                "rival_count": 0, "challenge_intent": 0, "max_heat": 0,
+                "why_now": "Available for a fresh direct Clash.",
+                "profile_url": "/hunter/" + urllib.parse.quote(name),
+                "challenge_url": "/?challenge=" + urllib.parse.quote(name) + "&source=discovery-v13.2"
+            }
+
+    personalized_hunters = []
+    for name, h in base_map.items():
+        xp = int(h.get("xp") or 0)
+        gap = abs(my_xp - xp)
+        hist = history.get(name, {"clashes": 0, "wins": 0, "losses": 0, "last_winner": None})
+        score = min(45, int(h.get("discovery_score") or 0) // 3)
+        reasons = []
+
+        # A close XP band is readable and fair-feeling without being a hidden power guarantee.
+        proximity = max(0, 40 - min(40, gap // 15))
+        score += proximity
+        if gap <= 150:
+            reasons.append("close power band")
+
+        if hist["clashes"] == 0:
+            score += 36
+            reasons.append("fresh matchup")
+        else:
+            score += max(0, 18 - min(18, hist["clashes"] * 3))
+            if hist["last_winner"] == name:
+                score += 24
+                reasons.append("revenge opportunity")
+            elif hist["last_winner"] == username:
+                reasons.append("defend your edge")
+
+        if name in tracked_rivals:
+            score += 32
+            reasons.append("tracked rival")
+        elif name in followed:
+            score += 12
+            reasons.append("you follow this Hunter")
+
+        item = dict(h)
+        item["personal_score"] = int(score)
+        item["power_gap"] = int(gap)
+        item["direct_clashes"] = int(hist["clashes"])
+        item["personal_reason"] = " · ".join(reasons[:3]) or "network momentum match"
+        item["challenge_url"] = "/?challenge=" + urllib.parse.quote(name) + "&source=discovery-v13.2"
+        personalized_hunters.append(item)
+
+    personalized_hunters.sort(
+        key=lambda h: (int(h["personal_score"]), int(h.get("discovery_score") or 0), int(h.get("reputation") or 0)),
+        reverse=True
+    )
+
+    personalized_feuds = []
+    for f in public_feuds:
+        a, b = str(f.get("hunter_a") or ""), str(f.get("hunter_b") or "")
+        personal = 0
+        reasons = []
+        if username in (a, b):
+            personal += 80
+            reasons.append("your active Feud")
+        other_names = {a, b} - {username}
+        if tracked_rivals.intersection(other_names):
+            personal += 45
+            reasons.append("features a tracked rival")
+        if followed.intersection(other_names):
+            personal += 15
+            reasons.append("features a Hunter you follow")
+        item = dict(f)
+        item["personal_rank_score"] = int(item.get("trend_score") or 0) + personal
+        item["personal_reason"] = " · ".join(reasons)
+        item["challenge_a_url"] = "/?challenge=" + urllib.parse.quote(a) + "&source=discovery-v13.2"
+        item["challenge_b_url"] = "/?challenge=" + urllib.parse.quote(b) + "&source=discovery-v13.2"
+        personalized_feuds.append(item)
+    personalized_feuds.sort(key=lambda f: (int(f["personal_rank_score"]), int(f.get("trend_score") or 0)), reverse=True)
+
+    return {
+        "feuds": personalized_feuds[:feud_limit],
+        "hunters": personalized_hunters[:hunter_limit],
+        "window_hours": window_hours,
+        "empty_state": {
+            "feud_title": "Your Feud graph is still quiet.",
+            "feud_detail": "Start one direct Clash or mark a Hunter as a Rival and BL3 will turn that relationship into a personal story feed.",
+            "feud_action_label": "START A CLASH",
+            "feud_action_url": "#clashCard",
+            "hunter_title": "No strong personal match surfaced yet.",
+            "hunter_detail": "Use Network Heat or a Hunter profile to seed your graph. Personalized Discovery improves after real interactions.",
+            "hunter_action_label": "SCAN NETWORK HEAT",
+            "hunter_action_url": "#networkHeatmap"
+        }
+    }
+
+
+@app.route("/api/personalized-discovery/<username>")
+def personalized_discovery_api(username):
+    if session.get("authenticated_username") != username:
+        return jsonify({"success": False, "message": "Sign in with this Hunter ID for personalized Discovery."}), 401
+    try:
+        feud_limit = int(request.args.get("feuds", 4))
+    except (TypeError, ValueError):
+        feud_limit = 4
+    try:
+        hunter_limit = int(request.args.get("hunters", 6))
+    except (TypeError, ValueError):
+        hunter_limit = 6
+    try:
+        window_hours = int(request.args.get("window_hours", 168))
+    except (TypeError, ValueError):
+        window_hours = 168
+    data = _personalized_discovery(username, feud_limit, hunter_limit, window_hours)
+    if data is None:
+        return jsonify({"success": False, "message": "Hunter not found"}), 404
+    return jsonify({
+        "success": True,
+        "personalized": True,
+        **data,
+        "method": "Personal relevance = public BL3 story momentum + direct Clash history + tracked rivals + XP proximity. No wallet-value weighting or paid placement.",
+        "engine": "personalized-discovery-v13.2"
+    })
+
+
 @app.route("/api/discovery-engine")
 def discovery_engine_api():
     try:
@@ -5285,11 +5557,22 @@ def discovery_engine_api():
     feuds, hunters = _discovery_engine_rows(feud_limit, hunter_limit, window_hours)
     return jsonify({
         "success": True,
+        "personalized": False,
         "feuds": feuds,
         "hunters": hunters,
         "window_hours": window_hours,
+        "empty_state": {
+            "feud_title": "No public Feud is trending yet.",
+            "feud_detail": "A completed Clash can create a Moment; shared Moments and challenge intent seed the public Discovery graph.",
+            "feud_action_label": "OPEN LIVE ARENAS",
+            "feud_action_url": "#arenaSection",
+            "hunter_title": "The Hunter graph is still warming up.",
+            "hunter_detail": "Load a Hunter profile, explore Network Heat, or create the first matchup worth watching.",
+            "hunter_action_label": "SCAN NETWORK HEAT",
+            "hunter_action_url": "#networkHeatmap"
+        },
         "method": "Discovery ranks BL3-native story momentum and interaction only. No paid placement or wallet-value weighting.",
-        "engine": "discovery-v13.0"
+        "engine": "discovery-v13.2"
     })
 
 
@@ -5327,7 +5610,7 @@ def feud_moments_api():
         "success": True,
         "moments": moments,
         "total_moments": total,
-        "engine": "discovery-v13.0"
+        "engine": "discovery-v13.2"
     })
 
 
@@ -5444,7 +5727,7 @@ def feud_moment_cast_kit_api(moment_id):
             },
             "viral_loop": loop_stats
         },
-        "engine": "discovery-v13.0"
+        "engine": "discovery-v13.2"
     })
 
 
@@ -5554,7 +5837,7 @@ def _rivalry_records(limit=6):
         "closest": closest,
         "wildest": wildest,
         "total_rivalries": len(records),
-        "engine": "snapshot-discovery-v13.0",
+        "engine": "snapshot-discovery-v13.2",
         "cache": cache_state
     }
 
@@ -5951,7 +6234,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.1 QUALITY LAYER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div>
 </div></body></html>"""
 
 
@@ -6766,7 +7049,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.1 QUALITY LAYER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -6897,7 +7180,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.1 QUALITY LAYER</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -7001,7 +7284,7 @@ def _featured_nemesis(username):
             "last_winner": h2h.get("last_winner"),
             "chronicle": _rivalry_chronicle(username, rival),
             "stakes": stakes,
-            "engine": "discovery-v13.0"
+            "engine": "discovery-v13.2"
         }
     }
 
@@ -7308,7 +7591,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.1 QUALITY LAYER</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V13.3 GLOBAL SEARCH</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -8944,7 +9227,7 @@ def hunter_discovery_api(username):
 
 
 
-# ===== V13.1 QUALITY LAYER =====
+# ===== V13.3 GLOBAL SEARCH =====
 def _public_origin():
     configured = (os.environ.get("BL3_PUBLIC_URL") or "").strip().rstrip("/")
     return configured or request.url_root.rstrip("/")
@@ -8959,6 +9242,110 @@ def quality_headers(response):
     if request.path.startswith("/api/") or request.path in ("/healthz", "/status"):
         response.headers.setdefault("Cache-Control", "no-store")
     return response
+
+
+@app.route("/api/global-search")
+def global_search_api():
+    q = str(request.args.get("q") or "").strip()[:80]
+    q_lower = q.lower()
+    limit = 6
+
+    commands = [
+        {"type": "command", "icon": "📡", "title": "Discovery Engine", "subtitle": "Find Feuds and Hunters worth watching", "url": "#discoveryEngine", "keywords": "discovery explore hunters feuds"},
+        {"type": "command", "icon": "📈", "title": "Trending Feuds", "subtitle": "See the Rivalries gaining momentum", "url": "#trendingFeuds", "keywords": "trending viral score hot feuds"},
+        {"type": "command", "icon": "🏛️", "title": "Hall of Feuds", "subtitle": "Open all-time Rivalry records", "url": "#hallOfFeuds", "keywords": "hall records rivalry feuds"},
+        {"type": "command", "icon": "🛰️", "title": "Mission Control", "subtitle": "Open your private next moves", "url": "#missionControl", "keywords": "mission private next move"},
+        {"type": "command", "icon": "⚔️", "title": "Alpha Clash", "subtitle": "Challenge another Hunter", "url": "#clashCard", "keywords": "battle clash challenge fight"},
+        {"type": "command", "icon": "🎯", "title": "Live Arenas", "subtitle": "Browse live proof opportunities", "url": "#arenaSection", "keywords": "arenas quests proof bounty"},
+        {"type": "command", "icon": "👾", "title": "Hunter Passport", "subtitle": "Open identity and progression", "url": "#passportCard", "keywords": "passport profile identity hunter"},
+        {"type": "command", "icon": "🔥", "title": "Network Heat", "subtitle": "Scan hot Hunters and matchups", "url": "#networkHeatmap", "keywords": "heat network hot hunters rivalry"},
+    ]
+
+    results = []
+    for item in commands:
+        hay = (item["title"] + " " + item["subtitle"] + " " + item["keywords"]).lower()
+        if not q or q_lower in hay:
+            results.append({k: v for k, v in item.items() if k != "keywords"})
+
+    if q:
+        like = "%" + q + "%"
+        conn = db()
+        hunters = conn.execute(
+            """SELECT username, xp FROM users WHERE username LIKE ? COLLATE NOCASE ORDER BY xp DESC, username ASC LIMIT ?""",
+            (like, limit)
+        ).fetchall()
+        for row in hunters:
+            username = str(row["username"] or "")
+            results.append({
+                "type": "hunter", "icon": "👾", "title": username,
+                "subtitle": f'{int(row["xp"] or 0)} XP · public Hunter profile',
+                "url": "/hunter/" + urllib.parse.quote(username, safe="")
+            })
+
+        arenas = conn.execute(
+            """SELECT id, title, category, status FROM arenas
+               WHERE title LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE OR category LIKE ? COLLATE NOCASE
+               ORDER BY CASE WHEN status='live' THEN 0 ELSE 1 END, id DESC LIMIT ?""",
+            (like, like, like, limit)
+        ).fetchall()
+        for row in arenas:
+            results.append({
+                "type": "arena", "icon": "🎯", "title": str(row["title"] or f'Arena #{row["id"]}'),
+                "subtitle": f'{str(row["category"] or "Alpha")} · {str(row["status"] or "live").upper()} · Arena #{int(row["id"])}',
+                "url": "#arenaSection"
+            })
+
+        battle_params = [like, like]
+        battle_sql = """SELECT id, challenger, opponent, winner, created_at FROM creature_battles
+                        WHERE challenger LIKE ? COLLATE NOCASE OR opponent LIKE ? COLLATE NOCASE"""
+        if q.isdigit():
+            battle_sql += " OR id = ?"
+            battle_params.append(int(q))
+        battle_sql += " ORDER BY id DESC LIMIT ?"
+        battle_params.append(limit)
+        battles = conn.execute(battle_sql, tuple(battle_params)).fetchall()
+        seen_pairs = set()
+        for row in battles:
+            challenger = str(row["challenger"] or "")
+            opponent = str(row["opponent"] or "")
+            results.append({
+                "type": "clash", "icon": "💥", "title": f'Clash #{int(row["id"])} · {challenger} vs {opponent}',
+                "subtitle": f'Winner: {str(row["winner"] or "—")}',
+                "url": f'/clash/{int(row["id"])}'
+            })
+            if challenger and opponent and challenger != opponent:
+                pair = tuple(sorted((challenger, opponent), key=lambda x: x.lower()))
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    results.append({
+                        "type": "rivalry", "icon": "⚔️", "title": f'{pair[0]} vs {pair[1]}',
+                        "subtitle": "Open Rivalry Chronicle",
+                        "url": "/rivalry/" + urllib.parse.quote(pair[0], safe="") + "/" + urllib.parse.quote(pair[1], safe="")
+                    })
+
+        moments = conn.execute(
+            """SELECT id, battle_id, label, winner, loser, intensity FROM feud_moments
+               WHERE label LIKE ? COLLATE NOCASE OR detail LIKE ? COLLATE NOCASE OR winner LIKE ? COLLATE NOCASE OR loser LIKE ? COLLATE NOCASE
+               ORDER BY id DESC LIMIT ?""",
+            (like, like, like, like, limit)
+        ).fetchall()
+        for row in moments:
+            results.append({
+                "type": "moment", "icon": "🎬", "title": str(row["label"] or f'Moment #{row["id"]}'),
+                "subtitle": f'{str(row["winner"] or "Hunter")} vs {str(row["loser"] or "Rival")} · Heat {int(row["intensity"] or 1)}/5',
+                "url": f'/feud-moment/{int(row["id"])}'
+            })
+        conn.close()
+
+    type_order = {"command": 0, "hunter": 1, "rivalry": 2, "clash": 3, "moment": 4, "arena": 5}
+    results.sort(key=lambda item: (type_order.get(item.get("type"), 9), str(item.get("title") or "").lower()))
+    return jsonify({
+        "success": True,
+        "query": q,
+        "results": results[:28],
+        "count": min(len(results), 28),
+        "engine": "global-search-v13.3"
+    })
 
 
 @app.route("/favicon.svg")
@@ -8997,14 +9384,14 @@ def healthz():
         conn = db(); conn.execute("SELECT 1").fetchone(); conn.close()
     except Exception:
         ok, db_status = False, "error"
-    return jsonify({"ok":ok,"service":"bl3","version":"13.1","release":"QUALITY LAYER","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
+    return jsonify({"ok":ok,"service":"bl3","version":"13.3","release":"GLOBAL SEARCH","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
 
 
 @app.route("/api/meta")
 def api_meta():
     return jsonify({
-        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.1", "release": "QUALITY LAYER",
-        "public_endpoints": ["/healthz","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
+        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.3", "release": "GLOBAL SEARCH",
+        "public_endpoints": ["/healthz","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
     })
 
@@ -9016,7 +9403,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> QUALITY LAYER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.1 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> GLOBAL SEARCH</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.3 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/transparency")
@@ -9068,7 +9455,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📡 BL3 ARENA V13.1 // QUALITY LAYER")
+    print("📡 BL3 ARENA V13.2 // QUALITY LAYER")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
