@@ -445,7 +445,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.4";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V13.5";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -815,10 +815,38 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .activity-tabs{display:flex;gap:7px;padding:12px 18px;border-bottom:1px solid var(--line);overflow:auto}.activity-tab{white-space:nowrap;border:1px solid var(--line);background:rgba(255,255,255,.025);color:#fff;border-radius:999px;padding:8px 11px;font-size:8px;font-weight:950;cursor:pointer}.activity-tab.active{background:var(--hot);color:#08090a;border-color:var(--hot)}
 .activity-center-body{padding:12px 18px 24px;overflow:auto;flex:1}.activity-item{border:1px solid var(--line);border-radius:15px;padding:12px;margin-top:8px;background:rgba(255,255,255,.022)}.activity-item.unread{border-color:rgba(186,255,90,.3);background:rgba(186,255,90,.04)}.activity-item-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.activity-item b{font-size:11px}.activity-item .meta{font-size:9px;margin-top:4px}.activity-item-time{font-size:8px;color:var(--muted);white-space:nowrap}.activity-item-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.activity-item-actions button,.activity-item-actions a{border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03);color:#fff;padding:8px 10px;font-size:8px;font-weight:900;text-decoration:none;cursor:pointer}.activity-item-actions .primary{background:var(--hot);border-color:var(--hot);color:#08090a}.activity-empty{border:1px dashed var(--line);border-radius:15px;padding:18px;color:var(--muted);font-size:10px;margin-top:8px}.activity-center-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}.activity-center-foot button{flex:1;margin:0}
 @media(max-width:620px){.activity-center-panel{width:100vw}.activity-summary{grid-template-columns:1fr 1fr}.activity-center-head{padding:18px}.activity-center-body{padding:10px 14px 20px}}
+
+
+/* ===== V13.5 SETTINGS + PREFERENCES ===== */
+.settings-trigger{cursor:pointer}.settings-shell{position:fixed;inset:0;z-index:10050;display:none;background:rgba(0,0,0,.62);backdrop-filter:blur(8px)}.settings-shell.show{display:block}.settings-panel{position:absolute;right:0;top:0;height:100%;width:min(540px,100vw);background:linear-gradient(160deg,#111119,#08080d);border-left:1px solid rgba(255,255,255,.12);box-shadow:-30px 0 100px rgba(0,0,0,.58);display:flex;flex-direction:column}.settings-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:22px;border-bottom:1px solid var(--line)}.settings-head h2{margin:5px 0 0;font-size:28px;letter-spacing:-1px}.settings-close{border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;border-radius:11px;padding:9px 11px;cursor:pointer;font-weight:900}.settings-body{padding:16px 18px 24px;overflow:auto}.settings-group{border:1px solid var(--line);border-radius:18px;padding:15px;margin-bottom:10px;background:rgba(255,255,255,.02)}.settings-group h3{font-size:12px;letter-spacing:.7px;margin:0 0 4px}.settings-group>.meta{font-size:9px;margin-bottom:12px}.settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid rgba(255,255,255,.07)}.settings-row:first-of-type{border-top:0}.settings-row-copy b{display:block;font-size:10px}.settings-row-copy span{display:block;font-size:8px;color:var(--muted);margin-top:3px;line-height:1.45}.settings-select{width:min(210px,48%);margin:0;padding:9px 11px;font-size:10px}.settings-toggle{width:42px;height:24px;border-radius:999px;border:1px solid var(--line);background:#17171f;position:relative;cursor:pointer;flex:0 0 auto}.settings-toggle:after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;left:2px;top:2px;background:#8c8d99;transition:.18s}.settings-toggle.on{background:rgba(186,255,90,.12);border-color:rgba(186,255,90,.35)}.settings-toggle.on:after{left:20px;background:var(--hot);box-shadow:0 0 14px rgba(186,255,90,.35)}.settings-checks{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.settings-check{border:1px solid var(--line);border-radius:12px;padding:9px;background:rgba(255,255,255,.018);display:flex;align-items:center;gap:8px;font-size:9px;cursor:pointer}.settings-check input{width:auto;margin:0;accent-color:#baff5a}.settings-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}.settings-foot button{flex:1;margin:0}.settings-saved{color:var(--hot);font-size:9px;font-weight:900;min-height:16px;margin-top:8px}
+body.pref-compact .card,body.pref-compact .heat-panel,body.pref-compact .mission-control,body.pref-compact .feud-hall,body.pref-compact .feud-spotlight,body.pref-compact .discovery-engine,body.pref-compact .trending-feuds{padding-top:14px!important;padding-bottom:14px!important}body.pref-compact .command-link,body.pref-compact .command-label{min-height:58px;padding:10px}body.pref-compact .hero-copy{padding-top:36px;padding-bottom:36px}body.pref-compact .section-title{margin-top:24px}
+body.pref-reduced-motion *,body.pref-reduced-motion *:before,body.pref-reduced-motion *:after{scroll-behavior:auto!important;animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}.settings-muted{opacity:.55}
+@media(max-width:620px){.settings-panel{width:100vw}.settings-head{padding:18px}.settings-body{padding:12px 14px 20px}.settings-row{align-items:flex-start}.settings-select{width:48%}.settings-checks{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
 <a class="skip-link" href="#mainContent">SKIP TO NETWORK</a>
+<div class="settings-shell" id="settingsShell" role="dialog" aria-modal="true" aria-label="BL3 Settings and Preferences" onclick="settingsBackdrop(event)">
+  <aside class="settings-panel">
+    <div class="settings-head"><div><div class="eyebrow">⚙️ SETTINGS // LOCAL PREFERENCES</div><h2>Make BL3 Yours</h2><div class="meta">Saved on this device. No wallet or personal data is required.</div></div><button class="settings-close" type="button" onclick="closeSettings()">ESC</button></div>
+    <div class="settings-body">
+      <section class="settings-group"><h3>APPEARANCE</h3><div class="meta">Tune motion and information density.</div>
+        <div class="settings-row"><div class="settings-row-copy"><b>Motion</b><span>Follow your system or force reduced motion.</span></div><select class="settings-select" id="prefMotion" onchange="setPreference('motion',this.value)"><option value="system">SYSTEM</option><option value="reduced">REDUCED</option><option value="full">FULL</option></select></div>
+        <div class="settings-row"><div class="settings-row-copy"><b>Density</b><span>Comfortable cards or a tighter command-center view.</span></div><select class="settings-select" id="prefDensity" onchange="setPreference('density',this.value)"><option value="comfortable">COMFORTABLE</option><option value="compact">COMPACT</option></select></div>
+      </section>
+      <section class="settings-group"><h3>NETWORK BEHAVIOR</h3><div class="meta">Control passive refresh and where BL3 opens.</div>
+        <div class="settings-row"><div class="settings-row-copy"><b>Auto refresh</b><span>Refresh live network signals while this tab is visible.</span></div><button class="settings-toggle" id="prefAutoRefresh" type="button" onclick="togglePreference('autoRefresh')" aria-label="Toggle auto refresh"></button></div>
+        <div class="settings-row"><div class="settings-row-copy"><b>Default landing</b><span>Choose the first BL3 view after opening the home page.</span></div><select class="settings-select" id="prefLanding" onchange="setPreference('landing',this.value)"><option value="home">HOME</option><option value="discovery">DISCOVERY</option><option value="clash">ALPHA CLASH</option><option value="activity">ACTIVITY</option></select></div>
+      </section>
+      <section class="settings-group"><h3>ACTIVITY FILTERS</h3><div class="meta">Choose which lanes appear inside Activity Center. Attention counts stay accurate.</div>
+        <div class="settings-checks"><label class="settings-check"><input id="prefChallenges" type="checkbox" onchange="setActivityPreference('challenge',this.checked)"> CHALLENGES</label><label class="settings-check"><input id="prefSignals" type="checkbox" onchange="setActivityPreference('signal',this.checked)"> SIGNALS</label><label class="settings-check"><input id="prefUnlocks" type="checkbox" onchange="setActivityPreference('unlock',this.checked)"> UNLOCKS</label><label class="settings-check"><input id="prefFeuds" type="checkbox" onchange="setActivityPreference('feud',this.checked)"> FEUDS</label></div>
+      </section>
+      <div class="settings-saved" id="settingsSaved"></div>
+    </div>
+    <div class="settings-foot"><button class="btn" type="button" onclick="resetPreferences()">RESET DEFAULTS</button><button class="btn hot" type="button" onclick="closeSettings()">DONE</button></div>
+  </aside>
+</div>
+
 <div class="activity-center-shell" id="activityCenterShell" role="dialog" aria-modal="true" aria-label="BL3 Activity Center" onclick="activityCenterBackdrop(event)">
   <aside class="activity-center-panel" id="activityCenterPanel">
     <div class="activity-center-head"><div><div class="eyebrow">⚡ ACTIVITY CENTER // PRIVATE</div><h2>Everything That Needs You</h2><div class="meta" id="activityCenterMeta">Sign in to load your Hunter activity.</div></div><button class="activity-close" type="button" onclick="closeActivityCenter()">ESC</button></div>
@@ -832,7 +860,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.4</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V13.5</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -841,7 +869,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   <nav class="nav">
     <div class="brand">BL3<span>●</span></div>
     <div class="pill">THE HUMAN ALPHA NETWORK</div>
-    <div class="nav-right"><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><button class="pill activity-trigger" id="activityCenterTrigger" type="button" onclick="openActivityCenter()" aria-label="Open Activity Center"><span>⚡ ACTIVITY</span> <span class="activity-count" id="activityCenterCount">0</span></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
+    <div class="nav-right"><button class="pill settings-trigger" type="button" onclick="openSettings()" aria-label="Open BL3 settings">⚙️ SETTINGS</button><button class="pill command-search-trigger" type="button" onclick="openCommandPalette()" aria-label="Search BL3"><span>🔎 SEARCH</span><kbd>Ctrl K</kbd></button><button class="pill activity-trigger" id="activityCenterTrigger" type="button" onclick="openActivityCenter()" aria-label="Open Activity Center"><span>⚡ ACTIVITY</span> <span class="activity-count" id="activityCenterCount">0</span></button><div class="pill" id="signalBadge">SIGNALS 0</div><div class="pill" id="inboxBadge">INBOX 0</div><div class="pill" id="navAuth">WALLET OFFLINE</div></div>
   </nav>
 
   <section class="hero">
@@ -869,7 +897,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V12.0</div>
+            <div class="core-badge">V13.5</div>
           </div>
         </div>
         <div>
@@ -1462,6 +1490,8 @@ async function shareFeaturedNemesis(owner,rival){
 }
 
 function motionBehavior(){
+ if(window.bl3Preferences?.motion==="reduced")return "auto";
+ if(window.bl3Preferences?.motion==="full")return "smooth";
  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 }
 
@@ -2382,8 +2412,8 @@ async function refreshLiveSignals(){
    loadMomentumBoard()
  ]);
 }
-const liveSignalTimer=setInterval(refreshLiveSignals,20000);
-const feudLiveTimer=setInterval(()=>refreshFeudLive(false),12000);
+const liveSignalTimer=setInterval(()=>{if(window.bl3Preferences?.autoRefresh!==false)refreshLiveSignals();},20000);
+const feudLiveTimer=setInterval(()=>{if(window.bl3Preferences?.autoRefresh!==false)refreshFeudLive(false);},12000);
 document.addEventListener("visibilitychange",()=>{
  if(!document.hidden){
    refreshLiveSignals();
@@ -2715,7 +2745,7 @@ async function discoverySocial(target,kind,enabled){
  show(d.message||"Social graph updated");
  if(d.success){await loadDiscovery();await loadRivalFeed();}
 }
-setInterval(()=>{loadActivity();loadRivalFeed();loadSignals();},20000);
+setInterval(()=>{if(window.bl3Preferences?.autoRefresh!==false){loadActivity();loadRivalFeed();loadSignals();}},20000);
 
 async function loadArenas(){
  const d=await jsonFetch("/api/arenas"),list=Array.isArray(d.arenas)?d.arenas:[];
@@ -2817,6 +2847,47 @@ document.addEventListener("keydown",e=>{
 });
 
 
+const BL3_PREF_KEY="bl3.preferences.v13.5";
+const BL3_PREF_DEFAULTS={motion:"system",density:"comfortable",autoRefresh:true,landing:"home",activity:{challenge:true,signal:true,unlock:true,feud:true}};
+function loadPreferences(){
+ let raw={};try{raw=JSON.parse(localStorage.getItem(BL3_PREF_KEY)||"{}")}catch(e){}
+ const act={...BL3_PREF_DEFAULTS.activity,...(raw.activity||{})};
+ window.bl3Preferences={...BL3_PREF_DEFAULTS,...raw,activity:act};
+ return window.bl3Preferences;
+}
+function savePreferences(message="Preferences saved on this device."){
+ try{localStorage.setItem(BL3_PREF_KEY,JSON.stringify(window.bl3Preferences||BL3_PREF_DEFAULTS))}catch(e){}
+ applyPreferences();syncSettingsUI();const el=document.getElementById("settingsSaved");if(el){el.textContent="✓ "+message;clearTimeout(window._bl3SettingsSavedTimer);window._bl3SettingsSavedTimer=setTimeout(()=>{el.textContent=""},1800)}
+}
+function applyPreferences(){
+ const p=window.bl3Preferences||loadPreferences();
+ document.body.classList.toggle("pref-compact",p.density==="compact");
+ const reduce=p.motion==="reduced"||(p.motion==="system"&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+ document.body.classList.toggle("pref-reduced-motion",reduce);
+}
+function syncSettingsUI(){
+ const p=window.bl3Preferences||loadPreferences();
+ const set=(id,val)=>{const e=document.getElementById(id);if(e)e.value=val};set("prefMotion",p.motion);set("prefDensity",p.density);set("prefLanding",p.landing);
+ const t=document.getElementById("prefAutoRefresh");if(t){t.classList.toggle("on",p.autoRefresh!==false);t.setAttribute("aria-pressed",p.autoRefresh!==false?"true":"false")}
+ [["prefChallenges","challenge"],["prefSignals","signal"],["prefUnlocks","unlock"],["prefFeuds","feud"]].forEach(([id,k])=>{const e=document.getElementById(id);if(e)e.checked=p.activity?.[k]!==false});
+}
+function openSettings(){const sh=document.getElementById("settingsShell");if(!sh)return;syncSettingsUI();sh.classList.add("show");document.body.style.overflow="hidden"}
+function closeSettings(){const sh=document.getElementById("settingsShell");if(!sh)return;sh.classList.remove("show");document.body.style.overflow=""}
+function settingsBackdrop(e){if(e.target?.id==="settingsShell")closeSettings()}
+function setPreference(key,value){window.bl3Preferences=window.bl3Preferences||loadPreferences();window.bl3Preferences[key]=value;savePreferences()}
+function togglePreference(key){window.bl3Preferences=window.bl3Preferences||loadPreferences();window.bl3Preferences[key]=!window.bl3Preferences[key];savePreferences()}
+function setActivityPreference(type,value){window.bl3Preferences=window.bl3Preferences||loadPreferences();window.bl3Preferences.activity={...(window.bl3Preferences.activity||{}),[type]:!!value};savePreferences();renderActivityCenter()}
+function activityPreferenceEnabled(type){const p=window.bl3Preferences||loadPreferences();return !p.activity||p.activity[type]!==false}
+function resetPreferences(){window.bl3Preferences=JSON.parse(JSON.stringify(BL3_PREF_DEFAULTS));savePreferences("Defaults restored.")}
+function applyDefaultLanding(){
+ const p=window.bl3Preferences||loadPreferences();if(location.pathname!=="/"||location.hash)return;
+ if(p.landing==="discovery"){document.getElementById("discoveryEngine")?.scrollIntoView({behavior:motionBehavior(),block:"start"})}
+ else if(p.landing==="clash"){document.getElementById("clashCard")?.scrollIntoView({behavior:motionBehavior(),block:"start"})}
+ else if(p.landing==="activity"){openActivityCenter()}
+}
+loadPreferences();
+
+
 let activityCenterData=null;
 let activityCenterTab="all";
 function openActivityCenter(){
@@ -2837,8 +2908,8 @@ function renderActivityCenter(){
  document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
  document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
  document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
- const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.4"):"Sign in to load your Hunter activity.";
- const items=Array.isArray(d.items)?d.items:[];const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V13.5"):"Sign in to load your Hunter activity.";
+ const items=(Array.isArray(d.items)?d.items:[]).filter(x=>activityPreferenceEnabled(x.type));const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
  if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
  if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
  root.innerHTML=filtered.map(item=>{
@@ -2859,10 +2930,12 @@ async function activityAction(action,id){
  if(action==="decline"){await declineChallenge(id);await loadActivityCenter();return}
 }
 document.querySelectorAll("[data-ac-tab]").forEach(btn=>btn.addEventListener("click",()=>{activityCenterTab=btn.dataset.acTab||"all";document.querySelectorAll("[data-ac-tab]").forEach(b=>b.classList.toggle("active",b===btn));renderActivityCenter()}));
-document.addEventListener("keydown",e=>{if(e.key==="Escape"&&document.getElementById("activityCenterShell")?.classList.contains("show")){e.preventDefault();closeActivityCenter()}});
-setInterval(()=>{if(document.visibilityState==="visible")loadActivityCenter();},20000);
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&document.getElementById("settingsShell")?.classList.contains("show")){e.preventDefault();closeSettings();return}if(e.key==="Escape"&&document.getElementById("activityCenterShell")?.classList.contains("show")){e.preventDefault();closeActivityCenter()}});
+setInterval(()=>{if(window.bl3Preferences?.autoRefresh!==false&&document.visibilityState==="visible")loadActivityCenter();},20000);
 
+applyPreferences();syncSettingsUI();
 loadUser();loadArenas();loadActivityCenter();
+setTimeout(applyDefaultLanding,450);
 
 hydrateChallenge();
 </script>
@@ -8441,7 +8514,7 @@ def activity_center_api(username):
         "feud_updates": feud_updates,
         "attention_total": len(pending) + unread_signals + unseen_unlocks
     }
-    return jsonify({"success": True, "username": username, "summary": summary, "items": items[:60], "engine": "activity-center-v13.4"})
+    return jsonify({"success": True, "username": username, "summary": summary, "items": items[:60], "engine": "activity-center-v13.5"})
 
 
 @app.route("/api/activity-center/<username>/mark-seen", methods=["POST"])
@@ -9543,13 +9616,14 @@ def healthz():
         conn = db(); conn.execute("SELECT 1").fetchone(); conn.close()
     except Exception:
         ok, db_status = False, "error"
-    return jsonify({"ok":ok,"service":"bl3","version":"13.3","release":"GLOBAL SEARCH","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
+    return jsonify({"ok":ok,"service":"bl3","version":"13.5","release":"SETTINGS + PREFERENCES","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
 
 
 @app.route("/api/meta")
 def api_meta():
     return jsonify({
-        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.3", "release": "GLOBAL SEARCH",
+        "success": True, "name": "BL3 // Human Alpha Network", "version": "13.5", "release": "SETTINGS + PREFERENCES",
+        "features": ["local preferences","reduced motion","compact density","activity filters","default landing"],
         "public_endpoints": ["/healthz","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
     })
@@ -9562,7 +9636,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> ACTIVITY CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.4 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> SETTINGS + PREFERENCES</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V13.5 · database reachable · live network endpoints available</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/transparency")
@@ -9614,7 +9688,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📡 BL3 ARENA V13.2 // QUALITY LAYER")
+    print("⚙️ BL3 ARENA V13.5 // SETTINGS + PREFERENCES")
     print("💾 SQLite enabled")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
