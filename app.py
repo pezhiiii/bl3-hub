@@ -253,6 +253,26 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_feud_events_id_desc ON feud_events(id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_feud_events_pair ON feud_events(hunter_a, hunter_b, id DESC)")
 
+    # V12.6: story-grade moments detected from real completed direct Clashes.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS feud_moments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            battle_id INTEGER NOT NULL UNIQUE,
+            hunter_a TEXT NOT NULL,
+            hunter_b TEXT NOT NULL,
+            winner TEXT NOT NULL,
+            loser TEXT NOT NULL,
+            moment_key TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            label TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            intensity INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_feud_moments_id_desc ON feud_moments(id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_feud_moments_pair ON feud_moments(hunter_a, hunter_b, id DESC)")
+
     # V8.8: baseline of already-known unlocks + feed of newly discovered unlock events.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS hunter_unlock_state (
@@ -392,7 +412,7 @@ input,textarea,select{width:100%;padding:13px;margin:6px 0;outline:none}textarea
 .onboarding{margin:0 0 28px;background:linear-gradient(135deg,rgba(184,255,90,.07),rgba(157,123,255,.07)),var(--panel);border-color:rgba(184,255,90,.22)}
 .onboarding-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.onboarding h2{margin:6px 0 8px}.onboarding-progress{font-size:28px;font-weight:950;color:var(--hot);white-space:nowrap}.onboarding-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.onboarding-step{border:1px solid var(--line);border-radius:18px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.onboarding-step.done{border-color:rgba(184,255,90,.35);background:rgba(184,255,90,.05)}.onboarding-step .step-num{font-size:11px;letter-spacing:1.8px;color:var(--muted);font-weight:900}.onboarding-step.done .step-num{color:var(--hot)}.onboarding-step b{display:block;margin:7px 0 5px}.onboarding-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.onboarding-actions .btn{width:auto;margin-top:0}.onboarding-dismiss{width:auto;margin:0;padding:8px 11px;font-size:12px}.onboarding.hidden-by-user{display:none}@media(max-width:720px){.onboarding-steps{grid-template-columns:1fr}.onboarding-top{flex-direction:column}.onboarding-progress{font-size:22px}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 :root{--bg:#040406;--panel:rgba(13,13,19,.86);--line:rgba(255,255,255,.105);--muted:#858899;--text:#fbfbff;--hot:#baff5a;--violet:#a17cff;--cyan:#61f4ff;--gold:#ffd66b}
 body{background:
 radial-gradient(circle at 12% 0%,rgba(161,124,255,.19),transparent 29%),
@@ -434,7 +454,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @media(max-width:960px){.hero-v9{grid-template-columns:1fr}.hero-copy{padding:38px 30px}.hero-core{min-height:360px}.command-deck{grid-template-columns:repeat(2,1fr)}.command-label{grid-column:1/-1}.grid{grid-template-columns:1fr}}
 @media(max-width:620px){.shell{padding:10px}.nav{top:7px;border-radius:15px}.nav-right{gap:5px}.nav-right .pill{padding:7px 8px;font-size:9px}.hero{padding-top:24px}.hero-copy{padding:30px 20px;border-radius:25px}.hero-core{border-radius:25px}.hero h1{font-size:50px;letter-spacing:-4px}.hero-actions .btn{width:100%}.ticker{display:grid;grid-template-columns:repeat(3,1fr)}.ticker .pill{min-width:0;text-align:center;padding:10px 5px}.ticker .pill b{font-size:17px}.command-deck{grid-template-columns:1fr 1fr}.onboarding{padding:18px}.section-title h2{font-size:30px}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .hud-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:9px;margin-top:12px}
 .hud-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.026);padding:12px}
 .hud-card .hud-label{font-size:8px;letter-spacing:1.4px;color:var(--muted);font-weight:900}
@@ -454,7 +474,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .hud-unlock-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,214,107,.25);border-radius:999px;color:var(--gold);font-size:8px;font-weight:900}
 @media(max-width:620px){.hud-strip{grid-template-columns:1fr}.hud-links{grid-template-columns:1fr 1fr 1fr}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .network-pulse{position:relative;overflow:hidden;margin:0 0 20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(110deg,rgba(11,11,16,.92),rgba(19,14,27,.9));box-shadow:0 18px 52px rgba(0,0,0,.2)}
 .network-pulse:before{content:"";position:absolute;left:-70px;top:-70px;width:180px;height:180px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(34px)}
 .pulse-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -473,7 +493,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes pulseScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(max-width:620px){.pulse-head{align-items:flex-start;flex-direction:column}.pulse-item{min-width:285px;grid-template-columns:32px minmax(170px,245px) auto}.pulse-meta{display:none}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .heat-zone{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin:0 0 22px}
 .heat-panel{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(17,17,24,.92),rgba(8,8,13,.9));padding:18px;overflow:hidden;position:relative}
 .heat-panel:after{content:"";position:absolute;right:-70px;top:-80px;width:190px;height:190px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(40px);pointer-events:none}
@@ -491,7 +511,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .heat-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.heat-zone{grid-template-columns:1fr}}@media(max-width:560px){.hunter-heat-grid{grid-template-columns:1fr}.heat-top{align-items:flex-start;flex-direction:column}.heat-top .meta{text-align:left}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .spotlight{margin:0 0 22px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(140deg,rgba(18,18,25,.95),rgba(8,8,13,.93));overflow:hidden;position:relative}
 .spotlight:before{content:"";position:absolute;inset:-90px auto auto -80px;width:250px;height:250px;border-radius:50%;background:rgba(161,124,255,.09);filter:blur(48px)}
 .spotlight:after{content:"";position:absolute;right:-80px;bottom:-120px;width:280px;height:280px;border-radius:50%;background:rgba(186,255,90,.07);filter:blur(52px)}
@@ -504,7 +524,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes spotIn{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){.spot-body{grid-template-columns:1fr}.spot-side{border-left:none;border-top:1px solid var(--line)}.spot-main{padding:22px}.spot-name{font-size:38px}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .season-command{display:grid;grid-template-columns:1.05fr .95fr;gap:12px;margin:0 0 22px}
 .season-command-main,.season-command-board{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,17,24,.94),rgba(8,8,13,.92));padding:20px;position:relative;overflow:hidden}
 .season-command-main:before{content:"";position:absolute;left:-70px;top:-90px;width:220px;height:220px;border-radius:50%;background:rgba(255,214,107,.08);filter:blur(46px)}
@@ -516,7 +536,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 .season-empty{color:var(--muted);border:1px dashed var(--line);padding:14px;border-radius:14px;margin-top:12px;font-size:10px}
 @media(max-width:900px){.season-command{grid-template-columns:1fr}}@media(max-width:560px){.season-command-top{align-items:flex-start;flex-direction:column}.season-countdown{text-align:left}.crown-command{grid-template-columns:auto 1fr}.crown-record{grid-column:1/-1;text-align:left}.season-stats-row{grid-template-columns:1fr 1fr}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .crown-war{margin:0 0 22px;border:1px solid rgba(255,94,94,.2);border-radius:26px;background:linear-gradient(140deg,rgba(31,10,14,.93),rgba(11,8,13,.95));overflow:hidden;position:relative;display:none}
 .crown-war.active{display:block}.crown-war.stable{border-color:rgba(255,214,107,.2);background:linear-gradient(140deg,rgba(26,20,8,.9),rgba(10,9,12,.95))}
 .crown-war:before{content:"";position:absolute;inset:-80px auto auto -80px;width:230px;height:230px;border-radius:50%;background:rgba(255,68,91,.12);filter:blur(48px)}.crown-war.stable:before{background:rgba(255,214,107,.09)}
@@ -532,7 +552,7 @@ aside>.card:not(:first-child){transition:.2s transform,.2s border-color}aside>.c
 @keyframes warPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
 @media(max-width:760px){.crown-war-body{grid-template-columns:1fr}.war-crown{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .war-alert-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9998;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,68,91,.12),rgba(0,0,0,.28) 45%,rgba(0,0,0,.72));backdrop-filter:blur(3px)}
 .war-alert-shell.show{display:flex;animation:warFlash .28s ease-out}
 .war-alert-card{width:min(620px,calc(100vw - 30px));border:1px solid rgba(255,95,115,.4);border-radius:28px;background:linear-gradient(145deg,rgba(30,8,13,.98),rgba(9,8,12,.98));box-shadow:0 30px 120px rgba(0,0,0,.7),0 0 70px rgba(255,68,91,.12);padding:30px;text-align:center;position:relative;overflow:hidden}
@@ -543,7 +563,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes warFlash{from{opacity:0}to{opacity:1}}@keyframes warToastIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:620px){.war-alert-card{padding:24px 18px}.war-alert-icon{font-size:52px}.war-mini-toast{top:auto;bottom:16px}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .clash-replay-shell{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:10020;background:radial-gradient(circle at 50% 42%,rgba(161,124,255,.15),rgba(0,0,0,.45) 42%,rgba(0,0,0,.86));backdrop-filter:blur(8px);padding:18px}
 .clash-replay-shell.show{display:flex;animation:replayFade .25s ease-out}
 .clash-replay{width:min(900px,100%);border:1px solid rgba(255,255,255,.14);border-radius:30px;background:linear-gradient(145deg,rgba(18,18,26,.98),rgba(7,7,11,.99));box-shadow:0 40px 160px rgba(0,0,0,.76),0 0 80px rgba(161,124,255,.08);overflow:hidden;position:relative}
@@ -573,7 +593,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 @keyframes comboBurst{0%{opacity:0;filter:blur(1px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6) rotate(360deg) translateX(150px)}}@keyframes comboToast{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(prefers-reduced-motion:reduce){.combo-burst i,.combo-toast.show{animation:none!important}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .momentum-board{margin:0 0 22px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(16,16,23,.94),rgba(8,8,13,.93));padding:18px;overflow:hidden;position:relative}
 .momentum-board:before{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(45px)}
 .momentum-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.momentum-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.momentum-head .meta{text-align:right;font-size:9px}
@@ -585,7 +605,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .hud-momentum{margin-top:9px;border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.025)}.hud-momentum-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.hud-momentum-top span{font-size:8px;color:var(--muted);letter-spacing:1px}.hud-momentum-top b{font-size:10px}.hud-momentum-detail{margin-top:5px;font-size:9px;color:var(--muted)}
 @media(max-width:980px){.momentum-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.momentum-grid{grid-template-columns:1fr}.momentum-head{align-items:flex-start;flex-direction:column}.momentum-head .meta{text-align:left}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .threat-radar{margin:0 0 22px;border:1px solid rgba(255,68,91,.16);border-radius:24px;background:linear-gradient(145deg,rgba(24,10,15,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .threat-radar:before{content:"";position:absolute;left:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,68,91,.08);filter:blur(48px)}
 .threat-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.threat-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.threat-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -601,7 +621,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   *{scroll-behavior:auto!important}
 }
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .revenge-queue{margin:0 0 22px;border:1px solid rgba(255,99,215,.16);border-radius:24px;background:linear-gradient(145deg,rgba(25,10,24,.9),rgba(8,8,13,.94));padding:18px;position:relative;overflow:hidden}
 .revenge-queue:before{content:"";position:absolute;right:-80px;bottom:-110px;width:250px;height:250px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(48px)}
 .revenge-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.revenge-head h2{margin:5px 0 0;font-size:24px;letter-spacing:-1px}.revenge-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -613,7 +633,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .revenge-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px}
 @media(max-width:980px){.revenge-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.revenge-grid{grid-template-columns:1fr}.revenge-head{align-items:flex-start;flex-direction:column}.revenge-head .meta{text-align:left}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .nemesis-duel{margin:0 0 22px;border:1px solid rgba(255,99,215,.18);border-radius:26px;background:linear-gradient(135deg,rgba(29,9,28,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .nemesis-duel:before{content:"";position:absolute;right:-100px;top:-100px;width:290px;height:290px;border-radius:50%;background:rgba(255,79,216,.08);filter:blur(50px)}
 .nemesis-duel:after{content:"";position:absolute;left:-90px;bottom:-120px;width:260px;height:260px;border-radius:50%;background:rgba(97,244,255,.05);filter:blur(50px)}
@@ -626,25 +646,25 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .duel-empty{position:relative;z-index:2;border:1px dashed var(--line);border-radius:15px;padding:16px;color:var(--muted);font-size:9px;margin-top:14px}
 @media(max-width:800px){.duel-stage{grid-template-columns:1fr}.duel-vs{margin:auto}.duel-fighter.right{flex-direction:row;text-align:left}.duel-fighter.right .duel-score{margin-left:auto;margin-right:0}}@media(max-width:560px){.duel-head{flex-direction:column;align-items:flex-start}.duel-head .meta{text-align:left}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .feud-pulse{position:relative;z-index:2;margin-top:12px;border:1px solid var(--line);border-radius:15px;padding:11px 12px;background:rgba(255,255,255,.018)}
 .feud-pulse-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.feud-pulse-top b{font-size:9px;letter-spacing:1px}.feud-pulse-top span{font-size:8px;color:var(--muted)}
 .feud-pulse-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.feud-chip{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;border:1px solid var(--line);font-size:9px;font-weight:950;text-decoration:none}.feud-chip.win{color:#a7ffbf;background:rgba(85,255,145,.06);border-color:rgba(85,255,145,.18)}.feud-chip.loss{color:#ff8290;background:rgba(255,68,91,.06);border-color:rgba(255,68,91,.18)}
 .feud-last{margin-top:8px;font-size:8px;color:var(--muted)}.feud-last b{color:#fff}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .duel-path{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.duel-path-step{border:1px solid var(--line);border-radius:11px;padding:8px 6px;text-align:center;background:rgba(255,255,255,.018)}.duel-path-step b{display:block;font-size:14px}.duel-path-step span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.duel-path-step.reached{border-color:rgba(186,255,90,.22)}.duel-path-step.next{border-color:rgba(255,99,215,.34);background:rgba(255,79,216,.055)}.duel-path-step.locked{opacity:.5}@media(max-width:650px){.duel-path{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .duel-stakes{position:relative;z-index:2;margin-top:12px;border:1px solid rgba(255,214,107,.2);border-radius:18px;padding:14px;background:linear-gradient(120deg,rgba(255,214,107,.055),rgba(255,79,216,.035));overflow:hidden}
 .duel-stakes:after{content:"";position:absolute;right:-55px;top:-70px;width:150px;height:150px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(34px);pointer-events:none}
 .duel-stakes>*{position:relative;z-index:1}.duel-stakes-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.duel-stakes-kicker{font-size:8px;letter-spacing:1.5px;color:var(--gold);font-weight:950}.duel-stakes h3{font-size:20px;margin:5px 0 4px;letter-spacing:-.7px}.duel-stakes-tag{white-space:nowrap;border:1px solid rgba(255,214,107,.25);border-radius:999px;padding:6px 8px;color:var(--gold);font-size:8px;font-weight:950;letter-spacing:1px}.duel-stakes-copy{color:var(--muted);font-size:9px;line-height:1.5;max-width:700px}.duel-stakes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:11px}.duel-stake-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.02)}.duel-stake-card b{display:block;font-size:11px}.duel-stake-card span{display:block;color:var(--muted);font-size:8px;line-height:1.45;margin-top:4px}.duel-stake-card.hot{border-color:rgba(255,79,216,.22);background:rgba(255,79,216,.035)}.duel-stake-card.gold{border-color:rgba(255,214,107,.22);background:rgba(255,214,107,.035)}
 @media(max-width:700px){.duel-stakes-top{flex-direction:column}.duel-stakes-grid{grid-template-columns:1fr}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .duel-chronicle{position:relative;z-index:2;margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.duel-chron-stat{border:1px solid var(--line);border-radius:11px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.duel-chron-stat b{display:block;font-size:14px}.duel-chron-stat span{display:block;font-size:7px;color:var(--muted);margin-top:3px}@media(max-width:650px){.duel-chronicle{grid-template-columns:repeat(2,1fr)}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .feud-hall{margin:0 0 22px;border:1px solid rgba(186,255,90,.15);border-radius:26px;background:linear-gradient(145deg,rgba(10,18,12,.92),rgba(8,8,13,.96));padding:18px;position:relative;overflow:hidden}
 .feud-hall:before{content:"";position:absolute;right:-90px;top:-100px;width:260px;height:260px;border-radius:50%;background:rgba(186,255,90,.06);filter:blur(48px)}
 .feud-hall-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-hall-head h2{margin:5px 0 0;font-size:25px;letter-spacing:-1px}.feud-hall-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -653,7 +673,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .feud-hall-empty{color:var(--muted);font-size:8px;border:1px dashed var(--line);border-radius:11px;padding:10px}
 @media(max-width:950px){.feud-hall-columns{grid-template-columns:1fr}}@media(max-width:620px){.feud-hall-head{flex-direction:column;align-items:flex-start}.feud-hall-head .meta{text-align:left}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .feud-spotlight{margin:0 0 22px;border:1px solid rgba(255,214,107,.18);border-radius:26px;padding:18px;background:linear-gradient(135deg,rgba(26,20,8,.92),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-spotlight:before{content:"";position:absolute;left:-90px;top:-110px;width:280px;height:280px;border-radius:50%;background:rgba(255,214,107,.07);filter:blur(48px)}
 .feud-spotlight-head{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.feud-spotlight-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-spotlight-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -665,7 +685,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .spot-feud-empty{border:1px dashed var(--line);border-radius:14px;padding:15px;color:var(--muted);font-size:9px}
 @media(max-width:760px){.spot-feud-card{grid-template-columns:1fr}.spot-feud-score{justify-content:center}.spot-feud-side,.spot-feud-side.right{text-align:center}.spot-feud-meta{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.feud-spotlight-head{flex-direction:column;align-items:flex-start}.feud-spotlight-head .meta{text-align:left}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .mission-control{margin:0 0 22px;border:1px solid rgba(97,244,255,.16);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,23,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .mission-control:before{content:"";position:absolute;right:-90px;top:-100px;width:270px;height:270px;border-radius:50%;background:rgba(97,244,255,.06);filter:blur(48px)}
 .mission-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.mission-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.mission-head .meta{text-align:right;font-size:9px;max-width:430px}
@@ -674,31 +694,31 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .mission-empty{position:relative;z-index:1;border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:9px;margin-top:12px}
 @media(max-width:850px){.mission-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.mission-head{flex-direction:column;align-items:flex-start}.mission-head .meta{text-align:left}.mission-next{align-items:flex-start;flex-direction:column}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .mission-action-deck{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:9px}
 .mission-action-card{border:1px solid var(--line);border-radius:13px;padding:10px;background:rgba(255,255,255,.018);color:#fff;text-decoration:none;min-width:0}
 .mission-action-card b{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mission-action-card span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.mission-action-card:hover{border-color:rgba(97,244,255,.25)}
 @media(max-width:700px){.mission-action-deck{grid-template-columns:1fr}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .ops-pulse{position:relative;z-index:1;margin-top:10px;border:1px solid rgba(186,255,90,.14);border-radius:16px;padding:11px;background:rgba(186,255,90,.025)}
 .ops-pulse-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ops-pulse-head b{font-size:9px;letter-spacing:1px}.ops-pulse-head span{font-size:8px;color:var(--muted)}
 .ops-pulse-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}.ops-pulse-stat{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:rgba(255,255,255,.018)}.ops-pulse-stat b{display:block;font-size:13px}.ops-pulse-stat span{display:block;font-size:7px;color:var(--muted);margin-top:2px}
 .ops-pulse-feed{display:grid;gap:6px;margin-top:8px}.ops-pulse-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-decoration:none;color:#fff;border-top:1px solid var(--line);padding-top:7px}.ops-pulse-row:first-child{border-top:none}.ops-pulse-row i{font-style:normal}.ops-pulse-row b{font-size:8px}.ops-pulse-row span{font-size:7px;color:var(--muted)}.ops-pulse-row em{font-size:7px;color:var(--muted);font-style:normal}
 @media(max-width:780px){.ops-pulse-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.ops-pulse-grid{grid-template-columns:1fr 1fr}}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .duel-actions .danger-clear{border-color:rgba(255,68,91,.28);background:rgba(255,68,91,.08);color:#ff9aa7}
 .nemesis-control-note{position:relative;z-index:2;margin-top:8px;font-size:8px;color:var(--muted);text-align:right}
 .feud-chip.neutral{color:var(--muted);background:rgba(255,255,255,.025);border-color:var(--line)}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .crown-war.private-intel .war-count{color:#9ea0b2;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.025)}
 .crown-war.private-intel .war-status span:after{content:" // PUBLIC VIEW";color:#8c8e9d}
 .crown-war.private-intel .war-dot{background:#9ea0b2;box-shadow:0 0 14px rgba(158,160,178,.35)}
 .crown-intel-note{font-size:8px;color:var(--muted);margin-top:7px;letter-spacing:.4px}
 
-/* ===== V12.5 FEUD STAKES ===== */
+/* ===== V12.6 FEUD MOMENTS ===== */
 .feud-events{margin:0 0 22px;border:1px solid rgba(255,79,216,.18);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(24,8,22,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
 .feud-events:before{content:"";position:absolute;left:-90px;top:-100px;width:280px;height:280px;border-radius:50%;background:rgba(255,79,216,.07);filter:blur(52px)}
 .feud-events-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-events-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-events-head .meta{text-align:right;font-size:9px;max-width:420px}
@@ -707,6 +727,16 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
 .feud-event-burst{position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:10040;display:none;width:min(520px,calc(100vw - 28px));border:1px solid rgba(255,79,216,.38);border-radius:24px;padding:22px;text-align:center;background:linear-gradient(145deg,rgba(36,8,31,.98),rgba(10,8,13,.98));box-shadow:0 30px 100px rgba(0,0,0,.68),0 0 65px rgba(255,79,216,.12);pointer-events:none}.feud-event-burst.show{display:block;animation:feudBurst .35s ease-out}.feud-event-burst .ico{font-size:48px}.feud-event-burst b{display:block;font-size:11px;letter-spacing:1.8px;color:#ff8ae4;margin-top:7px}.feud-event-burst strong{display:block;font-size:30px;letter-spacing:-1px;margin-top:6px}.feud-event-burst span{display:block;color:#aaaabd;font-size:10px;margin-top:6px}
 @keyframes feudBurst{from{opacity:0;transform:translate(-50%,-10px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
 @media(max-width:760px){.feud-event-list{grid-template-columns:1fr}.feud-events-head{flex-direction:column;align-items:flex-start}.feud-events-head .meta{text-align:left}}
+
+/* ===== V12.6 FEUD MOMENTS ===== */
+.feud-moments{margin:0 0 22px;border:1px solid rgba(97,244,255,.18);border-radius:26px;padding:18px;background:linear-gradient(145deg,rgba(8,18,24,.94),rgba(8,8,13,.96));position:relative;overflow:hidden}
+.feud-moments:before{content:"";position:absolute;right:-100px;top:-110px;width:290px;height:290px;border-radius:50%;background:rgba(97,244,255,.07);filter:blur(54px)}
+.feud-moments-head{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.feud-moments-head h2{margin:5px 0 0;font-size:26px;letter-spacing:-1px}.feud-moments-head .meta{text-align:right;font-size:9px;max-width:440px}
+.feud-moment-list{position:relative;z-index:1;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}.feud-moment{display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:16px;padding:11px;background:rgba(255,255,255,.022);text-decoration:none;color:#fff}.feud-moment:hover{border-color:rgba(97,244,255,.3);transform:translateY(-1px)}
+.feud-moment-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#080d10;border:1px solid rgba(97,244,255,.18);font-size:22px}.feud-moment-copy b{display:block;font-size:10px}.feud-moment-copy span{display:block;font-size:8px;color:var(--muted);margin-top:4px;line-height:1.4}.feud-moment-side{text-align:right}.feud-moment-side b{display:block;font-size:9px;color:var(--cyan)}.feud-moment-side span{display:block;font-size:7px;color:var(--muted);margin-top:3px}.feud-moments-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:14px;padding:15px;color:var(--muted);font-size:9px}
+.moment-share{display:inline-flex;margin-top:5px;font-size:7px;color:var(--hot);letter-spacing:.7px}.moment-burst{position:fixed;left:50%;top:18%;transform:translateX(-50%) scale(.96);z-index:10040;display:none;min-width:min(520px,calc(100vw - 28px));border:1px solid rgba(97,244,255,.34);border-radius:22px;background:linear-gradient(145deg,rgba(8,22,28,.98),rgba(9,9,14,.98));box-shadow:0 30px 110px rgba(0,0,0,.62),0 0 55px rgba(97,244,255,.09);padding:20px;text-align:center}.moment-burst.show{display:block;animation:momentBurst .28s ease-out}.moment-burst .ico{font-size:42px}.moment-burst b{display:block;color:var(--cyan);font-size:9px;letter-spacing:2px;margin-top:6px}.moment-burst strong{display:block;font-size:25px;margin-top:5px}.moment-burst span{display:block;color:var(--muted);font-size:10px;margin-top:6px;line-height:1.45}
+@keyframes momentBurst{from{opacity:0;transform:translateX(-50%) translateY(-8px) scale(.94)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+@media(max-width:760px){.feud-moment-list{grid-template-columns:1fr}.feud-moments-head{flex-direction:column;align-items:flex-start}.feud-moments-head .meta{text-align:left}}
 </style>
 </head>
 <body>
@@ -803,6 +833,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     <a class="command-link" href="#hallOfFeuds"><b>🏛️ HALL OF FEUDS</b><span>Network rivalry records</span></a>
     <a class="command-link" href="#seasonFeudSpotlight"><b>🌟 FEUD SPOTLIGHT</b><span>Most active this season</span></a>
     <a class="command-link" href="#feudEvents"><b>💥 FEUD EVENTS</b><span>Escalation milestones</span></a>
+    <a class="command-link" href="#feudMoments"><b>🎬 FEUD MOMENTS</b><span>Shareable story beats</span></a>
     <a class="command-link" href="#missionControl"><b>🛰️ MISSION CONTROL</b><span>Your private next move</span></a>
   </section>
 
@@ -832,6 +863,16 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
   </section>
 
   <div class="feud-event-burst" id="feudEventBurst"><div class="ico" id="feudEventBurstIcon">🔥</div><b>RIVALRY ESCALATED</b><strong id="feudEventBurstTitle">FEUD EVENT</strong><span id="feudEventBurstDetail"></span></div>
+
+  <section class="feud-moments" id="feudMoments">
+    <div class="feud-moments-head">
+      <div><div class="eyebrow">🎬 FEUD MOMENTS // STORY ENGINE</div><h2>The Clashes People Share</h2></div>
+      <div class="meta" id="feudMomentsMeta">Lead flips, streak breaks, revenge wins and power upsets detected from real Clash history.</div>
+    </div>
+    <div class="feud-moment-list" id="feudMomentsBody"><div class="feud-moments-empty">Waiting for a story-grade Clash…</div></div>
+  </section>
+
+  <div class="moment-burst" id="feudMomentBurst"><div class="ico" id="feudMomentBurstIcon">🎬</div><b>FEUD MOMENT</b><strong id="feudMomentBurstTitle">STORY BEAT</strong><span id="feudMomentBurstDetail"></span></div>
 
   <section class="feud-hall" id="hallOfFeuds">
     <div class="feud-hall-head">
@@ -1134,7 +1175,7 @@ body.war-alarm .nav{box-shadow:0 0 0 1px rgba(255,68,91,.2),0 18px 55px rgba(0,0
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.5 FEUD STAKES</div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.6 FEUD MOMENTS</div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1382,8 +1423,11 @@ async function refreshFeudLive(force=false){
    const nextEvent=Number(d.latest_feud_event_id||0);
    const eventChanged=feudLiveLatestEvent!==0&&nextEvent!==feudLiveLatestEvent;
    feudLiveLatestEvent=nextEvent;
-   if(force||changed||eventChanged){
-     await Promise.allSettled([loadHallOfFeuds(),loadSeasonFeudSpotlight(),loadFeudEvents()]);
+   const nextMoment=Number(d.latest_feud_moment_id||0);
+   const momentChanged=feudLiveLatestMoment!==0&&nextMoment!==feudLiveLatestMoment;
+   feudLiveLatestMoment=nextMoment;
+   if(force||changed||eventChanged||momentChanged){
+     await Promise.allSettled([loadHallOfFeuds(),loadSeasonFeudSpotlight(),loadFeudEvents(),loadFeudMoments()]);
    }
    return changed;
  }finally{
@@ -1392,7 +1436,9 @@ async function refreshFeudLive(force=false){
 }
 
 let feudLiveLatestEvent=0;
+let feudLiveLatestMoment=0;
 let feudEventBurstTimer=null;
+let feudMomentBurstTimer=null;
 
 function showFeudEventBurst(e){
  if(!e)return;
@@ -1415,6 +1461,38 @@ async function loadFeudEvents(){
  const rows=Array.isArray(d.events)?d.events:[];
  if(meta)meta.textContent=Number(d.total_events||0)+" escalation event"+(Number(d.total_events||0)===1?"":"s")+" · one event max per Clash · ⚙️ "+(d.engine||"standard");
  body.innerHTML=rows.length?rows.map(e=>'<a class="feud-event" href="/rivalry/'+encodeURIComponent(e.hunter_a||"")+'/'+encodeURIComponent(e.hunter_b||"")+'"><div class="feud-event-icon">'+escapeHtml(e.icon||"🔥")+'</div><div class="feud-event-copy"><b>'+escapeHtml((e.hunter_a||"Hunter A")+" VS "+(e.hunter_b||"Hunter B"))+'</b><span>'+escapeHtml(e.label||"RIVALRY ESCALATED")+' · Winner: '+escapeHtml(e.winner||"—")+'</span></div><div class="feud-event-side"><b>CLASH #'+Number(e.battle_id||0)+'</b><span>TIER '+Number(e.tier_level||0)+'</span></div></a>').join(""):'<div class="feud-events-empty">No tier-crossing Feud Events yet. The next completed direct Clash can start the feed.</div>';
+}
+
+function showFeudMomentBurst(m){
+ if(!m)return;
+ const shell=document.getElementById("feudMomentBurst");
+ if(!shell)return;
+ document.getElementById("feudMomentBurstIcon").textContent=m.icon||"🎬";
+ document.getElementById("feudMomentBurstTitle").textContent=m.label||"FEUD MOMENT";
+ document.getElementById("feudMomentBurstDetail").textContent=m.detail||((m.winner||"A Hunter")+" changed the story.");
+ shell.classList.remove("show"); void shell.offsetWidth; shell.classList.add("show");
+ clearTimeout(feudMomentBurstTimer);
+ feudMomentBurstTimer=setTimeout(()=>shell.classList.remove("show"),4200);
+}
+
+async function shareFeudMoment(id,label){
+ const url=location.origin+"/clash/"+Number(id||0);
+ const text=(label||"BL3 Feud Moment")+" ⚔️ "+url;
+ try{
+   if(navigator.share){await navigator.share({title:"BL3 Feud Moment",text,url});return;}
+   await navigator.clipboard.writeText(text); show("🎬 Feud Moment link copied.");
+ }catch(e){show(url);}
+}
+
+async function loadFeudMoments(){
+ const d=await jsonFetch("/api/feud-moments?limit=10");
+ const body=document.getElementById("feudMomentsBody");
+ const meta=document.getElementById("feudMomentsMeta");
+ if(!body)return;
+ if(!d?.success){body.innerHTML='<div class="feud-moments-empty">Could not load Feud Moments.</div>';return;}
+ const rows=Array.isArray(d.moments)?d.moments:[];
+ if(meta)meta.textContent=Number(d.total_moments||0)+" story moment"+(Number(d.total_moments||0)===1?"":"s")+" · detected from completed direct Clashes · ⚙️ "+(d.engine||"standard");
+ body.innerHTML=rows.length?rows.map(m=>'<div class="feud-moment"><a class="feud-moment-icon" href="/clash/'+Number(m.battle_id||0)+'">'+escapeHtml(m.icon||"🎬")+'</a><div class="feud-moment-copy"><b>'+escapeHtml(m.label||"FEUD MOMENT")+' · '+escapeHtml(m.winner||"Hunter")+'</b><span>'+escapeHtml(m.detail||"")+'</span><button class="moment-share" onclick="shareFeudMoment('+Number(m.battle_id||0)+',''+escapeHtml(m.label||"FEUD MOMENT").replace(/'/g,"\'")+'')">SHARE MOMENT ↗</button></div><div class="feud-moment-side"><b>CLASH #'+Number(m.battle_id||0)+'</b><span>HEAT '+Number(m.intensity||1)+'/5</span></div></div>').join(""):'<div class="feud-moments-empty">No story-grade moments yet. A lead flip, streak break, revenge win or power upset can trigger one.</div>';
 }
 
 async function loadSeasonFeudSpotlight(){
@@ -1527,7 +1605,7 @@ async function loadNemesisDuel(){
  const ownerAvatar=document.getElementById("hunterAvatar")?.textContent||document.getElementById("hudCreature")?.textContent||"👾";
  const ownerName=username||"Hunter";
  const rival=f.rival||"Rival";
- if(meta)meta.textContent=(t.icon||"⚔️")+" "+(t.label||"RIVALRY")+" · "+Number(e.total||0)+" direct clashes · ⚙️ "+(f.engine||"feud-stakes-v12.5");
+ if(meta)meta.textContent=(t.icon||"⚔️")+" "+(t.label||"RIVALRY")+" · "+Number(e.total||0)+" direct clashes · ⚙️ "+(f.engine||"feud-moments-v12.6");
 
  body.innerHTML=''
    +'<div class="duel-stage">'
@@ -2116,7 +2194,7 @@ async function loadUser(){
  }
  const passport=await jsonFetch("/api/passport/"+encodeURIComponent(username));
  if(passport.success) updatePassport(passport);
- await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadThreatRadar(); await loadRevengeQueue(); await loadMissionControl(); await loadOpsPulse(); await loadSeasonFeudSpotlight(); await loadHallOfFeuds(); await loadFeudEvents(); await loadNemesisDuel(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
+ await loadLeaderboard(); await claimReferral(); await authStatus(); await loadArenas(); await loadSeason(); await loadSeasonCommandCenter(); await loadCrownWar(); await loadDailyMissions(); await loadActivity(); await loadRivalFeed(); await loadDiscovery(); await loadThreatRadar(); await loadRevengeQueue(); await loadMissionControl(); await loadOpsPulse(); await loadSeasonFeudSpotlight(); await loadHallOfFeuds(); await loadFeudEvents(); await loadFeudMoments(); await loadNemesisDuel(); await loadInbox(); await loadSignals(); await loadOnboarding(); await loadNetworkPulse(); await loadNetworkHeat(); await loadHunterHUD();
 }
 async function refreshLiveSignals(){
  if(document.hidden)return;
@@ -2296,6 +2374,7 @@ async function battleHunter(){
  el.innerHTML='<div class="small">'+(won?'👑 VICTORY':'💀 DEFEAT')+'</div><div class="battle-vs">'+escapeHtml(mine.avatar)+' '+escapeHtml(username)+' <span class="meta">VS</span> '+escapeHtml(them.opponent)+' '+escapeHtml(them.avatar)+'</div><div class="battle-log">POWER '+mine.power+' — '+them.power+'<br>'+escapeHtml(d.commentary)+'</div><a href="/clash/'+d.battle_id+'" target="_blank" style="display:block;text-decoration:none;color:inherit;margin-top:10px"><div class="proof">🃏 BATTLE CARD #'+d.battle_id+' • OPEN PUBLIC RESULT ↗</div></a><div class="battle-actions"><button class="btn hot" onclick="shareBattle()">📣 SHARE CARD</button><button class="btn" onclick="copyChallengeLink()">🔗 COPY CHALLENGE</button></div>';
  openClashReplay(d);
  if(d.feud_event)showFeudEventBurst(d.feud_event);
+ if(d.feud_moment)showFeudMomentBurst(d.feud_moment);
  show(won?"Your creature took the crown 👑":"Chaos chose your opponent this round.");
  await loadSeason();
  await refreshFeudLive(true);
@@ -4250,7 +4329,95 @@ def _record_feud_escalation_event(conn, battle_id, hunter_a, hunter_b, winner, c
     return event
 
 
-# V12.5 FEUD STAKES builds on the process-local Feud snapshots. A tiny COUNT/MAX signature query protects
+def _record_feud_moment(conn, battle_id, challenger, opponent, winner, challenger_power, opponent_power, created_at):
+    """Detect one strongest shareable story beat from the completed direct Clash."""
+    challenger = str(challenger or "").strip()
+    opponent = str(opponent or "").strip()
+    winner = str(winner or "").strip()
+    if not challenger or not opponent or challenger == opponent or winner not in (challenger, opponent):
+        return None
+    loser = opponent if winner == challenger else challenger
+    a, b = sorted((challenger, opponent), key=lambda x: x.lower())
+
+    rows = conn.execute(
+        """SELECT id, challenger, opponent, winner, challenger_power, opponent_power
+           FROM creature_battles
+           WHERE ((challenger = ? AND opponent = ?) OR (challenger = ? AND opponent = ?))
+             AND id <= ? AND (winner = challenger OR winner = opponent)
+           ORDER BY id ASC""",
+        (a, b, b, a, int(battle_id))
+    ).fetchall()
+    if not rows:
+        return None
+
+    prev = rows[:-1]
+    score = {a: 0, b: 0}
+    leader_before = None
+    last_winner = None
+    streak_holder = None
+    streak_count = 0
+    for r in prev:
+        w = str(r["winner"] or "")
+        if w not in score:
+            continue
+        score[w] += 1
+        if streak_holder == w:
+            streak_count += 1
+        else:
+            streak_holder, streak_count = w, 1
+        last_winner = w
+    if score[a] > score[b]: leader_before = a
+    elif score[b] > score[a]: leader_before = b
+
+    before_winner = int(score.get(winner, 0))
+    before_loser = int(score.get(loser, 0))
+    score[winner] = before_winner + 1
+    leader_after = a if score[a] > score[b] else b if score[b] > score[a] else None
+
+    winner_power = int(challenger_power if winner == challenger else opponent_power)
+    loser_power = int(opponent_power if winner == challenger else challenger_power)
+    candidates = []
+
+    if leader_before and leader_after and leader_before != leader_after and leader_after == winner:
+        candidates.append((5, "lead_flip", "🔄", "LEAD FLIP", f"{winner} flipped the all-time rivalry lead in Clash #{battle_id}."))
+    if streak_holder == loser and streak_count >= 3:
+        candidates.append((5, "streak_break", "💥", "STREAK BREAKER", f"{winner} snapped {loser}'s {streak_count}-Clash winning streak."))
+    if winner_power < loser_power:
+        gap = loser_power - winner_power
+        intensity = 5 if gap >= 35 else 4 if gap >= 20 else 3
+        candidates.append((intensity, "power_upset", "⚡", "POWER UPSET", f"{winner} won despite a {gap}-power disadvantage."))
+    if last_winner == loser:
+        candidates.append((3, "revenge", "🩸", "REVENGE WIN", f"{winner} answered the previous loss and took the rematch."))
+    if before_winner + 2 <= before_loser:
+        candidates.append((4, "comeback", "🔥", "COMEBACK STRIKE", f"{winner} struck back while trailing the feud {before_winner}-{before_loser}."))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    intensity, key, icon, label, detail = candidates[0]
+    cursor = conn.execute(
+        """INSERT OR IGNORE INTO feud_moments
+           (battle_id, hunter_a, hunter_b, winner, loser, moment_key, icon, label, detail, intensity, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (int(battle_id), a, b, winner, loser, key, icon, label, detail, int(intensity), created_at)
+    )
+    if not cursor.rowcount:
+        return None
+    moment = {
+        "id": int(cursor.lastrowid), "battle_id": int(battle_id), "hunter_a": a, "hunter_b": b,
+        "winner": winner, "loser": loser, "moment_key": key, "icon": icon, "label": label,
+        "detail": detail, "intensity": int(intensity), "created_at": created_at,
+        "share_url": f"/clash/{int(battle_id)}",
+        "card_url": f"/clash/{int(battle_id)}/card.svg"
+    }
+    if intensity >= 4:
+        link = f"/clash/{int(battle_id)}"
+        _notify(conn, winner, "feud_moment", f"{icon} {label}", detail, link)
+        _notify(conn, loser, "feud_moment", f"{icon} {label}", detail, link)
+    return moment
+
+
+# V12.6 FEUD MOMENTS builds on the process-local Feud snapshots. A tiny COUNT/MAX signature query protects
 # against external DB changes while avoiding a full rivalry-history scan on every request.
 _RIVALRY_CACHE_LOCK = threading.RLock()
 _RIVALRY_CACHE = {}
@@ -4656,7 +4823,7 @@ def _season_feud_spotlight():
         return {
             "season_key": season_key,
             "spotlight": None,
-            "engine": "snapshot-stakes-v12.5",
+            "engine": "snapshot-moments-v12.6",
             "cache": {"season": season_cache, "all_time": "not-needed"}
         }
 
@@ -4703,7 +4870,7 @@ def _season_feud_spotlight():
     return {
         "season_key": season_key,
         "spotlight": ranked[0],
-        "engine": "snapshot-stakes-v12.5",
+        "engine": "snapshot-moments-v12.6",
         "cache": {"season": season_cache, "all_time": all_time_cache}
     }
 
@@ -4717,18 +4884,21 @@ def feud_live_state_api():
     season_sig = _rivalry_cache_signature(conn, season_key)
     feud_event_row = conn.execute("SELECT COALESCE(MAX(id), 0) AS n FROM feud_events").fetchone()
     latest_feud_event_id = int(feud_event_row["n"] or 0)
+    feud_moment_row = conn.execute("SELECT COALESCE(MAX(id), 0) AS n FROM feud_moments").fetchone()
+    latest_feud_moment_id = int(feud_moment_row["n"] or 0)
     conn.close()
     latest_battle_id = max(int(all_time_sig[1]), int(season_sig[1]))
-    version = f"{all_time_sig[0]}:{all_time_sig[1]}:{season_sig[0]}:{season_sig[1]}:{latest_feud_event_id}"
+    version = f"{all_time_sig[0]}:{all_time_sig[1]}:{season_sig[0]}:{season_sig[1]}:{latest_feud_event_id}:{latest_feud_moment_id}"
     return jsonify({
         "success": True,
         "season_key": season_key,
         "version": version,
         "latest_battle_id": latest_battle_id,
         "latest_feud_event_id": latest_feud_event_id,
+        "latest_feud_moment_id": latest_feud_moment_id,
         "all_time_completed": int(all_time_sig[0]),
         "season_completed": int(season_sig[0]),
-        "engine": "feud-stakes-v12.5",
+        "engine": "feud-moments-v12.6",
         "poll_after_ms": 12000
     })
 
@@ -4752,7 +4922,29 @@ def feud_events_api():
         "success": True,
         "events": [dict(r) for r in rows],
         "total_events": total,
-        "engine": "feud-stakes-v12.5"
+        "engine": "feud-moments-v12.6"
+    })
+
+
+@app.route("/api/feud-moments")
+def feud_moments_api():
+    try:
+        limit = max(1, min(25, int(request.args.get("limit", 10))))
+    except (TypeError, ValueError):
+        limit = 10
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, battle_id, hunter_a, hunter_b, winner, loser, moment_key, icon, label, detail, intensity, created_at
+           FROM feud_moments ORDER BY id DESC LIMIT ?""",
+        (limit,)
+    ).fetchall()
+    total = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
+    conn.close()
+    return jsonify({
+        "success": True,
+        "moments": [dict(r) for r in rows],
+        "total_moments": total,
+        "engine": "feud-moments-v12.6"
     })
 
 
@@ -4817,7 +5009,7 @@ def _rivalry_records(limit=6):
         "closest": closest,
         "wildest": wildest,
         "total_rivalries": len(records),
-        "engine": "snapshot-stakes-v12.5",
+        "engine": "snapshot-moments-v12.6",
         "cache": cache_state
     }
 
@@ -5214,7 +5406,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.5 FEUD STAKES</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.6 FEUD MOMENTS</div>
 </div></body></html>"""
 
 
@@ -6029,7 +6221,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.5 FEUD STAKES</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.6 FEUD MOMENTS</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -6160,7 +6352,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.5 FEUD STAKES</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.6 FEUD MOMENTS</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -6264,7 +6456,7 @@ def _featured_nemesis(username):
             "last_winner": h2h.get("last_winner"),
             "chronicle": _rivalry_chronicle(username, rival),
             "stakes": stakes,
-            "engine": "feud-stakes-v12.5"
+            "engine": "feud-moments-v12.6"
         }
     }
 
@@ -6571,7 +6763,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.5 FEUD STAKES</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V12.6 FEUD MOMENTS</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -6742,6 +6934,7 @@ def _resolve_battle(challenger, opponent):
     _notify(conn, challenger, "battle", f"⚔️ Clash #{battle_id}: {challenger} vs {opponent}", f"Winner: {winner}." + (" +3 REP signal." if rep_awarded and winner == challenger else ""), f"/clash/{battle_id}")
     _notify(conn, opponent, "battle", f"⚔️ Clash #{battle_id}: {challenger} vs {opponent}", f"Winner: {winner}." + (" +3 REP signal." if rep_awarded and winner == opponent else ""), f"/clash/{battle_id}")
     feud_event = _record_feud_escalation_event(conn, battle_id, challenger, opponent, winner, now)
+    feud_moment = _record_feud_moment(conn, battle_id, challenger, opponent, winner, c_power, o_power, now)
     conn.commit()
     # V12.3: the just-persisted Clash changes both season and all-time Feud snapshots.
     _invalidate_rivalry_cache()
@@ -6763,7 +6956,7 @@ def _resolve_battle(challenger, opponent):
     return {
         "success": True, "battle_id": battle_id, "winner": winner, "commentary": commentary,
         "season_key": season_key, "crown_attack": crown_attack, "crown_before": crown_before,
-        "winner_streak": winner_streak, "combo": combo, "feud_event": feud_event,
+        "winner_streak": winner_streak, "combo": combo, "feud_event": feud_event, "feud_moment": feud_moment,
         "challenger": {"username": challenger, "avatar": avatar(cxp), "power": c_power},
         "opponent": {"opponent": opponent, "avatar": avatar(oxp), "power": o_power}
     }, 200
