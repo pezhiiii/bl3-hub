@@ -17,7 +17,7 @@ from eth_account.messages import encode_defunct
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("BL3_SECRET_KEY") or secrets.token_hex(32)
-# V14.2 trust posture: HttpOnly + SameSite by default. Enable Secure cookies on HTTPS deployments.
+# V14.3 trust posture: HttpOnly + SameSite by default. Enable Secure cookies on HTTPS deployments.
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("BL3_SECURE_COOKIES", "0") == "1"
@@ -25,7 +25,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("BL3_SECURE_COOKIES", "0") 
 DB = os.environ.get("BL3_DB_PATH", "bl3.db")
 
 
-# ===== V14.2 DATABASE MAINTENANCE + BACKUP HISTORY =====
+# ===== V14.3 ADMIN CONTROL CENTER =====
 BL3_ENV = (os.environ.get("BL3_ENV") or "development").strip().lower()
 BL3_PUBLIC_URL = (os.environ.get("BL3_PUBLIC_URL") or "").strip().rstrip("/")
 BL3_ADMIN_TOKEN = os.environ.get("BL3_ADMIN_TOKEN") or ""
@@ -40,6 +40,25 @@ _PROD_STARTED_AT = time.time()
 _PROD_WARNINGS = []
 _RATE_LOCK = threading.RLock()
 _RATE_BUCKETS = defaultdict(deque)
+
+# V14.3 process-local admin action history. Deliberately bounded and privacy-light.
+_ADMIN_ACTION_LOCK = threading.RLock()
+_ADMIN_ACTIONS = deque(maxlen=40)
+
+def _admin_action(action, ok=True, detail=""):
+    item = {
+        "action": str(action)[:80],
+        "ok": bool(ok),
+        "detail": str(detail)[:180],
+        "utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+    with _ADMIN_ACTION_LOCK:
+        _ADMIN_ACTIONS.append(item)
+    return item
+
+def _recent_admin_actions(limit=12):
+    with _ADMIN_ACTION_LOCK:
+        return list(reversed(list(_ADMIN_ACTIONS)[-max(1, int(limit)):]))
 
 _logger = logging.getLogger("bl3")
 if not _logger.handlers:
@@ -115,8 +134,14 @@ def _same_origin_ok():
 def _admin_ok():
     if not BL3_ADMIN_TOKEN:
         return False
+    if session.get("bl3_admin_authenticated") is True:
+        authenticated_at = int(session.get("bl3_admin_authenticated_at") or 0)
+        if authenticated_at and (int(time.time()) - authenticated_at) <= 3600:
+            return True
+        session.pop("bl3_admin_authenticated", None)
+        session.pop("bl3_admin_authenticated_at", None)
     supplied = request.headers.get("X-BL3-Admin-Token") or ""
-    return secrets.compare_digest(str(supplied), str(BL3_ADMIN_TOKEN))
+    return bool(supplied) and secrets.compare_digest(str(supplied), str(BL3_ADMIN_TOKEN))
 
 def _db_backup(label="manual"):
     os.makedirs(BL3_BACKUP_DIR, exist_ok=True)
@@ -132,7 +157,7 @@ def _db_backup(label="manual"):
         src_conn.close()
     return target
 
-# ===== V14.2 PERFORMANCE + OBSERVABILITY =====
+# ===== V14.3 PERFORMANCE + OBSERVABILITY =====
 _OBS_LOCK = threading.RLock()
 _OBS_STARTED_AT = time.time()
 _OBS_SLOW_MS = max(50, int(os.environ.get("BL3_SLOW_MS", "500") or 500))
@@ -583,7 +608,7 @@ radial-gradient(circle at 50% 105%,rgba(97,244,255,.055),transparent 32%),
 body:before{background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:54px 54px;opacity:.65}
 .shell{max-width:1280px;padding:20px 28px 38px}
 .nav{top:12px;padding:11px 14px;border:1px solid var(--line);border-radius:18px;background:rgba(7,7,11,.78);backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.32)}
-.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V14.2";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
+.brand{font-size:25px;letter-spacing:-1.2px}.brand:after{content:" / V14.3";font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-left:8px;vertical-align:middle}
 .nav .pill{background:#0d0d13;border-color:rgba(255,255,255,.1)}
 .nav-right .pill:first-child{border-color:rgba(186,255,90,.2)}
 .hero{padding:46px 0 28px;text-align:left}
@@ -970,11 +995,11 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 @media(prefers-reduced-motion:reduce){.bl3-skeleton:after{animation:none}.network-status{transition:none}}
 @media(max-width:620px){.network-status{top:8px}.network-status-copy span{max-width:210px}.bl3-skeleton-grid{grid-template-columns:1fr}}
 
-/* ===== V14.2 TRUST CENTER // PRODUCT TOUR ===== */
+/* ===== V14.3 TRUST CENTER // PRODUCT TOUR ===== */
 .tour-trigger{cursor:pointer}.product-tour-shell{position:fixed;inset:0;z-index:10060;display:none;pointer-events:none}.product-tour-shell.show{display:block}.product-tour-shell:before{content:"";position:fixed;inset:0;background:rgba(0,0,0,.18);pointer-events:none}.product-tour-spotlight{position:fixed;z-index:10063;border:2px solid var(--hot);border-radius:22px;box-shadow:0 0 0 9999px rgba(0,0,0,.52),0 0 50px rgba(186,255,90,.18);pointer-events:none;transition:left .2s ease,top .2s ease,width .2s ease,height .2s ease}.product-tour-panel{pointer-events:auto;position:fixed;right:24px;bottom:24px;z-index:10064;width:min(430px,calc(100vw - 28px));border:1px solid rgba(186,255,90,.25);border-radius:24px;background:linear-gradient(155deg,rgba(18,18,26,.99),rgba(7,7,11,.99));box-shadow:0 28px 110px rgba(0,0,0,.72),0 0 45px rgba(186,255,90,.06);padding:20px}.tour-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.tour-kicker{font-size:8px;letter-spacing:1.7px;color:var(--hot);font-weight:950}.tour-close{border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:10px;padding:8px 9px;font-size:9px;font-weight:900;cursor:pointer}.tour-step-count{font-size:9px;color:var(--muted);font-weight:900}.tour-title{font-size:25px;letter-spacing:-1px;font-weight:950;margin:11px 0 7px}.tour-detail{color:#a6a7b5;font-size:11px;line-height:1.6}.tour-why{margin-top:11px;border:1px solid rgba(161,124,255,.2);border-radius:13px;padding:10px;background:rgba(161,124,255,.05);font-size:9px;color:#c9c4df;line-height:1.5}.tour-progress{display:flex;gap:6px;margin-top:15px}.tour-dot{height:5px;flex:1;border-radius:999px;background:#25252e;border:1px solid rgba(255,255,255,.05)}.tour-dot.done,.tour-dot.active{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px rgba(186,255,90,.18)}.tour-actions{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;margin-top:15px}.tour-actions button{margin:0;width:auto;border:1px solid var(--line);background:rgba(255,255,255,.035);color:#fff;border-radius:12px;padding:10px 12px;font-size:9px;font-weight:950;cursor:pointer}.tour-actions .primary{background:var(--hot);border-color:var(--hot);color:#08090a}.tour-actions .back:disabled{opacity:.35;cursor:default}.bl3-tour-focus{scroll-margin-top:96px!important}.product-tour-panel.tour-left{left:24px;right:auto}.product-tour-panel.tour-right{right:24px;left:auto}.tour-mini-cta{display:inline-flex;align-items:center;gap:6px;margin-left:8px;border:1px solid rgba(186,255,90,.22);background:rgba(186,255,90,.045);color:var(--hot);padding:7px 10px;border-radius:999px;font-size:9px;font-weight:950;cursor:pointer}.tour-complete{color:var(--hot);font-weight:950}.pref-reduced-motion .bl3-tour-focus{scroll-margin-top:90px}@media(max-width:620px){.product-tour-panel{right:14px;left:14px;bottom:14px;width:auto;padding:17px}.tour-title{font-size:22px}.tour-actions{grid-template-columns:1fr 1fr}.tour-actions .tour-skip{grid-column:1/-1;order:3}}
 
 
-/* ===== V14.2 TRUST CENTER + SECURITY UX ===== */
+/* ===== V14.3 TRUST CENTER + SECURITY UX ===== */
 .trust-trigger{cursor:pointer}.trust-trigger.secure{border-color:rgba(97,244,255,.28);color:var(--cyan)}
 .trust-shell{position:fixed;inset:0;z-index:10070;display:none;background:rgba(0,0,0,.64);backdrop-filter:blur(9px)}.trust-shell.show{display:block}.trust-panel{position:absolute;right:0;top:0;height:100%;width:min(570px,100vw);background:linear-gradient(155deg,#0d1318,#08080d 44%);border-left:1px solid rgba(97,244,255,.18);box-shadow:-34px 0 110px rgba(0,0,0,.62);display:flex;flex-direction:column}.trust-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:22px;border-bottom:1px solid var(--line)}.trust-head h2{margin:5px 0 0;font-size:29px;letter-spacing:-1.1px}.trust-close{border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;border-radius:11px;padding:9px 11px;cursor:pointer;font-weight:900}.trust-body{overflow:auto;padding:15px 18px 24px}.trust-hero{border:1px solid rgba(97,244,255,.2);border-radius:20px;padding:16px;background:linear-gradient(135deg,rgba(97,244,255,.06),rgba(161,124,255,.05))}.trust-hero-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.trust-state{display:inline-flex;align-items:center;gap:7px;font-size:9px;font-weight:950;letter-spacing:1px;color:var(--muted)}.trust-state i{width:8px;height:8px;border-radius:50%;background:#666875}.trust-state.ok{color:var(--cyan)}.trust-state.ok i{background:var(--cyan);box-shadow:0 0 14px rgba(97,244,255,.55)}.trust-wallet{font-size:20px;font-weight:950;margin-top:12px}.trust-sub{font-size:9px;color:var(--muted);line-height:1.55;margin-top:5px}.trust-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.trust-stat{border:1px solid var(--line);border-radius:14px;padding:11px;background:rgba(255,255,255,.02)}.trust-stat b{display:block;font-size:11px}.trust-stat span{display:block;margin-top:4px;color:var(--muted);font-size:8px;line-height:1.4}.trust-section{border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:10px;background:rgba(255,255,255,.018)}.trust-section h3{font-size:11px;margin:0 0 9px;letter-spacing:.7px}.trust-check{display:grid;grid-template-columns:24px 1fr;gap:9px;padding:9px 0;border-top:1px solid rgba(255,255,255,.07)}.trust-check:first-of-type{border-top:0}.trust-check i{font-style:normal;width:23px;height:23px;border-radius:8px;display:grid;place-items:center;background:rgba(186,255,90,.07);border:1px solid rgba(186,255,90,.15);font-size:11px}.trust-check b{display:block;font-size:9px}.trust-check span{display:block;color:var(--muted);font-size:8px;line-height:1.5;margin-top:3px}.trust-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.trust-actions button,.trust-actions a{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.035);color:#fff;padding:9px 11px;font-size:8px;font-weight:950;text-decoration:none;cursor:pointer}.trust-actions .danger{border-color:rgba(255,122,157,.3);color:#ff9ab2}.trust-disclaimer{margin-top:10px;color:#7f8190;font-size:8px;line-height:1.55}.trust-offline{color:var(--muted);border:1px dashed var(--line);border-radius:14px;padding:14px;font-size:9px}
 @media(max-width:620px){.trust-panel{width:100vw}.trust-grid{grid-template-columns:1fr}.trust-head{padding:18px}.trust-body{padding:12px 14px 20px}}
@@ -994,7 +1019,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 <div class="product-tour-shell" id="productTourShell" role="dialog" aria-modal="true" aria-label="BL3 guided product tour">
   <div class="product-tour-spotlight" id="productTourSpotlight" aria-hidden="true"></div>
   <div class="product-tour-panel" id="productTourPanel">
-    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V14.2</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
+    <div class="tour-top"><div><div class="tour-kicker">✨ BL3 PRODUCT TOUR // V14.3</div><div class="tour-step-count" id="tourStepCount">STEP 1 OF 4</div></div><button class="tour-close" type="button" onclick="closeProductTour(true)">ESC</button></div>
     <div class="tour-title" id="tourTitle">Meet your Hunter ID</div>
     <div class="tour-detail" id="tourDetail">Your Passport is the identity layer behind progression, rivalry history and public reputation.</div>
     <div class="tour-why" id="tourWhy">WHY IT MATTERS · Everything you do in BL3 builds around one persistent Hunter identity.</div>
@@ -1037,7 +1062,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
 <div class="command-palette-shell" id="commandPaletteShell" role="dialog" aria-modal="true" aria-label="BL3 global search" onclick="commandPaletteBackdrop(event)">
   <div class="command-palette" id="commandPalette">
     <div class="command-palette-head"><span class="command-palette-icon">⌘</span><input class="command-palette-input" id="commandPaletteInput" autocomplete="off" spellcheck="false" placeholder="Search Hunters, Feuds, Clashes, Arenas, Moments…"><span class="command-palette-esc">ESC</span></div>
-    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V14.2</span></div>
+    <div class="command-palette-meta"><span id="commandPaletteStatus">GLOBAL SEARCH // READY</span><span>BL3 V14.3</span></div>
     <div class="command-results" id="commandResults"><div class="command-empty">Start typing or pick a quick command.</div></div>
     <div class="command-palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span><span><kbd>ENTER</kbd> OPEN</span><span><kbd>ESC</kbd> CLOSE</span></div>
   </div>
@@ -1074,7 +1099,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
           <div class="eyebrow">BL3 // LIVE HUNTER HUD</div>
           <div style="display:flex;gap:6px;align-items:center">
             <div class="hud-unlock-badge" id="hudUnlockBadge">✨ 0 NEW</div>
-            <div class="core-badge">V14.2</div>
+            <div class="core-badge">V14.3</div>
           </div>
         </div>
         <div>
@@ -1506,7 +1531,7 @@ html[data-bl3-motion="reduced"] .bl3-skeleton:after{animation:none}.offline .liv
     </section>
   </div>
 
-  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.2 DATABASE MAINTENANCE<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/production">PRODUCTION</a><span>•</span><a href="/data-safety">DATA SAFETY</a><span>•</span><a href="/ops">OPS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/trust">TRUST CENTER</a><span>•</span><a href="/api/meta">API META</a></div></div>
+  <div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.3 ADMIN CONTROL CENTER<div class="quality-footer"><a href="/status">SYSTEM STATUS</a><span>•</span><a href="/production">PRODUCTION</a><span>•</span><a href="/data-safety">DATA SAFETY</a><span>•</span><a href="/ops">OPS</a><span>•</span><a href="/transparency">TRANSPARENCY</a><span>•</span><a href="/trust">TRUST CENTER</a><span>•</span><a href="/admin/control-center">ADMIN</a><span>•</span><a href="/api/meta">API META</a></div></div>
 </div>
 
 <div class="clash-replay-shell" id="clashReplayShell">
@@ -1582,7 +1607,7 @@ let lastBattleShare=null;
 let currentCrown=null;
 
 
-// ===== V14.2 TRUST CENTER =====
+// ===== V14.3 TRUST CENTER =====
 let bl3TrustOpen=false;
 function trustCenterBackdrop(e){if(e.target?.id==="trustCenterShell")closeTrustCenter()}
 function closeTrustCenter(){const sh=document.getElementById("trustCenterShell");if(sh)sh.classList.remove("show");bl3TrustOpen=false}
@@ -1590,7 +1615,7 @@ function fmtTrustAge(seconds){seconds=Math.max(0,Number(seconds||0));if(seconds<
 function trustYesNo(v){return v?"ENABLED":"OFF"}
 async function openTrustCenter(){const sh=document.getElementById("trustCenterShell"),body=document.getElementById("trustCenterBody");if(!sh||!body)return;sh.classList.add("show");bl3TrustOpen=true;body.innerHTML='<div class="bl3-skeleton"><div class="bl3-skeleton-line short"></div><div class="bl3-skeleton-line mid"></div><div class="bl3-skeleton-line"></div></div>';const d=await jsonFetch("/api/trust-center",{cache:"no-store"});if(!d?.success){body.innerHTML='<div class="trust-offline">Trust status is temporarily unavailable. <button class="network-retry" onclick="openTrustCenter()">RETRY</button></div>';return}renderTrustCenter(d)}
 function renderTrustCenter(d){const body=document.getElementById("trustCenterBody");if(!body)return;const auth=!!d.authenticated,checks=Array.isArray(d.checks)?d.checks:[];const state=auth?'VERIFIED SESSION':'PUBLIC SESSION';const wallet=auth?escapeHtml(d.wallet_preview||"Verified wallet"):'No wallet session active';body.innerHTML=''
- +'<div class="trust-hero"><div class="trust-hero-top"><span class="trust-state '+(auth?'ok':'')+'"><i></i>'+state+'</span><span class="hud-unlock-badge">V14.2</span></div><div class="trust-wallet">'+wallet+'</div><div class="trust-sub">'+escapeHtml(auth?((d.username||"Hunter")+" · wallet signature verified"):'BL3 public browsing does not require a wallet signature.')+'</div>'
+ +'<div class="trust-hero"><div class="trust-hero-top"><span class="trust-state '+(auth?'ok':'')+'"><i></i>'+state+'</span><span class="hud-unlock-badge">V14.3</span></div><div class="trust-wallet">'+wallet+'</div><div class="trust-sub">'+escapeHtml(auth?((d.username||"Hunter")+" · wallet signature verified"):'BL3 public browsing does not require a wallet signature.')+'</div>'
  +'<div class="trust-grid"><div class="trust-stat"><b>'+escapeHtml(d.signature_method||"EIP-191 personal_sign")+'</b><span>SIGNATURE METHOD</span></div><div class="trust-stat"><b>'+escapeHtml(auth?fmtTrustAge(d.session_age_seconds):"—")+'</b><span>SESSION AGE</span></div><div class="trust-stat"><b>'+trustYesNo(d.cookie?.http_only)+'</b><span>HTTPONLY COOKIE</span></div><div class="trust-stat"><b>'+escapeHtml(String(d.cookie?.same_site||"Lax").toUpperCase())+'</b><span>SAMESITE POLICY</span></div></div></div>'
  +'<section class="trust-section"><h3>SECURITY CHECKS</h3>'+checks.map(c=>'<div class="trust-check"><i>'+escapeHtml(c.icon||"✓")+'</i><div><b>'+escapeHtml(c.title||"CHECK")+'</b><span>'+escapeHtml(c.detail||"")+'</span></div></div>').join("")+'</section>'
  +'<section class="trust-section"><h3>PRIVACY SUMMARY</h3><div class="trust-check"><i>🧭</i><div><b>DISCOVERY DOES NOT USE WALLET VALUE</b><span>Public and personalized discovery use BL3 activity signals, not wallet balance or paid ranking boosts.</span></div></div><div class="trust-check"><i>🔁</i><div><b>VIRAL ATTRIBUTION IS LIGHTWEIGHT</b><span>Moment CTA attribution stores action, source Moment, target and time; it is not designed around IP or wallet-value profiling.</span></div></div><div class="trust-check"><i>⚠️</i><div><b>NO EXTERNAL SECURITY AUDIT CLAIM</b><span>BL3 exposes its current security posture here, but this interface does not claim an independent smart-contract or application audit.</span></div></div></section>'
@@ -1663,7 +1688,7 @@ async function loadOnboarding(){
 }
 function currentUser(){username=document.getElementById("username").value.trim()||"demo_user";return username}
 function show(text){const el=document.getElementById("message");el.innerText=text;el.classList.remove("hidden");clearTimeout(messageTimer);messageTimer=setTimeout(()=>el.classList.add("hidden"),4500)}
-const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v14.2:";
+const BL3_RECOVERY_CACHE_PREFIX="bl3-recovery-v14.3:";
 let bl3RecoveryNoticeTimer=null;
 let bl3Recovering=false;
 function setNetworkStatus(mode,title,detail,sticky){
@@ -3199,7 +3224,7 @@ function renderActivityCenter(){
  document.getElementById("acUnread").textContent=Number(summary.unread_signals||0);
  document.getElementById("acUnlocks").textContent=Number(summary.unseen_unlocks||0);
  document.getElementById("acFeuds").textContent=Number(summary.feud_updates||0);
- const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V14.2"):"Sign in to load your Hunter activity.";
+ const meta=document.getElementById("activityCenterMeta");if(meta)meta.textContent=d.success?((d.username||"HUNTER")+" · unified private activity · V14.3"):"Sign in to load your Hunter activity.";
  const items=(Array.isArray(d.items)?d.items:[]).filter(x=>activityPreferenceEnabled(x.type));const filtered=activityCenterTab==="all"?items:items.filter(x=>x.type===activityCenterTab);
  if(!d.success){root.innerHTML='<div class="activity-empty">'+escapeHtml(d.message||"Sign in to open Activity Center.")+'</div>';return}
  if(!filtered.length){root.innerHTML='<div class="activity-empty">Nothing in this lane right now. The network is quiet — go make a move. ⚡</div>';return}
@@ -6719,7 +6744,7 @@ def rivalry_public_page(hunter_a, hunter_b):
 </div>
 <div class="chronicle-list">{chronicle_events_html}</div></section>
 <section class="section"><div class="eyebrow">RIVALRY HISTORY</div><h2>Recent Clashes</h2>{rows}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.2 DATABASE MAINTENANCE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.3 ADMIN CONTROL CENTER</div>
 </div></body></html>"""
 
 
@@ -7534,7 +7559,7 @@ def hunter_progress_page(username):
 <div class="grid">{cards_html}</div>
 <section class="unlock-section"><div class="eyebrow">✨ UNLOCK FEED // NEW ACHIEVEMENTS</div><h2>Recent Unlocks</h2><div class="meta">New Trophy, Title, Skin, and Evolution unlocks appear here after your baseline is established.</div><div class="unlock-list" id="unlockList">{unlock_feed_html}</div></section>
 </section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.2 DATABASE MAINTENANCE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.3 ADMIN CONTROL CENTER</div>
 </div>
 <div class="unlock-toast" id="unlockToast"><div class="eyebrow">NEW UNLOCK</div><div class="big" id="unlockToastIcon">✨</div><b id="unlockToastTitle">Unlocked</b><span id="unlockToastDetail"></span></div>
 <script>
@@ -7665,7 +7690,7 @@ def hunter_loadout_page(username):
 {featured_html}
 <div class="stats"><div class="stat"><b>{d['reputation']}</b><span>REP</span></div><div class="stat"><b>{d['wins']}</b><span>WINS</span></div><div class="stat"><b>{d['network']}</b><span>NETWORK</span></div><div class="stat"><b>#{d['xp_rank'] or '—'}</b><span>XP RANK</span></div></div>
 <div class="actions"><a class="btn" href="{esc(profile_url)}">VIEW FULL PROFILE</a><a class="btn alt" href="/progress/{urllib.parse.quote(username)}">📈 PROGRESS</a><a class="btn alt" href="{esc(page_url)}">SHARE LOADOUT</a></div></div></div></section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.2 DATABASE MAINTENANCE</div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.3 ADMIN CONTROL CENTER</div>
 </div>
 <script>
 document.querySelectorAll('.skin-btn:not(.locked)').forEach(btn=>btn.addEventListener('click',async()=>{{
@@ -8076,7 +8101,7 @@ def hunter_public_page(username):
 <section class="section trophy-room"><div class="eyebrow">🏆 TROPHY ROOM // PROOF OF HISTORY</div><h2>Achievement Shelf <span class="small">{trophy_data["count"]} UNLOCKED</span></h2><div class="meta">Current public title: <b style="color:var(--hot)">{esc(hunter_title["icon"])} {esc(hunter_title["title"])}</b>. Pin any unlocked Trophy to feature one piece of proof at the top of your Hunter identity.</div><div class="trophy-grid">{trophy_cards}</div></section>
 {h2h_html}
 <section class="section"><div class="eyebrow">RECENT COMBAT</div><h2>Latest Alpha Clashes</h2>{battles_html}</section>
-<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.2 DATABASE MAINTENANCE</div></div>
+<div class="footer">BL3 // BUILD. MEME. REPEAT. // V14.3 ADMIN CONTROL CENTER</div></div>
 <script>
 const hunterName={json.dumps(username)};
 let socialState={{is_following:false,is_rival:false}};
@@ -9819,8 +9844,9 @@ def performance_timer_start():
 
 @app.before_request
 def production_request_guard():
-    if BL3_RATE_LIMIT and request.method not in ("GET", "HEAD", "OPTIONS") and request.path.startswith("/api/"):
-        auth_sensitive = request.path.startswith("/api/auth/")
+    protected_write = request.path.startswith("/api/") or request.path.startswith("/admin/")
+    if BL3_RATE_LIMIT and request.method not in ("GET", "HEAD", "OPTIONS") and protected_write:
+        auth_sensitive = request.path.startswith("/api/auth/") or request.path == "/admin/login"
         ok, retry = _rate_check(BL3_AUTH_RATE_MAX if auth_sensitive else BL3_RATE_MAX)
         if not ok:
             _log_event("rate_limited", route=request.path, method=request.method)
@@ -9828,7 +9854,7 @@ def production_request_guard():
             response.status_code = 429
             response.headers["Retry-After"] = str(retry)
             return response
-    if request.method not in ("GET", "HEAD", "OPTIONS") and request.path.startswith("/api/") and not _same_origin_ok():
+    if request.method not in ("GET", "HEAD", "OPTIONS") and protected_write and not _same_origin_ok():
         _log_event("csrf_origin_block", route=request.path, method=request.method)
         return jsonify({"success":False,"message":"Cross-site write blocked by BL3 security policy."}), 403
 
@@ -9839,7 +9865,7 @@ def quality_headers(response):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if request.path.startswith("/api/") or request.path in ("/healthz", "/status", "/ops"):
+    if request.path.startswith("/api/") or request.path.startswith("/admin/") or request.path in ("/healthz", "/status", "/ops"):
         response.headers.setdefault("Cache-Control", "no-store")
     started = getattr(request, "_bl3_started_at", None)
     if started is not None:
@@ -9850,7 +9876,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "14.2")
+    response.headers.setdefault("X-BL3-Version", "14.3")
     return response
 
 
@@ -9873,6 +9899,7 @@ def global_search_api():
         {"type": "command", "icon": "🚀", "title": "Production Readiness", "subtitle": "Inspect deployment posture and startup checks", "url": "/production", "keywords": "production deploy config security backup diagnostics rate limit"},
         {"type": "command", "icon": "💾", "title": "Data Safety Center", "subtitle": "Inspect database integrity and backup posture", "url": "/data-safety", "keywords": "backup database integrity recovery safety sqlite data"},
         {"type": "command", "icon": "🛠️", "title": "Database Maintenance", "subtitle": "Inspect free pages, journal mode and backup history", "url": "/data-safety", "keywords": "database maintenance sqlite pages vacuum diagnostics backup history"},
+        {"type": "command", "icon": "⚙️", "title": "Admin Control Center", "subtitle": "Protected operations dashboard for health, backups and warnings", "url": "/admin/control-center", "keywords": "admin control center operations backup ops maintenance warnings health"},
     ]
 
     results = []
@@ -10027,8 +10054,8 @@ def _observability_snapshot():
 
     return {
         "success": True,
-        "version": "14.2",
-        "release": "DATABASE MAINTENANCE + BACKUP HISTORY",
+        "version": "14.3",
+        "release": "ADMIN CONTROL CENTER",
         "slow_threshold_ms": _OBS_SLOW_MS,
         "summary": summary,
         "routes": rows[:15],
@@ -10144,7 +10171,7 @@ def _data_safety_snapshot(include_files=False):
     latest = backups[0] if backups else None
     public_history = [{"modified_at": b["modified_at"], "bytes": b["bytes"], "age_hours": b["age_hours"]} for b in backups[:8]]
     data = {
-        "success": True, "version": "V14.2", "engine": "data-maintenance-v14.2", "database": integrity,
+        "success": True, "version": "V14.3", "engine": "admin-control-v14.3", "database": integrity,
         "maintenance": maintenance,
         "backups": {
             "count": len(backups), "latest_at": latest.get("modified_at") if latest else None,
@@ -10173,8 +10200,8 @@ def admin_backup_inventory():
 def data_maintenance_api():
     response = jsonify({
         "success": True,
-        "version": "V14.2",
-        "engine": "database-maintenance-v14.2",
+        "version": "V14.3",
+        "engine": "admin-control-v14.3",
         "maintenance": _db_maintenance_report(),
         "integrity": _db_integrity_report(),
         "policy": "Read-only diagnostics only; no automatic VACUUM or restore action is exposed."
@@ -10190,6 +10217,7 @@ def admin_backup_validate():
     filename = str(payload.get("filename") or "").strip()
     result = _validate_backup_file(filename)
     _log_event("backup_validate", filename=os.path.basename(filename)[:120], healthy=bool(result.get("healthy")))
+    _admin_action("backup_validate", bool(result.get("healthy")), os.path.basename(filename)[:120])
     return jsonify(result), (200 if result.get("success") else 404)
 
 @app.route("/data-safety")
@@ -10205,7 +10233,114 @@ def data_safety_page():
         f'<div class="history-row"><b>{html.escape(str(x.get("modified_at") or "unknown"))}</b><span>{int(x.get("bytes") or 0):,} bytes · {html.escape(str(x.get("age_hours") or 0))}h ago</span></div>'
         for x in hist
     ) or '<div class="note">No backups found yet.</div>'
-    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Data Safety</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:980px;margin:auto}}.brand{{font-size:25px;font-weight:950}}.brand span,a,.ok{{color:#baff5a}}.warn{{color:#ffd66b}}.hero,.panel{{border:1px solid #2b2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151a,#09090e);margin-top:18px}}h1{{font-size:clamp(42px,8vw,76px);margin:8px 0}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}}.stat{{border:1px solid #292d35;border-radius:15px;padding:13px}}.stat b{{display:block;font-size:18px}}.stat span,.muted{{font-size:9px;color:#9296a5}}.note{{padding:12px;border:1px solid #30333c;border-radius:14px;margin-top:10px;color:#b8bac6}}.history{{display:grid;gap:8px;margin-top:12px}}.history-row{{display:flex;justify-content:space-between;gap:14px;border:1px solid #2b2e36;border-radius:14px;padding:12px;background:#0b0c10}}.history-row b{{font-size:10px}}.history-row span{{font-size:9px;color:#9296a5;text-align:right}}@media(max-width:700px){{.grid{{grid-template-columns:1fr 1fr}}.history-row{{align-items:flex-start;flex-direction:column}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V14.2</div><div class="hero"><div class="{state_class}">● {state}</div><h1>Data Safety Center</h1><p class="muted">SQLite integrity, backup history and read-only maintenance diagnostics. No one-click restore or automatic VACUUM is exposed.</p><div class="grid"><div class="stat"><b>{html.escape(str(dbs.get("quick_check","unknown")).upper())}</b><span>QUICK CHECK</span></div><div class="stat"><b>{int(b.get("count") or 0)}</b><span>BACKUPS</span></div><div class="stat"><b>{html.escape(str(m.get("journal_mode") or "unknown").upper())}</b><span>JOURNAL MODE</span></div><div class="stat"><b>{round(float(m.get("free_ratio") or 0)*100,1)}%</b><span>FREE PAGES</span></div></div></div><div class="panel"><h2>Backup history</h2><div class="history">{hist_html}</div></div><div class="panel"><h2>Maintenance diagnostics</h2><div class="note">Page count: {int(m.get("page_count") or 0):,} · Page size: {int(m.get("page_size") or 0):,} bytes · Free pages: {int(m.get("freelist_pages") or 0):,}</div><div class="note">Estimated reusable space: {int(m.get("estimated_free_bytes") or 0):,} bytes</div><div class="note">{html.escape(str(m.get("advice") or "No maintenance advice available."))}</div><div class="note">Restore policy: validate a backup first, then perform restore as an explicit operator action outside the public web UI.</div></div><p><a href="/">← Back to BL3</a> · <a href="/api/data-safety">Data Safety JSON</a> · <a href="/api/data-maintenance">Maintenance JSON</a> · <a href="/production">Production</a> · <a href="/ops">Ops</a></p></div></body></html>'''
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Data Safety</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:980px;margin:auto}}.brand{{font-size:25px;font-weight:950}}.brand span,a,.ok{{color:#baff5a}}.warn{{color:#ffd66b}}.hero,.panel{{border:1px solid #2b2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151a,#09090e);margin-top:18px}}h1{{font-size:clamp(42px,8vw,76px);margin:8px 0}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}}.stat{{border:1px solid #292d35;border-radius:15px;padding:13px}}.stat b{{display:block;font-size:18px}}.stat span,.muted{{font-size:9px;color:#9296a5}}.note{{padding:12px;border:1px solid #30333c;border-radius:14px;margin-top:10px;color:#b8bac6}}.history{{display:grid;gap:8px;margin-top:12px}}.history-row{{display:flex;justify-content:space-between;gap:14px;border:1px solid #2b2e36;border-radius:14px;padding:12px;background:#0b0c10}}.history-row b{{font-size:10px}}.history-row span{{font-size:9px;color:#9296a5;text-align:right}}@media(max-width:700px){{.grid{{grid-template-columns:1fr 1fr}}.history-row{{align-items:flex-start;flex-direction:column}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V14.3</div><div class="hero"><div class="{state_class}">● {state}</div><h1>Data Safety Center</h1><p class="muted">SQLite integrity, backup history and read-only maintenance diagnostics. No one-click restore or automatic VACUUM is exposed.</p><div class="grid"><div class="stat"><b>{html.escape(str(dbs.get("quick_check","unknown")).upper())}</b><span>QUICK CHECK</span></div><div class="stat"><b>{int(b.get("count") or 0)}</b><span>BACKUPS</span></div><div class="stat"><b>{html.escape(str(m.get("journal_mode") or "unknown").upper())}</b><span>JOURNAL MODE</span></div><div class="stat"><b>{round(float(m.get("free_ratio") or 0)*100,1)}%</b><span>FREE PAGES</span></div></div></div><div class="panel"><h2>Backup history</h2><div class="history">{hist_html}</div></div><div class="panel"><h2>Maintenance diagnostics</h2><div class="note">Page count: {int(m.get("page_count") or 0):,} · Page size: {int(m.get("page_size") or 0):,} bytes · Free pages: {int(m.get("freelist_pages") or 0):,}</div><div class="note">Estimated reusable space: {int(m.get("estimated_free_bytes") or 0):,} bytes</div><div class="note">{html.escape(str(m.get("advice") or "No maintenance advice available."))}</div><div class="note">Restore policy: validate a backup first, then perform restore as an explicit operator action outside the public web UI.</div></div><p><a href="/">← Back to BL3</a> · <a href="/api/data-safety">Data Safety JSON</a> · <a href="/api/data-maintenance">Maintenance JSON</a> · <a href="/production">Production</a> · <a href="/ops">Ops</a></p></div></body></html>'''
+
+
+# ===== V14.3 ADMIN CONTROL CENTER =====
+def _admin_warning_center():
+    warnings = []
+    for text in _PROD_WARNINGS:
+        warnings.append({"level": "warn", "code": "startup", "message": str(text)[:240]})
+    integrity = _db_integrity_report()
+    maintenance = _db_maintenance_report()
+    backups = _backup_inventory(25)
+    obs = _observability_snapshot()
+    if not BL3_ADMIN_TOKEN:
+        warnings.append({"level":"critical","code":"admin_token","message":"BL3_ADMIN_TOKEN is not configured; protected admin actions are disabled."})
+    if not integrity.get("ok"):
+        warnings.append({"level":"critical","code":"db_integrity","message":"Database quick_check is not healthy."})
+    if not backups:
+        warnings.append({"level":"warn","code":"backup_missing","message":"No database backup is currently present in the configured backup directory."})
+    elif float(backups[0].get("age_hours") or 0) >= 24.0:
+        warnings.append({"level":"warn","code":"backup_stale","message":"Latest backup is more than 24 hours old."})
+    if float(maintenance.get("free_ratio") or 0) >= 0.20 and int(maintenance.get("page_count") or 0) >= 500:
+        warnings.append({"level":"warn","code":"db_free_pages","message":"Database free-page ratio is high enough to consider planned compaction after a verified backup."})
+    summary = obs.get("summary") or {}
+    req_n = int(summary.get("requests") or 0)
+    slow_n = int(summary.get("slow_requests") or 0)
+    if req_n >= 20 and slow_n / max(1, req_n) >= 0.15:
+        warnings.append({"level":"warn","code":"slow_requests","message":"At least 15% of observed requests crossed the configured slow-request threshold."})
+    if int(summary.get("errors") or 0) >= 5:
+        warnings.append({"level":"warn","code":"server_errors","message":"Five or more 5xx responses have been observed in the current process lifetime."})
+    return warnings
+
+
+def _admin_control_snapshot():
+    integrity = _db_integrity_report()
+    maintenance = _db_maintenance_report()
+    backups = _backup_inventory(12)
+    obs = _observability_snapshot()
+    latest = backups[0] if backups else None
+    return {
+        "success": True,
+        "version": "V14.3",
+        "engine": "admin-control-v14.3",
+        "environment": BL3_ENV,
+        "admin_actions_enabled": bool(BL3_ADMIN_TOKEN),
+        "session_authenticated": bool(_admin_ok()),
+        "system": {
+            "database_healthy": bool(integrity.get("ok")),
+            "database_size_bytes": int(integrity.get("size_bytes") or 0),
+            "uptime_seconds": int(max(0, time.time() - _PROD_STARTED_AT)),
+            "secure_cookie": bool(app.config.get("SESSION_COOKIE_SECURE")),
+        },
+        "backups": {
+            "count": len(backups),
+            "latest": latest,
+            "directory_ready": os.path.isdir(BL3_BACKUP_DIR),
+            "items": backups[:8],
+        },
+        "database": {"integrity": integrity, "maintenance": maintenance},
+        "observability": obs,
+        "warnings": _admin_warning_center(),
+        "recent_admin_actions": _recent_admin_actions(12),
+        "privacy": "Admin history is process-local and stores action labels, success state, short non-secret detail and UTC time only."
+    }
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    if not BL3_ADMIN_TOKEN:
+        return jsonify({"success":False,"message":"Admin console is disabled until BL3_ADMIN_TOKEN is configured."}), 503
+    payload = request.get_json(silent=True) or {}
+    supplied = str(request.form.get("token") or payload.get("token") or "")
+    if not supplied or not secrets.compare_digest(supplied, BL3_ADMIN_TOKEN):
+        _admin_action("admin_login", False, "invalid token")
+        return jsonify({"success":False,"message":"Invalid admin token."}), 403
+    session["bl3_admin_authenticated"] = True
+    session["bl3_admin_authenticated_at"] = int(time.time())
+    _admin_action("admin_login", True, "browser session opened")
+    return jsonify({"success":True,"message":"Admin session opened for up to one hour."})
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    was_admin = bool(session.get("bl3_admin_authenticated"))
+    session.pop("bl3_admin_authenticated", None)
+    session.pop("bl3_admin_authenticated_at", None)
+    if was_admin:
+        _admin_action("admin_logout", True, "browser session closed")
+    return jsonify({"success":True,"message":"Admin session ended."})
+
+@app.route("/api/admin/control-center")
+def admin_control_center_api():
+    if not _admin_ok():
+        return jsonify({"success":False,"message":"Admin Control Center is unauthorized."}), 403
+    response = jsonify(_admin_control_snapshot())
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+@app.route("/admin/diagnostics-refresh", methods=["POST"])
+def admin_diagnostics_refresh():
+    if not _admin_ok():
+        return jsonify({"success":False,"message":"Admin diagnostics refresh is unauthorized."}), 403
+    _startup_checks()
+    _admin_action("diagnostics_refresh", True, "startup and operational checks refreshed")
+    return jsonify(_admin_control_snapshot())
+
+@app.route("/admin/control-center")
+def admin_control_center_page():
+    if not _admin_ok():
+        return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Admin Login</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;min-height:100vh;display:grid;place-items:center;padding:22px}.card{width:min(520px,100%);border:1px solid #30333c;border-radius:28px;padding:26px;background:linear-gradient(145deg,#12131a,#09090e);box-shadow:0 30px 100px #0008}.brand{font-weight:950;font-size:24px}.brand span{color:#baff5a}h1{font-size:42px;margin:12px 0}.muted{color:#9296a5;line-height:1.6}input,button{width:100%;padding:13px 14px;border-radius:13px;border:1px solid #30333c;background:#0d0f14;color:#fff;margin-top:10px}button{background:#baff5a;color:#090b06;font-weight:950;cursor:pointer}.err{color:#ff8ba3;font-size:11px;margin-top:10px}</style></head><body><div class="card"><div class="brand">BL3<span>●</span> V14.3</div><h1>Admin Control Center</h1><p class="muted">Protected operations dashboard. Enter the BL3 admin token to open a browser session for up to one hour. The token is submitted in the request body, never in the URL.</p><form id="f"><input id="token" type="password" autocomplete="current-password" placeholder="BL3_ADMIN_TOKEN" required><button>OPEN CONTROL CENTER</button></form><div id="m" class="err"></div><p class="muted"><a style="color:#baff5a" href="/">← Back to BL3</a></p></div><script>document.getElementById('f').onsubmit=async(e)=>{e.preventDefault();const r=await fetch('/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:document.getElementById('token').value})});const d=await r.json();if(d.success)location.reload();else document.getElementById('m').textContent=d.message||'Login failed.'}</script></body></html>'''
+    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 Admin Control Center</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#201b38 0,#08090d 28%,#050507 62%);color:#fff;font-family:Inter,system-ui,Arial;padding:22px}.wrap{max-width:1180px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #292d36;border-radius:26px;padding:22px;background:linear-gradient(145deg,#11131aeb,#090a0fee);margin-top:16px}.hero h1{font-size:clamp(42px,7vw,74px);margin:8px 0}.muted{color:#9296a5}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:18px}.stat{border:1px solid #2c3038;border-radius:15px;padding:12px;background:#0b0d12}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#9296a5;letter-spacing:.8px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}.warn{border:1px solid #554529;border-radius:14px;padding:11px;margin-top:8px;background:#17130b}.critical{border-color:#5a2733;background:#190c10}.good{color:#baff5a}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button,.actions a{border:1px solid #30343e;border-radius:12px;padding:10px 12px;background:#0d1016;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}.actions .hot{background:#baff5a;color:#080a06;border-color:#baff5a}.row{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #252932;padding:10px 0;font-size:10px}.row:first-child{border-top:0}.row span{color:#9296a5;text-align:right}.msg{margin-top:10px;color:#61f4ff;font-size:10px}@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.columns{grid-template-columns:1fr}}@media(max-width:520px){.grid{grid-template-columns:1fr}.actions>*{width:100%}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> V14.3 // ADMIN CONTROL CENTER</div><div class="hero"><div class="good">● PROTECTED OPERATIONS</div><h1>Operate BL3 from one place.</h1><p class="muted">Health, deployment warnings, backups, database maintenance and process-local observability. No restore button is exposed.</p><div id="summary" class="grid"></div></div><div class="panel"><h2>Quick actions</h2><div class="actions"><button class="hot" onclick="createBackup()">CREATE BACKUP</button><button onclick="validateLatest()">VALIDATE LATEST</button><button onclick="refreshAll()">REFRESH DIAGNOSTICS</button><a href="/data-safety">DATA SAFETY</a><a href="/ops">OPS CONSOLE</a><a href="/production">PRODUCTION</a><button onclick="logoutAdmin()">LOG OUT</button></div><div id="msg" class="msg"></div></div><div class="columns"><div class="panel"><h2>Warnings</h2><div id="warnings" class="muted">Loading…</div></div><div class="panel"><h2>Database + backups</h2><div id="db" class="muted">Loading…</div></div></div><div class="columns"><div class="panel"><h2>Performance</h2><div id="perf" class="muted">Loading…</div></div><div class="panel"><h2>Recent admin actions</h2><div id="actions" class="muted">Loading…</div></div></div><p><a href="/">← Back to BL3</a></p></div><script>const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));let state=null;async function api(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw new Error(d.message||'Request failed');return d}function render(d){state=d;const s=d.system||{},b=d.backups||{},m=((d.database||{}).maintenance||{}),o=((d.observability||{}).summary||{});document.getElementById('summary').innerHTML=[['DB',s.database_healthy?'HEALTHY':'CHECK'],['BACKUPS',b.count||0],['WARNINGS',(d.warnings||[]).length],['AVG LATENCY',(o.avg_ms||0)+' ms'],['5XX',o.errors||0]].map(x=>'<div class="stat"><b>'+esc(x[1])+'</b><span>'+x[0]+'</span></div>').join('');document.getElementById('warnings').innerHTML=(d.warnings||[]).map(w=>'<div class="warn '+(w.level==='critical'?'critical':'')+'"><b>'+esc(w.code)+'</b><div class="muted">'+esc(w.message)+'</div></div>').join('')||'<div class="good">No active warnings.</div>';const latest=b.latest||{};document.getElementById('db').innerHTML='<div class="row"><b>Integrity</b><span>'+esc(((d.database||{}).integrity||{}).quick_check||'unknown')+'</span></div><div class="row"><b>Journal</b><span>'+esc(m.journal_mode||'unknown')+'</span></div><div class="row"><b>Free pages</b><span>'+Number((m.free_ratio||0)*100).toFixed(1)+'%</span></div><div class="row"><b>Latest backup</b><span>'+esc(latest.filename||'none')+'</span></div><div class="row"><b>Backup age</b><span>'+esc(latest.age_hours??'—')+' h</span></div>';document.getElementById('perf').innerHTML='<div class="row"><b>Requests</b><span>'+esc(o.requests||0)+'</span></div><div class="row"><b>Slow</b><span>'+esc(o.slow_requests||0)+'</span></div><div class="row"><b>Average</b><span>'+esc(o.avg_ms||0)+' ms</span></div><div class="row"><b>Max</b><span>'+esc(o.max_ms||0)+' ms</span></div>';document.getElementById('actions').innerHTML=(d.recent_admin_actions||[]).map(a=>'<div class="row"><b>'+esc(a.action)+(a.ok?' ✓':' ✕')+'</b><span>'+esc(a.utc)+'<br>'+esc(a.detail||'')+'</span></div>').join('')||'No admin actions yet.'}async function load(){try{render(await api('/api/admin/control-center'))}catch(e){document.getElementById('msg').textContent=e.message}}async function createBackup(){try{document.getElementById('msg').textContent='Creating backup…';const d=await api('/admin/db-backup',{method:'POST'});document.getElementById('msg').textContent=d.message+' '+(d.filename||'');await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function validateLatest(){try{if(!state||!state.backups||!state.backups.latest){throw new Error('No backup available to validate.')}const fn=state.backups.latest.filename;const d=await api('/admin/backup-validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});document.getElementById('msg').textContent='Validation: '+(d.healthy?'HEALTHY':'CHECK REQUIRED')+' · '+fn;await load()}catch(e){document.getElementById('msg').textContent=e.message}}async function refreshAll(){try{render(await api('/admin/diagnostics-refresh',{method:'POST'}));document.getElementById('msg').textContent='Diagnostics refreshed.'}catch(e){document.getElementById('msg').textContent=e.message}}async function logoutAdmin(){try{await api('/admin/logout',{method:'POST'});location.reload()}catch(e){document.getElementById('msg').textContent=e.message}}load();setInterval(load,15000)</script></body></html>'''
 
 @app.route("/api/deployment")
 def deployment_diagnostics_api():
@@ -10213,8 +10348,8 @@ def deployment_diagnostics_api():
     db_size = os.path.getsize(DB) if db_exists else 0
     return jsonify({
         "success": True,
-        "version": "V14.2",
-        "engine": "data-maintenance-v14.2",
+        "version": "V14.3",
+        "engine": "admin-control-v14.3",
         "environment": BL3_ENV,
         "uptime_seconds": int(max(0, time.time() - _PROD_STARTED_AT)),
         "database": {"reachable": db_exists, "size_bytes": db_size, "path_mode": "custom" if os.environ.get("BL3_DB_PATH") else "default"},
@@ -10231,9 +10366,11 @@ def admin_db_backup():
     try:
         target = _db_backup("manual")
         _log_event("db_backup", filename=os.path.basename(target), bytes=os.path.getsize(target))
+        _admin_action("db_backup", True, os.path.basename(target))
         return jsonify({"success":True,"message":"SQLite backup created.","filename":os.path.basename(target),"bytes":os.path.getsize(target)})
     except Exception as exc:
         _log_event("db_backup_failed", error=type(exc).__name__)
+        _admin_action("db_backup", False, type(exc).__name__)
         return jsonify({"success":False,"message":"Backup failed."}), 500
 
 @app.route("/production")
@@ -10241,7 +10378,7 @@ def production_readiness_page():
     warnings = list(_PROD_WARNINGS)
     rows = "".join("<div class='warn'>⚠️ " + html.escape(w) + "</div>" for w in warnings) or "<div class='ok'>✓ No startup warnings detected.</div>"
     secure = "ON" if app.config.get("SESSION_COOKIE_SECURE") else "OFF"
-    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#050507'><title>BL3 Production Readiness</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:920px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2a2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151b,#09090e);margin-top:18px}h1{font-size:clamp(42px,8vw,76px);margin:8px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #282b33;border-radius:15px;padding:13px}.stat b{display:block;font-size:17px}.stat span,.muted{font-size:9px;color:#9296a5}.ok{color:#baff5a;padding:10px 0}.warn{color:#ffd66b;padding:10px 0;border-top:1px solid #292b33}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> V14.2</div><div class='hero'><div class='ok'>● PRODUCTION READINESS</div><h1>Deploy with eyes open.</h1><p class='muted'>Config checks, same-origin write protection, lightweight rate limiting, structured diagnostics and protected SQLite backup controls, backup history and read-only maintenance diagnostics.</p><div class='grid'><div class='stat'><b>__ENV__</b><span>ENVIRONMENT</span></div><div class='stat'><b>__SECURE__</b><span>SECURE COOKIE</span></div><div class='stat'><b>__RATE__</b><span>WRITE LIMIT</span></div><div class='stat'><b>__WARNINGS__</b><span>STARTUP WARNINGS</span></div></div></div><div class='panel'><h2>Startup checks</h2>__ROWS__</div><p><a href='/'>← Back to BL3</a> · <a href='/api/deployment'>Deployment JSON</a> · <a href='/ops'>Ops</a> · <a href='/status'>Status</a></p></div></body></html>"""
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#050507'><title>BL3 Production Readiness</title><style>*{box-sizing:border-box}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:920px;margin:auto}.brand{font-size:25px;font-weight:950}.brand span,a{color:#baff5a}.hero,.panel{border:1px solid #2a2d36;border-radius:26px;padding:24px;background:linear-gradient(145deg,#11151b,#09090e);margin-top:18px}h1{font-size:clamp(42px,8vw,76px);margin:8px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #282b33;border-radius:15px;padding:13px}.stat b{display:block;font-size:17px}.stat span,.muted{font-size:9px;color:#9296a5}.ok{color:#baff5a;padding:10px 0}.warn{color:#ffd66b;padding:10px 0;border-top:1px solid #292b33}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> V14.3</div><div class='hero'><div class='ok'>● PRODUCTION READINESS</div><h1>Deploy with eyes open.</h1><p class='muted'>Config checks, same-origin write protection, lightweight rate limiting, structured diagnostics and protected SQLite backup controls, backup history and read-only maintenance diagnostics.</p><div class='grid'><div class='stat'><b>__ENV__</b><span>ENVIRONMENT</span></div><div class='stat'><b>__SECURE__</b><span>SECURE COOKIE</span></div><div class='stat'><b>__RATE__</b><span>WRITE LIMIT</span></div><div class='stat'><b>__WARNINGS__</b><span>STARTUP WARNINGS</span></div></div></div><div class='panel'><h2>Startup checks</h2>__ROWS__</div><p><a href='/'>← Back to BL3</a> · <a href='/api/deployment'>Deployment JSON</a> · <a href='/ops'>Ops</a> · <a href='/status'>Status</a></p></div></body></html>"""
     return (page.replace("__ENV__", html.escape(BL3_ENV.upper()))
                 .replace("__SECURE__", secure)
                 .replace("__RATE__", f"{BL3_RATE_MAX}/{BL3_RATE_WINDOW}s")
@@ -10265,14 +10402,15 @@ def healthz():
         conn = db(); conn.execute("SELECT 1").fetchone(); conn.close()
     except Exception:
         ok, db_status = False, "error"
-    return jsonify({"ok":ok,"service":"bl3","version":"14.2","release":"DATABASE MAINTENANCE + BACKUP HISTORY","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
+    return jsonify({"ok":ok,"service":"bl3","version":"14.3","release":"ADMIN CONTROL CENTER","database":db_status,"utc":datetime.utcnow().isoformat()+"Z"}), (200 if ok else 503)
 
 
 @app.route("/api/meta")
 def api_meta():
     return jsonify({
-        "success": True, "name": "BL3 // Human Alpha Network", "version": "14.2", "release": "DATABASE MAINTENANCE + BACKUP HISTORY",
-        "features": ["data safety","database integrity","backup center","backup history","database maintenance diagnostics","backup validation","tour collision fix","production readiness","config validation","same-origin write protection","lightweight rate limiting","structured request logging","protected sqlite backup","deployment diagnostics","performance observability","request timing","slow route diagnostics","rivalry cache diagnostics","trust center","wallet session status","gasless signature UX","session logout","resilient fetch","offline recovery","global search","activity center","personalized discovery","product tour"],
+        "success": True, "name": "BL3 // Human Alpha Network", "version": "14.3", "release": "ADMIN CONTROL CENTER",
+        "features": ["admin control center","admin warning center","admin browser session","safe admin action history","data safety","database integrity","backup center","backup history","database maintenance diagnostics","backup validation","tour collision fix","production readiness","config validation","same-origin write protection","lightweight rate limiting","structured request logging","protected sqlite backup","deployment diagnostics","performance observability","request timing","slow route diagnostics","rivalry cache diagnostics","trust center","wallet session status","gasless signature UX","session logout","resilient fetch","offline recovery","global search","activity center","personalized discovery","product tour"],
+        "admin_endpoints": ["/admin/control-center","/api/admin/control-center","/admin/db-backup","/admin/backup-validate","/admin/diagnostics-refresh"],
         "public_endpoints": ["/healthz","/production","/data-safety","/api/data-safety","/api/data-maintenance","/api/deployment","/ops","/api/observability","/trust","/api/global-search","/api/discovery","/api/trending-feuds","/api/feud-events","/api/feud-moments","/api/leaderboard"],
         "principles": ["real completed Clash data","no paid Discovery boost","privacy-light viral attribution"]
     })
@@ -10285,7 +10423,7 @@ def status_page():
     battles = int(conn.execute("SELECT COUNT(*) AS n FROM creature_battles WHERE winner = challenger OR winner = opponent").fetchone()["n"] or 0)
     moments = int(conn.execute("SELECT COUNT(*) AS n FROM feud_moments").fetchone()["n"] or 0)
     conn.close()
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> TRUST CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V14.2 · production checks online · database reachable · observability online</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · Ops console: <a href="/ops">/ops</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050507"><title>BL3 System Status</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}.wrap{{max-width:900px;margin:auto}}.brand{{font-weight:950;font-size:25px}}.brand span{{color:#baff5a}}.card{{margin-top:24px;border:1px solid #2b2b36;border-radius:26px;padding:26px;background:linear-gradient(145deg,#111119,#0a0a0f)}}.ok{{color:#baff5a;font-weight:950}}h1{{font-size:clamp(42px,8vw,78px);margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}}.stat{{border:1px solid #2b2b36;border-radius:16px;padding:16px}}.stat b{{display:block;font-size:28px}}.stat span,.muted{{color:#9091a1;font-size:11px}}a{{color:#baff5a}}@media(max-width:620px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> TRUST CENTER</div><div class="card"><div class="ok">● OPERATIONAL</div><h1>System Status</h1><div class="muted">V14.3 · production checks online · database reachable · observability online</div><div class="grid"><div class="stat"><b>{users}</b><span>HUNTERS</span></div><div class="stat"><b>{battles}</b><span>VALID CLASHES</span></div><div class="stat"><b>{moments}</b><span>FEUD MOMENTS</span></div></div><p class="muted">Health probe: <a href="/healthz">/healthz</a> · Ops console: <a href="/ops">/ops</a> · API metadata: <a href="/api/meta">/api/meta</a></p><p><a href="/">← Back to BL3</a></p></div></div></body></html>"""
 
 
 @app.route("/trust")
@@ -10343,11 +10481,12 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🚀 BL3 ARENA V14.2 // DATABASE MAINTENANCE + BACKUP HISTORY")
+    print("🚀 BL3 ARENA V14.3 // ADMIN CONTROL CENTER")
     print("💾 SQLite enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
+    print("⚙️ Admin Control Center enabled" if BL3_ADMIN_TOKEN else "⚙️ Admin Control Center disabled (set BL3_ADMIN_TOKEN)")
     print("🎯 Quest system enabled")
     print("🏆 Leaderboard enabled")
     print("👛 Wallet profile enabled")
