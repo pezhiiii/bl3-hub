@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "18.9")
+    response.headers.setdefault("X-BL3-Version", "19.0")
     return response
 
 
@@ -16656,12 +16656,65 @@ def crown_nemesis_detail_page(usurper,dethroned):
     return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Nemesis</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:900px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #3b3038;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ff8a94;font-weight:950}h1{font-size:clamp(48px,9vw,90px);line-height:.9;margin:10px 0}.meta{color:#a7a8b6}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:16px}.stat,.event{border:1px solid #333640;border-radius:14px;padding:13px}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#8d90a0}.event{margin-top:9px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:16px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V18.9 // CROWN NEMESIS DOSSIER</div><h1>{u}<br>VS {d}</h1><div class="stats"><div class="stat"><b>{t}</b><span>TURNOVERS WON</span></div><div class="stat"><b>{v}</b><span>VALID TURNOVERS</span></div><div class="stat"><b>{uw}-{dw}</b><span>RECORDED H2H</span></div><div class="stat"><b>{score}</b><span>USURPER SCORE</span></div></div><a href="/crown-nemeses">USURPER INDEX</a> <a href="/crown-ledger/{uq}">{u} CROWN DOSSIER</a> <a href="/crown-ledger/{dq}">{d} CROWN DOSSIER</a></section><section class="panel"><div class="gold">DETHRONEMENT HISTORY</div>{rows}</section><div class="digest">PAIR DIGEST // {digest}</div><p class="meta">This dossier reports recorded title turnovers only. It does not forecast future results.</p></div></body></html>'''.format(u=esc(str(d.get("usurper") or "")),d=esc(str(d.get("dethroned") or "")),t=int(d.get("turnovers") or 0),v=int(d.get("valid_turnovers") or 0),uw=int(d.get("h2h_usurper_wins") or 0),dw=int(d.get("h2h_dethroned_wins") or 0),score=int(d.get("usurper_score") or 0),uq=urllib.parse.quote(str(d.get("usurper") or "")),dq=urllib.parse.quote(str(d.get("dethroned") or "")),rows=rows or '<div class="meta">No turnover events found.</div>',digest=esc(str(d.get("digest") or "")))
 
 
+# ===== V19.0 CROWN ERA + SUCCESSION MAP =====
+def _crown_era_snapshot(limit=200):
+    titles = _sealed_titles_chronological(500) if '_sealed_titles_chronological' in globals() else [dict(r) for r in _championship_title_rows(500)]
+    titles = [dict(x) for x in titles]
+    if '_season_sort_token' in globals():
+        titles.sort(key=lambda r: (_season_sort_token(r.get("season_key")), int(r.get("bracket_size") or 0), int(r.get("id") or 0)))
+    eras=[]; transitions=[]; current=None
+    for row in titles:
+        champ=str(row.get("champion") or "").strip()
+        if not champ: continue
+        valid=bool(_championship_title_verify(row).get("valid"))
+        season=str(row.get("season_key") or ""); battle=int(row.get("final_battle_id") or 0)
+        if current and str(current.get("champion") or "").lower()==champ.lower():
+            current["end_season"]=season; current["titles"]+=1; current["defenses"]+=1
+            current["valid_titles"]+=1 if valid else 0; current["battle_ids"].append(battle); current["seasons"].append(season)
+        else:
+            prev=eras[-1] if eras else None
+            current={"champion":champ,"start_season":season,"end_season":season,"titles":1,"defenses":0,"valid_titles":1 if valid else 0,"battle_ids":[battle],"seasons":[season]}
+            eras.append(current)
+            if prev: transitions.append({"from":prev.get("champion"),"to":champ,"season":season,"battle_id":battle,"valid":valid})
+    for i,era in enumerate(eras,1):
+        era["era_number"]=i; era["active"]=i==len(eras)
+        era["integrity_rate"]=round((era.get("valid_titles",0)/max(1,era.get("titles",0)))*100,1)
+        era["era_score"]=int(era.get("titles") or 0)*100 + int(era.get("defenses") or 0)*50 + int(era.get("valid_titles") or 0)*10
+        era["dossier_url"]="/champion-dossier/{}".format(urllib.parse.quote(str(era.get("champion") or "")))
+    longest=max(eras,key=lambda x:(int(x.get("titles") or 0),int(x.get("defenses") or 0),-int(x.get("era_number") or 0))) if eras else None
+    digest_payload={"eras":[{"n":e.get("era_number"),"c":e.get("champion"),"s":e.get("start_season"),"e":e.get("end_season"),"t":e.get("titles"),"d":e.get("defenses")} for e in eras],"transitions":transitions}
+    digest=hashlib.sha256(json.dumps(digest_payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+    lim=max(1,min(int(limit or 200),500))
+    return {"generated_at":datetime.utcnow().isoformat(timespec="seconds")+"Z","era_count":len(eras),"transition_count":len(transitions),"current_era":eras[-1] if eras else None,"longest_era":longest,"eras":list(reversed(eras))[:lim],"transitions":list(reversed(transitions))[:lim],"succession_digest":digest,"policy":"Crown eras are reconstructed only from sealed championship titles. Consecutive titles by the same champion form one era; a champion change creates a succession transition."}
+
+@app.route("/api/crown-era")
+def crown_era_api():
+    return jsonify({"success":True, **_crown_era_snapshot(request.args.get("limit",200))})
+
+@app.route("/crown-era.json")
+def crown_era_export():
+    return Response(json.dumps(_crown_era_snapshot(request.args.get("limit",200)),ensure_ascii=False,indent=2),mimetype="application/json")
+
+@app.route("/crown-era")
+def crown_era_page():
+    d=_crown_era_snapshot(request.args.get("limit",200)); esc=html.escape
+    current=d.get("current_era") or {}; longest=d.get("longest_era") or {}
+    era_cards=[]
+    for e in d.get("eras") or []:
+        era_cards.append('<article class="era"><div class="tag">ERA #{n}{active}</div><div class="champ">👑 {champ}</div><div class="meta">{start} → {end}</div><div class="meta">{titles} title(s) · {defenses} defense(s) · integrity {integrity}%</div><div class="score">{score} ERA SCORE</div><a href="{url}">OPEN CHAMPION DOSSIER ↗</a></article>'.format(n=int(e.get("era_number") or 0),active=' // ACTIVE' if e.get("active") else '',champ=esc(str(e.get("champion") or "")),start=esc(str(e.get("start_season") or "—")),end=esc(str(e.get("end_season") or "—")),titles=int(e.get("titles") or 0),defenses=int(e.get("defenses") or 0),integrity=float(e.get("integrity_rate") or 0.0),score=int(e.get("era_score") or 0),url=esc(str(e.get("dossier_url") or "#"))))
+    trans=[]
+    for t in d.get("transitions") or []:
+        trans.append('<div class="transition"><b>{frm}</b><span>→</span><b>{to}</b><div class="meta">{season} · Final Battle #{battle} · {valid}</div></div>'.format(frm=esc(str(t.get("from") or "")),to=esc(str(t.get("to") or "")),season=esc(str(t.get("season") or "")),battle=int(t.get("battle_id") or 0),valid='VALID' if t.get("valid") else 'INVALID'))
+    page="""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Era</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#4a3210,transparent 30%),radial-gradient(circle at 88% 0,#2a174d,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.tag,.score{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.era,.transition{border:1px solid #2e3038;border-radius:18px;padding:17px;background:#0b0c11}.champ{font-size:28px;font-weight:950;margin:8px 0}.tag,.score{font-size:9px;font-weight:950}.transition{margin-top:9px}.transition span{padding:0 8px;color:#ffd66b}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN ERA</div><section class="hero"><div class="gold">V19.0 // SUCCESSION MAP</div><h1>EVERY CROWN HAS AN ERA.</h1><p class="meta">A chronological succession map reconstructed from sealed championship title lineage.</p><div class="stats"><div class="stat"><b>{eras}</b><span>RECORDED ERAS</span></div><div class="stat"><b>{transitions}</b><span>CROWN TRANSITIONS</span></div><div class="stat"><b>{current}</b><span>CURRENT ERA</span></div><div class="stat"><b>{longest}</b><span>LONGEST ERA</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/crown-nemeses">CROWN NEMESES</a> <a href="/crown-era.json">EXPORT JSON</a></section><section class="panel"><div class="gold">CROWN ERAS</div><div class="grid">{eras_html}</div></section><section class="panel"><div class="gold">SUCCESSION TRANSITIONS</div>{trans_html}</section><div class="digest">SUCCESSION DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>"""
+    return page.format(eras=int(d.get("era_count") or 0),transitions=int(d.get("transition_count") or 0),current=esc(str(current.get("champion") or "—")),longest=esc(str(longest.get("champion") or "—")),eras_html=''.join(era_cards) or '<div class="meta">No crown eras recorded yet.</div>',trans_html=''.join(trans) or '<div class="meta">No succession transitions recorded yet.</div>',digest=esc(str(d.get("succession_digest") or "")),policy=esc(str(d.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V18.9 // CROWN NEMESIS + USURPER INDEX")
+    print("👑 BL3 ARENA V19.0 // CROWN ERA + SUCCESSION MAP")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
@@ -16669,6 +16722,7 @@ if __name__ == "__main__":
     print("👑 Champion Reigns + Title Defenses enabled")
     print("📜 Crown Turnovers + Defense Ledger enabled")
     print("⚔️ Crown Nemesis + Usurper Index enabled")
+    print("🏛️ Crown Era + Succession Map enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
