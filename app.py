@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.2")
+    response.headers.setdefault("X-BL3-Version", "19.3")
     return response
 
 
@@ -17046,12 +17046,106 @@ def crown_milestones_page():
     return page.format(count=int(data.get("champion_count") or 0),badges=int(data.get("badge_total") or 0),miles=int(data.get("milestone_total") or 0),top=esc(str(top.get("champion") or "—")),cards=''.join(cards) or '<div class="meta">No crown milestones yet.</div>',digest=esc(str(data.get("milestone_digest") or "")),policy=esc(str(data.get("policy") or "")))
 
 
+# ===== V19.3 CROWN NETWORK + LINEAGE GRAPH =====
+def _crown_network_snapshot(limit=200):
+    try:
+        limit=max(1,min(int(limit or 200),500))
+    except Exception:
+        limit=200
+    ledger=_crown_ledger_snapshot(1000)
+    edges={}; nodes={}
+    for row in ledger.get("board") or []:
+        name=str(row.get("username") or "").strip()
+        if not name: continue
+        nodes[name.lower()]={"username":name,"crowns":int(row.get("crowns") or 0),"defenses":int(row.get("successful_defenses") or 0),"turnovers_won":int(row.get("turnovers_won") or 0),"times_dethroned":int(row.get("times_dethroned") or 0),"active_crown":bool(row.get("active_crown")),"outgoing":0,"incoming":0,"unique_usurped":set(),"unique_dethroned_by":set()}
+    for event in reversed(ledger.get("events") or []):
+        if str(event.get("event_type") or "")!="TURNOVER": continue
+        to_champ=str(event.get("champion") or "").strip(); from_champ=str(event.get("previous_champion") or "").strip()
+        if not to_champ or not from_champ: continue
+        key=(from_champ.lower(),to_champ.lower())
+        edge=edges.setdefault(key,{"from":from_champ,"to":to_champ,"turnovers":0,"valid_turnovers":0,"seasons":[],"battle_ids":[]})
+        edge["turnovers"]+=1
+        if str(event.get("integrity") or "")=="VALID": edge["valid_turnovers"]+=1
+        edge["seasons"].append(str(event.get("season_key") or "")); edge["battle_ids"].append(int(event.get("final_battle_id") or 0))
+        f=nodes.setdefault(from_champ.lower(),{"username":from_champ,"crowns":0,"defenses":0,"turnovers_won":0,"times_dethroned":0,"active_crown":False,"outgoing":0,"incoming":0,"unique_usurped":set(),"unique_dethroned_by":set()})
+        t=nodes.setdefault(to_champ.lower(),{"username":to_champ,"crowns":0,"defenses":0,"turnovers_won":0,"times_dethroned":0,"active_crown":False,"outgoing":0,"incoming":0,"unique_usurped":set(),"unique_dethroned_by":set()})
+        f["outgoing"]+=1; t["incoming"]+=1
+        f["unique_dethroned_by"].add(to_champ.lower()); t["unique_usurped"].add(from_champ.lower())
+    edge_rows=[]
+    for edge in edges.values():
+        item=dict(edge); item["latest_season"]=(item.get("seasons") or [""])[-1]
+        item["edge_score"]=int(item.get("turnovers") or 0)*100+int(item.get("valid_turnovers") or 0)*20
+        item["detail_url"]="/crown-nemesis/{}/{}".format(urllib.parse.quote(str(item.get("to") or "")),urllib.parse.quote(str(item.get("from") or "")))
+        edge_rows.append(item)
+    edge_rows.sort(key=lambda x:(-int(x.get("edge_score") or 0),str(x.get("from") or "").lower(),str(x.get("to") or "").lower()))
+    node_rows=[]
+    for node in nodes.values():
+        item=dict(node); item["unique_usurped"]=len(item.get("unique_usurped") or []); item["unique_dethroned_by"]=len(item.get("unique_dethroned_by") or [])
+        item["network_degree"]=int(item.get("unique_usurped") or 0)+int(item.get("unique_dethroned_by") or 0)
+        item["network_score"]=int(item.get("crowns") or 0)*50+int(item.get("turnovers_won") or 0)*40+int(item.get("defenses") or 0)*20+int(item.get("network_degree") or 0)*15
+        item["detail_url"]="/crown-network/{}".format(urllib.parse.quote(str(item.get("username") or "")))
+        node_rows.append(item)
+    node_rows.sort(key=lambda x:(-int(x.get("network_score") or 0),-int(x.get("network_degree") or 0),str(x.get("username") or "").lower()))
+    for i,item in enumerate(node_rows,1): item["rank"]=i
+    payload={"nodes":[{"u":x.get("username"),"s":x.get("network_score"),"d":x.get("network_degree")} for x in node_rows],"edges":[{"f":x.get("from"),"t":x.get("to"),"n":x.get("turnovers"),"v":x.get("valid_turnovers")} for x in edge_rows]}
+    digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"generated_at":datetime.utcnow().isoformat(timespec="seconds")+"Z","current_champion":ledger.get("current_champion") or "","node_count":len(node_rows),"edge_count":len(edge_rows),"nodes":node_rows[:limit],"edges":edge_rows[:limit],"top_node":node_rows[0] if node_rows else None,"network_digest":digest,"policy":"The crown network is reconstructed only from sealed title turnovers. Directed edges point from dethroned champion to the champion who took the crown."}
+
+
+def _crown_network_detail(username):
+    target=str(username or "").strip()
+    if not target: return None
+    snap=_crown_network_snapshot(500)
+    node=next((x for x in snap.get("nodes") or [] if str(x.get("username") or "").lower()==target.lower()),None)
+    if not node: return None
+    related=[]
+    for edge in snap.get("edges") or []:
+        if str(edge.get("from") or "").lower()==target.lower() or str(edge.get("to") or "").lower()==target.lower():
+            item=dict(edge); item["relationship"]="LOST CROWN TO" if str(edge.get("from") or "").lower()==target.lower() else "TOOK CROWN FROM"; item["other"]=edge.get("to") if item["relationship"]=="LOST CROWN TO" else edge.get("from"); related.append(item)
+    digest=hashlib.sha256(json.dumps({"node":node,"edges":[{"f":x.get("from"),"t":x.get("to"),"n":x.get("turnovers")} for x in related]},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"username":node.get("username"),"stats":node,"connections":related,"connection_count":len(related),"digest":digest,"policy":snap.get("policy")}
+
+@app.route("/api/crown-network")
+def crown_network_api():
+    return jsonify({"success":True,**_crown_network_snapshot(request.args.get("limit",200))})
+
+@app.route("/crown-network.json")
+def crown_network_export():
+    return Response(json.dumps(_crown_network_snapshot(request.args.get("limit",200)),ensure_ascii=False,indent=2),mimetype="application/json")
+
+@app.route("/api/crown-network/<path:username>")
+def crown_network_detail_api(username):
+    d=_crown_network_detail(urllib.parse.unquote(username))
+    if not d: return jsonify({"success":False,"message":"Crown network profile not found."}),404
+    return jsonify({"success":True,**d})
+
+@app.route("/crown-network/<path:username>")
+def crown_network_detail_page(username):
+    d=_crown_network_detail(urllib.parse.unquote(username))
+    if not d: return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:#fff;font-family:system-ui;padding:40px'><h1>Crown network profile not found.</h1><a style='color:#ffd66b' href='/crown-network'>Open Crown Network</a></body>",404
+    esc=html.escape; s=d.get("stats") or {}; rows=[]
+    for e in d.get("connections") or []:
+        rows.append('<div class="edge"><div class="tag">{rel}</div><b>{other}</b><div class="meta">{n} turnover(s) · {v} valid · latest {season}</div><a href="{url}">OPEN CROWN NEMESIS ↗</a></div>'.format(rel=esc(str(e.get("relationship") or "")),other=esc(str(e.get("other") or "")),n=int(e.get("turnovers") or 0),v=int(e.get("valid_turnovers") or 0),season=esc(str(e.get("latest_season") or "—")),url=esc(str(e.get("detail_url") or "#"))))
+    page='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Network Profile</title><style>body{margin:0;background:radial-gradient(circle at 10% 0,#3a2609,transparent 32%),radial-gradient(circle at 90% 0,#1d2f4a,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:940px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #34343c;border-radius:26px;padding:24px;background:#0b0c11}.gold,.tag{color:#ffd66b;font-weight:950}h1{font-size:clamp(50px,9vw,92px);line-height:.9;margin:10px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:16px}.stat,.edge{border:1px solid #333640;border-radius:14px;padding:13px}.stat b{display:block;font-size:20px}.stat span,.meta{font-size:9px;color:#8d90a0}.edge{margin-top:9px}.tag{font-size:8px;margin-bottom:5px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:16px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.3 // CROWN NETWORK PROFILE</div><h1>{name}</h1><div class="stats"><div class="stat"><b>{rank}</b><span>NETWORK RANK</span></div><div class="stat"><b>{score}</b><span>NETWORK SCORE</span></div><div class="stat"><b>{degree}</b><span>UNIQUE CROWN LINKS</span></div><div class="stat"><b>{crowns}</b><span>CROWNS</span></div></div><a href="/crown-network">CROWN NETWORK</a> <a href="/crown-milestones/{q}">LEGACY BADGES</a></section><section class="panel"><div class="gold">LINEAGE CONNECTIONS</div>{rows}</section><div class="digest">PROFILE DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return page.format(name=esc(str(d.get("username") or "")),rank=int(s.get("rank") or 0),score=int(s.get("network_score") or 0),degree=int(s.get("network_degree") or 0),crowns=int(s.get("crowns") or 0),q=urllib.parse.quote(str(d.get("username") or "")),rows=''.join(rows) or '<div class="meta">No crown turnover connections recorded.</div>',digest=esc(str(d.get("digest") or "")),policy=esc(str(d.get("policy") or "")))
+
+@app.route("/crown-network")
+def crown_network_page():
+    d=_crown_network_snapshot(request.args.get("limit",200)); esc=html.escape; top=d.get("top_node") or {}; cards=[]; edge_rows=[]
+    for n in d.get("nodes") or []:
+        cards.append('<article class="card"><div class="top">#{rank} // {score} SCORE</div><div class="name">{name}</div><div class="meta">{crowns} crowns · {degree} unique crown links · {in_} incoming · {out} outgoing</div><a href="{url}">OPEN NETWORK PROFILE ↗</a></article>'.format(rank=int(n.get("rank") or 0),score=int(n.get("network_score") or 0),name=esc(str(n.get("username") or "")),crowns=int(n.get("crowns") or 0),degree=int(n.get("network_degree") or 0),in_=int(n.get("incoming") or 0),out=int(n.get("outgoing") or 0),url=esc(str(n.get("detail_url") or "#"))))
+    for e in d.get("edges") or []:
+        edge_rows.append('<div class="edge"><b>{frm}</b><span>→</span><b>{to}</b><div class="meta">{n} turnover(s) · {v} valid · latest {season}</div></div>'.format(frm=esc(str(e.get("from") or "")),to=esc(str(e.get("to") or "")),n=int(e.get("turnovers") or 0),v=int(e.get("valid_turnovers") or 0),season=esc(str(e.get("latest_season") or "—"))))
+    page='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Network</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#49310d,transparent 31%),radial-gradient(circle at 90% 0,#192f50,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(84,173,255,.025))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card,.edge{border:1px solid #2e3038;border-radius:18px;padding:17px;background:#0b0c11}.top{font-size:9px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}.edge{margin-top:9px}.edge span{padding:0 8px;color:#ffd66b}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN NETWORK</div><section class="hero"><div class="gold">V19.3 // LINEAGE GRAPH</div><h1>EVERY TURNOVER CONNECTS A LEGACY.</h1><p class="meta">A directed crown lineage reconstructed from sealed title turnovers. Edges point from dethroned champion to the champion who took the crown.</p><div class="stats"><div class="stat"><b>{nodes}</b><span>CHAMPION NODES</span></div><div class="stat"><b>{edges}</b><span>TURNOVER LINKS</span></div><div class="stat"><b>{current}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{top}</b><span>TOP NETWORK NODE</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/crown-era">SUCCESSION MAP</a> <a href="/crown-network.json">EXPORT JSON</a></section><section class="panel"><div class="gold">NETWORK BOARD</div><div class="grid">{cards}</div></section><section class="panel"><div class="gold">LINEAGE EDGES</div>{edge_rows}</section><div class="digest">NETWORK DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return page.format(nodes=int(d.get("node_count") or 0),edges=int(d.get("edge_count") or 0),current=esc(str(d.get("current_champion") or "—")),top=esc(str(top.get("username") or "—")),cards=''.join(cards) or '<div class="meta">No crown network data yet.</div>',edge_rows=''.join(edge_rows) or '<div class="meta">No turnover links recorded yet.</div>',digest=esc(str(d.get("network_digest") or "")),policy=esc(str(d.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V19.2 // CROWN MILESTONES + LEGACY BADGES")
+    print("👑 BL3 ARENA V19.3 // CROWN NETWORK + LINEAGE GRAPH")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
