@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.3")
+    response.headers.setdefault("X-BL3-Version", "19.4")
     return response
 
 
@@ -17140,12 +17140,133 @@ def crown_network_page():
     return page.format(nodes=int(d.get("node_count") or 0),edges=int(d.get("edge_count") or 0),current=esc(str(d.get("current_champion") or "—")),top=esc(str(top.get("username") or "—")),cards=''.join(cards) or '<div class="meta">No crown network data yet.</div>',edge_rows=''.join(edge_rows) or '<div class="meta">No turnover links recorded yet.</div>',digest=esc(str(d.get("network_digest") or "")),policy=esc(str(d.get("policy") or "")))
 
 
+# ===== V19.4 CROWN PATHFINDER + ANCESTRY CHAINS =====
+def _crown_graph_struct():
+    snap=_crown_network_snapshot(500)
+    adj={}; rev={}; names={}
+    for n in snap.get('nodes') or []:
+        key=str(n.get('username') or '').strip().lower()
+        if key:
+            names[key]=str(n.get('username') or '').strip(); adj.setdefault(key,[]); rev.setdefault(key,[])
+    for e in snap.get('edges') or []:
+        a=str(e.get('from') or '').strip().lower(); b=str(e.get('to') or '').strip().lower()
+        if not a or not b: continue
+        names.setdefault(a,str(e.get('from') or '').strip()); names.setdefault(b,str(e.get('to') or '').strip())
+        adj.setdefault(a,[]).append({'to':b,'edge':e}); rev.setdefault(b,[]).append({'to':a,'edge':e})
+        adj.setdefault(b,[]); rev.setdefault(a,[])
+    return snap,adj,rev,names
+
+
+def _shortest_crown_path(source,target):
+    snap,adj,rev,names=_crown_graph_struct()
+    s=str(source or '').strip().lower(); t=str(target or '').strip().lower()
+    if not s or not t or s not in names or t not in names:
+        return None
+    if s==t:
+        return {'source':names[s],'target':names[t],'hops':0,'champions':[names[s]],'links':[],'connected':True}
+    queue=[s]; parent={s:None}; via={}; qi=0
+    while qi<len(queue):
+        cur=queue[qi]; qi+=1
+        for item in adj.get(cur,[]):
+            nxt=item.get('to')
+            if nxt in parent: continue
+            parent[nxt]=cur; via[nxt]=item.get('edge')
+            if nxt==t: break
+            queue.append(nxt)
+        if t in parent: break
+    if t not in parent:
+        return {'source':names[s],'target':names[t],'hops':None,'champions':[],'links':[],'connected':False}
+    keys=[]; k=t
+    while k is not None:
+        keys.append(k); k=parent.get(k)
+    keys.reverse(); links=[]
+    for k in keys[1:]:
+        e=dict(via.get(k) or {})
+        links.append(e)
+    return {'source':names[s],'target':names[t],'hops':len(links),'champions':[names[x] for x in keys],'links':links,'connected':True}
+
+
+def _crown_ancestry_detail(username,depth=8):
+    snap,adj,rev,names=_crown_graph_struct()
+    key=str(username or '').strip().lower()
+    if key not in names: return None
+    try: depth=max(1,min(int(depth or 8),20))
+    except Exception: depth=8
+    def walk(graph):
+        seen={key}; frontier=[(key,0)]; out=[]; i=0
+        while i<len(frontier):
+            cur,d=frontier[i]; i+=1
+            if d>=depth: continue
+            for item in graph.get(cur,[]):
+                nxt=item.get('to')
+                if nxt in seen: continue
+                seen.add(nxt); frontier.append((nxt,d+1))
+                out.append({'username':names.get(nxt,nxt),'distance':d+1,'via':dict(item.get('edge') or {})})
+        out.sort(key=lambda x:(int(x.get('distance') or 0),str(x.get('username') or '').lower()))
+        return out
+    ancestors=walk(rev); descendants=walk(adj)
+    profile=next((n for n in snap.get('nodes') or [] if str(n.get('username') or '').lower()==key),{})
+    payload={'u':names[key],'a':[(x.get('username'),x.get('distance')) for x in ancestors],'d':[(x.get('username'),x.get('distance')) for x in descendants]}
+    digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+    return {'username':names[key],'profile':profile,'ancestors':ancestors,'descendants':descendants,'ancestor_count':len(ancestors),'descendant_count':len(descendants),'max_depth':depth,'ancestry_digest':digest,'policy':'Ancestry chains are reconstructed from sealed crown turnovers only. Ancestors are prior crown holders connected by directed succession; descendants are later crown holders.'}
+
+
+@app.route('/api/crown-path')
+def crown_path_api():
+    source=request.args.get('from') or request.args.get('source') or ''
+    target=request.args.get('to') or request.args.get('target') or ''
+    data=_shortest_crown_path(source,target)
+    if data is None:
+        return jsonify({'success':False,'message':'Both champions must exist in the crown network.'}),404
+    return jsonify({'success':True,**data})
+
+
+@app.route('/api/crown-ancestry/<path:username>')
+def crown_ancestry_api(username):
+    data=_crown_ancestry_detail(urllib.parse.unquote(username),request.args.get('depth',8))
+    if not data: return jsonify({'success':False,'message':'Champion not found in crown network.'}),404
+    return jsonify({'success':True,**data})
+
+
+@app.route('/crown-ancestry/<path:username>')
+def crown_ancestry_page(username):
+    data=_crown_ancestry_detail(urllib.parse.unquote(username),request.args.get('depth',8))
+    if not data:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Crown ancestry not found.</h1><a style='color:#ffd66b' href='/crown-network'>Open Crown Network</a></body>",404
+    esc=html.escape; arows=[]; drows=[]
+    for x in data.get('ancestors') or []:
+        arows.append('<div class="row"><b>{}</b><span>{} hop(s) upstream</span></div>'.format(esc(str(x.get('username') or '')),int(x.get('distance') or 0)))
+    for x in data.get('descendants') or []:
+        drows.append('<div class="row"><b>{}</b><span>{} hop(s) downstream</span></div>'.format(esc(str(x.get('username') or '')),int(x.get('distance') or 0)))
+    page='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Ancestry</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#432c0b,transparent 32%),radial-gradient(circle at 90% 0,#182d4e,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1060px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373844;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:950}h1{font-size:clamp(52px,9vw,96px);line-height:.9;margin:10px 0}.meta{color:#9699a7;line-height:1.55}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.row{border:1px solid #30323b;border-radius:14px;padding:14px;margin-top:9px;display:flex;justify-content:space-between;gap:14px}.row span{color:#9497a5;font-size:10px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:16px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.cols{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.4 // CROWN ANCESTRY</div><h1>{name}</h1><p class="meta">Trace the recorded crown lineage upstream to prior crown holders and downstream to later holders.</p><a href="/crown-network">CROWN NETWORK</a> <a href="/crown-pathfinder?from={q}">PATHFINDER</a></section><div class="cols"><section class="panel"><div class="gold">ANCESTORS // {ac}</div>{arows}</section><section class="panel"><div class="gold">DESCENDANTS // {dc}</div>{drows}</section></div><div class="digest">ANCESTRY DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return page.format(name=esc(str(data.get('username') or '')),q=urllib.parse.quote(str(data.get('username') or '')),ac=int(data.get('ancestor_count') or 0),dc=int(data.get('descendant_count') or 0),arows=''.join(arows) or '<div class="meta">No upstream crown lineage recorded.</div>',drows=''.join(drows) or '<div class="meta">No downstream crown lineage recorded.</div>',digest=esc(str(data.get('ancestry_digest') or '')),policy=esc(str(data.get('policy') or '')))
+
+
+@app.route('/crown-pathfinder')
+def crown_pathfinder_page():
+    source=(request.args.get('from') or request.args.get('source') or '').strip(); target=(request.args.get('to') or request.args.get('target') or '').strip()
+    data=_shortest_crown_path(source,target) if source and target else None
+    esc=html.escape; result=''
+    if data is not None:
+        if data.get('connected'):
+            chain=' <span>→</span> '.join('<b>{}</b>'.format(esc(str(x))) for x in data.get('champions') or [])
+            links=[]
+            for e in data.get('links') or []:
+                links.append('<div class="edge"><b>{}</b> → <b>{}</b><div class="meta">{} turnover(s) · {} valid · latest {}</div></div>'.format(esc(str(e.get('from') or '')),esc(str(e.get('to') or '')),int(e.get('turnovers') or 0),int(e.get('valid_turnovers') or 0),esc(str(e.get('latest_season') or '—'))))
+            result='<section class="panel"><div class="gold">SHORTEST SUCCESSION PATH // {} HOP(S)</div><div class="chain">{}</div>{}</section>'.format(int(data.get('hops') or 0),chain,''.join(links))
+        else:
+            result='<section class="panel"><div class="gold">NO DIRECTED SUCCESSION PATH</div><p class="meta">Both champions exist, but no downstream crown path connects them in recorded turnover history.</p></section>'
+    page='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Pathfinder</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#49310d,transparent 31%),radial-gradient(circle at 90% 0,#173057,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1040px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:950}h1{font-size:clamp(52px,9vw,96px);line-height:.9;margin:10px 0}.meta{color:#979aa8;line-height:1.55}.form{display:grid;grid-template-columns:1fr 1fr auto;gap:9px;margin-top:18px}input,button{border:1px solid #373943;border-radius:12px;background:#090a0e;color:#fff;padding:12px;font:inherit}button{cursor:pointer;font-weight:900}.chain{font-size:clamp(22px,5vw,44px);font-weight:950;margin:18px 0}.chain span{color:#ffd66b;padding:0 5px}.edge{border:1px solid #30323b;border-radius:14px;padding:14px;margin-top:9px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}@media(max-width:760px){.form{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.4 // CROWN PATHFINDER</div><h1>TRACE THE CROWN.</h1><p class="meta">Find the shortest recorded succession path from one champion to another using sealed crown turnovers only.</p><form class="form" method="get"><input name="from" value="{source}" placeholder="From champion"><input name="to" value="{target}" placeholder="To champion"><button type="submit">FIND PATH</button></form><a href="/crown-network">CROWN NETWORK</a></section>{result}</div></body></html>'''
+    return page.format(source=esc(source),target=esc(target),result=result)
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V19.3 // CROWN NETWORK + LINEAGE GRAPH")
+    print("👑 BL3 ARENA V19.4 // CROWN PATHFINDER + ANCESTRY CHAINS")
+    print("🧭 Crown Pathfinder + Ancestry Chains enabled")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
