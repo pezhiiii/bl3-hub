@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "18.5")
+    response.headers.setdefault("X-BL3-Version", "18.6")
     return response
 
 
@@ -16016,7 +16016,7 @@ def champion_dossier_page(username):
     return template.format(name=esc(str(d.get("username") or "")), titles=int(d.get("title_count") or 0), rank=int(stats.get("rank") or 0), streak=int(stats.get("max_streak") or 0), active=int(stats.get("active_streak") or 0), first=esc(str(d.get("first_title_season") or "—")), latest=esc(str(d.get("latest_title_season") or "—")), score=int(stats.get("dynasty_score") or 0), integrity=float(stats.get("title_integrity_rate") or 0.0), rows="".join(rows) or '<div class="meta">No titles found.</div>', digest=esc(str(d.get("dossier_digest") or "")), policy=esc(str(d.get("policy") or "")))
 
 
-# ===== V18.5 CHAMPION REIGNS + TITLE DEFENSES =====
+# ===== V18.6 CHAMPION REIGNS + TITLE DEFENSES =====
 def _season_month_ordinal(season_key):
     raw = str(season_key or "").strip()
     parts = raw.replace("/", "-").replace("_", "-").split("-")
@@ -16163,7 +16163,7 @@ def champion_reigns_page():
     for item in d.get("entries") or []:
         state = "ACTIVE REIGN" if item.get("active_reign") else "PAST REIGN"
         cards.append('<article class="card"><div class="top"><span>#{rank}</span><span>{state}</span></div><div class="name">{name}</div><div class="meta">{titles} titles · {defenses} defenses · {reigns} reigns</div><div class="meta">Longest reign: {longest} titles · avg title gap {gap} months</div><a href="{url}">OPEN REIGN DOSSIER ↗</a></article>'.format(rank=int(item.get("rank") or 0), state=esc(state), name=esc(str(item.get("username") or "")), titles=int(item.get("titles") or 0), defenses=int(item.get("defenses") or 0), reigns=int(item.get("reigns") or 0), longest=int(item.get("longest_reign_titles") or 0), gap=item.get("avg_gap_months") or 0, url=esc(str(item.get("reign_url") or "#"))))
-    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Reigns</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#452d0a,transparent 33%),radial-gradient(circle at 92% 4%,#1a2747,transparent 28%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #393126;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(84,173,255,.025))}h1{font-size:clamp(52px,9vw,94px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{display:flex;justify-content:space-between;gap:10px;font-size:9px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION REIGNS</div><section class="hero"><div class="gold">V18.5 // TITLE DEFENSE ANALYTICS</div><h1>KEEP THE CROWN.</h1><p class="meta">Defenses are counted only when the same champion owns consecutive sealed championship titles.</p><div class="stats"><div class="stat"><b>{champions}</b><span>CHAMPIONS</span></div><div class="stat"><b>{reigns}</b><span>RECORDED REIGNS</span></div><div class="stat"><b>{current}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{top_defenses}</b><span>MOST DEFENSES</span></div></div><a href="/dynasties">DYNASTY INDEX</a> <a href="/champions">CHAMPION REGISTRY</a> <a href="/champion-reigns.json">EXPORT JSON</a></section><section class="panel"><div class="gold">REIGN BOARD</div><div class="grid">{cards}</div></section><div class="digest">REIGN DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Reigns</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#452d0a,transparent 33%),radial-gradient(circle at 92% 4%,#1a2747,transparent 28%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #393126;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(84,173,255,.025))}h1{font-size:clamp(52px,9vw,94px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{display:flex;justify-content:space-between;gap:10px;font-size:9px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION REIGNS</div><section class="hero"><div class="gold">V18.6 // TITLE DEFENSE ANALYTICS</div><h1>KEEP THE CROWN.</h1><p class="meta">Defenses are counted only when the same champion owns consecutive sealed championship titles.</p><div class="stats"><div class="stat"><b>{champions}</b><span>CHAMPIONS</span></div><div class="stat"><b>{reigns}</b><span>RECORDED REIGNS</span></div><div class="stat"><b>{current}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{top_defenses}</b><span>MOST DEFENSES</span></div></div><a href="/dynasties">DYNASTY INDEX</a> <a href="/champions">CHAMPION REGISTRY</a> <a href="/champion-reigns.json">EXPORT JSON</a></section><section class="panel"><div class="gold">REIGN BOARD</div><div class="grid">{cards}</div></section><div class="digest">REIGN DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
     top_defenses = max([int(x.get("defenses") or 0) for x in (d.get("entries") or [])] or [0])
     return template.format(champions=int(d.get("champion_count") or 0), reigns=int(d.get("reign_count") or 0), current=esc(str(d.get("current_champion") or "—")), top_defenses=top_defenses, cards="".join(cards) or '<div class="meta">No sealed titles yet.</div>', digest=esc(str(d.get("reign_digest") or "")), policy=esc(str(d.get("policy") or "")))
 
@@ -16186,8 +16186,114 @@ def champion_reign_page(username):
     rows = []
     for r in d.get("reigns") or []:
         rows.append('<article class="row"><div class="season">{start} → {end}</div><div class="big">{titles} TITLES / {defenses} DEFENSES</div><div class="meta">{state} · {months} month span · final battles {battles}</div></article>'.format(start=esc(str(r.get("start_season") or "")), end=esc(str(r.get("end_season") or "")), titles=int(r.get("titles_in_reign") or 0), defenses=int(r.get("defenses") or 0), state="ACTIVE" if r.get("active") else "ENDED", months=int(r.get("span_months") or 0), battles=esc(", ".join("#{}".format(int(x)) for x in (r.get("final_battle_ids") or [])))))
-    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Reign</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#40280b,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.season{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(255,255,255,.012))}h1{font-size:clamp(56px,10vw,100px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat,.row{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.row{margin-top:10px;background:#0b0c11}.big{font-size:22px;font-weight:950;margin:7px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION REIGN DOSSIER</div><section class="hero"><div class="gold">V18.5 // CROWN DEFENSES</div><h1>{name}</h1><p class="meta">This page reconstructs title reigns from sealed championship lineage only.</p><div class="stats"><div class="stat"><b>{titles}</b><span>TITLES</span></div><div class="stat"><b>{defenses}</b><span>DEFENSES</span></div><div class="stat"><b>{reigns}</b><span>REIGNS</span></div><div class="stat"><b>{longest}</b><span>LONGEST REIGN</span></div></div><div class="stats"><div class="stat"><b>{active}</b><span>ACTIVE REIGN</span></div><div class="stat"><b>{current}</b><span>CURRENT DEFENSES</span></div><div class="stat"><b>{gap}</b><span>AVG TITLE GAP / MONTHS</span></div><div class="stat"><b>{score}</b><span>REIGN SCORE</span></div></div><a href="/champion-reigns">REIGN BOARD</a> <a href="/champion-dossier/{q}">CHAMPION DOSSIER</a> <a href="/dynasties">DYNASTY INDEX</a></section><section class="panel"><div class="gold">REIGN HISTORY</div>{rows}</section><div class="digest">REIGN DOSSIER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Reign</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#40280b,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.season{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(255,255,255,.012))}h1{font-size:clamp(56px,10vw,100px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat,.row{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.row{margin-top:10px;background:#0b0c11}.big{font-size:22px;font-weight:950;margin:7px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION REIGN DOSSIER</div><section class="hero"><div class="gold">V18.6 // CROWN DEFENSES</div><h1>{name}</h1><p class="meta">This page reconstructs title reigns from sealed championship lineage only.</p><div class="stats"><div class="stat"><b>{titles}</b><span>TITLES</span></div><div class="stat"><b>{defenses}</b><span>DEFENSES</span></div><div class="stat"><b>{reigns}</b><span>REIGNS</span></div><div class="stat"><b>{longest}</b><span>LONGEST REIGN</span></div></div><div class="stats"><div class="stat"><b>{active}</b><span>ACTIVE REIGN</span></div><div class="stat"><b>{current}</b><span>CURRENT DEFENSES</span></div><div class="stat"><b>{gap}</b><span>AVG TITLE GAP / MONTHS</span></div><div class="stat"><b>{score}</b><span>REIGN SCORE</span></div></div><a href="/champion-reigns">REIGN BOARD</a> <a href="/champion-dossier/{q}">CHAMPION DOSSIER</a> <a href="/dynasties">DYNASTY INDEX</a></section><section class="panel"><div class="gold">REIGN HISTORY</div>{rows}</section><div class="digest">REIGN DOSSIER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
     return template.format(name=esc(str(d.get("username") or "")), titles=int(s.get("titles") or 0), defenses=int(s.get("defenses") or 0), reigns=int(s.get("reigns") or 0), longest=int(s.get("longest_reign_titles") or 0), active="YES" if s.get("active_reign") else "NO", current=int(s.get("current_defenses") or 0), gap=s.get("avg_gap_months") or 0, score=int(s.get("reign_score") or 0), q=urllib.parse.quote(str(d.get("username") or "")), rows="".join(rows), digest=esc(str(d.get("reign_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
+
+# ===== V18.6 CROWN CHASE + CONTENDER PRESSURE =====
+def _crown_chase_snapshot(season_key=None, bracket_size=8, limit=12):
+    try:
+        bracket_size = 8 if int(bracket_size or 8) >= 8 else 4
+    except Exception:
+        bracket_size = 8
+    try:
+        limit = max(1, min(int(limit or 12), 50))
+    except Exception:
+        limit = 12
+    race = _championship_race_snapshot(season_key, bracket_size)
+    reign = _champion_reign_snapshot(500)
+    champion = str(reign.get("current_champion") or "").strip()
+    standings = [dict(x) for x in (race.get("standings") or [])]
+    champion_row = next((x for x in standings if str(x.get("username") or "").lower() == champion.lower()), None) if champion else None
+    champion_score = int((champion_row or {}).get("season_score") or 0)
+    contenders = []
+    for row in standings:
+        name = str(row.get("username") or "")
+        if champion and name.lower() == champion.lower():
+            continue
+        score = int(row.get("season_score") or 0)
+        wins = int(row.get("wins") or 0)
+        clashes = int(row.get("clashes") or 0)
+        unique_rivals = int(row.get("unique_rivals") or 0)
+        gap = champion_score - score if champion_row else 0
+        pressure = score + wins * 8 + clashes * 3 + unique_rivals * 2
+        if row.get("rank", 999) <= bracket_size:
+            pressure += 25
+        elif row.get("rank", 999) <= bracket_size + 2:
+            pressure += 10
+        if not champion_row:
+            state = "⚡ FIELD PRESSURE"
+        elif score > champion_score:
+            state = "🔥 AHEAD OF CHAMPION"
+        elif score == champion_score:
+            state = "⚔️ LEVEL WITH CHAMPION"
+        elif max(0, gap) <= 15:
+            state = "🎯 WITHIN STRIKING DISTANCE"
+        else:
+            state = "🧭 CHASING THE CROWN"
+        contenders.append({
+            **row,
+            "pressure_score": int(pressure),
+            "gap_to_champion": int(gap),
+            "pressure_state": state,
+            "h2h_url": "/rival-dossier/{}/{}".format(urllib.parse.quote(champion), urllib.parse.quote(name)) if champion else "",
+            "matchmaking_url": "/matchmaking/{}".format(urllib.parse.quote(name)),
+        })
+    contenders.sort(key=lambda x: (-int(x.get("pressure_score") or 0), -int(x.get("season_score") or 0), int(x.get("rank") or 999), str(x.get("username") or "").lower()))
+    for idx, item in enumerate(contenders, 1):
+        item["pressure_rank"] = idx
+    top = contenders[0] if contenders else None
+    digest_payload = {
+        "season": race.get("season_key"),
+        "champion": champion,
+        "champion_score": champion_score,
+        "bracket_size": bracket_size,
+        "contenders": [(x.get("pressure_rank"), x.get("username"), x.get("pressure_score"), x.get("season_score"), x.get("gap_to_champion")) for x in contenders],
+    }
+    digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "success": True,
+        "version": "V18.6",
+        "season_key": race.get("season_key"),
+        "season_label": race.get("season_label"),
+        "bracket_size": bracket_size,
+        "current_champion": champion,
+        "champion_season_score": champion_score,
+        "champion_in_current_race": bool(champion_row),
+        "contender_count": len(contenders),
+        "top_pressure": top,
+        "contenders": contenders[:limit],
+        "crown_digest": digest,
+        "policy": "Crown pressure is a descriptive in-app ranking built from current BL3 season activity and sealed champion lineage. It does not predict who will win the next championship.",
+    }
+
+
+@app.route("/api/crown-chase")
+def crown_chase_api():
+    return jsonify(_crown_chase_snapshot(request.args.get("season"), request.args.get("size", 8), request.args.get("limit", 12)))
+
+
+@app.route("/crown-chase.json")
+def crown_chase_export():
+    d = _crown_chase_snapshot(request.args.get("season"), request.args.get("size", 8), request.args.get("limit", 50))
+    return Response(json.dumps(d, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/crown-chase")
+def crown_chase_page():
+    d = _crown_chase_snapshot(request.args.get("season"), request.args.get("size", 8), request.args.get("limit", 12))
+    esc = html.escape
+    cards = []
+    for x in d.get("contenders") or []:
+        gap = int(x.get("gap_to_champion") or 0)
+        gap_text = "AHEAD BY {}".format(abs(gap)) if gap < 0 else "LEVEL" if gap == 0 else "{} TO CHAMPION".format(gap)
+        h2h = '<a href="{}">H2H</a>'.format(esc(str(x.get("h2h_url") or "#"))) if x.get("h2h_url") else ""
+        cards.append('<article class="card"><div class="top"><span>PRESSURE #{}</span><span>{}</span></div><div class="name">{}</div><div class="meta">Season rank #{} · {} pts · {}W · {} clashes</div><div class="pressure">{} PRESSURE</div><div class="meta">{} · {}</div><div class="links"><a href="{}">SEASON</a>{}</div></article>'.format(
+            int(x.get("pressure_rank") or 0), esc(str(x.get("pressure_state") or "")), esc(str(x.get("username") or "")), int(x.get("rank") or 0), int(x.get("season_score") or 0), int(x.get("wins") or 0), int(x.get("clashes") or 0), int(x.get("pressure_score") or 0), esc(gap_text), esc(str(x.get("season_title") or "")), esc(str(x.get("season_url") or "#")), h2h))
+    top = d.get("top_pressure") or {}
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Chase</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#4a2809,transparent 33%),radial-gradient(circle at 92% 3%,#17324c,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top,.pressure{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3b3226;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.06),rgba(84,173,255,.02))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{display:flex;justify-content:space-between;gap:10px;font-size:8px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}.pressure{font-size:20px;font-weight:950;margin:10px 0}.links{display:flex;gap:7px;flex-wrap:wrap}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN CHASE</div><section class="hero"><div class="gold">{season} // V18.6</div><h1>WHO'S PRESSURING THE CROWN?</h1><p class="meta">Current season contenders are compared with the latest sealed champion. This is pressure tracking, not a winner prediction.</p><div class="stats"><div class="stat"><b>{champion}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{champ_score}</b><span>CHAMPION SEASON SCORE</span></div><div class="stat"><b>{contenders}</b><span>ACTIVE CONTENDERS</span></div><div class="stat"><b>{top_name}</b><span>TOP PRESSURE</span></div></div><a href="/champion-reigns">CHAMPION REIGNS</a> <a href="/championship-race?season={season_q}&size={size}">QUALIFIER RACE</a> <a href="/rivalry-championship?season={season_q}&size={size}">PLAYOFF BRACKET</a> <a href="/crown-chase.json?season={season_q}&size={size}">EXPORT JSON</a></section><section class="panel"><div class="gold">CONTENDER PRESSURE BOARD</div><div class="grid">{cards}</div></section><div class="digest">CROWN CHASE DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return template.format(
+        season=esc(str(d.get("season_label") or d.get("season_key") or "CURRENT SEASON")), champion=esc(str(d.get("current_champion") or "—")), champ_score=int(d.get("champion_season_score") or 0), contenders=int(d.get("contender_count") or 0), top_name=esc(str(top.get("username") or "—")), season_q=urllib.parse.quote(str(d.get("season_key") or "")), size=int(d.get("bracket_size") or 8), cards="".join(cards) or '<div class="meta">No active contenders yet.</div>', digest=esc(str(d.get("crown_digest") or "")), policy=esc(str(d.get("policy") or "")))
 
 
 if __name__ == "__main__":
@@ -16195,8 +16301,9 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V18.5 // CHAMPION REIGNS + TITLE DEFENSES")
+    print("👑 BL3 ARENA V18.6 // CROWN CHASE + CONTENDER PRESSURE")
     print("💾 SQLite enabled")
+    print("👑 Crown Chase + Contender Pressure enabled")
     print("🏛️ Dynasty Index + Champion Dossier enabled")
     print("👑 Champion Reigns + Title Defenses enabled")
     print("🛡️ Production readiness checks enabled")
