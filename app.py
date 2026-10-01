@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.1")
+    response.headers.setdefault("X-BL3-Version", "19.2")
     return response
 
 
@@ -16878,12 +16878,180 @@ def crown_era_records_page():
     )
 
 
+# ===== V19.2 CROWN MILESTONES + LEGACY BADGES =====
+def _crown_milestones_snapshot(limit=200):
+    eras_data = _crown_era_records_snapshot(500)
+    ledger = _crown_ledger_snapshot(500)
+    by_champion = {}
+
+    def ensure(name):
+        key = str(name or "").strip().lower()
+        if not key:
+            return None
+        return by_champion.setdefault(key, {
+            "champion": str(name or "").strip(),
+            "crowns": 0,
+            "defenses": 0,
+            "turnovers_won": 0,
+            "times_dethroned": 0,
+            "eras": 0,
+            "comebacks": 0,
+            "milestones": [],
+            "badges": [],
+        })
+
+    for c in eras_data.get("champions") or []:
+        item = ensure(c.get("champion"))
+        if not item:
+            continue
+        item["crowns"] = int(c.get("titles") or 0)
+        item["defenses"] = int(c.get("defenses") or 0)
+        item["eras"] = int(c.get("eras") or 0)
+        item["comebacks"] = int(c.get("comeback_count") or 0)
+
+    events = list(reversed(ledger.get("events") or []))
+    for ev in events:
+        champion = str(ev.get("champion") or ev.get("to") or "").strip()
+        if not champion:
+            continue
+        item = ensure(champion)
+        if not item:
+            continue
+        etype = str(ev.get("event_type") or ev.get("type") or "").upper()
+        season = str(ev.get("season") or ev.get("season_key") or "")
+        battle_id = int(ev.get("battle_id") or ev.get("final_battle_id") or 0)
+        valid = bool(ev.get("valid", True))
+        if etype == "TURNOVER":
+            item["turnovers_won"] += 1
+        if etype in {"CROWNED", "TURNOVER"} and not any(m.get("key") == "first_crown" for m in item["milestones"]):
+            item["milestones"].append({"key":"first_crown","label":"FIRST CROWN","season":season,"battle_id":battle_id,"valid":valid})
+        if etype == "DEFENSE" and not any(m.get("key") == "first_defense" for m in item["milestones"]):
+            item["milestones"].append({"key":"first_defense","label":"FIRST DEFENSE","season":season,"battle_id":battle_id,"valid":valid})
+        if etype == "TURNOVER" and not any(m.get("key") == "first_turnover" for m in item["milestones"]):
+            item["milestones"].append({"key":"first_turnover","label":"FIRST USURPATION","season":season,"battle_id":battle_id,"valid":valid})
+
+    # derive dethroned counts from succession transitions
+    crown_era = _crown_era_snapshot(500)
+    for t in crown_era.get("transitions") or []:
+        frm = str(t.get("from") or "").strip()
+        if frm:
+            item = ensure(frm)
+            if item:
+                item["times_dethroned"] += 1
+
+    rows=[]
+    for item in by_champion.values():
+        crowns=int(item.get("crowns") or 0)
+        defenses=int(item.get("defenses") or 0)
+        eras=int(item.get("eras") or 0)
+        comebacks=int(item.get("comebacks") or 0)
+        turnovers=int(item.get("turnovers_won") or 0)
+
+        if crowns >= 1:
+            item["badges"].append({"key":"crowned","label":"👑 CROWNED"})
+        if defenses >= 1:
+            item["badges"].append({"key":"defender","label":"🛡️ TITLE DEFENDER"})
+        if turnovers >= 1:
+            item["badges"].append({"key":"usurper","label":"⚔️ USURPER"})
+        if comebacks >= 1:
+            item["badges"].append({"key":"comeback","label":"🔥 COMEBACK CROWN"})
+        if eras >= 2:
+            item["badges"].append({"key":"multi_era","label":"🏛️ MULTI-ERA CHAMPION"})
+        if crowns >= 3:
+            item["badges"].append({"key":"triple_crown","label":"💎 TRIPLE CROWN"})
+        if crowns >= 5:
+            item["badges"].append({"key":"dynasty","label":"🌌 DYNASTY LEGEND"})
+
+        score = crowns*100 + defenses*50 + turnovers*35 + comebacks*40 + len(item["badges"])*15
+        item["legacy_score"] = score
+        item["badge_count"] = len(item["badges"])
+        item["milestone_count"] = len(item["milestones"])
+        item["detail_url"] = "/crown-milestones/{}".format(urllib.parse.quote(str(item.get("champion") or "")))
+        rows.append(item)
+
+    rows.sort(key=lambda x:(-int(x.get("legacy_score") or 0),-int(x.get("crowns") or 0),str(x.get("champion") or "").lower()))
+    for i,row in enumerate(rows,1):
+        row["rank"] = i
+
+    digest_input=[{"c":r.get("champion"),"s":r.get("legacy_score"),"b":[b.get("key") for b in r.get("badges") or []],"m":[m.get("key") for m in r.get("milestones") or []]} for r in rows]
+    digest=hashlib.sha256(json.dumps(digest_input,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+    try:
+        lim=max(1,min(int(limit or 200),500))
+    except Exception:
+        lim=200
+    return {
+        "generated_at":datetime.utcnow().isoformat(timespec="seconds")+"Z",
+        "champions":rows[:lim],
+        "champion_count":len(rows),
+        "badge_total":sum(int(r.get("badge_count") or 0) for r in rows),
+        "milestone_total":sum(int(r.get("milestone_count") or 0) for r in rows),
+        "top_legacy":rows[0] if rows else None,
+        "milestone_digest":digest,
+        "policy":"Crown milestones and badges summarize sealed championship history only. They are in-app legacy markers, not real-world credentials or predictions.",
+    }
+
+
+def _crown_milestone_detail(username):
+    target=str(username or "").strip()
+    if not target:
+        return None
+    snap=_crown_milestones_snapshot(500)
+    for row in snap.get("champions") or []:
+        if str(row.get("champion") or "").lower()==target.lower():
+            payload=dict(row)
+            payload["milestone_digest"]=hashlib.sha256(json.dumps({"champion":payload.get("champion"),"badges":payload.get("badges"),"milestones":payload.get("milestones"),"legacy_score":payload.get("legacy_score")},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+            return payload
+    return None
+
+
+@app.route("/api/crown-milestones")
+def crown_milestones_api():
+    return jsonify({"success":True,**_crown_milestones_snapshot(request.args.get("limit",200))})
+
+
+@app.route("/crown-milestones.json")
+def crown_milestones_export():
+    return Response(json.dumps(_crown_milestones_snapshot(request.args.get("limit",200)),ensure_ascii=False,indent=2),mimetype="application/json")
+
+
+@app.route("/api/crown-milestones/<path:username>")
+def crown_milestones_detail_api(username):
+    data=_crown_milestone_detail(urllib.parse.unquote(username))
+    if not data:
+        return jsonify({"success":False,"message":"Crown milestone profile not found."}),404
+    return jsonify({"success":True,**data})
+
+
+@app.route("/crown-milestones/<path:username>")
+def crown_milestones_detail_page(username):
+    data=_crown_milestone_detail(urllib.parse.unquote(username))
+    if not data:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Crown milestone profile not found.</h1><a style='color:#ffd66b' href='/crown-milestones'>Crown Milestones</a></body>",404
+    esc=html.escape
+    badges=''.join('<span class="badge">{}</span>'.format(esc(str(b.get("label") or ""))) for b in data.get("badges") or []) or '<span class="meta">No legacy badges yet.</span>'
+    miles=''.join('<article class="mile"><div class="gold">{label}</div><div class="meta">Season {season} · Final Battle #{battle} · {state}</div></article>'.format(label=esc(str(m.get("label") or "")),season=esc(str(m.get("season") or "—")),battle=int(m.get("battle_id") or 0),state='VALID' if m.get("valid") else 'INVALID') for m in data.get("milestones") or []) or '<div class="meta">No milestones recorded yet.</div>'
+    page="""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Milestones</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#513710,transparent 30%),radial-gradient(circle at 90% 0,#24154a,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1000px;margin:auto}.brand{font-size:24px;font-weight:950}.gold{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(58px,10vw,105px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.badge{border:1px solid #5a4b20;background:#151108;border-radius:999px;padding:8px 11px;font-size:9px;font-weight:950}.mile{border:1px solid #2e3038;border-radius:16px;padding:15px;background:#0b0c11;margin-top:10px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3 <span class='gold'>●</span> CROWN MILESTONES</div><section class='hero'><div class='gold'>V19.2 // LEGACY BADGES</div><h1>{champ}</h1><p class='meta'>Legacy markers derived from sealed championship history.</p><div class='stats'><div class='stat'><b>{crowns}</b><span>CROWNS</span></div><div class='stat'><b>{defenses}</b><span>DEFENSES</span></div><div class='stat'><b>{eras}</b><span>ERAS</span></div><div class='stat'><b>{score}</b><span>LEGACY SCORE</span></div></div><div class='badges'>{badges}</div><a href='/champion-dossier/{q}'>CHAMPION DOSSIER</a> <a href='/crown-era-records'>ERA RECORDS</a></section><section class='panel'><div class='gold'>RECORDED MILESTONES</div>{miles}</section><div class='digest'>MILESTONE DIGEST // {digest}</div></div></body></html>"""
+    return page.format(champ=esc(str(data.get("champion") or "")),crowns=int(data.get("crowns") or 0),defenses=int(data.get("defenses") or 0),eras=int(data.get("eras") or 0),score=int(data.get("legacy_score") or 0),badges=badges,q=urllib.parse.quote(str(data.get("champion") or "")),miles=miles,digest=esc(str(data.get("milestone_digest") or "")))
+
+
+@app.route("/crown-milestones")
+def crown_milestones_page():
+    data=_crown_milestones_snapshot(request.args.get("limit",200)); esc=html.escape
+    top=data.get("top_legacy") or {}
+    cards=[]
+    for row in data.get("champions") or []:
+        badge_text=' · '.join(str(b.get("label") or "") for b in row.get("badges") or []) or 'No badges yet'
+        cards.append('<article class="card"><div class="gold">#{rank} // {score} LEGACY</div><div class="name">{name}</div><div class="meta">{crowns} crowns · {defenses} defenses · {eras} eras · {comebacks} comeback(s)</div><div class="meta">{badges}</div><a href="{url}">OPEN MILESTONES ↗</a></article>'.format(rank=int(row.get("rank") or 0),score=int(row.get("legacy_score") or 0),name=esc(str(row.get("champion") or "")),crowns=int(row.get("crowns") or 0),defenses=int(row.get("defenses") or 0),eras=int(row.get("eras") or 0),comebacks=int(row.get("comebacks") or 0),badges=esc(badge_text),url=esc(str(row.get("detail_url") or "#"))))
+    page="""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Milestones</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#503710,transparent 30%),radial-gradient(circle at 90% 0,#25174a,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:18px;padding:17px;background:#0b0c11}.name{font-size:28px;font-weight:950;margin:8px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> CROWN MILESTONES</div><section class='hero'><div class='gold'>V19.2 // LEGACY BADGES</div><h1>CROWNS BECOME MILESTONES.</h1><p class='meta'>A read-only legacy layer built from sealed championship history.</p><div class='stats'><div class='stat'><b>{count}</b><span>CHAMPIONS TRACKED</span></div><div class='stat'><b>{badges}</b><span>BADGES AWARDED</span></div><div class='stat'><b>{miles}</b><span>MILESTONES RECORDED</span></div><div class='stat'><b>{top}</b><span>TOP LEGACY</span></div></div><a href='/crown-era-records'>ERA RECORDS</a> <a href='/crown-ledger'>CROWN LEDGER</a> <a href='/crown-milestones.json'>EXPORT JSON</a></section><section class='panel'><div class='gold'>LEGACY BOARD</div><div class='grid'>{cards}</div></section><div class='digest'>MILESTONE INDEX DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>"""
+    return page.format(count=int(data.get("champion_count") or 0),badges=int(data.get("badge_total") or 0),miles=int(data.get("milestone_total") or 0),top=esc(str(top.get("champion") or "—")),cards=''.join(cards) or '<div class="meta">No crown milestones yet.</div>',digest=esc(str(data.get("milestone_digest") or "")),policy=esc(str(data.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V19.1 // ERA RECORDS + CROWN TIMELINE")
+    print("👑 BL3 ARENA V19.2 // CROWN MILESTONES + LEGACY BADGES")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
@@ -16893,6 +17061,7 @@ if __name__ == "__main__":
     print("⚔️ Crown Nemesis + Usurper Index enabled")
     print("🏛️ Crown Era + Succession Map enabled")
     print("📚 Era Records + Crown Timeline enabled")
+    print("🏅 Crown Milestones + Legacy Badges enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
