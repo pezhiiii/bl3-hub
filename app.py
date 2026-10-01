@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.5")
+    response.headers.setdefault("X-BL3-Version", "19.6")
     return response
 
 
@@ -17388,7 +17388,7 @@ def crown_story_page():
             esc(str(c.get("season") or "—")), esc(str(c.get("event_type") or "EVENT")), esc(str(c.get("title") or "")),
             esc(str(c.get("summary") or "")), int(c.get("final_battle_id") or 0), esc(str(c.get("integrity") or "UNKNOWN")), link
         ))
-    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Storybook</title><style>body{margin:0;background:radial-gradient(circle at 10% 0,#4d2b08,transparent 30%),radial-gradient(circle at 90% 0,#193258,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1060px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:900}h1{font-size:clamp(56px,10vw,102px);line-height:.88;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.chapter{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b{display:block;font-size:20px}.stat span,.meta{color:#989ba8;font-size:9px}.chapter{margin-top:8px}.chapter h3{margin:5px 0;font-size:21px}.share{margin-top:14px;border:1px dashed #4a4c57;border-radius:13px;padding:13px}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V19.5 // CROWN STORYBOOK</div><h1>THE CROWN HAS A STORY.</h1><div class='stats'><div class='stat'><b>{champ}</b><span>CURRENT CHAMPION</span></div><div class='stat'><b>{events}</b><span>SEALED EVENTS</span></div><div class='stat'><b>{eras}</b><span>RECORDED ERAS</span></div><div class='stat'><b>{network}</b><span>TOP NETWORK CHAMPION</span></div></div><div class='share'>{share}</div><a href='/crown-network'>CROWN NETWORK</a> <a href='/crown-story.json'>EXPORT JSON</a></section><section class='panel'><div class='gold'>LATEST CHAPTERS</div>{rows}</section><div class='digest'>STORY DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>"""
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Storybook</title><style>body{margin:0;background:radial-gradient(circle at 10% 0,#4d2b08,transparent 30%),radial-gradient(circle at 90% 0,#193258,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1060px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:900}h1{font-size:clamp(56px,10vw,102px);line-height:.88;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.chapter{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b{display:block;font-size:20px}.stat span,.meta{color:#989ba8;font-size:9px}.chapter{margin-top:8px}.chapter h3{margin:5px 0;font-size:21px}.share{margin-top:14px;border:1px dashed #4a4c57;border-radius:13px;padding:13px}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V19.5 // CROWN STORYBOOK</div><h1>THE CROWN HAS A STORY.</h1><div class='stats'><div class='stat'><b>{champ}</b><span>CURRENT CHAMPION</span></div><div class='stat'><b>{events}</b><span>SEALED EVENTS</span></div><div class='stat'><b>{eras}</b><span>RECORDED ERAS</span></div><div class='stat'><b>{network}</b><span>TOP NETWORK CHAMPION</span></div></div><div class='share'>{share}</div><a href='/crown-network'>CROWN NETWORK</a> <a href='/crown-archive'>CROWN ARCHIVE</a> <a href='/crown-story.json'>EXPORT JSON</a></section><section class='panel'><div class='gold'>LATEST CHAPTERS</div>{rows}</section><div class='digest'>STORY DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>"""
     return page.format(
         champ=esc(str(data.get("current_champion") or "—")), events=int(data.get("event_count") or 0),
         eras=int(data.get("era_count") or 0), network=esc(str(data.get("top_network_champion") or "—")),
@@ -17397,12 +17397,170 @@ def crown_story_page():
     )
 
 
+# ===== V19.6 CROWN ARCHIVE + HISTORIAN SEARCH =====
+def _crown_archive_snapshot(query="", season="", event_type="", limit=100):
+    try:
+        limit = max(1, min(int(limit or 100), 500))
+    except Exception:
+        limit = 100
+    q = str(query or "").strip().lower()
+    season_filter = str(season or "").strip().lower()
+    type_filter = str(event_type or "").strip().upper()
+    ledger = _crown_ledger_snapshot(1000)
+    eras = _crown_era_snapshot(500)
+    raw_events = list(reversed(ledger.get("events") or []))
+    filtered = []
+    for event in raw_events:
+        item = dict(event)
+        haystack = " ".join([
+            str(item.get("season_key") or ""),
+            str(item.get("champion") or ""),
+            str(item.get("previous_champion") or ""),
+            str(item.get("event_type") or ""),
+            str(item.get("final_battle_id") or ""),
+            str(item.get("integrity") or ""),
+        ]).lower()
+        if q and q not in haystack:
+            continue
+        if season_filter and season_filter != str(item.get("season_key") or "").lower():
+            continue
+        if type_filter and type_filter != str(item.get("event_type") or "").upper():
+            continue
+        filtered.append(item)
+
+    season_capsules = {}
+    for event in raw_events:
+        skey = str(event.get("season_key") or "").strip()
+        if not skey:
+            continue
+        cap = season_capsules.setdefault(skey, {
+            "season_key": skey, "events": 0, "champions": [], "event_types": [],
+            "battle_ids": [], "valid_events": 0, "invalid_events": 0,
+        })
+        cap["events"] += 1
+        champ = str(event.get("champion") or "").strip()
+        if champ and champ not in cap["champions"]:
+            cap["champions"].append(champ)
+        et = str(event.get("event_type") or "").strip()
+        if et and et not in cap["event_types"]:
+            cap["event_types"].append(et)
+        battle = int(event.get("final_battle_id") or 0)
+        if battle:
+            cap["battle_ids"].append(battle)
+        if str(event.get("integrity") or "").upper() == "VALID":
+            cap["valid_events"] += 1
+        else:
+            cap["invalid_events"] += 1
+
+    era_by_season = {}
+    for era in reversed(eras.get("eras") or []):
+        for skey in era.get("seasons") or []:
+            era_by_season[str(skey)] = {
+                "era_number": int(era.get("era_number") or 0),
+                "era_champion": str(era.get("champion") or ""),
+                "active": bool(era.get("active")),
+            }
+    capsules = []
+    for skey, cap in season_capsules.items():
+        cap = dict(cap)
+        cap.update(era_by_season.get(skey) or {})
+        cap["integrity_rate"] = round((cap.get("valid_events", 0) / max(1, cap.get("events", 0))) * 100, 1)
+        cap["season_url"] = "/crown-archive/season/{}".format(urllib.parse.quote(skey, safe=""))
+        capsules.append(cap)
+    if '_season_sort_token' in globals():
+        capsules.sort(key=lambda x: _season_sort_token(x.get("season_key")), reverse=True)
+    else:
+        capsules.sort(key=lambda x: str(x.get("season_key") or ""), reverse=True)
+
+    digest_payload = {
+        "query": q, "season": season_filter, "event_type": type_filter,
+        "events": [{"s": x.get("season_key"), "e": x.get("event_type"), "c": x.get("champion"), "p": x.get("previous_champion"), "b": x.get("final_battle_id"), "i": x.get("integrity")} for x in filtered],
+        "capsules": [{"s": x.get("season_key"), "n": x.get("events"), "e": x.get("era_number")} for x in capsules],
+    }
+    archive_digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "query": str(query or ""), "season_filter": str(season or ""), "event_type_filter": str(event_type or ""),
+        "current_champion": str(ledger.get("current_champion") or ""),
+        "total_events": int(ledger.get("event_count") or 0), "matched_events": len(filtered), "season_count": len(capsules),
+        "events": filtered[:limit], "seasons": capsules, "archive_digest": archive_digest,
+        "policy": "Historian search is read-only and searches reconstructed sealed crown history only. It does not infer missing seasons, battles, or winners.",
+    }
+
+
+def _crown_archive_season_snapshot(season_key):
+    target = str(season_key or "").strip()
+    if not target:
+        return None
+    archive = _crown_archive_snapshot(season=target, limit=500)
+    capsule = next((x for x in archive.get("seasons") or [] if str(x.get("season_key") or "") == target), None)
+    if not capsule and not archive.get("events"):
+        return None
+    eras = _crown_era_snapshot(500)
+    transitions = [dict(x) for x in (eras.get("transitions") or []) if str(x.get("season") or "") == target]
+    payload = {"season_key": target, "capsule": capsule or {"season_key": target, "events": len(archive.get("events") or [])}, "events": archive.get("events") or [], "transitions": transitions}
+    payload["season_digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+    payload["policy"] = "Season capsule contains only recorded sealed crown events for the requested season."
+    return payload
+
+
+@app.route("/api/crown-archive")
+def crown_archive_api():
+    return jsonify({"success": True, **_crown_archive_snapshot(request.args.get("q", ""), request.args.get("season", ""), request.args.get("type", ""), request.args.get("limit", 100))})
+
+
+@app.route("/crown-archive.json")
+def crown_archive_export():
+    data = _crown_archive_snapshot(request.args.get("q", ""), request.args.get("season", ""), request.args.get("type", ""), request.args.get("limit", 100))
+    return Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/api/crown-archive/season/<path:season_key>")
+def crown_archive_season_api(season_key):
+    data = _crown_archive_season_snapshot(urllib.parse.unquote(season_key))
+    if not data:
+        return jsonify({"success": False, "message": "Season capsule not found."}), 404
+    return jsonify({"success": True, **data})
+
+
+@app.route("/crown-archive/season/<path:season_key>")
+def crown_archive_season_page(season_key):
+    data = _crown_archive_season_snapshot(urllib.parse.unquote(season_key))
+    if not data:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Season capsule not found.</h1><a style='color:#ffd66b' href='/crown-archive'>Back to Crown Archive</a></body>", 404
+    esc = html.escape
+    cap = data.get("capsule") or {}
+    event_rows = []
+    for e in data.get("events") or []:
+        event_rows.append('<article class="event"><div class="tag">{etype}</div><h3>{champ}</h3><div class="meta">previous: {prev} · battle #{battle} · {integrity}</div></article>'.format(etype=esc(str(e.get("event_type") or "")), champ=esc(str(e.get("champion") or "")), prev=esc(str(e.get("previous_champion") or "—")), battle=int(e.get("final_battle_id") or 0), integrity=esc(str(e.get("integrity") or ""))))
+    transition_rows = []
+    for t in data.get("transitions") or []:
+        transition_rows.append('<div class="transition"><b>{frm}</b> → <b>{to}</b><div class="meta">battle #{battle} · {valid}</div></div>'.format(frm=esc(str(t.get("from") or "")), to=esc(str(t.get("to") or "")), battle=int(t.get("battle_id") or 0), valid="VALID" if t.get("valid") else "INVALID"))
+    page = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Archive Season</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#4b3112,transparent 30%),radial-gradient(circle at 90% 0,#172b52,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #353843;border-radius:24px;padding:24px;background:#0b0c11}.gold,.tag{color:#ffd66b;font-weight:900}h1{font-size:clamp(50px,9vw,90px);line-height:.9;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.event,.transition{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b{display:block;font-size:20px}.stat span,.meta{color:#9699a7;font-size:9px}.event,.transition{margin-top:8px}.event h3{margin:5px 0;font-size:22px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.6 // SEASON CAPSULE</div><h1>{season}</h1><div class="stats"><div class="stat"><b>{events}</b><span>SEALED EVENTS</span></div><div class="stat"><b>{champions}</b><span>CHAMPIONS</span></div><div class="stat"><b>{era}</b><span>ERA</span></div><div class="stat"><b>{integrity}%</b><span>INTEGRITY</span></div></div><a href="/crown-archive">CROWN ARCHIVE</a> <a href="/crown-story">STORYBOOK</a></section><section class="panel"><div class="gold">RECORDED EVENTS</div>{events_html}</section><section class="panel"><div class="gold">SUCCESSION TRANSITIONS</div>{transitions_html}</section><div class="digest">SEASON DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return page.format(season=esc(str(data.get("season_key") or "")), events=int(cap.get("events") or len(data.get("events") or [])), champions=len(cap.get("champions") or []), era=int(cap.get("era_number") or 0), integrity=float(cap.get("integrity_rate") or 0.0), events_html=''.join(event_rows) or '<div class="meta">No sealed events recorded.</div>', transitions_html=''.join(transition_rows) or '<div class="meta">No crown transition recorded in this season.</div>', digest=esc(str(data.get("season_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
+@app.route("/crown-archive")
+def crown_archive_page():
+    data = _crown_archive_snapshot(request.args.get("q", ""), request.args.get("season", ""), request.args.get("type", ""), request.args.get("limit", 100))
+    esc = html.escape
+    event_rows = []
+    for e in data.get("events") or []:
+        event_rows.append('<article class="event"><div class="tag">{season} // {etype}</div><h3>{champ}</h3><div class="meta">previous: {prev} · final battle #{battle} · {integrity}</div></article>'.format(season=esc(str(e.get("season_key") or "")), etype=esc(str(e.get("event_type") or "")), champ=esc(str(e.get("champion") or "")), prev=esc(str(e.get("previous_champion") or "—")), battle=int(e.get("final_battle_id") or 0), integrity=esc(str(e.get("integrity") or ""))))
+    season_rows = []
+    for s in data.get("seasons") or []:
+        season_rows.append('<article class="season"><div class="tag">{season}</div><div class="big">{events} EVENT(S)</div><div class="meta">{champions} champion(s) · era #{era} · integrity {integrity}%</div><a href="{url}">OPEN CAPSULE ↗</a></article>'.format(season=esc(str(s.get("season_key") or "")), events=int(s.get("events") or 0), champions=len(s.get("champions") or []), era=int(s.get("era_number") or 0), integrity=float(s.get("integrity_rate") or 0.0), url=esc(str(s.get("season_url") or "#"))))
+    page = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Archive</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#4d3010,transparent 30%),radial-gradient(circle at 90% 0,#1b315b,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1120px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold,.tag{color:#ffd66b;font-weight:900}h1{font-size:clamp(56px,10vw,102px);line-height:.88;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.event,.season{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b,.big{display:block;font-size:20px;font-weight:900}.stat span,.meta{color:#989ba8;font-size:9px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}.event,.season{margin-top:8px}.event h3{margin:5px 0;font-size:21px}.filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-top:14px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:10px;padding:11px;font:inherit}.filters button{cursor:pointer;font-weight:900}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:760px){.stats,.grid,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.6 // CROWN HISTORIAN</div><h1>SEARCH THE CROWN.</h1><p class="meta">Search sealed crown history by champion, previous champion, season, event type, battle ID, or integrity state.</p><div class="stats"><div class="stat"><b>{champ}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{total}</b><span>TOTAL EVENTS</span></div><div class="stat"><b>{matched}</b><span>MATCHED EVENTS</span></div><div class="stat"><b>{seasons}</b><span>SEASON CAPSULES</span></div></div><form class="filters" method="get"><input name="q" value="{q}" placeholder="champion, battle id, integrity..."><input name="season" value="{season_filter}" placeholder="season"><select name="type"><option value="">ALL TYPES</option><option {crowned}>CROWNED</option><option {defense}>DEFENSE</option><option {turnover}>TURNOVER</option></select><button>SEARCH</button></form><a href="/crown-story">STORYBOOK</a> <a href="/crown-network">NETWORK</a> <a href="/crown-archive.json">EXPORT JSON</a></section><section class="panel"><div class="gold">MATCHED HISTORY</div>{events_html}</section><section class="panel"><div class="gold">SEASON CAPSULES</div><div class="grid">{seasons_html}</div></section><div class="digest">ARCHIVE DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    tf = str(data.get("event_type_filter") or "").upper()
+    return page.format(champ=esc(str(data.get("current_champion") or "—")), total=int(data.get("total_events") or 0), matched=int(data.get("matched_events") or 0), seasons=int(data.get("season_count") or 0), q=esc(str(data.get("query") or "")), season_filter=esc(str(data.get("season_filter") or "")), crowned="selected" if tf == "CROWNED" else "", defense="selected" if tf == "DEFENSE" else "", turnover="selected" if tf == "TURNOVER" else "", events_html=''.join(event_rows) or '<div class="meta">No matching sealed crown events.</div>', seasons_html=''.join(season_rows) or '<div class="meta">No season capsules yet.</div>', digest=esc(str(data.get("archive_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V19.5 // CROWN STORYBOOK + SHARE CARDS")
+    print("📚 BL3 ARENA V19.6 // CROWN ARCHIVE + HISTORIAN SEARCH")
     print("📖 Crown Storybook + Share Cards enabled")
     print("🧭 Crown Pathfinder + Ancestry Chains enabled")
     print("💾 SQLite enabled")
