@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "18.4")
+    response.headers.setdefault("X-BL3-Version", "18.5")
     return response
 
 
@@ -16016,14 +16016,189 @@ def champion_dossier_page(username):
     return template.format(name=esc(str(d.get("username") or "")), titles=int(d.get("title_count") or 0), rank=int(stats.get("rank") or 0), streak=int(stats.get("max_streak") or 0), active=int(stats.get("active_streak") or 0), first=esc(str(d.get("first_title_season") or "—")), latest=esc(str(d.get("latest_title_season") or "—")), score=int(stats.get("dynasty_score") or 0), integrity=float(stats.get("title_integrity_rate") or 0.0), rows="".join(rows) or '<div class="meta">No titles found.</div>', digest=esc(str(d.get("dossier_digest") or "")), policy=esc(str(d.get("policy") or "")))
 
 
+# ===== V18.5 CHAMPION REIGNS + TITLE DEFENSES =====
+def _season_month_ordinal(season_key):
+    raw = str(season_key or "").strip()
+    parts = raw.replace("/", "-").replace("_", "-").split("-")
+    nums = []
+    for part in parts:
+        digits = "".join(ch for ch in str(part) if ch.isdigit())
+        if digits:
+            nums.append(int(digits))
+    if len(nums) >= 2 and 1 <= nums[1] <= 12:
+        return nums[0] * 12 + nums[1]
+    if nums:
+        return nums[0] * 12
+    return 0
+
+
+def _champion_reign_snapshot(limit=100):
+    rows = _sealed_titles_chronological(500)
+    reigns = []
+    current = None
+    title_seasons = defaultdict(list)
+    for row in rows:
+        champion = str(row.get("champion") or "").strip()
+        if not champion:
+            continue
+        season_key = str(row.get("season_key") or "")
+        title_seasons[champion.lower()].append(season_key)
+        verify = _championship_title_verify(row)
+        if current and str(current.get("champion") or "").lower() == champion.lower():
+            current["titles_in_reign"] += 1
+            current["defenses"] += 1
+            current["end_season"] = season_key
+            current["end_title_digest"] = str(row.get("title_digest") or "")
+            current["valid_titles"] += 1 if verify.get("valid") else 0
+            current["final_battle_ids"].append(int(row.get("final_battle_id") or 0))
+        else:
+            if current:
+                reigns.append(current)
+            current = {
+                "champion": champion,
+                "start_season": season_key,
+                "end_season": season_key,
+                "titles_in_reign": 1,
+                "defenses": 0,
+                "valid_titles": 1 if verify.get("valid") else 0,
+                "start_title_digest": str(row.get("title_digest") or ""),
+                "end_title_digest": str(row.get("title_digest") or ""),
+                "final_battle_ids": [int(row.get("final_battle_id") or 0)],
+            }
+    if current:
+        reigns.append(current)
+
+    latest_champion = str(rows[-1].get("champion") or "") if rows else ""
+    entries = []
+    by_champion = {}
+    for reign in reigns:
+        start_ord = _season_month_ordinal(reign.get("start_season"))
+        end_ord = _season_month_ordinal(reign.get("end_season"))
+        span_months = max(1, end_ord - start_ord + 1) if start_ord and end_ord else int(reign.get("titles_in_reign") or 1)
+        reign["span_months"] = span_months
+        reign["active"] = bool(latest_champion and str(reign.get("champion") or "").lower() == latest_champion.lower() and reign is reigns[-1])
+        key = str(reign.get("champion") or "").lower()
+        agg = by_champion.setdefault(key, {
+            "username": reign.get("champion"),
+            "reigns": 0,
+            "titles": 0,
+            "defenses": 0,
+            "longest_reign_titles": 0,
+            "longest_reign_months": 0,
+            "active_reign": False,
+            "current_defenses": 0,
+            "current_reign_titles": 0,
+        })
+        agg["reigns"] += 1
+        agg["titles"] += int(reign.get("titles_in_reign") or 0)
+        agg["defenses"] += int(reign.get("defenses") or 0)
+        agg["longest_reign_titles"] = max(int(agg.get("longest_reign_titles") or 0), int(reign.get("titles_in_reign") or 0))
+        agg["longest_reign_months"] = max(int(agg.get("longest_reign_months") or 0), span_months)
+        if reign.get("active"):
+            agg["active_reign"] = True
+            agg["current_defenses"] = int(reign.get("defenses") or 0)
+            agg["current_reign_titles"] = int(reign.get("titles_in_reign") or 0)
+
+    for key, agg in by_champion.items():
+        seasons = title_seasons.get(key) or []
+        ords = [_season_month_ordinal(x) for x in seasons]
+        ords = [x for x in ords if x]
+        gaps = [max(0, ords[i] - ords[i-1]) for i in range(1, len(ords))]
+        agg["avg_gap_months"] = round(sum(gaps) / len(gaps), 1) if gaps else 0.0
+        agg["reign_score"] = int(agg.get("titles") or 0) * 100 + int(agg.get("defenses") or 0) * 50 + int(agg.get("longest_reign_titles") or 0) * 25
+        agg["reign_url"] = "/champion-reign/{}".format(urllib.parse.quote(str(agg.get("username") or "")))
+        entries.append(agg)
+    entries.sort(key=lambda x: (-int(x.get("reign_score") or 0), -int(x.get("defenses") or 0), -int(x.get("titles") or 0), str(x.get("username") or "").lower()))
+    for idx, item in enumerate(entries, start=1):
+        item["rank"] = idx
+
+    digest_input = [{"u": x.get("username"), "t": x.get("titles"), "d": x.get("defenses"), "r": x.get("reigns"), "l": x.get("longest_reign_titles"), "s": x.get("reign_score")} for x in entries]
+    digest = hashlib.sha256(json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "entries": entries[:max(1, min(int(limit or 100), 500))],
+        "reigns": list(reversed(reigns)),
+        "champion_count": len(entries),
+        "reign_count": len(reigns),
+        "current_champion": latest_champion,
+        "reign_digest": digest,
+        "policy": "A title defense is counted only when the same champion owns consecutive sealed championship titles. Reign analytics never invent unrecorded matches or winners.",
+    }
+
+
+def _champion_reign_detail(username):
+    target = str(username or "").strip()
+    if not target:
+        return None
+    snapshot = _champion_reign_snapshot(500)
+    entry = None
+    for item in snapshot.get("entries") or []:
+        if str(item.get("username") or "").lower() == target.lower():
+            entry = item
+            break
+    if not entry:
+        return None
+    reigns = [r for r in (snapshot.get("reigns") or []) if str(r.get("champion") or "").lower() == target.lower()]
+    payload = [{"start": r.get("start_season"), "end": r.get("end_season"), "titles": r.get("titles_in_reign"), "defenses": r.get("defenses"), "active": r.get("active")} for r in reigns]
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"username": entry.get("username"), "stats": entry, "reigns": reigns, "reign_digest": digest, "policy": snapshot.get("policy")}
+
+
+@app.route("/api/champion-reigns")
+def champion_reigns_api():
+    return jsonify({"success": True, **_champion_reign_snapshot(request.args.get("limit", 100))})
+
+
+@app.route("/champion-reigns.json")
+def champion_reigns_export():
+    d = _champion_reign_snapshot(request.args.get("limit", 100))
+    return Response(json.dumps(d, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/champion-reigns")
+def champion_reigns_page():
+    d = _champion_reign_snapshot(request.args.get("limit", 100))
+    esc = html.escape
+    cards = []
+    for item in d.get("entries") or []:
+        state = "ACTIVE REIGN" if item.get("active_reign") else "PAST REIGN"
+        cards.append('<article class="card"><div class="top"><span>#{rank}</span><span>{state}</span></div><div class="name">{name}</div><div class="meta">{titles} titles · {defenses} defenses · {reigns} reigns</div><div class="meta">Longest reign: {longest} titles · avg title gap {gap} months</div><a href="{url}">OPEN REIGN DOSSIER ↗</a></article>'.format(rank=int(item.get("rank") or 0), state=esc(state), name=esc(str(item.get("username") or "")), titles=int(item.get("titles") or 0), defenses=int(item.get("defenses") or 0), reigns=int(item.get("reigns") or 0), longest=int(item.get("longest_reign_titles") or 0), gap=item.get("avg_gap_months") or 0, url=esc(str(item.get("reign_url") or "#"))))
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Reigns</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#452d0a,transparent 33%),radial-gradient(circle at 92% 4%,#1a2747,transparent 28%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #393126;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(84,173,255,.025))}h1{font-size:clamp(52px,9vw,94px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{display:flex;justify-content:space-between;gap:10px;font-size:9px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION REIGNS</div><section class="hero"><div class="gold">V18.5 // TITLE DEFENSE ANALYTICS</div><h1>KEEP THE CROWN.</h1><p class="meta">Defenses are counted only when the same champion owns consecutive sealed championship titles.</p><div class="stats"><div class="stat"><b>{champions}</b><span>CHAMPIONS</span></div><div class="stat"><b>{reigns}</b><span>RECORDED REIGNS</span></div><div class="stat"><b>{current}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{top_defenses}</b><span>MOST DEFENSES</span></div></div><a href="/dynasties">DYNASTY INDEX</a> <a href="/champions">CHAMPION REGISTRY</a> <a href="/champion-reigns.json">EXPORT JSON</a></section><section class="panel"><div class="gold">REIGN BOARD</div><div class="grid">{cards}</div></section><div class="digest">REIGN DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    top_defenses = max([int(x.get("defenses") or 0) for x in (d.get("entries") or [])] or [0])
+    return template.format(champions=int(d.get("champion_count") or 0), reigns=int(d.get("reign_count") or 0), current=esc(str(d.get("current_champion") or "—")), top_defenses=top_defenses, cards="".join(cards) or '<div class="meta">No sealed titles yet.</div>', digest=esc(str(d.get("reign_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
+
+@app.route("/api/champion-reign/<path:username>")
+def champion_reign_api(username):
+    d = _champion_reign_detail(urllib.parse.unquote(username))
+    if not d:
+        return jsonify({"success": False, "message": "Champion reign dossier not found."}), 404
+    return jsonify({"success": True, **d})
+
+
+@app.route("/champion-reign/<path:username>")
+def champion_reign_page(username):
+    d = _champion_reign_detail(urllib.parse.unquote(username))
+    if not d:
+        return "<!doctype html><meta charset='utf-8'><title>BL3 Champion Reign</title><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Champion reign dossier not found.</h1><p><a style='color:#ffd66b' href='/champion-reigns'>Open Champion Reigns</a></p></body>", 404
+    esc = html.escape
+    s = d.get("stats") or {}
+    rows = []
+    for r in d.get("reigns") or []:
+        rows.append('<article class="row"><div class="season">{start} → {end}</div><div class="big">{titles} TITLES / {defenses} DEFENSES</div><div class="meta">{state} · {months} month span · final battles {battles}</div></article>'.format(start=esc(str(r.get("start_season") or "")), end=esc(str(r.get("end_season") or "")), titles=int(r.get("titles_in_reign") or 0), defenses=int(r.get("defenses") or 0), state="ACTIVE" if r.get("active") else "ENDED", months=int(r.get("span_months") or 0), battles=esc(", ".join("#{}".format(int(x)) for x in (r.get("final_battle_ids") or [])))))
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Reign</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#40280b,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.season{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(255,255,255,.012))}h1{font-size:clamp(56px,10vw,100px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat,.row{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.row{margin-top:10px;background:#0b0c11}.big{font-size:22px;font-weight:950;margin:7px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION REIGN DOSSIER</div><section class="hero"><div class="gold">V18.5 // CROWN DEFENSES</div><h1>{name}</h1><p class="meta">This page reconstructs title reigns from sealed championship lineage only.</p><div class="stats"><div class="stat"><b>{titles}</b><span>TITLES</span></div><div class="stat"><b>{defenses}</b><span>DEFENSES</span></div><div class="stat"><b>{reigns}</b><span>REIGNS</span></div><div class="stat"><b>{longest}</b><span>LONGEST REIGN</span></div></div><div class="stats"><div class="stat"><b>{active}</b><span>ACTIVE REIGN</span></div><div class="stat"><b>{current}</b><span>CURRENT DEFENSES</span></div><div class="stat"><b>{gap}</b><span>AVG TITLE GAP / MONTHS</span></div><div class="stat"><b>{score}</b><span>REIGN SCORE</span></div></div><a href="/champion-reigns">REIGN BOARD</a> <a href="/champion-dossier/{q}">CHAMPION DOSSIER</a> <a href="/dynasties">DYNASTY INDEX</a></section><section class="panel"><div class="gold">REIGN HISTORY</div>{rows}</section><div class="digest">REIGN DOSSIER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return template.format(name=esc(str(d.get("username") or "")), titles=int(s.get("titles") or 0), defenses=int(s.get("defenses") or 0), reigns=int(s.get("reigns") or 0), longest=int(s.get("longest_reign_titles") or 0), active="YES" if s.get("active_reign") else "NO", current=int(s.get("current_defenses") or 0), gap=s.get("avg_gap_months") or 0, score=int(s.get("reign_score") or 0), q=urllib.parse.quote(str(d.get("username") or "")), rows="".join(rows), digest=esc(str(d.get("reign_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V18.4 // DYNASTY INDEX + CHAMPION DOSSIER")
+    print("👑 BL3 ARENA V18.5 // CHAMPION REIGNS + TITLE DEFENSES")
     print("💾 SQLite enabled")
     print("🏛️ Dynasty Index + Champion Dossier enabled")
+    print("👑 Champion Reigns + Title Defenses enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
