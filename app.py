@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "18.3")
+    response.headers.setdefault("X-BL3-Version", "18.4")
     return response
 
 
@@ -15844,13 +15844,186 @@ def champion_registry_page():
     )
 
 
+# ===== V18.4 DYNASTY INDEX + CHAMPION DOSSIER =====
+def _season_sort_token(season_key):
+    raw = str(season_key or "")
+    parts = raw.replace("/", "-").replace("_", "-").split("-")
+    nums = []
+    for part in parts:
+        digits = "".join(ch for ch in str(part) if ch.isdigit())
+        nums.append(int(digits) if digits else 0)
+    while len(nums) < 4:
+        nums.append(0)
+    return tuple(nums[:4])
+
+
+def _sealed_titles_chronological(limit=500):
+    rows = [dict(r) for r in _championship_title_rows(limit)]
+    rows.sort(key=lambda r: (_season_sort_token(r.get("season_key")), int(r.get("bracket_size") or 0), int(r.get("id") or 0)))
+    return rows
+
+
+def _dynasty_index_snapshot(limit=100):
+    rows = _sealed_titles_chronological(500)
+    by_champion = {}
+    streak_owner = None
+    streak = 0
+    active_owner = ""
+    active_streak = 0
+    for row in rows:
+        champion = str(row.get("champion") or "").strip()
+        if not champion:
+            continue
+        verify = _championship_title_verify(row)
+        season_key = str(row.get("season_key") or "")
+        entry = by_champion.setdefault(champion.lower(), {
+            "username": champion,
+            "titles": 0,
+            "valid_titles": 0,
+            "first_season": season_key,
+            "last_season": season_key,
+            "max_streak": 0,
+            "active_streak": 0,
+            "bracket_sizes": set(),
+            "latest_title_at": "",
+            "last_battle_id": 0,
+        })
+        entry["titles"] += 1
+        if verify.get("valid"):
+            entry["valid_titles"] += 1
+        entry["last_season"] = season_key
+        if not entry.get("first_season"):
+            entry["first_season"] = season_key
+        entry["bracket_sizes"].add(int(row.get("bracket_size") or 0))
+        entry["latest_title_at"] = str(row.get("sealed_at") or "")
+        entry["last_battle_id"] = int(row.get("final_battle_id") or 0)
+        champion_key = champion.lower()
+        if champion_key == streak_owner:
+            streak += 1
+        else:
+            streak_owner = champion_key
+            streak = 1
+        entry["max_streak"] = max(int(entry.get("max_streak") or 0), streak)
+        active_owner = champion_key
+        active_streak = streak
+    if active_owner and active_owner in by_champion:
+        by_champion[active_owner]["active_streak"] = active_streak
+    entries = []
+    for entry in by_champion.values():
+        item = dict(entry)
+        item["bracket_sizes"] = sorted([x for x in item.get("bracket_sizes", set()) if x])
+        item["dynasty_score"] = int(item.get("titles") or 0) * 100 + int(item.get("max_streak") or 0) * 25 + int(item.get("valid_titles") or 0) * 10
+        item["title_integrity_rate"] = round((item.get("valid_titles", 0) / item.get("titles", 1)) * 100, 1) if item.get("titles") else 0.0
+        item["dossier_url"] = "/champion-dossier/{}".format(urllib.parse.quote(item.get("username") or ""))
+        entries.append(item)
+    entries.sort(key=lambda x: (-int(x.get("dynasty_score") or 0), -int(x.get("titles") or 0), -int(x.get("max_streak") or 0), str(x.get("username") or "").lower()))
+    for idx, item in enumerate(entries, start=1):
+        item["rank"] = idx
+    digest_input = [{"u": x.get("username"), "t": x.get("titles"), "v": x.get("valid_titles"), "m": x.get("max_streak"), "a": x.get("active_streak"), "s": x.get("dynasty_score")} for x in entries]
+    digest = hashlib.sha256(json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "entries": entries[:max(1, min(int(limit or 100), 500))],
+        "champion_count": len(entries),
+        "title_count": sum(int(x.get("titles") or 0) for x in entries),
+        "top_dynasty": entries[0] if entries else None,
+        "dynasty_digest": digest,
+        "policy": "Dynasty ranking is derived only from sealed championship titles. Score = titles*100 + best streak*25 + valid titles*10.",
+    }
+
+
+def _champion_dossier_snapshot(username):
+    target = str(username or "").strip()
+    if not target:
+        return None
+    matching = []
+    for row in _sealed_titles_chronological(500):
+        champion = str(row.get("champion") or "").strip()
+        if champion.lower() == target.lower():
+            item = dict(row)
+            verify = _championship_title_verify(item)
+            item["integrity"] = "VALID" if verify.get("valid") else "INVALID"
+            item["title_url"] = "/championship-title/{}?size={}".format(urllib.parse.quote(str(item.get("season_key") or "")), int(item.get("bracket_size") or 0))
+            matching.append(item)
+    if not matching:
+        return None
+    board = _dynasty_index_snapshot(500)
+    stats = {}
+    for entry in board.get("entries") or []:
+        if str(entry.get("username") or "").lower() == target.lower():
+            stats = entry
+            break
+    descending = list(reversed(matching))
+    digest_input = [{"season": x.get("season_key"), "size": x.get("bracket_size"), "battle": x.get("final_battle_id"), "integrity": x.get("integrity"), "digest": x.get("title_digest")} for x in descending]
+    dossier_digest = hashlib.sha256(json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "username": stats.get("username") or target,
+        "titles": descending,
+        "stats": stats,
+        "title_count": len(descending),
+        "first_title_season": str(matching[0].get("season_key") or ""),
+        "latest_title_season": str(matching[-1].get("season_key") or ""),
+        "dossier_digest": dossier_digest,
+        "policy": "Champion dossier reads sealed title records only. It never writes, simulates, or retroactively edits championship outcomes.",
+    }
+
+
+@app.route("/api/dynasties")
+def dynasty_index_api():
+    d = _dynasty_index_snapshot(request.args.get("limit", 100))
+    return jsonify({"success": True, **d})
+
+
+@app.route("/dynasties.json")
+def dynasty_index_export():
+    d = _dynasty_index_snapshot(request.args.get("limit", 100))
+    return Response(json.dumps(d, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/dynasties")
+def dynasty_index_page():
+    d = _dynasty_index_snapshot(request.args.get("limit", 100))
+    esc = html.escape
+    top = d.get("top_dynasty") or {}
+    cards = []
+    for item in d.get("entries") or []:
+        size_html = "".join('<span>{}-HUNTER</span>'.format(int(s)) for s in (item.get("bracket_sizes") or [])) or '<span>NO TITLES</span>'
+        cards.append('<article class="card"><div class="top"><span class="rank">#{rank}</span><span class="score">{score} SCORE</span></div><div class="name">{name}</div><div class="meta">{titles} titles · max streak {streak} · active streak {active}</div><div class="meta">{first} → {last}</div><div class="pills">{sizes}</div><a href="{url}">OPEN DOSSIER ↗</a></article>'.format(rank=int(item.get("rank") or 0), score=int(item.get("dynasty_score") or 0), name=esc(str(item.get("username") or "")), titles=int(item.get("titles") or 0), streak=int(item.get("max_streak") or 0), active=int(item.get("active_streak") or 0), first=esc(str(item.get("first_season") or "—")), last=esc(str(item.get("last_season") or "—")), sizes=size_html, url=esc(str(item.get("dossier_url") or "#"))))
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Dynasty Index</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#41260d,transparent 32%),radial-gradient(circle at 90% 4%,#15284c,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.rank,.score{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.05),rgba(84,173,255,.025))}h1{font-size:clamp(52px,9vw,94px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{display:flex;justify-content:space-between;gap:10px;font-size:10px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}.pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.pills span{font-size:8px;border:1px solid #353741;border-radius:999px;padding:6px 8px;color:#d6d8e0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}.empty{color:#8d90a0}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> DYNASTY INDEX</div><section class="hero"><div class="gold">V18.4 // CHAMPION DOSSIERS</div><h1>LEGACIES STACK UP.</h1><p class="meta">Dynasty rankings are computed from sealed title lineage only. No subjective bonus, no simulated playoffs, no manual era weighting.</p><div class="stats"><div class="stat"><b>{count}</b><span>CHAMPIONS WITH TITLES</span></div><div class="stat"><b>{titles}</b><span>TOTAL SEALED TITLES</span></div><div class="stat"><b>{top_name}</b><span>TOP DYNASTY</span></div><div class="stat"><b>{top_score}</b><span>TOP SCORE</span></div></div><a href="/champions">CHAMPION REGISTRY</a> <a href="/championship-match-center">MATCH CENTER</a> <a href="/dynasties.json">EXPORT JSON</a></section><section class="panel"><div class="gold">DYNASTY BOARD</div><div class="grid">{cards}</div></section><div class="digest">DYNASTY DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return template.format(count=int(d.get("champion_count") or 0), titles=int(d.get("title_count") or 0), top_name=esc(str(top.get("username") or "—")), top_score=int(top.get("dynasty_score") or 0), cards="".join(cards) or '<div class="empty">No dynasty data yet.</div>', digest=esc(str(d.get("dynasty_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
+
+@app.route("/api/champion-dossier/<path:username>")
+def champion_dossier_api(username):
+    d = _champion_dossier_snapshot(urllib.parse.unquote(username))
+    if not d:
+        return jsonify({"success": False, "message": "Champion dossier not found."}), 404
+    return jsonify({"success": True, **d})
+
+
+@app.route("/champion-dossier/<path:username>")
+def champion_dossier_page(username):
+    d = _champion_dossier_snapshot(urllib.parse.unquote(username))
+    if not d:
+        return "<!doctype html><meta charset='utf-8'><title>BL3 Champion Dossier</title><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Champion dossier not found.</h1><p><a style='color:#ffd66b' href='/dynasties'>Open Dynasty Index</a></p></body>", 404
+    esc = html.escape
+    stats = d.get("stats") or {}
+    rows = []
+    for item in d.get("titles") or []:
+        integrity = str(item.get("integrity") or "INVALID")
+        rows.append('<article class="title"><div class="season">{season} // {size}-HUNTER</div><div class="meta">Final Battle #{battle} · {sealed}</div><div class="integrity {klass}">{integrity}</div><a href="{url}">OPEN TITLE ↗</a></article>'.format(season=esc(str(item.get("season_key") or "")), size=int(item.get("bracket_size") or 0), battle=int(item.get("final_battle_id") or 0), sealed=esc(str(item.get("sealed_at") or "")), klass="good" if integrity == "VALID" else "bad", integrity=esc(integrity), url=esc(str(item.get("title_url") or "#"))))
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Champion Dossier</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#3b2b0d,transparent 32%),radial-gradient(circle at 90% 5%,#182a4c,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1040px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.season{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.05),rgba(84,173,255,.025))}h1{font-size:clamp(56px,10vw,100px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.title{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.integrity{font-size:9px;font-weight:950;margin-top:10px}.good{color:#baff5a}.bad{color:#ff6e7c}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CHAMPION DOSSIER</div><section class="hero"><div class="gold">V18.4 // DYNASTY PROFILE</div><h1>{name}</h1><p class="meta">Sealed title history for this champion only. The dossier is computed from registry evidence and exposes no write controls.</p><div class="stats"><div class="stat"><b>{titles}</b><span>TITLES</span></div><div class="stat"><b>{rank}</b><span>DYNASTY RANK</span></div><div class="stat"><b>{streak}</b><span>BEST STREAK</span></div><div class="stat"><b>{active}</b><span>ACTIVE STREAK</span></div></div><div class="stats"><div class="stat"><b>{first}</b><span>FIRST TITLE SEASON</span></div><div class="stat"><b>{latest}</b><span>LATEST TITLE SEASON</span></div><div class="stat"><b>{score}</b><span>DYNASTY SCORE</span></div><div class="stat"><b>{integrity}%</b><span>VALID TITLE RATE</span></div></div><a href="/dynasties">DYNASTY INDEX</a> <a href="/champions">CHAMPION REGISTRY</a></section><section class="panel"><div class="gold">TITLE HISTORY</div><div class="grid">{rows}</div></section><div class="digest">DOSSIER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return template.format(name=esc(str(d.get("username") or "")), titles=int(d.get("title_count") or 0), rank=int(stats.get("rank") or 0), streak=int(stats.get("max_streak") or 0), active=int(stats.get("active_streak") or 0), first=esc(str(d.get("first_title_season") or "—")), latest=esc(str(d.get("latest_title_season") or "—")), score=int(stats.get("dynasty_score") or 0), integrity=float(stats.get("title_integrity_rate") or 0.0), rows="".join(rows) or '<div class="meta">No titles found.</div>', digest=esc(str(d.get("dossier_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V18.3 // CHAMPION REGISTRY + TITLE LINEAGE")
+    print("👑 BL3 ARENA V18.4 // DYNASTY INDEX + CHAMPION DOSSIER")
     print("💾 SQLite enabled")
+    print("🏛️ Dynasty Index + Champion Dossier enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
