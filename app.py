@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "18.7")
+    response.headers.setdefault("X-BL3-Version", "18.8")
     return response
 
 
@@ -16398,18 +16398,190 @@ def crown_defense_queue_page():
     return template.format(
         season=esc(str(d.get("season_label") or d.get("season_key") or "CURRENT SEASON")), champion=esc(str(d.get("current_champion") or "—")), reign_titles=int(reign.get("titles_in_reign") or 0), defenses=int(reign.get("defenses") or 0), top_name=esc(str(top.get("username") or "—")), season_q=urllib.parse.quote(str(d.get("season_key") or "")), size=int(d.get("bracket_size") or 8), cards="".join(rows) or '<div class="meta">No title threats yet.</div>', digest=esc(str(d.get("defense_digest") or "")), policy=esc(str(d.get("policy") or "")))
 
+# ===== V18.8 CROWN TURNOVERS + DEFENSE LEDGER =====
+def _crown_ledger_snapshot(limit=200):
+    try:
+        limit = max(1, min(int(limit or 200), 1000))
+    except Exception:
+        limit = 200
+    rows = _sealed_titles_chronological(1000)
+    events = []
+    previous = None
+    stats = {}
+    for idx, row in enumerate(rows, start=1):
+        champion = str(row.get("champion") or "").strip()
+        if not champion:
+            continue
+        season_key = str(row.get("season_key") or "")
+        verify = _championship_title_verify(row)
+        prior_champion = str((previous or {}).get("champion") or "").strip()
+        if previous is None:
+            event_type = "CROWNED"
+        elif prior_champion.lower() == champion.lower():
+            event_type = "DEFENSE"
+        else:
+            event_type = "TURNOVER"
+        event = {
+            "sequence": idx,
+            "season_key": season_key,
+            "bracket_size": int(row.get("bracket_size") or 0),
+            "champion": champion,
+            "previous_champion": prior_champion,
+            "event_type": event_type,
+            "final_battle_id": int(row.get("final_battle_id") or 0),
+            "sealed_at": str(row.get("sealed_at") or ""),
+            "title_digest": str(row.get("title_digest") or ""),
+            "integrity": "VALID" if verify.get("valid") else "INVALID",
+        }
+        event["event_digest"] = hashlib.sha256(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+        events.append(event)
+        key = champion.lower()
+        item = stats.setdefault(key, {
+            "username": champion,
+            "crowns": 0,
+            "successful_defenses": 0,
+            "turnovers_won": 0,
+            "times_dethroned": 0,
+            "valid_events": 0,
+            "latest_season": season_key,
+            "active_crown": False,
+        })
+        item["crowns"] += 1
+        item["latest_season"] = season_key
+        if verify.get("valid"):
+            item["valid_events"] += 1
+        if event_type == "DEFENSE":
+            item["successful_defenses"] += 1
+        elif event_type == "TURNOVER":
+            item["turnovers_won"] += 1
+            if prior_champion:
+                pkey = prior_champion.lower()
+                prior_item = stats.setdefault(pkey, {
+                    "username": prior_champion,
+                    "crowns": 0,
+                    "successful_defenses": 0,
+                    "turnovers_won": 0,
+                    "times_dethroned": 0,
+                    "valid_events": 0,
+                    "latest_season": "",
+                    "active_crown": False,
+                })
+                prior_item["times_dethroned"] += 1
+        previous = row
+
+    current_champion = str(rows[-1].get("champion") or "") if rows else ""
+    if current_champion and current_champion.lower() in stats:
+        stats[current_champion.lower()]["active_crown"] = True
+
+    board = []
+    for item in stats.values():
+        item = dict(item)
+        item["crown_score"] = int(item.get("crowns") or 0) * 100 + int(item.get("successful_defenses") or 0) * 50 + int(item.get("turnovers_won") or 0) * 35
+        item["ledger_url"] = "/crown-ledger/{}".format(urllib.parse.quote(str(item.get("username") or "")))
+        board.append(item)
+    board.sort(key=lambda x: (-int(x.get("crown_score") or 0), -int(x.get("successful_defenses") or 0), -int(x.get("crowns") or 0), str(x.get("username") or "").lower()))
+    for rank, item in enumerate(board, start=1):
+        item["rank"] = rank
+
+    digest_input = [{"e": x.get("event_type"), "s": x.get("season_key"), "c": x.get("champion"), "p": x.get("previous_champion"), "b": x.get("final_battle_id"), "d": x.get("event_digest")} for x in events]
+    ledger_digest = hashlib.sha256(json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "current_champion": current_champion,
+        "event_count": len(events),
+        "defense_count": sum(1 for x in events if x.get("event_type") == "DEFENSE"),
+        "turnover_count": sum(1 for x in events if x.get("event_type") == "TURNOVER"),
+        "events": list(reversed(events))[:limit],
+        "board": board,
+        "ledger_digest": ledger_digest,
+        "policy": "Crown events are reconstructed only from sealed championship title lineage: same champion consecutively = defense; champion change = turnover. No unsealed result is inferred.",
+    }
+
+
+def _crown_ledger_detail(username):
+    target = str(username or "").strip()
+    if not target:
+        return None
+    snapshot = _crown_ledger_snapshot(1000)
+    entry = next((x for x in snapshot.get("board") or [] if str(x.get("username") or "").lower() == target.lower()), None)
+    if not entry:
+        return None
+    events = []
+    for event in reversed(snapshot.get("events") or []):
+        champion = str(event.get("champion") or "")
+        previous = str(event.get("previous_champion") or "")
+        if champion.lower() == target.lower() or previous.lower() == target.lower():
+            item = dict(event)
+            if champion.lower() == target.lower():
+                item["relationship"] = "CROWN HELD" if item.get("event_type") == "DEFENSE" else "CROWN WON"
+            else:
+                item["relationship"] = "CROWN LOST"
+            events.append(item)
+    digest_input = [{"s": x.get("season_key"), "e": x.get("event_type"), "r": x.get("relationship"), "d": x.get("event_digest")} for x in events]
+    digest = hashlib.sha256(json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"username": entry.get("username"), "stats": entry, "events": list(reversed(events)), "ledger_digest": digest, "policy": snapshot.get("policy")}
+
+
+@app.route("/api/crown-ledger")
+def crown_ledger_api():
+    return jsonify({"success": True, **_crown_ledger_snapshot(request.args.get("limit", 200))})
+
+
+@app.route("/crown-ledger.json")
+def crown_ledger_export():
+    d = _crown_ledger_snapshot(request.args.get("limit", 200))
+    return Response(json.dumps(d, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/crown-ledger")
+def crown_ledger_page():
+    d = _crown_ledger_snapshot(request.args.get("limit", 200))
+    esc = html.escape
+    board_cards = []
+    for item in d.get("board") or []:
+        board_cards.append('<article class="card"><div class="top"><span>#{rank}</span><span>{active}</span></div><div class="name">{name}</div><div class="meta">{crowns} crowns · {defs} defenses · {turns} turnovers won · {lost} dethroned</div><div class="score">{score} CROWN SCORE</div><a href="{url}">OPEN CROWN DOSSIER ↗</a></article>'.format(rank=int(item.get("rank") or 0), active="ACTIVE CROWN" if item.get("active_crown") else "HISTORICAL", name=esc(str(item.get("username") or "")), crowns=int(item.get("crowns") or 0), defs=int(item.get("successful_defenses") or 0), turns=int(item.get("turnovers_won") or 0), lost=int(item.get("times_dethroned") or 0), score=int(item.get("crown_score") or 0), url=esc(str(item.get("ledger_url") or "#"))))
+    event_rows = []
+    for event in (d.get("events") or [])[:40]:
+        text = "{} retained the crown".format(event.get("champion")) if event.get("event_type") == "DEFENSE" else ("{} took the crown from {}".format(event.get("champion"), event.get("previous_champion")) if event.get("event_type") == "TURNOVER" else "{} became the first sealed champion".format(event.get("champion")))
+        event_rows.append('<div class="event"><div class="etype">{etype}</div><b>{text}</b><div class="meta">{season} · Final Battle #{battle} · {integrity}</div></div>'.format(etype=esc(str(event.get("event_type") or "")), text=esc(text), season=esc(str(event.get("season_key") or "")), battle=int(event.get("final_battle_id") or 0), integrity=esc(str(event.get("integrity") or ""))))
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Ledger</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#4b2d08,transparent 33%),radial-gradient(circle at 92% 3%,#15364f,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top,.score,.etype{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3b3226;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.06),rgba(84,173,255,.02))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card,.event{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{display:flex;justify-content:space-between;gap:10px;font-size:8px;font-weight:950}.name{font-size:28px;font-weight:950;margin:8px 0}.score{font-size:16px;font-weight:950;margin-top:10px}.event{margin-top:10px}.etype{font-size:9px;font-weight:950;margin-bottom:5px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN LEDGER</div><section class="hero"><div class="gold">V18.8 // TURNOVERS + DEFENSE HISTORY</div><h1>EVERY CROWN CHANGE LEAVES A TRACE.</h1><p class="meta">A historical ledger reconstructed from sealed championship titles. Consecutive ownership is a defense; a new champion creates a turnover event.</p><div class="stats"><div class="stat"><b>{current}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{events}</b><span>CROWN EVENTS</span></div><div class="stat"><b>{defenses}</b><span>SUCCESSFUL DEFENSES</span></div><div class="stat"><b>{turnovers}</b><span>CROWN TURNOVERS</span></div></div><a href="/champion-reigns">CHAMPION REIGNS</a> <a href="/crown-defense-queue">DEFENSE QUEUE</a> <a href="/champions">CHAMPION REGISTRY</a> <a href="/crown-ledger.json">EXPORT JSON</a></section><section class="panel"><div class="gold">CROWN BOARD</div><div class="grid">{cards}</div></section><section class="panel"><div class="gold">CROWN EVENT STREAM</div>{events_html}</section><div class="digest">LEDGER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return template.format(current=esc(str(d.get("current_champion") or "—")), events=int(d.get("event_count") or 0), defenses=int(d.get("defense_count") or 0), turnovers=int(d.get("turnover_count") or 0), cards="".join(board_cards) or '<div class="meta">No sealed championship titles yet.</div>', events_html="".join(event_rows) or '<div class="meta">No crown events yet.</div>', digest=esc(str(d.get("ledger_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
+
+@app.route("/api/crown-ledger/<path:username>")
+def crown_ledger_detail_api(username):
+    d = _crown_ledger_detail(urllib.parse.unquote(username))
+    if not d:
+        return jsonify({"success": False, "message": "Crown ledger dossier not found."}), 404
+    return jsonify({"success": True, **d})
+
+
+@app.route("/crown-ledger/<path:username>")
+def crown_ledger_detail_page(username):
+    d = _crown_ledger_detail(urllib.parse.unquote(username))
+    if not d:
+        return "<!doctype html><meta charset='utf-8'><title>BL3 Crown Ledger</title><body style='background:#050507;color:#fff;font-family:system-ui;padding:40px'><h1>Crown ledger dossier not found.</h1><p><a style='color:#ffd66b' href='/crown-ledger'>Open Crown Ledger</a></p></body>", 404
+    esc = html.escape
+    s = d.get("stats") or {}
+    rows = []
+    for event in d.get("events") or []:
+        rows.append('<article class="event"><div class="etype">{etype} // {rel}</div><div class="big">{season}</div><div class="meta">Champion {champ} · Previous {prev} · Final Battle #{battle} · {integrity}</div></article>'.format(etype=esc(str(event.get("event_type") or "")), rel=esc(str(event.get("relationship") or "")), season=esc(str(event.get("season_key") or "")), champ=esc(str(event.get("champion") or "—")), prev=esc(str(event.get("previous_champion") or "—")), battle=int(event.get("final_battle_id") or 0), integrity=esc(str(event.get("integrity") or ""))))
+    template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Dossier</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#462a09,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.etype{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(255,255,255,.012))}h1{font-size:clamp(56px,10vw,100px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat,.event{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.event{margin-top:10px;background:#0b0c11}.etype{font-size:9px;font-weight:950}.big{font-size:22px;font-weight:950;margin:7px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN DOSSIER</div><section class="hero"><div class="gold">V18.8 // PERSONAL CROWN HISTORY</div><h1>{name}</h1><div class="stats"><div class="stat"><b>{crowns}</b><span>CROWNS</span></div><div class="stat"><b>{defenses}</b><span>DEFENSES</span></div><div class="stat"><b>{turnovers}</b><span>TURNOVERS WON</span></div><div class="stat"><b>{lost}</b><span>DETHRONED</span></div></div><div class="stats"><div class="stat"><b>{active}</b><span>ACTIVE CROWN</span></div><div class="stat"><b>{score}</b><span>CROWN SCORE</span></div><div class="stat"><b>#{rank}</b><span>CROWN RANK</span></div><div class="stat"><b>{valid}</b><span>VALID EVENTS</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/champion-reign/{q}">REIGN DOSSIER</a> <a href="/champion-dossier/{q}">CHAMPION DOSSIER</a></section><section class="panel"><div class="gold">CROWN HISTORY</div>{rows}</section><div class="digest">DOSSIER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    return template.format(name=esc(str(d.get("username") or "")), crowns=int(s.get("crowns") or 0), defenses=int(s.get("successful_defenses") or 0), turnovers=int(s.get("turnovers_won") or 0), lost=int(s.get("times_dethroned") or 0), active="YES" if s.get("active_crown") else "NO", score=int(s.get("crown_score") or 0), rank=int(s.get("rank") or 0), valid=int(s.get("valid_events") or 0), q=urllib.parse.quote(str(d.get("username") or "")), rows="".join(rows) or '<div class="meta">No crown events found.</div>', digest=esc(str(d.get("ledger_digest") or "")), policy=esc(str(d.get("policy") or "")))
+
 
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V18.7 // CROWN DEFENSE QUEUE + THREAT MATRIX")
+    print("👑 BL3 ARENA V18.8 // CROWN TURNOVERS + DEFENSE LEDGER")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
     print("🏛️ Dynasty Index + Champion Dossier enabled")
     print("👑 Champion Reigns + Title Defenses enabled")
+    print("📜 Crown Turnovers + Defense Ledger enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
