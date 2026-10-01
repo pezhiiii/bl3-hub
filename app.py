@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "18.8")
+    response.headers.setdefault("X-BL3-Version", "18.9")
     return response
 
 
@@ -16569,19 +16569,106 @@ def crown_ledger_detail_page(username):
     template = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Dossier</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#462a09,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.etype{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #383129;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(255,255,255,.012))}h1{font-size:clamp(56px,10vw,100px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat,.event{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.event{margin-top:10px;background:#0b0c11}.etype{font-size:9px;font-weight:950}.big{font-size:22px;font-weight:950;margin:7px 0}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN DOSSIER</div><section class="hero"><div class="gold">V18.8 // PERSONAL CROWN HISTORY</div><h1>{name}</h1><div class="stats"><div class="stat"><b>{crowns}</b><span>CROWNS</span></div><div class="stat"><b>{defenses}</b><span>DEFENSES</span></div><div class="stat"><b>{turnovers}</b><span>TURNOVERS WON</span></div><div class="stat"><b>{lost}</b><span>DETHRONED</span></div></div><div class="stats"><div class="stat"><b>{active}</b><span>ACTIVE CROWN</span></div><div class="stat"><b>{score}</b><span>CROWN SCORE</span></div><div class="stat"><b>#{rank}</b><span>CROWN RANK</span></div><div class="stat"><b>{valid}</b><span>VALID EVENTS</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/champion-reign/{q}">REIGN DOSSIER</a> <a href="/champion-dossier/{q}">CHAMPION DOSSIER</a></section><section class="panel"><div class="gold">CROWN HISTORY</div>{rows}</section><div class="digest">DOSSIER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
     return template.format(name=esc(str(d.get("username") or "")), crowns=int(s.get("crowns") or 0), defenses=int(s.get("successful_defenses") or 0), turnovers=int(s.get("turnovers_won") or 0), lost=int(s.get("times_dethroned") or 0), active="YES" if s.get("active_crown") else "NO", score=int(s.get("crown_score") or 0), rank=int(s.get("rank") or 0), valid=int(s.get("valid_events") or 0), q=urllib.parse.quote(str(d.get("username") or "")), rows="".join(rows) or '<div class="meta">No crown events found.</div>', digest=esc(str(d.get("ledger_digest") or "")), policy=esc(str(d.get("policy") or "")))
 
+# ===== V18.9 CROWN NEMESIS + USURPER INDEX =====
+def _crown_nemesis_snapshot(limit=100):
+    try:
+        limit = max(1, min(int(limit or 100), 500))
+    except Exception:
+        limit = 100
+    ledger = _crown_ledger_snapshot(1000)
+    pairs = {}
+    for event in reversed(ledger.get("events") or []):
+        if str(event.get("event_type") or "") != "TURNOVER":
+            continue
+        usurper = str(event.get("champion") or "").strip()
+        dethroned = str(event.get("previous_champion") or "").strip()
+        if not usurper or not dethroned:
+            continue
+        key = (usurper.lower(), dethroned.lower())
+        item = pairs.setdefault(key, {"usurper":usurper,"dethroned":dethroned,"turnovers":0,"seasons":[],"battle_ids":[],"valid_turnovers":0})
+        item["turnovers"] += 1
+        item["seasons"].append(str(event.get("season_key") or ""))
+        item["battle_ids"].append(int(event.get("final_battle_id") or 0))
+        if str(event.get("integrity") or "") == "VALID":
+            item["valid_turnovers"] += 1
+    rows=[]
+    for item in pairs.values():
+        h2h = _head_to_head(item.get("usurper"), item.get("dethroned"), 20)
+        uw = int(h2h.get("a_wins") or h2h.get("wins_a") or h2h.get("hunter_a_wins") or 0)
+        dw = int(h2h.get("b_wins") or h2h.get("wins_b") or h2h.get("hunter_b_wins") or 0)
+        clashes = int(h2h.get("total") or h2h.get("clashes") or h2h.get("count") or 0)
+        item.update({"h2h_usurper_wins":uw,"h2h_dethroned_wins":dw,"h2h_clashes":clashes})
+        item["usurper_score"] = int(item.get("turnovers") or 0)*100 + int(item.get("valid_turnovers") or 0)*20 + max(0,uw-dw)*5
+        item["latest_season"] = item.get("seasons",[""])[-1] if item.get("seasons") else ""
+        item["detail_url"] = "/crown-nemesis/{}/{}".format(urllib.parse.quote(item.get("usurper") or ""), urllib.parse.quote(item.get("dethroned") or ""))
+        rows.append(item)
+    rows.sort(key=lambda x:(-int(x.get("usurper_score") or 0),-int(x.get("turnovers") or 0),str(x.get("usurper") or "").lower()))
+    for rank,item in enumerate(rows,1): item["rank"]=rank
+    digest_payload=[{"u":x.get("usurper"),"d":x.get("dethroned"),"t":x.get("turnovers"),"v":x.get("valid_turnovers"),"s":x.get("usurper_score")} for x in rows]
+    digest=hashlib.sha256(json.dumps(digest_payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"generated_at":datetime.utcnow().isoformat(timespec="seconds")+"Z","current_champion":ledger.get("current_champion") or "","pair_count":len(rows),"rows":rows[:limit],"top_usurper":rows[0] if rows else None,"usurper_digest":digest,"policy":"Crown nemesis pairs are reconstructed only from sealed title turnovers. This ranks recorded dethronements; it does not predict future winners."}
+
+
+def _crown_nemesis_detail(usurper,dethroned):
+    u=str(usurper or "").strip(); d=str(dethroned or "").strip()
+    if not u or not d: return None
+    snap=_crown_nemesis_snapshot(500)
+    row=next((x for x in snap.get("rows") or [] if str(x.get("usurper") or "").lower()==u.lower() and str(x.get("dethroned") or "").lower()==d.lower()),None)
+    if not row: return None
+    detail=dict(row)
+    detail["h2h"]=_head_to_head(row.get("usurper"),row.get("dethroned"),50)
+    detail["digest"]=hashlib.sha256(json.dumps({"u":detail.get("usurper"),"d":detail.get("dethroned"),"seasons":detail.get("seasons"),"battles":detail.get("battle_ids"),"score":detail.get("usurper_score")},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")).hexdigest()
+    return detail
+
+
+@app.route("/api/crown-nemeses")
+def crown_nemesis_api():
+    return jsonify({"success":True, **_crown_nemesis_snapshot(request.args.get("limit",100))})
+
+
+@app.route("/crown-nemeses.json")
+def crown_nemesis_export():
+    return Response(json.dumps(_crown_nemesis_snapshot(request.args.get("limit",100)),ensure_ascii=False,indent=2),mimetype="application/json")
+
+
+@app.route("/crown-nemeses")
+def crown_nemesis_page():
+    d=_crown_nemesis_snapshot(request.args.get("limit",100)); esc=html.escape; cards=[]
+    for item in d.get("rows") or []:
+        cards.append('<article class="card"><div class="top">#{rank} // {score} SCORE</div><div class="pair">👑 {usurper} <span>over</span> {dethroned}</div><div class="meta">{turnovers} recorded turnover(s) · {valid} valid · latest {season}</div><div class="meta">H2H {uw}-{dw} across {clashes} recorded clashes</div><a href="{url}">OPEN CROWN NEMESIS ↗</a></article>'.format(rank=int(item.get("rank") or 0),score=int(item.get("usurper_score") or 0),usurper=esc(str(item.get("usurper") or "")),dethroned=esc(str(item.get("dethroned") or "")),turnovers=int(item.get("turnovers") or 0),valid=int(item.get("valid_turnovers") or 0),season=esc(str(item.get("latest_season") or "—")),uw=int(item.get("h2h_usurper_wins") or 0),dw=int(item.get("h2h_dethroned_wins") or 0),clashes=int(item.get("h2h_clashes") or 0),url=esc(str(item.get("detail_url") or "#"))))
+    top=d.get("top_usurper") or {}
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Nemeses</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#441215,transparent 30%),radial-gradient(circle at 90% 0,#2b174a,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1080px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.top{color:#ff8a94}.hero,.panel{margin-top:22px;border:1px solid #3a2d35;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,80,96,.06),rgba(167,92,255,.025))}h1{font-size:clamp(52px,9vw,94px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.card{border:1px solid #2e3038;border-radius:19px;padding:17px;background:#0b0c11}.top{font-size:9px;font-weight:950}.pair{font-size:24px;font-weight:950;margin:8px 0}.pair span{font-size:11px;color:#888b97;font-weight:700}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN NEMESIS</div><section class="hero"><div class="gold">V18.9 // USURPER INDEX</div><h1>WHO TOOK THE CROWN?</h1><p class="meta">A factual history of recorded dethronements reconstructed from sealed championship title turnovers.</p><div class="stats"><div class="stat"><b>{current}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{pairs}</b><span>CROWN NEMESIS PAIRS</span></div><div class="stat"><b>{top}</b><span>TOP RECORDED USURPER</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/champion-reigns">CHAMPION REIGNS</a> <a href="/crown-nemeses.json">EXPORT JSON</a></section><section class="panel"><div class="gold">USURPER INDEX</div><div class="grid">{cards}</div></section><div class="digest">USURPER DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''.format(current=esc(str(d.get("current_champion") or "—")),pairs=int(d.get("pair_count") or 0),top=esc(str(top.get("usurper") or "—")),cards="".join(cards) or '<div class="meta">No crown turnovers recorded yet.</div>',digest=esc(str(d.get("usurper_digest") or "")),policy=esc(str(d.get("policy") or "")))
+
+
+@app.route("/api/crown-nemesis/<path:usurper>/<path:dethroned>")
+def crown_nemesis_detail_api(usurper,dethroned):
+    d=_crown_nemesis_detail(urllib.parse.unquote(usurper),urllib.parse.unquote(dethroned))
+    if not d: return jsonify({"success":False,"message":"Crown nemesis pair not found."}),404
+    return jsonify({"success":True,**d})
+
+
+@app.route("/crown-nemesis/<path:usurper>/<path:dethroned>")
+def crown_nemesis_detail_page(usurper,dethroned):
+    d=_crown_nemesis_detail(urllib.parse.unquote(usurper),urllib.parse.unquote(dethroned))
+    if not d: return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:#fff;font-family:system-ui;padding:40px'><h1>Crown nemesis pair not found.</h1><a style='color:#ff8a94' href='/crown-nemeses'>Open Usurper Index</a></body>",404
+    esc=html.escape
+    rows=''.join('<div class="event"><b>{}</b><div class="meta">Final Battle #{}</div></div>'.format(esc(str(s)), int((d.get("battle_ids") or [0])[i]) if i < len(d.get("battle_ids") or []) else 0) for i,s in enumerate(d.get("seasons") or []))
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Nemesis</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:900px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #3b3038;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ff8a94;font-weight:950}h1{font-size:clamp(48px,9vw,90px);line-height:.9;margin:10px 0}.meta{color:#a7a8b6}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:16px}.stat,.event{border:1px solid #333640;border-radius:14px;padding:13px}.stat b{display:block;font-size:20px}.stat span{font-size:8px;color:#8d90a0}.event{margin-top:9px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:16px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V18.9 // CROWN NEMESIS DOSSIER</div><h1>{u}<br>VS {d}</h1><div class="stats"><div class="stat"><b>{t}</b><span>TURNOVERS WON</span></div><div class="stat"><b>{v}</b><span>VALID TURNOVERS</span></div><div class="stat"><b>{uw}-{dw}</b><span>RECORDED H2H</span></div><div class="stat"><b>{score}</b><span>USURPER SCORE</span></div></div><a href="/crown-nemeses">USURPER INDEX</a> <a href="/crown-ledger/{uq}">{u} CROWN DOSSIER</a> <a href="/crown-ledger/{dq}">{d} CROWN DOSSIER</a></section><section class="panel"><div class="gold">DETHRONEMENT HISTORY</div>{rows}</section><div class="digest">PAIR DIGEST // {digest}</div><p class="meta">This dossier reports recorded title turnovers only. It does not forecast future results.</p></div></body></html>'''.format(u=esc(str(d.get("usurper") or "")),d=esc(str(d.get("dethroned") or "")),t=int(d.get("turnovers") or 0),v=int(d.get("valid_turnovers") or 0),uw=int(d.get("h2h_usurper_wins") or 0),dw=int(d.get("h2h_dethroned_wins") or 0),score=int(d.get("usurper_score") or 0),uq=urllib.parse.quote(str(d.get("usurper") or "")),dq=urllib.parse.quote(str(d.get("dethroned") or "")),rows=rows or '<div class="meta">No turnover events found.</div>',digest=esc(str(d.get("digest") or "")))
+
 
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V18.8 // CROWN TURNOVERS + DEFENSE LEDGER")
+    print("👑 BL3 ARENA V18.9 // CROWN NEMESIS + USURPER INDEX")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
     print("🏛️ Dynasty Index + Champion Dossier enabled")
     print("👑 Champion Reigns + Title Defenses enabled")
     print("📜 Crown Turnovers + Defense Ledger enabled")
+    print("⚔️ Crown Nemesis + Usurper Index enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
