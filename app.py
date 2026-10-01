@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.0")
+    response.headers.setdefault("X-BL3-Version", "19.1")
     return response
 
 
@@ -16705,8 +16705,177 @@ def crown_era_page():
     trans=[]
     for t in d.get("transitions") or []:
         trans.append('<div class="transition"><b>{frm}</b><span>→</span><b>{to}</b><div class="meta">{season} · Final Battle #{battle} · {valid}</div></div>'.format(frm=esc(str(t.get("from") or "")),to=esc(str(t.get("to") or "")),season=esc(str(t.get("season") or "")),battle=int(t.get("battle_id") or 0),valid='VALID' if t.get("valid") else 'INVALID'))
-    page="""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Era</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#4a3210,transparent 30%),radial-gradient(circle at 88% 0,#2a174d,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.tag,.score{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.era,.transition{border:1px solid #2e3038;border-radius:18px;padding:17px;background:#0b0c11}.champ{font-size:28px;font-weight:950;margin:8px 0}.tag,.score{font-size:9px;font-weight:950}.transition{margin-top:9px}.transition span{padding:0 8px;color:#ffd66b}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN ERA</div><section class="hero"><div class="gold">V19.0 // SUCCESSION MAP</div><h1>EVERY CROWN HAS AN ERA.</h1><p class="meta">A chronological succession map reconstructed from sealed championship title lineage.</p><div class="stats"><div class="stat"><b>{eras}</b><span>RECORDED ERAS</span></div><div class="stat"><b>{transitions}</b><span>CROWN TRANSITIONS</span></div><div class="stat"><b>{current}</b><span>CURRENT ERA</span></div><div class="stat"><b>{longest}</b><span>LONGEST ERA</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/crown-nemeses">CROWN NEMESES</a> <a href="/crown-era.json">EXPORT JSON</a></section><section class="panel"><div class="gold">CROWN ERAS</div><div class="grid">{eras_html}</div></section><section class="panel"><div class="gold">SUCCESSION TRANSITIONS</div>{trans_html}</section><div class="digest">SUCCESSION DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>"""
+    page="""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Era</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#4a3210,transparent 30%),radial-gradient(circle at 88% 0,#2a174d,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.tag,.score{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.era,.transition{border:1px solid #2e3038;border-radius:18px;padding:17px;background:#0b0c11}.champ{font-size:28px;font-weight:950;margin:8px 0}.tag,.score{font-size:9px;font-weight:950}.transition{margin-top:9px}.transition span{padding:0 8px;color:#ffd66b}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="brand">BL3<span>●</span> CROWN ERA</div><section class="hero"><div class="gold">V19.0 // SUCCESSION MAP</div><h1>EVERY CROWN HAS AN ERA.</h1><p class="meta">A chronological succession map reconstructed from sealed championship title lineage.</p><div class="stats"><div class="stat"><b>{eras}</b><span>RECORDED ERAS</span></div><div class="stat"><b>{transitions}</b><span>CROWN TRANSITIONS</span></div><div class="stat"><b>{current}</b><span>CURRENT ERA</span></div><div class="stat"><b>{longest}</b><span>LONGEST ERA</span></div></div><a href="/crown-ledger">CROWN LEDGER</a> <a href="/crown-nemeses">CROWN NEMESES</a> <a href="/crown-era-records">ERA RECORDS</a> <a href="/crown-era.json">EXPORT JSON</a></section><section class="panel"><div class="gold">CROWN ERAS</div><div class="grid">{eras_html}</div></section><section class="panel"><div class="gold">SUCCESSION TRANSITIONS</div>{trans_html}</section><div class="digest">SUCCESSION DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>"""
     return page.format(eras=int(d.get("era_count") or 0),transitions=int(d.get("transition_count") or 0),current=esc(str(current.get("champion") or "—")),longest=esc(str(longest.get("champion") or "—")),eras_html=''.join(era_cards) or '<div class="meta">No crown eras recorded yet.</div>',trans_html=''.join(trans) or '<div class="meta">No succession transitions recorded yet.</div>',digest=esc(str(d.get("succession_digest") or "")),policy=esc(str(d.get("policy") or "")))
+
+# ===== V19.1 ERA RECORDS + CROWN TIMELINE =====
+def _crown_era_records_snapshot(limit=200):
+    base = _crown_era_snapshot(500)
+    eras = list(reversed(base.get("eras") or []))
+    by_champion = {}
+    for era in eras:
+        champ = str(era.get("champion") or "").strip()
+        if not champ:
+            continue
+        item = by_champion.setdefault(champ.lower(), {
+            "champion": champ, "eras": 0, "titles": 0, "defenses": 0,
+            "era_score": 0, "best_era_score": 0,
+            "first_era": int(era.get("era_number") or 0),
+            "latest_era": int(era.get("era_number") or 0),
+        })
+        item["eras"] += 1
+        item["titles"] += int(era.get("titles") or 0)
+        item["defenses"] += int(era.get("defenses") or 0)
+        item["era_score"] += int(era.get("era_score") or 0)
+        item["best_era_score"] = max(int(item.get("best_era_score") or 0), int(era.get("era_score") or 0))
+        item["latest_era"] = int(era.get("era_number") or 0)
+    champion_rows = list(by_champion.values())
+    for item in champion_rows:
+        item["comeback_count"] = max(0, int(item.get("eras") or 0) - 1)
+        item["dossier_url"] = "/champion-dossier/{}".format(urllib.parse.quote(str(item.get("champion") or "")))
+    champion_rows.sort(key=lambda x: (-int(x.get("eras") or 0), -int(x.get("titles") or 0), -int(x.get("defenses") or 0), str(x.get("champion") or "").lower()))
+
+    def best_era(key):
+        return max(eras, key=lambda e: (float(e.get(key) or 0), int(e.get("era_number") or 0))) if eras else None
+
+    timeline = []
+    for era in eras:
+        timeline.append({
+            "era_number": int(era.get("era_number") or 0),
+            "champion": str(era.get("champion") or ""),
+            "start_season": str(era.get("start_season") or ""),
+            "end_season": str(era.get("end_season") or ""),
+            "titles": int(era.get("titles") or 0),
+            "defenses": int(era.get("defenses") or 0),
+            "active": bool(era.get("active")),
+            "integrity_rate": float(era.get("integrity_rate") or 0.0),
+            "era_score": int(era.get("era_score") or 0),
+            "detail_url": "/crown-era/{}".format(int(era.get("era_number") or 0)),
+        })
+
+    records = {
+        "longest_era": best_era("titles"),
+        "most_defenses": best_era("defenses"),
+        "highest_era_score": best_era("era_score"),
+        "best_integrity": best_era("integrity_rate"),
+        "most_eras_champion": champion_rows[0] if champion_rows else None,
+        "comeback_champion": max(champion_rows, key=lambda x: (int(x.get("comeback_count") or 0), int(x.get("titles") or 0))) if champion_rows else None,
+    }
+    digest_payload = {
+        "timeline": timeline,
+        "champions": [{"c": x.get("champion"), "e": x.get("eras"), "t": x.get("titles"), "d": x.get("defenses")} for x in champion_rows],
+    }
+    digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    try:
+        lim = max(1, min(int(limit or 200), 500))
+    except Exception:
+        lim = 200
+    return {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "records": records,
+        "champions": champion_rows[:lim],
+        "timeline": timeline[:lim],
+        "era_count": len(timeline),
+        "unique_champions": len(champion_rows),
+        "record_digest": digest,
+        "policy": "Era records are derived only from sealed championship title lineage. They summarize recorded history and do not predict future champions.",
+    }
+
+
+def _crown_era_detail_snapshot(era_number):
+    try:
+        target = int(era_number)
+    except Exception:
+        return None
+    base = _crown_era_snapshot(500)
+    eras = list(reversed(base.get("eras") or []))
+    era = next((dict(e) for e in eras if int(e.get("era_number") or 0) == target), None)
+    if not era:
+        return None
+    transitions = list(reversed(base.get("transitions") or []))
+    incoming = next((dict(t) for t in transitions if str(t.get("to") or "").lower() == str(era.get("champion") or "").lower() and str(t.get("season") or "") == str(era.get("start_season") or "")), None)
+    outgoing = next((dict(t) for t in transitions if str(t.get("from") or "").lower() == str(era.get("champion") or "").lower() and str(t.get("season") or "") > str(era.get("end_season") or "")), None)
+    payload = {
+        "era_number": target, "champion": era.get("champion"),
+        "start": era.get("start_season"), "end": era.get("end_season"),
+        "titles": era.get("titles"), "defenses": era.get("defenses"),
+        "score": era.get("era_score"), "incoming": incoming, "outgoing": outgoing,
+    }
+    era["incoming_transition"] = incoming
+    era["outgoing_transition"] = outgoing
+    era["era_digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return era
+
+
+@app.route("/api/crown-era-records")
+def crown_era_records_api():
+    return jsonify({"success": True, **_crown_era_records_snapshot(request.args.get("limit", 200))})
+
+
+@app.route("/crown-era-records.json")
+def crown_era_records_export():
+    return Response(json.dumps(_crown_era_records_snapshot(request.args.get("limit", 200)), ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/api/crown-era/<int:era_number>")
+def crown_era_detail_api(era_number):
+    data = _crown_era_detail_snapshot(era_number)
+    if not data:
+        return jsonify({"success": False, "message": "Crown era not found."}), 404
+    return jsonify({"success": True, "era": data})
+
+
+@app.route("/crown-era/<int:era_number>")
+def crown_era_detail_page(era_number):
+    data = _crown_era_detail_snapshot(era_number)
+    if not data:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Crown era not found.</h1><a style='color:#ffd66b' href='/crown-era-records'>Era Records</a></body>", 404
+    esc = html.escape
+    incoming = data.get("incoming_transition") or {}
+    outgoing = data.get("outgoing_transition") or {}
+    incoming_txt = (str(incoming.get("from") or "—") + " → " + str(incoming.get("to") or data.get("champion") or "—") + " · " + str(incoming.get("season") or data.get("start_season") or "—")) if incoming else "No incoming transition recorded; this may be the first recorded crown era."
+    outgoing_txt = (str(outgoing.get("from") or data.get("champion") or "—") + " → " + str(outgoing.get("to") or "—") + " · " + str(outgoing.get("season") or "—")) if outgoing else ("Active era — no outgoing transition recorded." if data.get("active") else "No outgoing transition available.")
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Era Detail</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#503814,transparent 30%),radial-gradient(circle at 88% 0,#28154a,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.brand{font-size:24px;font-weight:950}.gold{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(58px,10vw,104px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat,.transition{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#8d90a0}.transition{margin-top:10px;background:#0b0c11}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3 <span class='gold'>●</span> CROWN ERA DETAIL</div><section class='hero'><div class='gold'>ERA #{n}</div><h1>{champ}</h1><p class='meta'>{start} → {end}</p><div class='stats'><div class='stat'><b>{titles}</b><span>TITLES</span></div><div class='stat'><b>{defenses}</b><span>DEFENSES</span></div><div class='stat'><b>{score}</b><span>ERA SCORE</span></div><div class='stat'><b>{integrity}%</b><span>INTEGRITY</span></div></div><a href='/crown-era-records'>ERA RECORDS</a> <a href='/champion-dossier/{q}'>CHAMPION DOSSIER</a></section><section class='panel'><div class='gold'>SUCCESSION CONTEXT</div><div class='transition'><b>INCOMING</b><div class='meta'>{incoming}</div></div><div class='transition'><b>OUTGOING</b><div class='meta'>{outgoing}</div></div></section><div class='digest'>ERA DIGEST // {digest}</div></div></body></html>"""
+    return page.format(
+        n=int(data.get("era_number") or 0), champ=esc(str(data.get("champion") or "")),
+        start=esc(str(data.get("start_season") or "—")), end=esc(str(data.get("end_season") or "—")),
+        titles=int(data.get("titles") or 0), defenses=int(data.get("defenses") or 0),
+        score=int(data.get("era_score") or 0), integrity=float(data.get("integrity_rate") or 0.0),
+        q=urllib.parse.quote(str(data.get("champion") or "")), incoming=esc(incoming_txt),
+        outgoing=esc(outgoing_txt), digest=esc(str(data.get("era_digest") or "")),
+    )
+
+
+@app.route("/crown-era-records")
+def crown_era_records_page():
+    data = _crown_era_records_snapshot(request.args.get("limit", 200))
+    esc = html.escape
+    records = data.get("records") or {}
+    def champ_name(obj):
+        return esc(str((obj or {}).get("champion") or "—"))
+    era_cards = []
+    for era in data.get("timeline") or []:
+        era_cards.append('<article class="era"><div class="tag">ERA #{n}{active}</div><div class="champ">👑 {champ}</div><div class="meta">{start} → {end}</div><div class="meta">{titles} title(s) · {defenses} defense(s) · score {score}</div><a href="{url}">OPEN ERA ↗</a></article>'.format(
+            n=int(era.get("era_number") or 0), active=' // ACTIVE' if era.get("active") else '',
+            champ=esc(str(era.get("champion") or "")), start=esc(str(era.get("start_season") or "—")),
+            end=esc(str(era.get("end_season") or "—")), titles=int(era.get("titles") or 0),
+            defenses=int(era.get("defenses") or 0), score=int(era.get("era_score") or 0),
+            url=esc(str(era.get("detail_url") or "#"))))
+    board = []
+    for item in data.get("champions") or []:
+        board.append('<div class="row"><b>{champ}</b><span>{eras} eras · {titles} titles · {defenses} defenses · {comebacks} comeback(s)</span><a href="{url}">DOSSIER ↗</a></div>'.format(
+            champ=esc(str(item.get("champion") or "")), eras=int(item.get("eras") or 0), titles=int(item.get("titles") or 0),
+            defenses=int(item.get("defenses") or 0), comebacks=int(item.get("comeback_count") or 0),
+            url=esc(str(item.get("dossier_url") or "#"))))
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Era Records</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#4e3510,transparent 30%),radial-gradient(circle at 89% 0,#241747,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1120px;margin:auto}.brand{font-size:24px;font-weight:950}.brand span,.gold,.tag{color:#ffd66b}.hero,.panel{margin-top:22px;border:1px solid #3a3328;border-radius:28px;padding:26px;background:linear-gradient(145deg,rgba(255,214,107,.055),rgba(139,92,246,.025))}h1{font-size:clamp(52px,9vw,96px);line-height:.88;margin:10px 0}.meta{color:#a7a8b6;line-height:1.55}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #34343d;border-radius:15px;padding:14px}.stat b{display:block;font-size:18px}.stat span{font-size:8px;color:#8d90a0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.era{border:1px solid #2e3038;border-radius:18px;padding:17px;background:#0b0c11}.champ{font-size:28px;font-weight:950;margin:8px 0}.tag{font-size:9px;font-weight:950}.row{display:grid;grid-template-columns:1fr 2fr auto;gap:12px;align-items:center;border-bottom:1px solid #24262c;padding:10px 0}.row span{color:#a7a8b6;font-size:10px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}.digest{margin-top:18px;font:9px ui-monospace,monospace;color:#777988;word-break:break-all}@media(max-width:760px){.stats,.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}}</style></head><body><div class='wrap'><div class='brand'>BL3<span>●</span> ERA RECORDS</div><section class='hero'><div class='gold'>V19.1 // CROWN TIMELINE</div><h1>ERAS BECOME RECORDS.</h1><p class='meta'>Historical records reconstructed from sealed championship title lineage.</p><div class='stats'><div class='stat'><b>{longest}</b><span>LONGEST ERA</span></div><div class='stat'><b>{defender}</b><span>MOST DEFENSES ERA</span></div><div class='stat'><b>{scorer}</b><span>HIGHEST ERA SCORE</span></div><div class='stat'><b>{mosteras}</b><span>MOST RECORDED ERAS</span></div><div class='stat'><b>{comeback}</b><span>COMEBACK CHAMPION</span></div><div class='stat'><b>{unique}</b><span>UNIQUE CHAMPIONS</span></div></div><a href='/crown-era'>SUCCESSION MAP</a> <a href='/crown-ledger'>CROWN LEDGER</a> <a href='/crown-era-records.json'>EXPORT JSON</a></section><section class='panel'><div class='gold'>ERA TIMELINE</div><div class='grid'>{eras}</div></section><section class='panel'><div class='gold'>CHAMPION ERA BOARD</div>{board}</section><div class='digest'>ERA RECORD DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>"""
+    return page.format(
+        longest=champ_name(records.get("longest_era")), defender=champ_name(records.get("most_defenses")),
+        scorer=champ_name(records.get("highest_era_score")), mosteras=champ_name(records.get("most_eras_champion")),
+        comeback=champ_name(records.get("comeback_champion")), unique=int(data.get("unique_champions") or 0),
+        eras=''.join(era_cards) or '<div class="meta">No eras recorded yet.</div>',
+        board=''.join(board) or '<div class="meta">No champion records yet.</div>',
+        digest=esc(str(data.get("record_digest") or "")), policy=esc(str(data.get("policy") or "")),
+    )
 
 
 if __name__ == "__main__":
@@ -16714,7 +16883,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V19.0 // CROWN ERA + SUCCESSION MAP")
+    print("👑 BL3 ARENA V19.1 // ERA RECORDS + CROWN TIMELINE")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
     print("👑 Crown Chase + Contender Pressure enabled")
@@ -16723,6 +16892,7 @@ if __name__ == "__main__":
     print("📜 Crown Turnovers + Defense Ledger enabled")
     print("⚔️ Crown Nemesis + Usurper Index enabled")
     print("🏛️ Crown Era + Succession Map enabled")
+    print("📚 Era Records + Crown Timeline enabled")
     print("🛡️ Production readiness checks enabled")
     print("🚦 Lightweight write rate limiting enabled" if BL3_RATE_LIMIT else "🚦 Rate limiting disabled")
     print("🗄️ Protected DB backup enabled" if BL3_ADMIN_TOKEN else "🗄️ DB backup endpoint disabled (set BL3_ADMIN_TOKEN)")
