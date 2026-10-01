@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.4")
+    response.headers.setdefault("X-BL3-Version", "19.5")
     return response
 
 
@@ -17259,13 +17259,151 @@ def crown_pathfinder_page():
     page='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Pathfinder</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#49310d,transparent 31%),radial-gradient(circle at 90% 0,#173057,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1040px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:950}h1{font-size:clamp(52px,9vw,96px);line-height:.9;margin:10px 0}.meta{color:#979aa8;line-height:1.55}.form{display:grid;grid-template-columns:1fr 1fr auto;gap:9px;margin-top:18px}input,button{border:1px solid #373943;border-radius:12px;background:#090a0e;color:#fff;padding:12px;font:inherit}button{cursor:pointer;font-weight:900}.chain{font-size:clamp(22px,5vw,44px);font-weight:950;margin:18px 0}.chain span{color:#ffd66b;padding:0 5px}.edge{border:1px solid #30323b;border-radius:14px;padding:14px;margin-top:9px}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:950}@media(max-width:760px){.form{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.4 // CROWN PATHFINDER</div><h1>TRACE THE CROWN.</h1><p class="meta">Find the shortest recorded succession path from one champion to another using sealed crown turnovers only.</p><form class="form" method="get"><input name="from" value="{source}" placeholder="From champion"><input name="to" value="{target}" placeholder="To champion"><button type="submit">FIND PATH</button></form><a href="/crown-network">CROWN NETWORK</a></section>{result}</div></body></html>'''
     return page.format(source=esc(source),target=esc(target),result=result)
 
+# ===== V19.5 CROWN STORYBOOK + SHARE CARDS =====
+def _crown_story_snapshot(limit=12):
+    limit = max(1, min(int(limit or 12), 50))
+    ledger = _crown_ledger_snapshot(500)
+    eras = _crown_era_snapshot(500)
+    network = _crown_network_snapshot(500)
+    events = list(ledger.get("events") or [])
+    era_rows = list(eras.get("eras") or [])
+    current = str(ledger.get("current_champion") or "")
+    chapters = []
+    for e in events[-limit:]:
+        typ = str(e.get("event_type") or e.get("type") or "CROWN EVENT")
+        season = str(e.get("season_key") or "")
+        champ = str(e.get("champion") or e.get("to") or "")
+        previous = str(e.get("previous_champion") or e.get("from") or "")
+        battle = int(e.get("final_battle_id") or 0)
+        integrity = str(e.get("integrity") or "UNKNOWN")
+        if typ.upper() == "DEFENSE":
+            title = f"{champ} defended the crown"
+            summary = f"{champ} remained champion in {season}."
+        elif typ.upper() == "TURNOVER":
+            title = f"{champ} took the crown"
+            summary = f"{champ} succeeded {previous or 'the prior champion'} in {season}."
+        else:
+            title = f"{champ} entered the crown lineage"
+            summary = f"A sealed crown event was recorded for {champ} in {season}."
+        chapters.append({
+            "season": season, "event_type": typ, "champion": champ,
+            "previous_champion": previous, "final_battle_id": battle,
+            "integrity": integrity, "title": title, "summary": summary
+        })
+    top_network = (network.get("top_node") or {}).get("username") or ""
+    payload = {
+        "current_champion": current,
+        "event_count": len(events),
+        "era_count": len(era_rows),
+        "top_network_champion": top_network,
+        "chapters": chapters,
+    }
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    share_text = "BL3 Crown Story // Current champion: {}. {} sealed crown events across {} recorded era(s). #BL3".format(current or "unsealed", len(events), len(era_rows))
+    return {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        **payload,
+        "chapter_count": len(chapters),
+        "story_digest": digest,
+        "share_text": share_text,
+        "policy": "Read-only narrative reconstructed from sealed championship lineage. No outcomes are invented or altered."
+    }
+
+
+def _champion_story_snapshot(username, limit=12):
+    target = str(username or "").strip()
+    if not target:
+        return None
+    ledger = _crown_ledger_detail(target)
+    network = _crown_network_detail(target)
+    if not ledger and not network:
+        return None
+    stats = (ledger or {}).get("stats") or {}
+    net = (network or {}).get("stats") or {}
+    events = list((ledger or {}).get("events") or (ledger or {}).get("history") or [])
+    events = events[-max(1, min(int(limit or 12), 50)):]
+    payload = {"username": target, "stats": stats, "network": net, "events": events}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+    share_text = "BL3 Crown Card // {} — {} crown(s), {} defense(s), {} turnover win(s). #BL3".format(
+        target, int(stats.get("crowns") or 0), int(stats.get("defenses") or 0), int(stats.get("turnovers_won") or 0)
+    )
+    return {**payload, "story_digest": digest, "share_text": share_text, "policy": "Champion Crown Card summarizes recorded in-app crown history only."}
+
+
+@app.route("/api/crown-story")
+def crown_story_api():
+    return jsonify({"success": True, **_crown_story_snapshot(request.args.get("limit", 12))})
+
+
+@app.route("/crown-story.json")
+def crown_story_export():
+    return Response(json.dumps(_crown_story_snapshot(request.args.get("limit", 12)), ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/api/crown-story/<path:username>")
+def crown_story_user_api(username):
+    data = _champion_story_snapshot(urllib.parse.unquote(username), request.args.get("limit", 12))
+    if not data:
+        return jsonify({"success": False, "message": "Champion crown story not found."}), 404
+    return jsonify({"success": True, **data})
+
+
+@app.route("/crown-story/<path:username>")
+def crown_story_user_page(username):
+    data = _champion_story_snapshot(urllib.parse.unquote(username), request.args.get("limit", 12))
+    if not data:
+        return "<h1>Crown story not found.</h1>", 404
+    esc = html.escape
+    stats = data.get("stats") or {}
+    rows = []
+    for e in reversed(data.get("events") or []):
+        rows.append('<div class="chapter"><b>{}</b><div class="meta">{} · Battle #{}</div></div>'.format(
+            esc(str(e.get("event_type") or e.get("type") or "CROWN EVENT")),
+            esc(str(e.get("season_key") or "—")),
+            int(e.get("final_battle_id") or 0)
+        ))
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Card</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:920px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #363943;border-radius:24px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:900}h1{font-size:clamp(52px,9vw,92px);margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.chapter{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b{display:block;font-size:20px}.stat span,.meta{color:#9699a7;font-size:9px}.chapter{margin-top:8px}.share{margin-top:14px;border:1px dashed #4a4c57;border-radius:13px;padding:13px}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V19.5 // CHAMPION CROWN CARD</div><h1>{name}</h1><div class='stats'><div class='stat'><b>{crowns}</b><span>CROWNS</span></div><div class='stat'><b>{defenses}</b><span>DEFENSES</span></div><div class='stat'><b>{turnovers}</b><span>TURNOVERS WON</span></div><div class='stat'><b>{rank}</b><span>NETWORK RANK</span></div></div><div class='share'>{share}</div><a href='/crown-story'>CROWN STORYBOOK</a></section><section class='panel'><div class='gold'>RECORDED CHAPTERS</div>{rows}</section><div class='digest'>STORY DIGEST // {digest}</div></div></body></html>"""
+    return page.format(
+        name=esc(str(data.get("username") or "")),
+        crowns=int(stats.get("crowns") or 0),
+        defenses=int(stats.get("defenses") or 0),
+        turnovers=int(stats.get("turnovers_won") or 0),
+        rank=int((data.get("network") or {}).get("rank") or 0),
+        share=esc(str(data.get("share_text") or "")),
+        rows="".join(rows) or '<div class="meta">No recorded crown chapters.</div>',
+        digest=esc(str(data.get("story_digest") or ""))
+    )
+
+
+@app.route("/crown-story")
+def crown_story_page():
+    data = _crown_story_snapshot(request.args.get("limit", 12))
+    esc = html.escape
+    rows = []
+    for c in reversed(data.get("chapters") or []):
+        link = ""
+        if c.get("champion"):
+            link = '<a href="/crown-story/{}">OPEN CHAMPION CARD ↗</a>'.format(urllib.parse.quote(str(c.get("champion"))))
+        rows.append('<article class="chapter"><div class="gold">{} // {}</div><h3>{}</h3><div class="meta">{}</div><div class="meta">Final Battle #{} · Integrity {}</div>{}</article>'.format(
+            esc(str(c.get("season") or "—")), esc(str(c.get("event_type") or "EVENT")), esc(str(c.get("title") or "")),
+            esc(str(c.get("summary") or "")), int(c.get("final_battle_id") or 0), esc(str(c.get("integrity") or "UNKNOWN")), link
+        ))
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Storybook</title><style>body{margin:0;background:radial-gradient(circle at 10% 0,#4d2b08,transparent 30%),radial-gradient(circle at 90% 0,#193258,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1060px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold{color:#ffd66b;font-weight:900}h1{font-size:clamp(56px,10vw,102px);line-height:.88;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.chapter{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b{display:block;font-size:20px}.stat span,.meta{color:#989ba8;font-size:9px}.chapter{margin-top:8px}.chapter h3{margin:5px 0;font-size:21px}.share{margin-top:14px;border:1px dashed #4a4c57;border-radius:13px;padding:13px}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V19.5 // CROWN STORYBOOK</div><h1>THE CROWN HAS A STORY.</h1><div class='stats'><div class='stat'><b>{champ}</b><span>CURRENT CHAMPION</span></div><div class='stat'><b>{events}</b><span>SEALED EVENTS</span></div><div class='stat'><b>{eras}</b><span>RECORDED ERAS</span></div><div class='stat'><b>{network}</b><span>TOP NETWORK CHAMPION</span></div></div><div class='share'>{share}</div><a href='/crown-network'>CROWN NETWORK</a> <a href='/crown-story.json'>EXPORT JSON</a></section><section class='panel'><div class='gold'>LATEST CHAPTERS</div>{rows}</section><div class='digest'>STORY DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>"""
+    return page.format(
+        champ=esc(str(data.get("current_champion") or "—")), events=int(data.get("event_count") or 0),
+        eras=int(data.get("era_count") or 0), network=esc(str(data.get("top_network_champion") or "—")),
+        share=esc(str(data.get("share_text") or "")), rows="".join(rows) or '<div class="meta">No crown chapters yet.</div>',
+        digest=esc(str(data.get("story_digest") or "")), policy=esc(str(data.get("policy") or ""))
+    )
+
 
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V19.4 // CROWN PATHFINDER + ANCESTRY CHAINS")
+    print("👑 BL3 ARENA V19.5 // CROWN STORYBOOK + SHARE CARDS")
+    print("📖 Crown Storybook + Share Cards enabled")
     print("🧭 Crown Pathfinder + Ancestry Chains enabled")
     print("💾 SQLite enabled")
     print("🛡️ Crown Defense Queue + Threat Matrix enabled")
