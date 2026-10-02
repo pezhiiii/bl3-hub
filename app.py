@@ -17550,9 +17550,166 @@ def crown_archive_page():
     season_rows = []
     for s in data.get("seasons") or []:
         season_rows.append('<article class="season"><div class="tag">{season}</div><div class="big">{events} EVENT(S)</div><div class="meta">{champions} champion(s) · era #{era} · integrity {integrity}%</div><a href="{url}">OPEN CAPSULE ↗</a></article>'.format(season=esc(str(s.get("season_key") or "")), events=int(s.get("events") or 0), champions=len(s.get("champions") or []), era=int(s.get("era_number") or 0), integrity=float(s.get("integrity_rate") or 0.0), url=esc(str(s.get("season_url") or "#"))))
-    page = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Archive</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#4d3010,transparent 30%),radial-gradient(circle at 90% 0,#1b315b,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1120px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold,.tag{color:#ffd66b;font-weight:900}h1{font-size:clamp(56px,10vw,102px);line-height:.88;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.event,.season{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b,.big{display:block;font-size:20px;font-weight:900}.stat span,.meta{color:#989ba8;font-size:9px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}.event,.season{margin-top:8px}.event h3{margin:5px 0;font-size:21px}.filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-top:14px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:10px;padding:11px;font:inherit}.filters button{cursor:pointer;font-weight:900}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:760px){.stats,.grid,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.6 // CROWN HISTORIAN</div><h1>SEARCH THE CROWN.</h1><p class="meta">Search sealed crown history by champion, previous champion, season, event type, battle ID, or integrity state.</p><div class="stats"><div class="stat"><b>{champ}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{total}</b><span>TOTAL EVENTS</span></div><div class="stat"><b>{matched}</b><span>MATCHED EVENTS</span></div><div class="stat"><b>{seasons}</b><span>SEASON CAPSULES</span></div></div><form class="filters" method="get"><input name="q" value="{q}" placeholder="champion, battle id, integrity..."><input name="season" value="{season_filter}" placeholder="season"><select name="type"><option value="">ALL TYPES</option><option {crowned}>CROWNED</option><option {defense}>DEFENSE</option><option {turnover}>TURNOVER</option></select><button>SEARCH</button></form><a href="/crown-story">STORYBOOK</a> <a href="/crown-network">NETWORK</a> <a href="/crown-archive.json">EXPORT JSON</a></section><section class="panel"><div class="gold">MATCHED HISTORY</div>{events_html}</section><section class="panel"><div class="gold">SEASON CAPSULES</div><div class="grid">{seasons_html}</div></section><div class="digest">ARCHIVE DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
+    page = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Archive</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#4d3010,transparent 30%),radial-gradient(circle at 90% 0,#1b315b,transparent 32%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1120px;margin:auto}.hero,.panel{margin-top:20px;border:1px solid #373943;border-radius:26px;padding:24px;background:#0b0c11}.gold,.tag{color:#ffd66b;font-weight:900}h1{font-size:clamp(56px,10vw,102px);line-height:.88;margin:8px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat,.event,.season{border:1px solid #30323b;border-radius:13px;padding:13px}.stat b,.big{display:block;font-size:20px;font-weight:900}.stat span,.meta{color:#989ba8;font-size:9px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}.event,.season{margin-top:8px}.event h3{margin:5px 0;font-size:21px}.filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-top:14px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:10px;padding:11px;font:inherit}.filters button{cursor:pointer;font-weight:900}.digest{margin-top:14px;font:9px ui-monospace,monospace;color:#777;word-break:break-all}a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:760px){.stats,.grid,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.6 // CROWN HISTORIAN</div><h1>SEARCH THE CROWN.</h1><p class="meta">Search sealed crown history by champion, previous champion, season, event type, battle ID, or integrity state.</p><div class="stats"><div class="stat"><b>{champ}</b><span>CURRENT CHAMPION</span></div><div class="stat"><b>{total}</b><span>TOTAL EVENTS</span></div><div class="stat"><b>{matched}</b><span>MATCHED EVENTS</span></div><div class="stat"><b>{seasons}</b><span>SEASON CAPSULES</span></div></div><form class="filters" method="get"><input name="q" value="{q}" placeholder="champion, battle id, integrity..."><input name="season" value="{season_filter}" placeholder="season"><select name="type"><option value="">ALL TYPES</option><option {crowned}>CROWNED</option><option {defense}>DEFENSE</option><option {turnover}>TURNOVER</option></select><button>SEARCH</button></form><a href="/crown-story">STORYBOOK</a> <a href="/crown-network">NETWORK</a> <a href="/crown-compare">COMPARE</a> <a href="/crown-archive.json">EXPORT JSON</a></section><section class="panel"><div class="gold">MATCHED HISTORY</div>{events_html}</section><section class="panel"><div class="gold">SEASON CAPSULES</div><div class="grid">{seasons_html}</div></section><div class="digest">ARCHIVE DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>'''
     tf = str(data.get("event_type_filter") or "").upper()
     return page.format(champ=esc(str(data.get("current_champion") or "—")), total=int(data.get("total_events") or 0), matched=int(data.get("matched_events") or 0), seasons=int(data.get("season_count") or 0), q=esc(str(data.get("query") or "")), season_filter=esc(str(data.get("season_filter") or "")), crowned="selected" if tf == "CROWNED" else "", defense="selected" if tf == "DEFENSE" else "", turnover="selected" if tf == "TURNOVER" else "", events_html=''.join(event_rows) or '<div class="meta">No matching sealed crown events.</div>', seasons_html=''.join(season_rows) or '<div class="meta">No season capsules yet.</div>', digest=esc(str(data.get("archive_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
+# ===== V19.7 CROWN COMPARE + RIVAL LEGACY COMPARISON =====
+def _crown_compare_subject(mode, value):
+    mode = str(mode or "season").strip().lower()
+    value = str(value or "").strip()
+    ledger = _crown_ledger_snapshot(1000)
+    events = list(reversed(ledger.get("events") or []))
+
+    if mode == "champion":
+        own = [dict(e) for e in events if str(e.get("champion") or "").strip().lower() == value.lower()]
+        lost = [dict(e) for e in events if str(e.get("previous_champion") or "").strip().lower() == value.lower()]
+        seasons = sorted({str(e.get("season_key") or "") for e in own if str(e.get("season_key") or "")}, reverse=True)
+        valid = sum(1 for e in own if str(e.get("integrity") or "").upper() == "VALID")
+        defenses = sum(1 for e in own if str(e.get("event_type") or "").upper() == "DEFENSE")
+        crowned = sum(1 for e in own if str(e.get("event_type") or "").upper() == "CROWNED")
+        turnovers = sum(1 for e in lost if str(e.get("event_type") or "").upper() == "TURNOVER")
+        battles = sorted({int(e.get("final_battle_id") or 0) for e in (own + lost) if int(e.get("final_battle_id") or 0)})
+        return {
+            "mode": "champion", "key": value, "label": value or "—",
+            "events": len(own), "defenses": defenses, "crowns": crowned,
+            "turnovers_lost": turnovers, "seasons": seasons, "season_count": len(seasons),
+            "battle_ids": battles,
+            "integrity_rate": round((valid / max(1, len(own))) * 100, 1),
+            "latest_event": own[0] if own else None,
+        }
+
+    snap = _crown_archive_season_snapshot(value)
+    if not snap:
+        return {
+            "mode": "season", "key": value, "label": value or "—", "events": 0,
+            "defenses": 0, "crowns": 0, "turnovers": 0, "champions": [],
+            "champion_count": 0, "battle_ids": [], "integrity_rate": 0.0,
+            "era_number": 0, "latest_event": None,
+        }
+    cap = dict(snap.get("capsule") or {})
+    own = list(snap.get("events") or [])
+    champions = list(cap.get("champions") or [])
+    return {
+        "mode": "season", "key": value, "label": value or "—",
+        "events": len(own),
+        "defenses": sum(1 for e in own if str(e.get("event_type") or "").upper() == "DEFENSE"),
+        "crowns": sum(1 for e in own if str(e.get("event_type") or "").upper() == "CROWNED"),
+        "turnovers": sum(1 for e in own if str(e.get("event_type") or "").upper() == "TURNOVER"),
+        "champions": champions, "champion_count": len(champions),
+        "battle_ids": list(cap.get("battle_ids") or []),
+        "integrity_rate": float(cap.get("integrity_rate") or 0.0),
+        "era_number": int(cap.get("era_number") or 0),
+        "latest_event": own[0] if own else None,
+    }
+
+
+def _crown_compare_snapshot(mode="season", left="", right=""):
+    mode = str(mode or "season").strip().lower()
+    if mode not in ("season", "champion"):
+        mode = "season"
+    left_data = _crown_compare_subject(mode, left)
+    right_data = _crown_compare_subject(mode, right)
+
+    if mode == "champion":
+        shared = sorted(set(left_data.get("seasons") or []) & set(right_data.get("seasons") or []), reverse=True)
+        delta = {
+            "events": int(left_data.get("events") or 0) - int(right_data.get("events") or 0),
+            "defenses": int(left_data.get("defenses") or 0) - int(right_data.get("defenses") or 0),
+            "crowns": int(left_data.get("crowns") or 0) - int(right_data.get("crowns") or 0),
+            "integrity_rate": round(float(left_data.get("integrity_rate") or 0) - float(right_data.get("integrity_rate") or 0), 1),
+        }
+    else:
+        shared = sorted(set(left_data.get("champions") or []) & set(right_data.get("champions") or []))
+        delta = {
+            "events": int(left_data.get("events") or 0) - int(right_data.get("events") or 0),
+            "defenses": int(left_data.get("defenses") or 0) - int(right_data.get("defenses") or 0),
+            "turnovers": int(left_data.get("turnovers") or 0) - int(right_data.get("turnovers") or 0),
+            "integrity_rate": round(float(left_data.get("integrity_rate") or 0) - float(right_data.get("integrity_rate") or 0), 1),
+        }
+
+    payload = {"mode": mode, "left": left_data, "right": right_data, "shared": shared, "delta": delta}
+    payload["comparison_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    payload["generated_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    payload["policy"] = (
+        "Crown Compare is read-only and compares recorded sealed Crown history only. "
+        "Positive deltas mean the left subject has a higher recorded value; they are not a ranking or prediction."
+    )
+    return payload
+
+
+@app.route("/api/crown-compare")
+def crown_compare_api():
+    data = _crown_compare_snapshot(request.args.get("mode", "season"), request.args.get("left", ""), request.args.get("right", ""))
+    return jsonify({"success": True, **data})
+
+
+@app.route("/crown-compare.json")
+def crown_compare_export():
+    data = _crown_compare_snapshot(request.args.get("mode", "season"), request.args.get("left", ""), request.args.get("right", ""))
+    return Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/crown-compare")
+def crown_compare_page():
+    data = _crown_compare_snapshot(request.args.get("mode", "season"), request.args.get("left", ""), request.args.get("right", ""))
+    esc = html.escape
+    mode = str(data.get("mode") or "season")
+    left = data.get("left") or {}
+    right = data.get("right") or {}
+    delta = data.get("delta") or {}
+    shared = data.get("shared") or []
+
+    def stat_rows(side):
+        if mode == "champion":
+            return [("SEALED EVENTS", int(side.get("events") or 0)), ("TITLE DEFENSES", int(side.get("defenses") or 0)), ("CROWN EVENTS", int(side.get("crowns") or 0)), ("SEASONS", int(side.get("season_count") or 0)), ("INTEGRITY", f'{float(side.get("integrity_rate") or 0):.1f}%')]
+        return [("SEALED EVENTS", int(side.get("events") or 0)), ("TITLE DEFENSES", int(side.get("defenses") or 0)), ("TURNOVERS", int(side.get("turnovers") or 0)), ("CHAMPIONS", int(side.get("champion_count") or 0)), ("INTEGRITY", f'{float(side.get("integrity_rate") or 0):.1f}%')]
+
+    def subject_card(side, side_name):
+        rows = "".join('<div class="metric"><span>{}</span><b>{}</b></div>'.format(esc(str(k)), esc(str(v))) for k, v in stat_rows(side))
+        latest = side.get("latest_event") or {}
+        latest_text = "No sealed event found."
+        if latest:
+            latest_text = "{} · battle #{} · {}".format(str(latest.get("event_type") or "EVENT"), int(latest.get("final_battle_id") or 0), str(latest.get("integrity") or ""))
+        return '<section class="subject"><div class="side">{}</div><h2>{}</h2><div class="metrics">{}</div><div class="latest">LATEST // {}</div></section>'.format(esc(side_name), esc(str(side.get("label") or "—")), rows, esc(latest_text))
+
+    delta_rows = "".join('<div class="delta"><span>{}</span><b>{:+}</b></div>'.format(esc(str(k).upper()), v) for k, v in delta.items())
+    shared_label = "SHARED SEASONS" if mode == "champion" else "SHARED CHAMPIONS"
+    shared_text = ", ".join(str(x) for x in shared) if shared else "None recorded"
+    json_url = "/crown-compare.json?" + urllib.parse.urlencode({"mode": mode, "left": str(left.get("key") or ""), "right": str(right.get("key") or "")})
+
+    page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>BL3 Crown Compare</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#4b2f0d,transparent 28%),radial-gradient(circle at 90% 0,#172f59,transparent 31%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1120px;margin:auto}.hero,.subject,.panel{border:1px solid #373943;border-radius:26px;background:#0b0c11;padding:24px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(54px,9vw,96px);line-height:.88;margin:8px 0 15px}h2{font-size:32px;margin:8px 0 16px}.form{display:grid;grid-template-columns:1fr 2fr 2fr auto;gap:8px;margin-top:18px}
+input,select,button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:12px;font:inherit}button{font-weight:900;cursor:pointer}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:14px}.side{font-size:9px;letter-spacing:2px;color:#ffd66b;font-weight:900}.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.metric,.delta{border:1px solid #30323b;border-radius:13px;padding:13px}.metric span,.delta span{display:block;color:#9296a5;font-size:9px}.metric b,.delta b{font-size:20px}.latest{margin-top:12px;color:#9fa2af;font-size:10px}
+.delta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.shared{font-size:18px;font-weight:800;line-height:1.5}.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:760px){.form,.compare,.delta-grid{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}}
+</style></head><body><div class='wrap'>
+<section class='hero'><div class='gold'>V19.7 // CROWN COMPARE</div><h1>COMPARE THE LEGACY.</h1>
+<p class='meta'>Compare two recorded Crown seasons or two champions using sealed historical events only.</p>
+<form class='form' method='get'><select name='mode'><option value='season' {season_sel}>SEASONS</option><option value='champion' {champ_sel}>CHAMPIONS</option></select>
+<input name='left' value='{left_value}' placeholder='left season or champion'><input name='right' value='{right_value}' placeholder='right season or champion'><button>COMPARE</button></form>
+<a href='/crown-archive'>ARCHIVE</a> <a href='/crown-story'>STORYBOOK</a> <a href='{json_url}'>EXPORT JSON</a></section>
+<div class='compare'>{left_card}{right_card}</div>
+<section class='panel'><div class='gold'>RECORDED DELTAS // LEFT − RIGHT</div><div class='delta-grid'>{delta_rows}</div></section>
+<section class='panel'><div class='gold'>{shared_label}</div><div class='shared'>{shared_text}</div></section>
+<div class='digest'>COMPARISON DIGEST // {digest}</div><p class='meta'>{policy}</p>
+</div></body></html>"""
+    return page.format(
+        season_sel="selected" if mode == "season" else "", champ_sel="selected" if mode == "champion" else "",
+        left_value=esc(str(left.get("key") or "")), right_value=esc(str(right.get("key") or "")), json_url=esc(json_url),
+        left_card=subject_card(left, "LEFT"), right_card=subject_card(right, "RIGHT"),
+        delta_rows=delta_rows or '<div class="meta">No comparable data.</div>', shared_label=esc(shared_label), shared_text=esc(shared_text),
+        digest=esc(str(data.get("comparison_digest") or "")), policy=esc(str(data.get("policy") or "")),
+    )
 
 
 if __name__ == "__main__":
@@ -17560,7 +17717,8 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("📚 BL3 ARENA V19.6 // CROWN ARCHIVE + HISTORIAN SEARCH")
+    print("⚖️ BL3 ARENA V19.7 // CROWN COMPARE + RIVAL LEGACY")
+    print("⚖️ Crown Compare + Rival Legacy enabled")
     print("📖 Crown Storybook + Share Cards enabled")
     print("🧭 Crown Pathfinder + Ancestry Chains enabled")
     print("💾 SQLite enabled")
