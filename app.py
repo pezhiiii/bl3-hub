@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.8")
+    response.headers.setdefault("X-BL3-Version", "19.9")
     return response
 
 
@@ -17986,12 +17986,185 @@ def crown_provenance_page():
         q=esc(str(request.args.get("q", ""))), season=esc(str(request.args.get("season", ""))), champion=esc(str(request.args.get("champion", ""))), battle=esc(str(request.args.get("battle", ""))), digest_filter=esc(str(request.args.get("digest", ""))), export_url=esc(export_url), cards="".join(cards) or '<div class="meta">No sealed Crown proof matched these filters.</div>', explorer_digest=esc(str(data.get("explorer_digest") or "")), policy=esc(str(data.get("policy") or "")))
 
 
+# ===== V19.9 CROWN INTEGRITY REGISTRY + TRUST BADGES =====
+# Read-only integrity index built on V19.8 proof chains. No new tables or writes.
+def _crown_integrity_snapshot(query="", status="", limit=200):
+    query = str(query or "").strip().lower()
+    status = str(status or "").strip().upper()
+    if status not in ("", "VALID", "BROKEN"):
+        status = ""
+    try:
+        limit = max(1, min(int(limit or 200), 500))
+    except Exception:
+        limit = 200
+
+    source = _crown_provenance_snapshot(limit=250)
+    items = []
+    for proof in source.get("proofs") or []:
+        checks = dict(proof.get("checks") or {})
+        passed = sum(1 for v in checks.values() if bool(v))
+        total = len(checks)
+        score = round((passed / max(1, total)) * 100, 1)
+        item = {
+            "season_key": str(proof.get("season_key") or ""),
+            "bracket_size": int(proof.get("bracket_size") or 0),
+            "champion": str(proof.get("champion") or ""),
+            "final_battle_id": int(proof.get("final_battle_id") or 0),
+            "sealed_at": str(proof.get("sealed_at") or ""),
+            "title_digest": str(proof.get("title_digest") or ""),
+            "proof_digest": str(proof.get("proof_digest") or ""),
+            "integrity": str(proof.get("integrity") or "BROKEN").upper(),
+            "checks_passed": passed,
+            "checks_total": total,
+            "integrity_score": score,
+            "proof_url": str(proof.get("proof_url") or ""),
+            "badge_url": "/crown-badge/{}.svg".format(urllib.parse.quote(str(proof.get("title_digest") or ""))),
+        }
+        hay = " ".join([
+            item["season_key"], item["champion"], str(item["final_battle_id"]),
+            item["title_digest"], item["proof_digest"], item["integrity"],
+        ]).lower()
+        if query and query not in hay:
+            continue
+        if status and item["integrity"] != status:
+            continue
+        items.append(item)
+        if len(items) >= limit:
+            break
+
+    valid = sum(1 for x in items if x["integrity"] == "VALID")
+    broken = len(items) - valid
+    avg_score = round(sum(float(x["integrity_score"]) for x in items) / max(1, len(items)), 1)
+    digest_core = [
+        (x["title_digest"], x["proof_digest"], x["integrity"], x["integrity_score"])
+        for x in items
+    ]
+    registry_digest = hashlib.sha256(
+        json.dumps(digest_core, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return {
+        "success": True,
+        "version": "V19.9",
+        "query": query,
+        "status_filter": status,
+        "items": items,
+        "count": len(items),
+        "valid": valid,
+        "broken": broken,
+        "average_integrity_score": avg_score,
+        "registry_digest": registry_digest,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Crown Integrity Registry is read-only. Scores summarize BL3 proof-chain checks and are not financial, legal, or external identity credentials.",
+    }
+
+
+def _crown_integrity_find(title_digest):
+    needle = str(title_digest or "").strip().lower()
+    if not needle:
+        return None
+    snap = _crown_provenance_snapshot(limit=250)
+    exact = [p for p in (snap.get("proofs") or []) if str(p.get("title_digest") or "").lower() == needle]
+    if exact:
+        return exact[0]
+    prefix = [p for p in (snap.get("proofs") or []) if str(p.get("title_digest") or "").lower().startswith(needle)]
+    return prefix[0] if len(prefix) == 1 else None
+
+
+@app.route("/api/crown-integrity")
+def crown_integrity_api():
+    return jsonify(_crown_integrity_snapshot(
+        request.args.get("q", ""), request.args.get("status", ""), request.args.get("limit", 200)
+    ))
+
+
+@app.route("/crown-integrity.json")
+def crown_integrity_json():
+    data = _crown_integrity_snapshot(
+        request.args.get("q", ""), request.args.get("status", ""), request.args.get("limit", 200)
+    )
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-crown-integrity.json"'
+    return response
+
+
+@app.route("/api/crown-integrity/<title_digest>")
+def crown_integrity_detail_api(title_digest):
+    proof = _crown_integrity_find(title_digest)
+    if not proof:
+        return jsonify({"success": False, "message": "Crown proof not found or digest prefix is ambiguous."}), 404
+    checks = dict(proof.get("checks") or {})
+    passed = sum(1 for v in checks.values() if bool(v))
+    total = len(checks)
+    score = round((passed / max(1, total)) * 100, 1)
+    return jsonify({
+        "success": True,
+        "version": "V19.9",
+        "title_digest": str(proof.get("title_digest") or ""),
+        "integrity": str(proof.get("integrity") or "BROKEN"),
+        "integrity_score": score,
+        "checks_passed": passed,
+        "checks_total": total,
+        "proof": proof,
+    })
+
+
+@app.route("/crown-badge/<title_digest>.svg")
+def crown_integrity_badge_svg(title_digest):
+    proof = _crown_integrity_find(title_digest)
+    if not proof:
+        return Response("<svg xmlns='http://www.w3.org/2000/svg' width='240' height='44'><rect width='240' height='44' rx='10' fill='#11131a'/><text x='16' y='27' fill='#ff6b7a' font-family='Arial,sans-serif' font-size='13' font-weight='700'>BL3 CROWN // NOT FOUND</text></svg>", status=404, mimetype="image/svg+xml")
+    integrity = str(proof.get("integrity") or "BROKEN").upper()
+    checks = dict(proof.get("checks") or {})
+    passed = sum(1 for v in checks.values() if bool(v))
+    total = len(checks)
+    score = round((passed / max(1, total)) * 100, 1)
+    season = html.escape(str(proof.get("season_key") or ""))
+    champion = html.escape(str(proof.get("champion") or ""))
+    label = "VERIFIED" if integrity == "VALID" else "BROKEN"
+    accent = "#baff5a" if integrity == "VALID" else "#ff6b7a"
+    svg = """<svg xmlns='http://www.w3.org/2000/svg' width='520' height='96' viewBox='0 0 520 96'>
+<defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='#151621'/><stop offset='1' stop-color='#090a0f'/></linearGradient></defs>
+<rect width='520' height='96' rx='20' fill='url(#g)' stroke='{accent}' stroke-opacity='.55'/>
+<circle cx='47' cy='48' r='24' fill='{accent}' fill-opacity='.12' stroke='{accent}'/><text x='47' y='56' text-anchor='middle' fill='{accent}' font-family='Arial,sans-serif' font-size='24'>♛</text>
+<text x='86' y='31' fill='#8e92a3' font-family='Arial,sans-serif' font-size='11' font-weight='700'>BL3 CROWN INTEGRITY</text>
+<text x='86' y='55' fill='#ffffff' font-family='Arial,sans-serif' font-size='20' font-weight='800'>{champion}</text>
+<text x='86' y='75' fill='#8e92a3' font-family='Arial,sans-serif' font-size='11'>{season} · {score}% checks</text>
+<rect x='399' y='28' width='96' height='40' rx='12' fill='{accent}' fill-opacity='.12' stroke='{accent}'/>
+<text x='447' y='53' text-anchor='middle' fill='{accent}' font-family='Arial,sans-serif' font-size='12' font-weight='800'>{label}</text>
+</svg>""".format(accent=accent, champion=champion, season=season, score=score, label=label)
+    response = Response(svg, mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=60"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@app.route("/crown-integrity")
+def crown_integrity_page():
+    data = _crown_integrity_snapshot(
+        request.args.get("q", ""), request.args.get("status", ""), request.args.get("limit", 200)
+    )
+    esc = html.escape
+    cards = []
+    for item in data.get("items") or []:
+        good = item.get("integrity") == "VALID"
+        cls = "ok" if good else "bad"
+        cards.append("""<article class='card {cls}'><div class='top'><span>{season} · {size}-HUNTER</span><b>{integrity}</b></div><h2>{champion}</h2><div class='score'>{score}%</div><div class='meta'>{passed}/{total} integrity checks passed · Final Battle #{battle}</div><code>{digest}</code><div><a href='{proof_url}'>PROOF CHAIN</a><a href='{badge_url}'>SVG TRUST BADGE</a></div></article>""".format(
+            cls=cls, season=esc(str(item.get("season_key") or "")), size=int(item.get("bracket_size") or 0), integrity=esc(str(item.get("integrity") or "")), champion=esc(str(item.get("champion") or "—")), score=esc(str(item.get("integrity_score") or 0)), passed=int(item.get("checks_passed") or 0), total=int(item.get("checks_total") or 0), battle=int(item.get("final_battle_id") or 0), digest=esc(str(item.get("title_digest") or "")), proof_url=esc(str(item.get("proof_url") or "#")), badge_url=esc(str(item.get("badge_url") or "#"))))
+    status = str(data.get("status_filter") or "")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Integrity</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#26340b,transparent 28%),radial-gradient(circle at 88% 0,#20114a,transparent 31%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #343641;background:#0b0c11;border-radius:28px;padding:25px;margin-top:18px}.hot{color:#baff5a;font-weight:950;letter-spacing:1.2px}h1{font-size:clamp(58px,9vw,100px);line-height:.86;margin:10px 0 16px}.meta{color:#9699a8;font-size:10px;line-height:1.7}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:18px 0}.stat{border:1px solid #30323b;border-radius:14px;padding:14px}.stat b{font-size:27px}.stat span{display:block;color:#858899;font-size:9px}.filters{display:grid;grid-template-columns:2fr 1fr auto;gap:8px}input,select,button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:11px;font:inherit}button{font-weight:900;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.card{border:1px solid #30323b;border-radius:20px;padding:18px;background:#08090d}.card.ok{border-color:rgba(186,255,90,.3)}.card.bad{border-color:rgba(255,107,122,.42)}.top{display:flex;justify-content:space-between;color:#9599a8;font-size:9px}.card.ok .top b,.card.ok .score{color:#baff5a}.card.bad .top b,.card.bad .score{color:#ff6b7a}.card h2{font-size:29px;margin:11px 0 3px}.score{font-size:40px;font-weight:950}.card code{display:block;color:#737681;word-break:break-all;font-size:8px;margin:12px 0}.card a,.hero a{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;margin:8px 6px 0 0;font-size:8px;font-weight:900}.digest{color:#70737e;font:9px ui-monospace,monospace;word-break:break-all;margin-top:15px}@media(max-width:800px){.filters,.grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+</style></head><body><div class='wrap'><section class='hero'><div class='hot'>V19.9 // CROWN INTEGRITY REGISTRY + TRUST BADGES</div><h1>VERIFY THE LEGACY.</h1><p class='meta'>A read-only integrity index over sealed Crown proof chains, plus shareable SVG trust badges for each recorded title.</p><div class='stats'><div class='stat'><b>{count}</b><span>INDEXED TITLES</span></div><div class='stat'><b>{valid}</b><span>VALID</span></div><div class='stat'><b>{broken}</b><span>BROKEN</span></div><div class='stat'><b>{avg}%</b><span>AVG INTEGRITY</span></div></div><form class='filters' method='get'><input name='q' value='{q}' placeholder='season, champion, battle, digest...'><select name='status'><option value=''>ALL STATUS</option><option value='VALID' {valid_sel}>VALID</option><option value='BROKEN' {broken_sel}>BROKEN</option></select><button>FILTER</button></form><a href='/crown-provenance'>PROOF EXPLORER</a><a href='/crown-compare'>COMPARE</a><a href='/crown-integrity.json'>EXPORT JSON</a></section><section class='panel'><div class='grid'>{cards}</div></section><div class='digest'>REGISTRY DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        count=int(data.get("count") or 0), valid=int(data.get("valid") or 0), broken=int(data.get("broken") or 0), avg=esc(str(data.get("average_integrity_score") or 0)), q=esc(str(request.args.get("q", ""))), valid_sel="selected" if status == "VALID" else "", broken_sel="selected" if status == "BROKEN" else "", cards="".join(cards) or '<div class="meta">No Crown integrity records matched.</div>', digest=esc(str(data.get("registry_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🔎 BL3 ARENA V19.8 // CROWN PROVENANCE + PROOF EXPLORER")
+    print("🛡️ BL3 ARENA V19.9 // CROWN INTEGRITY REGISTRY + TRUST BADGES")
+    print("🛡️ Crown Integrity Registry + SVG Trust Badges enabled")
+    print("🔎 Crown Provenance + Proof Explorer enabled")
     print("🔎 Crown Provenance + Proof Explorer enabled")
     print("⚖️ Crown Compare + Rival Legacy enabled")
     print("📖 Crown Storybook + Share Cards enabled")
