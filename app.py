@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.4")
+    response.headers.setdefault("X-BL3-Version", "20.5")
     return response
 
 
@@ -19025,12 +19025,177 @@ def accessibility_error_audit_page():
         digest=esc(str(data.get("audit_digest") or "")), policy=esc(str(data.get("policy") or ""))
     )
 
+
+
+# ===== V20.5 SECURITY HEADERS + SESSION LAUNCH AUDIT =====
+def _security_session_header_probe(path="/"):
+    item = {"path": str(path), "status": 0, "headers": {}, "checks": {}, "issues": []}
+    try:
+        with app.test_client() as client:
+            response = client.get(path, follow_redirects=False)
+        item["status"] = int(response.status_code)
+        wanted = [
+            "X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy",
+            "Permissions-Policy", "Content-Security-Policy", "Strict-Transport-Security",
+            "Cache-Control", "X-BL3-Version",
+        ]
+        item["headers"] = {k: str(response.headers.get(k) or "") for k in wanted}
+        h = item["headers"]
+        item["checks"] = {
+            "http_ok": 200 <= item["status"] < 400,
+            "nosniff": h.get("X-Content-Type-Options", "").lower() == "nosniff",
+            "frame_guard": h.get("X-Frame-Options", "").upper() in ("DENY", "SAMEORIGIN"),
+            "referrer_policy": bool(h.get("Referrer-Policy")),
+            "permissions_policy": bool(h.get("Permissions-Policy")),
+            "csp_present": bool(h.get("Content-Security-Policy")),
+            "hsts_present": bool(h.get("Strict-Transport-Security")),
+            "version_header": h.get("X-BL3-Version") == "20.5",
+        }
+        if not item["checks"]["nosniff"]: item["issues"].append("X-Content-Type-Options missing or weak")
+        if not item["checks"]["frame_guard"]: item["issues"].append("frame embedding protection missing")
+        if not item["checks"]["referrer_policy"]: item["issues"].append("Referrer-Policy missing")
+        if not item["checks"]["permissions_policy"]: item["issues"].append("Permissions-Policy missing")
+        if not item["checks"]["csp_present"]: item["issues"].append("Content-Security-Policy not enforced yet")
+        if BL3_PUBLIC_URL.startswith("https://") and not item["checks"]["hsts_present"]:
+            item["issues"].append("HSTS not present on HTTPS posture")
+    except Exception as exc:
+        item["issues"].append("probe failed: " + type(exc).__name__)
+    item["ok"] = bool(item.get("checks", {}).get("http_ok")) and all(
+        item.get("checks", {}).get(k) for k in ("nosniff", "frame_guard", "referrer_policy", "permissions_policy", "version_header")
+    )
+    return item
+
+
+def _security_session_audit_snapshot():
+    production = BL3_ENV in ("production", "prod")
+    https_public = BL3_PUBLIC_URL.startswith("https://")
+    secret_env = bool(os.environ.get("BL3_SECRET_KEY"))
+    secure_cookie = bool(app.config.get("SESSION_COOKIE_SECURE"))
+    httponly = bool(app.config.get("SESSION_COOKIE_HTTPONLY"))
+    samesite = str(app.config.get("SESSION_COOKIE_SAMESITE") or "")
+    admin_enabled = bool(BL3_ADMIN_TOKEN)
+    rate_enabled = bool(BL3_RATE_LIMIT)
+
+    session_checks = [
+        {"key":"secret_key_env","label":"Persistent production secret","ok": secret_env or not production,
+         "detail":"BL3_SECRET_KEY is configured." if secret_env else ("Development mode allows an ephemeral secret." if not production else "Set BL3_SECRET_KEY before public beta.")},
+        {"key":"cookie_httponly","label":"HttpOnly session cookie","ok": httponly,
+         "detail":"SESSION_COOKIE_HTTPONLY={}".format(httponly)},
+        {"key":"cookie_samesite","label":"SameSite session cookie","ok": samesite.lower() in ("lax","strict"),
+         "detail":"SESSION_COOKIE_SAMESITE={}".format(samesite or "unset")},
+        {"key":"cookie_secure","label":"Secure cookie on HTTPS","ok": (not https_public) or secure_cookie,
+         "detail":"SESSION_COOKIE_SECURE={}".format(secure_cookie)},
+        {"key":"admin_token","label":"Admin protection configured","ok": admin_enabled or not production,
+         "detail":"BL3_ADMIN_TOKEN configured." if admin_enabled else ("Optional in development." if not production else "Set BL3_ADMIN_TOKEN before operator launch.")},
+        {"key":"rate_limit","label":"Write/auth rate limiting","ok": rate_enabled,
+         "detail":"Rate limiting enabled." if rate_enabled else "Enable BL3_RATE_LIMIT for public beta."},
+        {"key":"origin_guard","label":"Same-origin write guard","ok": callable(globals().get("_same_origin_ok")),
+         "detail":"Protected writes use BL3 same-origin validation."},
+    ]
+
+    surfaces = [
+        _security_session_header_probe("/"),
+        _security_session_header_probe("/api/public-beta-readiness"),
+        _security_session_header_probe("/api/beta-qa"),
+    ]
+    core_total = sum(len(x.get("checks") or {}) for x in surfaces)
+    core_pass = sum(sum(1 for v in (x.get("checks") or {}).values() if v) for x in surfaces)
+    session_pass = sum(1 for x in session_checks if x.get("ok"))
+    session_total = len(session_checks)
+
+    # CSP/HSTS are advisory in V20.5 because enforcing a strict CSP without first removing
+    # legacy inline JS/CSS could break the current UI. The audit surfaces them explicitly.
+    hard_fail = any(not x.get("ok") for x in session_checks if x.get("key") in ("cookie_httponly", "cookie_samesite", "rate_limit"))
+    production_fail = production and any(not x.get("ok") for x in session_checks if x.get("key") in ("secret_key_env", "cookie_secure", "admin_token"))
+    score = round(((session_pass + core_pass) / max(1, session_total + core_total)) * 100)
+    state = "HOLD" if (hard_fail or production_fail) else ("PASS" if score >= 88 else "REVIEW")
+
+    payload = {
+        "success": True,
+        "version": "V20.5",
+        "state": state,
+        "score": int(score),
+        "environment": BL3_ENV,
+        "public_url": BL3_PUBLIC_URL,
+        "session_checks": session_checks,
+        "header_surfaces": surfaces,
+        "advisories": [
+            "Add a staged Content-Security-Policy only after inline scripts/styles are inventoried or nonce/hash support is added.",
+            "Enable HSTS only when BL3_PUBLIC_URL is permanently HTTPS and proxy forwarding is verified.",
+            "Keep BL3_SECRET_KEY stable across Railway restarts so existing sessions remain valid.",
+            "Use Secure + HttpOnly + SameSite cookies in production and avoid exposing admin tokens to browser JavaScript.",
+        ],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V20.5 is a read-only launch audit. It does not rotate secrets, change cookies, enforce CSP/HSTS, "
+            "mutate SQLite, deploy, rollback, or contact external services."
+        ),
+    }
+    digest_input = dict(payload); digest_input.pop("generated_at", None)
+    payload["audit_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/security-session-audit")
+def security_session_audit_api():
+    return jsonify(_security_session_audit_snapshot())
+
+
+@app.route("/security-session-audit.json")
+def security_session_audit_export():
+    data = _security_session_audit_snapshot()
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-security-session-audit-v20-5.json"'
+    return response
+
+
+@app.route("/security-session-audit")
+def security_session_audit_page():
+    data = _security_session_audit_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "REVIEW")
+    cls = "good" if state == "PASS" else ("warn" if state == "REVIEW" else "bad")
+    session_rows = []
+    for item in data.get("session_checks") or []:
+        session_rows.append(
+            '<div class="row"><div><b>{}</b><span>{}</span></div><strong class="{}">{}</strong></div>'.format(
+                esc(str(item.get("label") or "")), esc(str(item.get("detail") or "")),
+                "good" if item.get("ok") else "bad", "PASS" if item.get("ok") else "FIX"
+            )
+        )
+    header_rows = []
+    for item in data.get("header_surfaces") or []:
+        missing = ", ".join(item.get("issues") or []) or "core headers present"
+        header_rows.append(
+            '<div class="row"><div><b>{}</b><span>HTTP {} · {}</span></div><strong class="{}">{}</strong></div>'.format(
+                esc(str(item.get("path") or "")), int(item.get("status") or 0), esc(missing),
+                "good" if item.get("ok") else "warn", "PASS" if item.get("ok") else "REVIEW"
+            )
+        )
+    advisories = "".join("<li>{}</li>".format(esc(str(x))) for x in (data.get("advisories") or []))
+    return """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>BL3 Security + Session Launch Audit</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#1a4639,transparent 30%),radial-gradient(circle at 90% 0,#32235c,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.panel{border:1px solid #30343c;border-radius:26px;padding:24px;margin-top:18px;background:#0b0d12}.k{color:#65ffd0;font-size:10px;letter-spacing:2px;font-weight:900}h1{font-size:clamp(48px,8vw,88px);line-height:.9;margin:10px 0 14px}.meta{color:#9da1af;font-size:11px;line-height:1.65}.score{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.score b{font-size:44px}.pill{border:1px solid #3b404b;border-radius:999px;padding:8px 12px;font-weight:900}.good{color:#65ffd0}.warn{color:#ffd66b}.bad{color:#ff6e7c}.row{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid #242730}.row:last-child{border-bottom:0}.row b,.row span{display:block}.row span{color:#8f94a4;font-size:10px;margin-top:5px;max-width:760px}.digest{font:9px ui-monospace,monospace;color:#737785;word-break:break-all;margin-top:18px}ul{color:#a8acb8;line-height:1.7}@media(max-width:700px){.row{align-items:flex-start;flex-direction:column}body{padding:12px}}</style></head>
+<body><div class='wrap'><section class='hero'><div class='k'>V20.5 // SECURITY + SESSION LAUNCH AUDIT</div><h1>TRUST THE SESSION.</h1><div class='score'><b class='{cls}'>{state}</b><span class='pill'>{score}/100</span></div><p class='meta'>Read-only review of browser security headers, Flask session posture, production secrets, origin guards and launch-critical settings.</p></section>
+<section class='panel'><div class='k'>SESSION + CONFIG</div>{sessions}</section>
+<section class='panel'><div class='k'>HEADER SURFACES</div>{headers}</section>
+<section class='panel'><div class='k'>STAGED HARDENING</div><ul>{advisories}</ul></section>
+<div class='digest'>SECURITY AUDIT DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        cls=cls, state=esc(state), score=int(data.get("score") or 0), sessions="".join(session_rows),
+        headers="".join(header_rows), advisories=advisories, digest=esc(str(data.get("audit_digest") or "")),
+        policy=esc(str(data.get("policy") or ""))
+    )
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("♿ BL3 ARENA V20.4 // ACCESSIBILITY + ERROR UX AUDIT")
+    print("🛡️ BL3 ARENA V20.5 // SECURITY HEADERS + SESSION LAUNCH AUDIT")
+    print("🛡️ Security Headers + Session Launch Audit enabled")
+    print("♿ Accessibility + Error UX Audit enabled")
     print("♿ Accessibility + Error UX Audit enabled")
     print("📱 Mobile UX Launch Audit enabled")
     print("🧪 Public Beta Smoke Suite + User Journey Checks enabled")
