@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.3")
+    response.headers.setdefault("X-BL3-Version", "20.4")
     return response
 
 
@@ -18861,12 +18861,177 @@ def mobile_ux_audit_page():
         digest=esc(str(data.get("audit_digest") or "")), policy=esc(str(data.get("policy") or ""))
     )
 
+
+# ===== V20.4 ACCESSIBILITY + ERROR UX AUDIT =====
+def _a11y_error_surface_paths():
+    return [
+        ("HOME", "/"),
+        ("BETA QA", "/beta-qa"),
+        ("SMOKE SUITE", "/public-beta-smoke"),
+        ("BETA GATE", "/public-beta-readiness"),
+        ("MOBILE UX", "/mobile-ux-audit"),
+        ("CROWN INTEGRITY", "/crown-integrity"),
+    ]
+
+
+def _a11y_html_probe(label, path):
+    import re as _re
+    item = {
+        "label": str(label), "path": str(path), "status": 0, "ok": False,
+        "checks": {}, "issues": [], "counts": {},
+    }
+    try:
+        with app.test_client() as client:
+            response = client.get(path, follow_redirects=False)
+        item["status"] = int(response.status_code)
+        body = response.get_data(as_text=True) if response.mimetype == "text/html" else ""
+        lower = body.lower()
+        checks = {
+            "html_lang": bool(_re.search(r"<html[^>]+lang\s*=", lower)),
+            "title": bool(_re.search(r"<title>\s*[^<]+", body, flags=_re.I)),
+            "viewport": "name=\"viewport\"" in lower or "name='viewport'" in lower,
+            "heading": bool(_re.search(r"<h1(?:\s|>)", lower)),
+            "keyboard_focus_css": ":focus" in lower or ":focus-visible" in lower,
+            "reduced_motion_css": "prefers-reduced-motion" in lower,
+        }
+        imgs = _re.findall(r"<img\b[^>]*>", body, flags=_re.I)
+        links = _re.findall(r"<a\b[^>]*>(.*?)</a>", body, flags=_re.I | _re.S)
+        buttons = _re.findall(r"<button\b[^>]*>(.*?)</button>", body, flags=_re.I | _re.S)
+        inputs = _re.findall(r"<(?:input|select|textarea)\b[^>]*>", body, flags=_re.I)
+        checks["image_alt"] = all(_re.search(r"\balt\s*=", tag, flags=_re.I) for tag in imgs) if imgs else True
+        checks["link_text"] = all(_re.sub(r"<[^>]+>", "", x).strip() for x in links) if links else True
+        checks["button_text"] = all(_re.sub(r"<[^>]+>", "", x).strip() or _re.search(r"aria-label\s*=", x, flags=_re.I) for x in buttons) if buttons else True
+        # Heuristic only: controls should have a name/id/aria-label/title/placeholder signal.
+        checks["control_naming"] = all(
+            _re.search(r"\b(name|id|aria-label|title|placeholder)\s*=", tag, flags=_re.I)
+            for tag in inputs
+        ) if inputs else True
+        item["counts"] = {"images": len(imgs), "links": len(links), "buttons": len(buttons), "controls": len(inputs)}
+        item["checks"] = checks
+        critical = ("html_lang", "title", "viewport", "heading", "image_alt", "link_text", "button_text", "control_naming")
+        for key, passed in checks.items():
+            if not passed:
+                item["issues"].append(key.replace("_", " "))
+        item["ok"] = 200 <= item["status"] < 400 and all(checks.get(k, False) for k in critical)
+    except Exception as exc:
+        item["issues"].append(type(exc).__name__)
+    return item
+
+
+def _error_ux_probe():
+    path = "/__bl3_missing_launch_audit__"
+    result = {"path": path, "status": 0, "ok": False, "safe": False, "friendly": False, "issues": []}
+    try:
+        with app.test_client() as client:
+            response = client.get(path, follow_redirects=False)
+        result["status"] = int(response.status_code)
+        body = response.get_data(as_text=True)
+        lower = body.lower()
+        leaked = any(token in lower for token in ("traceback (most recent call last)", "werkzeug debugger", "secret_key", "bl3_admin_token"))
+        result["safe"] = result["status"] == 404 and not leaked
+        result["friendly"] = any(token in lower for token in ("not found", "404", "return", "home", "bl3"))
+        if leaked:
+            result["issues"].append("debug or secret-like detail exposed")
+        if result["status"] != 404:
+            result["issues"].append("unexpected missing-route status")
+        if not result["friendly"]:
+            result["issues"].append("404 copy could be more helpful")
+        result["ok"] = result["safe"] and result["friendly"]
+    except Exception as exc:
+        result["issues"].append(type(exc).__name__)
+    return result
+
+
+def _accessibility_error_audit_snapshot():
+    surfaces = [_a11y_html_probe(label, path) for label, path in _a11y_error_surface_paths()]
+    error_probe = _error_ux_probe()
+    total_checks = sum(len(x.get("checks") or {}) for x in surfaces) + 2
+    passed_checks = sum(sum(1 for v in (x.get("checks") or {}).values() if v) for x in surfaces)
+    passed_checks += int(bool(error_probe.get("safe"))) + int(bool(error_probe.get("friendly")))
+    score = round((passed_checks / max(1, total_checks)) * 100)
+    critical_failures = sum(1 for x in surfaces if not x.get("ok")) + (0 if error_probe.get("safe") else 1)
+    state = "PASS" if score >= 90 and critical_failures == 0 else ("REVIEW" if score >= 70 else "FAIL")
+    payload = {
+        "success": True,
+        "version": "V20.4",
+        "state": state,
+        "score": score,
+        "surfaces": surfaces,
+        "error_ux": error_probe,
+        "manual_review": [
+            "Keyboard-only pass: every interactive control is reachable in a logical order",
+            "Visible focus ring remains obvious on dark backgrounds",
+            "Text and important controls retain sufficient contrast at normal and hover states",
+            "Screen-reader labels describe icon-only or ambiguous controls",
+            "Zoom to 200% without losing primary actions or forcing two-dimensional scrolling",
+            "Errors explain what happened and offer a clear recovery action without exposing internals",
+            "Motion-heavy effects respect reduced-motion preferences before public beta",
+        ],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V20.4 is a read-only accessibility and error-UX audit. It uses bounded internal GET probes and static HTML heuristics only; "
+            "it does not submit forms, create users, mutate SQLite, deploy, rollback or call external networks. "
+            "Automated heuristics do not replace keyboard, screen-reader, contrast and real-device review."
+        ),
+    }
+    digest_input = dict(payload); digest_input.pop("generated_at", None)
+    payload["audit_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/accessibility-error-audit")
+def accessibility_error_audit_api():
+    return jsonify(_accessibility_error_audit_snapshot())
+
+
+@app.route("/accessibility-error-audit.json")
+def accessibility_error_audit_export():
+    data = _accessibility_error_audit_snapshot()
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-accessibility-error-audit-v20-4.json"'
+    return response
+
+
+@app.route("/accessibility-error-audit")
+def accessibility_error_audit_page():
+    data = _accessibility_error_audit_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "REVIEW")
+    cls = "good" if state == "PASS" else ("warn" if state == "REVIEW" else "bad")
+    rows = []
+    for item in data.get("surfaces") or []:
+        issues = ", ".join(item.get("issues") or []) or "core HTML accessibility heuristics passed"
+        rows.append(
+            '<div class="row"><div><b>{}</b><span>{} · HTTP {} · {}</span></div><strong class="{}">{}</strong></div>'.format(
+                esc(str(item.get("label") or "")), esc(str(item.get("path") or "")), int(item.get("status") or 0), esc(issues),
+                "good" if item.get("ok") else "warn", "PASS" if item.get("ok") else "REVIEW"
+            )
+        )
+    err = data.get("error_ux") or {}
+    err_issues = ", ".join(err.get("issues") or []) or "safe and recoverable missing-route response"
+    manual = "".join('<li>{}</li>'.format(esc(str(x))) for x in (data.get("manual_review") or []))
+    return """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'><title>BL3 Accessibility + Error UX Audit</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#173a32,transparent 30%),radial-gradient(circle at 90% 0,#35214d,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:18px}.wrap{max-width:1080px;margin:auto}.hero,.panel{border:1px solid #30343f;border-radius:24px;background:#0b0d12;padding:22px;margin:14px 0}.k{color:#baff5a;font-size:10px;letter-spacing:2px;font-weight:950}h1{font-size:clamp(45px,8vw,84px);line-height:.9;margin:9px 0 14px;letter-spacing:-3px}.state{display:inline-block;border:1px solid #3a3d47;border-radius:999px;padding:8px 11px;font-weight:950}.good{color:#baff5a}.warn{color:#ffd66b}.bad{color:#ff6e7c}.meta,.row span{color:#999dab;font-size:11px;line-height:1.6}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.actions a{color:#fff;text-decoration:none;border:1px solid #3a3d48;border-radius:10px;padding:10px 12px;font-size:10px;font-weight:900}.actions a:focus-visible{outline:3px solid #61f4ff;outline-offset:3px}.rows{display:grid;gap:8px}.row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #292d36;border-radius:14px;padding:13px;background:#090b10}.row b,.row span{display:block}.row strong{font-size:10px}.checklist{padding-left:20px;color:#d1d3dc;line-height:1.75}.digest{font:9px ui-monospace,monospace;color:#767a87;word-break:break-all;margin-top:16px}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}@media(max-width:620px){body{padding:10px}.hero,.panel{padding:16px;border-radius:18px}.row{align-items:flex-start;flex-direction:column}.actions a{flex:1 1 46%;text-align:center}h1{letter-spacing:-2px}}</style></head><body><div class='wrap'>
+<section class='hero'><div class='k'>V20.4 // ACCESSIBILITY + ERROR UX AUDIT</div><h1>MAKE FAILURE USABLE.</h1><div class='state {cls}'>{state} · {score}/100</div><p class='meta'>Review core launch surfaces for basic accessibility signals and verify that a missing route fails safely before public beta.</p><div class='actions'><a href='/mobile-ux-audit'>MOBILE UX</a><a href='/beta-qa'>BETA QA</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/accessibility-error-audit.json'>EXPORT JSON</a></div></section>
+<section class='panel'><div class='k'>CORE SURFACES</div><div class='rows'>{rows}</div></section>
+<section class='panel'><div class='k'>ERROR UX</div><div class='row'><div><b>MISSING ROUTE</b><span>HTTP {status} · {issues}</span></div><strong class='{errcls}'>{errstate}</strong></div></section>
+<section class='panel'><div class='k'>MANUAL LAUNCH REVIEW</div><ul class='checklist'>{manual}</ul></section>
+<div class='digest'>ACCESSIBILITY AUDIT DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        cls=cls, state=esc(state), score=int(data.get("score") or 0), rows="".join(rows),
+        status=int(err.get("status") or 0), issues=esc(err_issues), errcls="good" if err.get("ok") else "warn",
+        errstate="PASS" if err.get("ok") else "REVIEW", manual=manual,
+        digest=esc(str(data.get("audit_digest") or "")), policy=esc(str(data.get("policy") or ""))
+    )
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("📱 BL3 ARENA V20.3 // MOBILE UX LAUNCH AUDIT")
+    print("♿ BL3 ARENA V20.4 // ACCESSIBILITY + ERROR UX AUDIT")
+    print("♿ Accessibility + Error UX Audit enabled")
     print("📱 Mobile UX Launch Audit enabled")
     print("🧪 Public Beta Smoke Suite + User Journey Checks enabled")
     print("🚦 Public Beta Gate + Launch Readiness enabled")
