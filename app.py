@@ -13,6 +13,8 @@ import html
 import hashlib
 import threading
 import logging
+import ast
+from pathlib import Path
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from eth_account import Account
@@ -10693,7 +10695,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.7")
+    response.headers.setdefault("X-BL3-Version", "20.8")
     return response
 
 
@@ -19503,12 +19505,206 @@ def storage_survival_check_v207():
         esc(str(data.get("survival_digest") or "")), esc(str(data.get("policy") or ""))
     )
 
+# ===== V20.8 DATABASE MIGRATION SAFETY + PRE-DEPLOY SNAPSHOT =====
+def _v208_sqlite_inventory(db_path):
+    """Read-only SQLite schema + critical row-count inventory for deploy comparisons."""
+    result = {
+        "ok": False, "quick_check": "unavailable", "schema_digest": "",
+        "tables": [], "indexes": [], "critical_counts": {}, "error": ""
+    }
+    if not db_path or not os.path.exists(db_path):
+        result["error"] = "database file missing"
+        return result
+    try:
+        uri = "file:" + urllib.parse.quote(os.path.abspath(db_path), safe="/:") + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        qc = conn.execute("PRAGMA quick_check").fetchone()
+        result["quick_check"] = str(qc[0] if qc else "unknown")
+        tables = [str(r[0]) for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()]
+        schema = []
+        for table in tables:
+            cols = []
+            for row in conn.execute("PRAGMA table_info(%s)" % ('"' + table.replace('"','""') + '"')).fetchall():
+                cols.append({
+                    "name": str(row[1]), "type": str(row[2] or ""), "notnull": int(row[3] or 0),
+                    "default": None if row[4] is None else str(row[4]), "pk": int(row[5] or 0)
+                })
+            schema.append({"table": table, "columns": cols})
+        indexes = [str(r[0]) for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()]
+        critical = [
+            "users", "arenas", "arena_submissions", "reputation_events", "creature_battles",
+            "championship_match_results", "championship_titles", "admin_audit_events"
+        ]
+        counts = {}
+        for table in critical:
+            if table in tables:
+                q = 'SELECT COUNT(*) FROM "' + table.replace('"','""') + '"'
+                counts[table] = int(conn.execute(q).fetchone()[0] or 0)
+        canonical = json.dumps({"schema": schema, "indexes": indexes}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        result.update({
+            "ok": result["quick_check"].lower() == "ok",
+            "schema_digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            "tables": tables, "indexes": indexes, "critical_counts": counts
+        })
+        conn.close()
+    except Exception as exc:
+        result["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:220])
+    return result
+
+
+def _v208_source_migration_risk():
+    """Static, read-only scan of literal SQL passed to execute()/executemany()."""
+    patterns = {
+        "drop_table": r"\bDROP\s+TABLE\b",
+        "drop_column": r"\bDROP\s+COLUMN\b",
+        "truncate": r"\bTRUNCATE\b",
+        "delete_without_where": r"^\s*DELETE\s+FROM\s+[A-Za-z_][A-Za-z0-9_]*\s*;?\s*$",
+    }
+    result = {"source_readable": False, "destructive_hits": {}, "total_hits": 0, "sql_literals_scanned": 0}
+    try:
+        src_text = Path(__file__).read_text(encoding="utf-8", errors="ignore")
+        tree = ast.parse(src_text)
+        sql_literals = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            fn = node.func
+            if isinstance(fn, ast.Attribute) and fn.attr in ("execute", "executemany", "executescript"):
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    sql_literals.append(arg.value)
+        result["source_readable"] = True
+        result["sql_literals_scanned"] = len(sql_literals)
+        joined = "\n".join(sql_literals)
+        for key, pattern in patterns.items():
+            flags = re.IGNORECASE | re.MULTILINE
+            hits = len(re.findall(pattern, joined, flags=flags))
+            result["destructive_hits"][key] = hits
+            result["total_hits"] += hits
+    except Exception as exc:
+        result["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:220])
+    return result
+
+
+def _v208_predeploy_snapshot():
+    """Read-only migration safety gate. Never changes schema, data, backups, or deploy state."""
+    live = _v208_sqlite_inventory(os.path.abspath(DB))
+    backup_dir = os.path.abspath(BL3_BACKUP_DIR)
+    backups = []
+    try:
+        if os.path.isdir(backup_dir):
+            backups = sorted(
+                [os.path.join(backup_dir, name) for name in os.listdir(backup_dir) if name.lower().endswith('.db')],
+                key=lambda p: os.path.getmtime(p), reverse=True
+            )
+    except Exception:
+        backups = []
+    latest_backup = backups[0] if backups else ""
+    backup = _v208_sqlite_inventory(latest_backup) if latest_backup else {
+        "ok": False, "quick_check": "missing", "schema_digest": "", "tables": [], "indexes": [],
+        "critical_counts": {}, "error": "no backup found"
+    }
+    risk = _v208_source_migration_risk()
+
+    checks = []
+    def add(key, label, ok, detail, severity="critical", weight=10):
+        checks.append({"key": key, "label": label, "ok": bool(ok), "detail": str(detail)[:600], "severity": severity, "weight": int(weight)})
+
+    add("live_integrity", "Live SQLite quick_check passes", live.get("ok"), live.get("quick_check") or live.get("error"), "critical", 18)
+    add("schema_fingerprint", "Live schema fingerprint captured", bool(live.get("schema_digest")), live.get("schema_digest") or live.get("error"), "critical", 14)
+    add("backup_exists", "Pre-deploy backup evidence exists", bool(latest_backup), latest_backup or "No .db backup found", "critical", 16)
+    add("backup_integrity", "Latest backup passes quick_check", backup.get("ok"), backup.get("quick_check") or backup.get("error"), "critical", 16)
+    add("destructive_sql", "No destructive SQL patterns detected", bool(risk.get("source_readable")) and int(risk.get("total_hits") or 0) == 0,
+        json.dumps(risk.get("destructive_hits") or {}, sort_keys=True), "critical", 18)
+    add("persistent_path", "Database path is explicitly configurable", bool(os.environ.get("BL3_DB_PATH")), os.path.abspath(DB), "warning", 8)
+    add("backup_path", "Backup directory is explicitly configurable", bool(os.environ.get("BL3_BACKUP_DIR")), backup_dir, "warning", 5)
+    add("critical_inventory", "Critical row-count inventory captured", bool(live.get("critical_counts")), json.dumps(live.get("critical_counts") or {}, sort_keys=True), "warning", 5)
+
+    total = sum(c["weight"] for c in checks) or 1
+    earned = sum(c["weight"] for c in checks if c["ok"])
+    score = int(round(100 * earned / total))
+    critical_failed = [c for c in checks if c["severity"] == "critical" and not c["ok"]]
+    state = "READY" if not critical_failed and score >= 85 else ("REVIEW" if score >= 60 else "HOLD")
+
+    comparison = {
+        "schema_same_as_latest_backup": bool(live.get("schema_digest") and live.get("schema_digest") == backup.get("schema_digest")),
+        "live_schema_digest": live.get("schema_digest") or "",
+        "backup_schema_digest": backup.get("schema_digest") or "",
+        "live_counts": live.get("critical_counts") or {},
+        "backup_counts": backup.get("critical_counts") or {},
+    }
+    deltas = {}
+    for key in sorted(set(comparison["live_counts"]) | set(comparison["backup_counts"])):
+        deltas[key] = int(comparison["live_counts"].get(key, 0)) - int(comparison["backup_counts"].get(key, 0))
+    comparison["count_deltas_live_minus_backup"] = deltas
+
+    contract = [
+        "Create a verified database backup immediately before any schema-affecting deploy.",
+        "Export this V20.8 snapshot and keep its schema digest with the release notes.",
+        "Deploy only when Live quick_check and Backup quick_check both pass.",
+        "Review any destructive-SQL hit manually before deployment; HOLD if it is not intentional and reversible.",
+        "After deploy, rerun V20.8 and compare schema digest plus critical row counts against the pre-deploy snapshot.",
+        "If integrity or critical counts regress unexpectedly, stop rollout and restore only through the existing protected recovery procedure."
+    ]
+    payload = {
+        "version": "V20.8", "state": state, "score": score, "checks": checks,
+        "live": live, "latest_backup_path": latest_backup, "backup": backup,
+        "migration_risk": risk, "comparison": comparison, "predeploy_contract": contract,
+        "policy": "Read-only diagnostics only. V20.8 does not ALTER, CREATE, DROP, DELETE, INSERT, UPDATE, backup, restore, deploy or rollback anything."
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    payload["snapshot_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
+
+
+@app.route("/api/predeploy-snapshot")
+def api_predeploy_snapshot_v208():
+    return jsonify(_v208_predeploy_snapshot())
+
+
+@app.route("/predeploy-snapshot.json")
+def predeploy_snapshot_json_v208():
+    payload = json.dumps(_v208_predeploy_snapshot(), ensure_ascii=False, indent=2)
+    response = Response(payload, mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-predeploy-snapshot-v20-8.json"'
+    return response
+
+
+@app.route("/predeploy-snapshot")
+def predeploy_snapshot_v208():
+    data = _v208_predeploy_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "HOLD")
+    cls = "ok" if state == "READY" else ("warn" if state == "REVIEW" else "bad")
+    rows = []
+    for c in data.get("checks") or []:
+        rows.append("<div class='row'><span class='%s'>%s</span><div><b>%s</b><small>%s</small></div></div>" % (
+            "ok" if c.get("ok") else "bad", "✓" if c.get("ok") else "!",
+            esc(str(c.get("label") or "")), esc(str(c.get("detail") or ""))
+        ))
+    deltas = data.get("comparison", {}).get("count_deltas_live_minus_backup", {}) or {}
+    delta_html = "".join("<div class='metric'><b>%s</b><span>%+d</span></div>" % (esc(str(k)), int(v)) for k, v in deltas.items()) or "<p class='meta'>No comparable critical row counts yet.</p>"
+    contract = "".join("<li>%s</li>" % esc(str(x)) for x in data.get("predeploy_contract") or [])
+    return """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V20.8 // Pre-Deploy Snapshot</title><style>
+    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#050507;color:#f6f7fb;font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:1040px;margin:auto;padding:28px}.hero,.panel{background:#111218;border:1px solid #292c36;border-radius:22px;padding:22px;margin-bottom:16px}.k{color:#baff5a;font-size:11px;font-weight:900;letter-spacing:1.6px}h1{font-size:clamp(34px,6vw,68px);line-height:.95;margin:12px 0}.score{display:flex;gap:10px;align-items:center}.pill{border:1px solid #343846;padding:7px 10px;border-radius:999px}.ok{color:#baff5a}.warn{color:#ffd66b}.bad{color:#ff6f7d}.row{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid #242630}.row:last-child{border-bottom:0}.row small{display:block;color:#9398aa;word-break:break-all;margin-top:3px}.meta{color:#9aa0b2}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.actions a{color:#fff;text-decoration:none;border:1px solid #343745;border-radius:12px;padding:9px 12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.metric{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #242630}.digest{font:12px ui-monospace,monospace;color:#8f94a7;word-break:break-all}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body><div class='wrap'>
+    <section class='hero'><div class='k'>V20.8 // DATABASE MIGRATION SAFETY + PRE-DEPLOY SNAPSHOT</div><h1>FREEZE THE EVIDENCE BEFORE DEPLOY.</h1><div class='score'><b class='%s'>%s</b><span class='pill'>%s/100</span></div><p class='meta'>Read-only schema fingerprint, backup integrity, critical row-count inventory and destructive-SQL risk scan.</p><div class='actions'><a href='/storage-survival-check'>STORAGE</a><a href='/railway-launch-check'>RAILWAY</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/predeploy-snapshot.json'>EXPORT JSON</a></div></section>
+    <section class='panel'><h2>Migration safety checks</h2>%s</section><section class='panel'><h2>Live − latest backup row deltas</h2><div class='grid'>%s</div></section><section class='panel'><h2>Pre-deploy contract</h2><ol>%s</ol></section><section class='panel'><div class='digest'>SNAPSHOT DIGEST // %s</div><p class='meta'>%s</p></section></div></body></html>""" % (
+        cls, esc(state), int(data.get("score") or 0), "".join(rows), delta_html, contract,
+        esc(str(data.get("snapshot_digest") or "")), esc(str(data.get("policy") or ""))
+    )
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("💾 BL3 ARENA V20.7 // PERSISTENT STORAGE + BACKUP / RESTART SURVIVAL")
+    print("🧬 BL3 ARENA V20.8 // DATABASE MIGRATION SAFETY + PRE-DEPLOY SNAPSHOT")
+    print("🧬 Database Migration Safety + Pre-Deploy Snapshot enabled")
     print("💾 Persistent Storage + Backup / Restart Survival Check enabled")
     print("🚂 Production Config Doctor + Railway Launch Check enabled")
     print("🛡️ Security Headers + Session Launch Audit enabled")
