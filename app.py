@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.0")
+    response.headers.setdefault("X-BL3-Version", "20.1")
     return response
 
 
@@ -18311,15 +18311,172 @@ def public_beta_readiness_page():
         rows="".join(rows), digest=esc(str(data.get("gate_digest") or "")), policy=esc(str(data.get("policy") or "")))
 
 
+# ===== V20.1 PUBLIC BETA SMOKE SUITE + USER JOURNEY CHECKS =====
+def _public_beta_smoke_snapshot():
+    """Read-only structural smoke suite for BL3 public-beta deployment checks."""
+    gate = _public_beta_gate_snapshot()
+    integrity = _db_integrity_report()
+
+    route_rules = []
+    endpoint_names = []
+    try:
+        for rule in app.url_map.iter_rules():
+            route_rules.append(str(rule.rule))
+            endpoint_names.append(str(rule.endpoint))
+    except Exception:
+        pass
+    route_set = set(route_rules)
+
+    checks = []
+    def add(key, title, ok, detail, required=True):
+        checks.append({
+            "key": str(key),
+            "title": str(title),
+            "ok": bool(ok),
+            "required": bool(required),
+            "detail": str(detail)[:260],
+        })
+
+    add("home_route", "Home route registered", "/" in route_set,
+        "The BL3 landing experience is registered at /." if "/" in route_set else "Home route / is missing.")
+    add("user_api", "Hunter identity API registered", "/api/user/<username>" in route_set,
+        "Hunter identity lookup route is present." if "/api/user/<username>" in route_set else "Hunter identity API route is missing.")
+    add("leaderboard_api", "Leaderboard API registered", "/api/leaderboard" in route_set,
+        "Leaderboard route is present." if "/api/leaderboard" in route_set else "Leaderboard API route is missing.")
+    add("arena_surface", "Arena surface registered", any(r in route_set for r in ("/api/arenas", "/arenas", "/api/arena")),
+        "Arena/bounty surface is present." if any(r in route_set for r in ("/api/arenas", "/arenas", "/api/arena")) else "No expected Arena surface was found.", False)
+    add("crown_provenance", "Crown proof explorer registered", "/crown-provenance" in route_set and "/api/crown-provenance" in route_set,
+        "Crown provenance page and API are both registered." if "/crown-provenance" in route_set and "/api/crown-provenance" in route_set else "Crown provenance page/API is incomplete.")
+    add("crown_integrity", "Crown integrity registry registered", "/crown-integrity" in route_set and "/api/crown-integrity" in route_set,
+        "Crown integrity page and API are both registered." if "/crown-integrity" in route_set and "/api/crown-integrity" in route_set else "Crown integrity page/API is incomplete.")
+    add("beta_gate", "Public Beta Gate registered", "/public-beta-readiness" in route_set and "/api/public-beta-readiness" in route_set,
+        "Launch-readiness page and API are both registered." if "/public-beta-readiness" in route_set and "/api/public-beta-readiness" in route_set else "Public Beta Gate page/API is incomplete.")
+    add("database", "SQLite integrity", bool(integrity.get("ok")),
+        "SQLite quick_check passed." if integrity.get("ok") else "SQLite integrity requires review.")
+
+    required_tables = [
+        "users", "arenas", "arena_submissions", "reputation_events",
+        "creature_battles", "notifications", "championship_titles",
+    ]
+    present_tables = []
+    missing_tables = []
+    try:
+        conn = db()
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        conn.close()
+        present = {str(r[0]) for r in rows}
+        present_tables = [t for t in required_tables if t in present]
+        missing_tables = [t for t in required_tables if t not in present]
+    except Exception:
+        missing_tables = list(required_tables)
+    add("core_tables", "Core database tables", not missing_tables,
+        "All required core tables are present." if not missing_tables else "Missing: " + ", ".join(missing_tables))
+
+    secure_cookie_expected = BL3_PUBLIC_URL.startswith("https://")
+    cookie_ok = (not secure_cookie_expected) or bool(app.config.get("SESSION_COOKIE_SECURE"))
+    add("cookie_posture", "Session cookie posture", cookie_ok,
+        "Secure-cookie posture matches current public URL mode." if cookie_ok else "HTTPS public URL is configured but secure cookies are not enabled.")
+
+    endpoint_dupes = sorted({e for e in endpoint_names if endpoint_names.count(e) > 1 and e != "static"})
+    add("endpoint_registry", "Endpoint registry", not endpoint_dupes,
+        "No duplicate Flask endpoint names detected." if not endpoint_dupes else "Duplicate endpoints: " + ", ".join(endpoint_dupes))
+
+    required_failures = [c for c in checks if c.get("required") and not c.get("ok")]
+    warnings = [c for c in checks if (not c.get("required")) and not c.get("ok")]
+    passed = sum(1 for c in checks if c.get("ok"))
+    total = len(checks)
+    score = round((passed / max(1, total)) * 100)
+    state = "PASS" if not required_failures and not warnings else ("FAIL" if required_failures else "REVIEW")
+
+    journeys = [
+        {"key":"visitor", "title":"Visitor discovery", "path":"/ → Search/Discovery → Hunter profile", "status":"MANUAL LIVE CHECK"},
+        {"key":"hunter", "title":"Hunter progression", "path":"Sign in → Check-in/Quest → Passport/Loadout", "status":"MANUAL LIVE CHECK"},
+        {"key":"arena", "title":"Arena participation", "path":"Arena → Submission → Result/REP", "status":"MANUAL LIVE CHECK"},
+        {"key":"rivalry", "title":"Rivalry loop", "path":"Challenge → Clash → Rivalry/Crown history", "status":"MANUAL LIVE CHECK"},
+        {"key":"proof", "title":"Proof verification", "path":"Champion Title → Provenance → Integrity Badge", "status":"MANUAL LIVE CHECK"},
+    ]
+
+    digest_payload = {
+        "state": state,
+        "checks": [(c["key"], c["ok"], c["required"]) for c in checks],
+        "gate_digest": str(gate.get("gate_digest") or ""),
+        "route_count": len(route_rules),
+        "missing_tables": missing_tables,
+    }
+    smoke_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        "success": True,
+        "version": "V20.1",
+        "engine": "public-beta-smoke-suite-v20.1",
+        "state": state,
+        "score": int(score),
+        "passed": int(passed),
+        "total": int(total),
+        "checks": checks,
+        "required_failures": required_failures,
+        "warnings": warnings,
+        "journeys": journeys,
+        "route_count": len(route_rules),
+        "core_tables": {"present": present_tables, "missing": missing_tables},
+        "beta_gate": {"state": gate.get("state"), "score": gate.get("readiness_score"), "digest": gate.get("gate_digest")},
+        "smoke_digest": smoke_digest,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "The V20.1 Smoke Suite is read-only. Structural checks do not replace live browser, mobile, authentication, wallet, write-path, load, security, or recovery testing.",
+    }
+
+
+@app.route("/api/public-beta-smoke")
+def public_beta_smoke_api():
+    return jsonify(_public_beta_smoke_snapshot())
+
+
+@app.route("/public-beta-smoke.json")
+def public_beta_smoke_json():
+    data = _public_beta_smoke_snapshot()
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-public-beta-smoke.json"'
+    return response
+
+
+@app.route("/public-beta-smoke")
+def public_beta_smoke_page():
+    data = _public_beta_smoke_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "REVIEW")
+    state_cls = "pass" if state == "PASS" else ("fail" if state == "FAIL" else "review")
+    checks_html = []
+    for c in data.get("checks") or []:
+        checks_html.append("""<article class='check {cls}'><div><b>{title}</b><small>{detail}</small></div><strong>{status}</strong></article>""".format(
+            cls="ok" if c.get("ok") else "bad",
+            title=esc(str(c.get("title") or "")),
+            detail=esc(str(c.get("detail") or "")),
+            status="PASS" if c.get("ok") else ("FAIL" if c.get("required") else "REVIEW"),
+        ))
+    journey_html = []
+    for j in data.get("journeys") or []:
+        journey_html.append("""<article class='journey'><div><b>{title}</b><span>{path}</span></div><em>{status}</em></article>""".format(
+            title=esc(str(j.get("title") or "")), path=esc(str(j.get("path") or "")), status=esc(str(j.get("status") or ""))))
+    gate = data.get("beta_gate") or {}
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Public Beta Smoke Suite</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#16334a,transparent 31%),radial-gradient(circle at 88% 0,#32164b,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1120px;margin:auto}.hero,.panel{border:1px solid #343641;background:#0b0c11;border-radius:28px;padding:26px;margin-top:18px}.kicker{color:#61f4ff;font-weight:950;letter-spacing:1.4px}h1{font-size:clamp(56px,9vw,104px);line-height:.86;margin:10px 0 14px}.state{font-size:32px;font-weight:950}.state.pass{color:#baff5a}.state.review{color:#ffd66b}.state.fail{color:#ff6b7a}.meta{color:#9699a8;font-size:10px;line-height:1.7}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #30323b;border-radius:14px;padding:14px}.stat b{font-size:27px}.stat span{display:block;color:#858899;font-size:9px}.checks,.journeys{display:grid;gap:9px}.check,.journey{display:flex;justify-content:space-between;gap:16px;align-items:center;border:1px solid #30323b;border-radius:15px;padding:14px;background:#08090d}.check small,.journey span{display:block;color:#8f92a1;margin-top:5px;line-height:1.5}.check.ok{border-color:rgba(186,255,90,.28)}.check.ok strong{color:#baff5a}.check.bad{border-color:rgba(255,107,122,.42)}.check.bad strong{color:#ff6b7a}.journey em{font-style:normal;color:#61f4ff;font-size:9px;font-weight:900}.links a{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;margin:10px 7px 0 0;font-size:9px;font-weight:900}.digest{margin-top:16px;color:#727581;font:9px ui-monospace,monospace;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}.check,.journey{align-items:flex-start;flex-direction:column}}
+</style></head><body><div class='wrap'><section class='hero'><div class='kicker'>V20.1 // PUBLIC BETA SMOKE SUITE</div><h1>TEST BEFORE TRAFFIC.</h1><div class='state {state_cls}'>{state} · {score}/100</div><p class='meta'>A read-only structural smoke pass over the routes, database, proof surfaces and launch gate BL3 needs before real public traffic.</p><div class='stats'><div class='stat'><b>{passed}/{total}</b><span>CHECKS PASSED</span></div><div class='stat'><b>{routes}</b><span>REGISTERED ROUTES</span></div><div class='stat'><b>{gate_state}</b><span>BETA GATE</span></div><div class='stat'><b>{gate_score}</b><span>GATE SCORE</span></div></div><div class='links'><a href='/'>HOME</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/crown-integrity'>CROWN INTEGRITY</a><a href='/public-beta-smoke.json'>EXPORT JSON</a></div></section><section class='panel'><div class='kicker'>STRUCTURAL SMOKE CHECKS</div><div class='checks'>{checks}</div></section><section class='panel'><div class='kicker'>MANUAL USER JOURNEYS // NEXT PASS</div><p class='meta'>These require live browser/device interaction and are intentionally not marked as automated passes.</p><div class='journeys'>{journeys}</div></section><div class='digest'>SMOKE DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        state_cls=state_cls, state=esc(state), score=int(data.get("score") or 0), passed=int(data.get("passed") or 0), total=int(data.get("total") or 0),
+        routes=int(data.get("route_count") or 0), gate_state=esc(str(gate.get("state") or "—")), gate_score=int(gate.get("score") or 0),
+        checks="".join(checks_html), journeys="".join(journey_html), digest=esc(str(data.get("smoke_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🚦 BL3 ARENA V20.0 // PUBLIC BETA GATE + LAUNCH READINESS")
+    print("🧪 BL3 ARENA V20.1 // PUBLIC BETA SMOKE SUITE + USER JOURNEY CHECKS")
+    print("🧪 Public Beta Smoke Suite + User Journey Checks enabled")
     print("🚦 Public Beta Gate + Launch Readiness enabled")
     print("🛡️ Crown Integrity Registry + SVG Trust Badges enabled")
-    print("🔎 Crown Provenance + Proof Explorer enabled")
     print("🔎 Crown Provenance + Proof Explorer enabled")
     print("⚖️ Crown Compare + Rival Legacy enabled")
     print("📖 Crown Storybook + Share Cards enabled")
