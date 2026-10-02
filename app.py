@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.2")
+    response.headers.setdefault("X-BL3-Version", "20.3")
     return response
 
 
@@ -18696,13 +18696,178 @@ def beta_qa_page():
     )
 
 
+
+# ===== V20.3 MOBILE UX LAUNCH AUDIT =====
+def _mobile_ux_route_rules():
+    rules = {}
+    try:
+        for rule in app.url_map.iter_rules():
+            rules.setdefault(str(rule.rule), sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS")))
+    except Exception:
+        return {}
+    return rules
+
+
+def _mobile_ux_probe(path):
+    result = {"path": str(path), "ok": False, "status": 0, "viewport": False, "responsive_css": False,
+              "forms": 0, "buttons": 0, "links": 0, "overflow_risk": False, "notes": []}
+    try:
+        with app.test_client() as client:
+            response = client.get(path, follow_redirects=False)
+        result["status"] = int(response.status_code)
+        text = response.get_data(as_text=True) if response.mimetype == "text/html" else ""
+        lower = text.lower()
+        result["viewport"] = 'name="viewport"' in lower or "name='viewport'" in lower
+        result["responsive_css"] = "@media" in lower
+        result["forms"] = lower.count("<form")
+        result["buttons"] = lower.count("<button")
+        result["links"] = lower.count("<a ")
+        # Heuristic only: flag very wide fixed pixel declarations without an obvious max-width guard.
+        import re as _re
+        fixed = [int(x) for x in _re.findall(r"(?:width|min-width)\s*:\s*(\d{3,4})px", lower)]
+        result["overflow_risk"] = any(v > 760 for v in fixed) and "max-width" not in lower
+        if not result["viewport"]:
+            result["notes"].append("missing viewport meta")
+        if not result["responsive_css"]:
+            result["notes"].append("no @media rule detected")
+        if result["overflow_risk"]:
+            result["notes"].append("possible fixed-width overflow")
+        result["ok"] = 200 <= result["status"] < 400 and result["viewport"] and not result["overflow_risk"]
+    except Exception as exc:
+        result["notes"].append(type(exc).__name__)
+    return result
+
+
+def _mobile_ux_audit_snapshot(run_probes=False):
+    rules = _mobile_ux_route_rules()
+    surfaces = [
+        ("HOME", "/"),
+        ("BETA QA", "/beta-qa"),
+        ("SMOKE SUITE", "/public-beta-smoke"),
+        ("BETA GATE", "/public-beta-readiness"),
+        ("CROWN INTEGRITY", "/crown-integrity"),
+        ("CROWN COMPARE", "/crown-compare"),
+    ]
+    contracts = []
+    for label, path in surfaces:
+        methods = rules.get(path, [])
+        contracts.append({
+            "label": label,
+            "path": path,
+            "route_present": path in rules,
+            "get_enabled": "GET" in methods,
+            "methods": methods,
+        })
+
+    probes = [_mobile_ux_probe(path) for _, path in surfaces] if run_probes else []
+    route_ready = sum(1 for x in contracts if x["route_present"] and x["get_enabled"])
+    route_score = round((route_ready / max(1, len(contracts))) * 40)
+    probe_score = 0
+    if run_probes:
+        probe_score = round((sum(1 for x in probes if x.get("ok")) / max(1, len(probes))) * 60)
+    else:
+        # Structural-only mode intentionally leaves room for a live browser/device pass.
+        probe_score = 30
+
+    score = max(0, min(100, int(route_score + probe_score)))
+    if run_probes:
+        bad = [x for x in probes if not x.get("ok")]
+        state = "PASS" if score >= 90 and not bad else ("REVIEW" if score >= 65 else "FAIL")
+    else:
+        state = "REVIEW" if route_ready == len(contracts) else "FAIL"
+
+    payload = {
+        "success": True,
+        "version": "V20.3",
+        "state": state,
+        "score": score,
+        "mode": "SAFE_PROBES" if run_probes else "STRUCTURAL_ONLY",
+        "contracts": contracts,
+        "probes": probes,
+        "manual_device_checklist": [
+            "320-375px phone width: no horizontal scrolling on core launch surfaces",
+            "Tap targets remain comfortably usable without zooming",
+            "Navigation stays reachable and does not cover primary content",
+            "Forms, selects and buttons remain readable with the mobile keyboard open",
+            "Long digests, usernames and IDs wrap instead of stretching the layout",
+            "Portrait and landscape both preserve the primary call-to-action",
+        ],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V20.3 is a read-only launch audit. Safe probes issue internal GET requests only; "
+            "they do not submit forms, create users, mutate the database, deploy, rollback or call external networks. "
+            "Automated checks do not replace a real-device visual pass."
+        ),
+    }
+    digest_input = dict(payload)
+    digest_input.pop("generated_at", None)
+    payload["audit_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/mobile-ux-audit")
+def mobile_ux_audit_api():
+    run = str(request.args.get("probe", "0")).strip().lower() in ("1", "true", "yes", "on")
+    return jsonify(_mobile_ux_audit_snapshot(run))
+
+
+@app.route("/mobile-ux-audit.json")
+def mobile_ux_audit_export():
+    run = str(request.args.get("probe", "0")).strip().lower() in ("1", "true", "yes", "on")
+    data = _mobile_ux_audit_snapshot(run)
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-mobile-ux-audit-v20-3.json"'
+    return response
+
+
+@app.route("/mobile-ux-audit")
+def mobile_ux_audit_page():
+    run = str(request.args.get("probe", "0")).strip().lower() in ("1", "true", "yes", "on")
+    data = _mobile_ux_audit_snapshot(run)
+    esc = html.escape
+    state = str(data.get("state") or "REVIEW")
+    cls = "good" if state == "PASS" else ("warn" if state == "REVIEW" else "bad")
+    contract_rows = []
+    for item in data.get("contracts") or []:
+        ok = bool(item.get("route_present") and item.get("get_enabled"))
+        contract_rows.append(
+            '<div class="row"><div><b>{}</b><span>{}</span></div><strong class="{}">{}</strong></div>'.format(
+                esc(str(item.get("label") or "")), esc(str(item.get("path") or "")), "good" if ok else "bad", "READY" if ok else "MISSING"
+            )
+        )
+    probe_rows = []
+    for item in data.get("probes") or []:
+        notes = ", ".join(item.get("notes") or []) or "viewport + response checks passed"
+        probe_rows.append(
+            '<div class="row"><div><b>{}</b><span>HTTP {} · {}</span></div><strong class="{}">{}</strong></div>'.format(
+                esc(str(item.get("path") or "")), int(item.get("status") or 0), esc(notes), "good" if item.get("ok") else "bad", "PASS" if item.get("ok") else "CHECK"
+            )
+        )
+    if not probe_rows:
+        probe_rows.append('<div class="empty">Safe probes have not been run yet.</div>')
+    manual = "".join('<li>{}</li>'.format(esc(str(x))) for x in (data.get("manual_device_checklist") or []))
+    probe_flag = "1" if run else "0"
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'><title>BL3 Mobile UX Audit</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#203a56,transparent 30%),radial-gradient(circle at 90% 0,#37205a,transparent 28%),#050507;color:#fff;font-family:Inter,system-ui;padding:18px}.wrap{max-width:1080px;margin:auto}.hero,.panel{border:1px solid #303440;border-radius:24px;background:#0b0d13;padding:22px;margin:14px 0}.k{color:#61f4ff;font-size:10px;letter-spacing:2px;font-weight:950}h1{font-size:clamp(46px,9vw,88px);line-height:.9;margin:9px 0 14px;letter-spacing:-3px}.state{display:inline-block;border:1px solid #333845;border-radius:999px;padding:8px 11px;font-weight:950}.good{color:#baff5a}.warn{color:#ffd66b}.bad{color:#ff6e7c}.meta,.row span{color:#979baa;font-size:11px;line-height:1.55}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.actions a{color:#fff;text-decoration:none;border:1px solid #3a3d48;border-radius:10px;padding:10px 12px;font-size:10px;font-weight:900}.rows{display:grid;gap:8px}.row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #282c36;border-radius:14px;padding:13px;background:#090b10}.row b,.row span{display:block}.row strong{font-size:10px}.checklist{padding-left:20px;color:#c9cbd5;line-height:1.7}.digest{font:9px ui-monospace,monospace;color:#747887;word-break:break-all;margin-top:16px}.empty{color:#777c8b;padding:10px}@media(max-width:620px){body{padding:10px}.hero,.panel{padding:16px;border-radius:18px}.row{align-items:flex-start}.actions a{flex:1 1 46%;text-align:center}h1{letter-spacing:-2px}}</style></head><body><div class='wrap'>
+<section class='hero'><div class='k'>V20.3 // MOBILE UX LAUNCH AUDIT</div><h1>FIT THE REAL SCREEN.</h1><div class='state {cls}'>{state} · {score}/100</div><p class='meta'>Audit the core public-beta surfaces for mobile route readiness, viewport behavior and obvious overflow risk before opening the doors.</p><div class='actions'><a href='/mobile-ux-audit?probe=1'>RUN SAFE PROBES</a><a href='/mobile-ux-audit'>STRUCTURAL ONLY</a><a href='/beta-qa'>BETA QA</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/mobile-ux-audit.json?probe={probe_flag}'>EXPORT JSON</a></div></section>
+<section class='panel'><div class='k'>CORE MOBILE SURFACES</div><div class='rows'>{contracts}</div></section>
+<section class='panel'><div class='k'>SAFE HTML PROBES</div><div class='rows'>{probes}</div></section>
+<section class='panel'><div class='k'>REAL DEVICE CHECKLIST</div><ul class='checklist'>{manual}</ul></section>
+<div class='digest'>MOBILE AUDIT DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        cls=cls, state=esc(state), score=int(data.get("score") or 0), probe_flag=probe_flag,
+        contracts="".join(contract_rows), probes="".join(probe_rows), manual=manual,
+        digest=esc(str(data.get("audit_digest") or "")), policy=esc(str(data.get("policy") or ""))
+    )
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🧭 BL3 ARENA V20.2 // LIVE JOURNEY VALIDATOR + BETA QA")
-    print("🧭 Live Journey Validator + Beta QA enabled")
+    print("📱 BL3 ARENA V20.3 // MOBILE UX LAUNCH AUDIT")
+    print("📱 Mobile UX Launch Audit enabled")
     print("🧪 Public Beta Smoke Suite + User Journey Checks enabled")
     print("🚦 Public Beta Gate + Launch Readiness enabled")
     print("🛡️ Crown Integrity Registry + SVG Trust Badges enabled")
