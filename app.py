@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.5")
+    response.headers.setdefault("X-BL3-Version", "20.6")
     return response
 
 
@@ -19049,7 +19049,7 @@ def _security_session_header_probe(path="/"):
             "permissions_policy": bool(h.get("Permissions-Policy")),
             "csp_present": bool(h.get("Content-Security-Policy")),
             "hsts_present": bool(h.get("Strict-Transport-Security")),
-            "version_header": h.get("X-BL3-Version") == "20.5",
+            "version_header": h.get("X-BL3-Version") == "20.6",
         }
         if not item["checks"]["nosniff"]: item["issues"].append("X-Content-Type-Options missing or weak")
         if not item["checks"]["frame_guard"]: item["issues"].append("frame embedding protection missing")
@@ -19188,14 +19188,190 @@ def security_session_audit_page():
         policy=esc(str(data.get("policy") or ""))
     )
 
+
+# ===== V20.6 PRODUCTION CONFIG DOCTOR + RAILWAY LAUNCH CHECK =====
+def _railway_launch_check_snapshot():
+    """Read-only production/Railway configuration diagnosis without exposing secret values."""
+    railway_keys = (
+        "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID", "RAILWAY_ENVIRONMENT_ID",
+        "RAILWAY_ENVIRONMENT", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL",
+    )
+    railway_detected = any(bool(os.environ.get(key)) for key in railway_keys)
+    production = BL3_ENV in ("production", "prod")
+    public_https = BL3_PUBLIC_URL.startswith("https://")
+    db_path = os.path.abspath(DB)
+    db_parent = os.path.dirname(db_path) or "."
+    backup_path = os.path.abspath(BL3_BACKUP_DIR)
+
+    try:
+        port = int(os.environ.get("PORT", "5000") or 5000)
+        port_ok = 1 <= port <= 65535
+    except Exception:
+        port = 0
+        port_ok = False
+
+    try:
+        db_parent_writable = os.access(db_parent, os.W_OK)
+    except Exception:
+        db_parent_writable = False
+
+    try:
+        backup_dir_ready = os.path.isdir(backup_path) and os.access(backup_path, os.W_OK)
+    except Exception:
+        backup_dir_ready = False
+
+    try:
+        conn = sqlite3.connect(DB)
+        quick_row = conn.execute("PRAGMA quick_check").fetchone()
+        conn.close()
+        db_quick = str((quick_row or [""])[0]).lower() == "ok"
+    except Exception:
+        db_quick = False
+
+    routes = {str(rule.rule) for rule in app.url_map.iter_rules()}
+    healthz_ready = "/healthz" in routes
+
+    # A non-default absolute DB path is a strong deployment signal, but only Railway can
+    # confirm whether that directory is actually mounted to a persistent Volume.
+    persistent_path_configured = bool(os.environ.get("BL3_DB_PATH")) and os.path.isabs(str(DB))
+    railway_domain_present = bool(os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("RAILWAY_STATIC_URL"))
+
+    checks = []
+    def add(key, label, ok, detail, required=False, severity="warn"):
+        checks.append({
+            "key": key,
+            "label": label,
+            "ok": bool(ok),
+            "required": bool(required),
+            "severity": str(severity),
+            "detail": str(detail)[:280],
+        })
+
+    add("environment", "Production environment", production,
+        f"BL3_ENV={BL3_ENV or 'unset'}; set production on the public service.", True)
+    add("public_url", "Public HTTPS URL", bool(BL3_PUBLIC_URL) and public_https,
+        "BL3_PUBLIC_URL is configured with HTTPS." if public_https else "Set BL3_PUBLIC_URL to the final https:// public URL.", True)
+    add("secret_key", "Stable session secret", bool(os.environ.get("BL3_SECRET_KEY")),
+        "BL3_SECRET_KEY is supplied by the environment." if os.environ.get("BL3_SECRET_KEY") else "Set BL3_SECRET_KEY as a Railway secret so sessions survive restarts.", True)
+    add("secure_cookie", "Secure production cookies", bool(app.config.get("SESSION_COOKIE_SECURE")),
+        "Secure cookies enabled." if app.config.get("SESSION_COOKIE_SECURE") else "Set BL3_SECURE_COOKIES=1 for HTTPS production.", True)
+    add("admin_token", "Protected admin token", bool(BL3_ADMIN_TOKEN),
+        "Protected admin operations are enabled." if BL3_ADMIN_TOKEN else "Set BL3_ADMIN_TOKEN through Railway Variables.", True)
+    add("rate_limit", "Application rate limiting", bool(BL3_RATE_LIMIT),
+        "Rate limiting enabled." if BL3_RATE_LIMIT else "Enable BL3_RATE_LIMIT before public beta.", True)
+    add("port", "Railway PORT", port_ok,
+        f"PORT is valid ({port})." if port_ok else "PORT is missing or invalid; Railway injects PORT at runtime.", True)
+    add("healthz", "Health endpoint", healthz_ready,
+        "/healthz is registered for deployment health checks." if healthz_ready else "Register a lightweight /healthz endpoint.", True)
+    add("database", "SQLite quick_check", db_quick,
+        "SQLite quick_check returned ok." if db_quick else "SQLite quick_check requires review.", True)
+    add("db_writable", "Database directory writable", db_parent_writable,
+        f"Database parent is writable ({db_parent})." if db_parent_writable else "Database parent is not writable.", True)
+    add("persistent_db_path", "Persistent DB path configured", persistent_path_configured,
+        "BL3_DB_PATH is an explicit absolute path; verify that this exact directory is mounted to a Railway Volume."
+        if persistent_path_configured else
+        "BL3_DB_PATH is not an explicit absolute path. For Railway + SQLite, mount a Volume and point BL3_DB_PATH into it.",
+        railway_detected)
+    add("backup_dir", "Backup directory writable", backup_dir_ready,
+        f"Backup directory is writable ({backup_path})." if backup_dir_ready else "Backup directory is not ready or writable.")
+    add("railway_runtime", "Railway runtime detected", railway_detected,
+        "Railway environment markers are present." if railway_detected else "No Railway environment markers are present in this local/runtime check.")
+    add("railway_domain", "Railway public domain detected", railway_domain_present,
+        "Railway public-domain metadata is present." if railway_domain_present else "No Railway public-domain metadata is visible in this runtime.")
+    add("startup_warnings", "Startup checks clean", not bool(_PROD_WARNINGS),
+        "No startup warnings are active." if not _PROD_WARNINGS else f"{len(_PROD_WARNINGS)} startup warning(s) require review.", True)
+
+    required = [x for x in checks if x.get("required")]
+    required_failures = [x for x in required if not x.get("ok")]
+    passed = sum(1 for x in checks if x.get("ok"))
+    score = round((passed / max(1, len(checks))) * 100)
+    state = "HOLD" if required_failures else ("READY" if score >= 85 else "REVIEW")
+
+    payload = {
+        "success": True,
+        "version": "V20.6",
+        "state": state,
+        "score": int(score),
+        "railway_detected": railway_detected,
+        "environment": BL3_ENV,
+        "public_url_configured": bool(BL3_PUBLIC_URL),
+        "database_path": db_path,
+        "backup_path": backup_path,
+        "checks": checks,
+        "required_failures": [x.get("key") for x in required_failures],
+        "railway_setup": [
+            "Set BL3_ENV=production.",
+            "Set BL3_PUBLIC_URL to the final HTTPS domain.",
+            "Set BL3_SECRET_KEY and BL3_ADMIN_TOKEN as Railway Variables; never hard-code them.",
+            "Set BL3_SECURE_COOKIES=1 after HTTPS is live.",
+            "Mount a Railway Volume and set BL3_DB_PATH to a path inside that mount before relying on SQLite persistence.",
+            "Point BL3_BACKUP_DIR to persistent storage if backups must survive deploy/restart cycles.",
+            "Configure the deployment health check to /healthz and confirm it returns HTTP 200.",
+            "Run the Public Beta Gate, Smoke Suite, Beta QA, Mobile UX, Accessibility and Security audits after deployment.",
+        ],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V20.6 is diagnostic only. It does not call Railway APIs, reveal secret values, create Variables, "
+            "mount Volumes, deploy services, mutate application data, restore backups or change production configuration."
+        ),
+    }
+    digest_input = dict(payload)
+    digest_input.pop("generated_at", None)
+    payload["config_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/railway-launch-check")
+def railway_launch_check_api():
+    return jsonify(_railway_launch_check_snapshot())
+
+
+@app.route("/railway-launch-check.json")
+def railway_launch_check_export():
+    data = _railway_launch_check_snapshot()
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-railway-launch-check-v20-6.json"'
+    return response
+
+
+@app.route("/railway-launch-check")
+def railway_launch_check_page():
+    data = _railway_launch_check_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "REVIEW")
+    cls = "good" if state == "READY" else ("warn" if state == "REVIEW" else "bad")
+    rows = []
+    for item in data.get("checks") or []:
+        required = " · REQUIRED" if item.get("required") else ""
+        rows.append(
+            '<div class="row"><div><b>{}</b><span>{}{}</span></div><strong class="{}">{}</strong></div>'.format(
+                esc(str(item.get("label") or "")), esc(str(item.get("detail") or "")), esc(required),
+                "good" if item.get("ok") else ("bad" if item.get("required") else "warn"),
+                "PASS" if item.get("ok") else ("FIX" if item.get("required") else "REVIEW")
+            )
+        )
+    setup = "".join("<li>{}</li>".format(esc(str(x))) for x in (data.get("railway_setup") or []))
+    return """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>BL3 Railway Launch Check</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#21365f,transparent 30%),radial-gradient(circle at 90% 0,#263f2b,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.panel{border:1px solid #30343c;border-radius:26px;padding:24px;margin-top:18px;background:#0b0d12}.k{color:#8ab7ff;font-size:10px;letter-spacing:2px;font-weight:900}h1{font-size:clamp(48px,8vw,88px);line-height:.9;margin:10px 0 14px}.meta{color:#9da1af;font-size:11px;line-height:1.65}.score{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.score b{font-size:44px}.pill{border:1px solid #3b404b;border-radius:999px;padding:8px 12px;font-weight:900}.good{color:#65ffd0}.warn{color:#ffd66b}.bad{color:#ff6e7c}.row{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:14px 0;border-bottom:1px solid #242730}.row:last-child{border-bottom:0}.row b,.row span{display:block}.row span{color:#8f94a4;font-size:10px;margin-top:5px;max-width:790px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.actions a{border:1px solid #343945;border-radius:12px;padding:10px 12px;color:#fff;text-decoration:none;font-size:10px;font-weight:900}.digest{font:9px ui-monospace,monospace;color:#737785;word-break:break-all;margin-top:18px}ul{color:#a8acb8;line-height:1.75}@media(max-width:700px){.row{align-items:flex-start;flex-direction:column}body{padding:12px}}</style></head>
+<body><div class='wrap'><section class='hero'><div class='k'>V20.6 // PRODUCTION CONFIG DOCTOR + RAILWAY LAUNCH CHECK</div><h1>SHIP THE ENVIRONMENT.</h1><div class='score'><b class='{cls}'>{state}</b><span class='pill'>{score}/100</span></div><p class='meta'>Read-only diagnosis of the production variables, SQLite path, backup storage, health endpoint and Railway runtime signals BL3 needs before Public Beta.</p><div class='actions'><a href='/security-session-audit'>SECURITY AUDIT</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/public-beta-smoke'>SMOKE SUITE</a><a href='/railway-launch-check.json'>EXPORT JSON</a></div></section>
+<section class='panel'><div class='k'>CONFIG CHECKS</div>{rows}</section>
+<section class='panel'><div class='k'>RAILWAY SETUP CHECKLIST</div><ul>{setup}</ul></section>
+<div class='digest'>CONFIG DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        cls=cls, state=esc(state), score=int(data.get("score") or 0), rows="".join(rows), setup=setup,
+        digest=esc(str(data.get("config_digest") or "")), policy=esc(str(data.get("policy") or ""))
+    )
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🛡️ BL3 ARENA V20.5 // SECURITY HEADERS + SESSION LAUNCH AUDIT")
+    print("🚂 BL3 ARENA V20.6 // PRODUCTION CONFIG DOCTOR + RAILWAY LAUNCH CHECK")
+    print("🚂 Production Config Doctor + Railway Launch Check enabled")
     print("🛡️ Security Headers + Session Launch Audit enabled")
-    print("♿ Accessibility + Error UX Audit enabled")
     print("♿ Accessibility + Error UX Audit enabled")
     print("📱 Mobile UX Launch Audit enabled")
     print("🧪 Public Beta Smoke Suite + User Journey Checks enabled")
