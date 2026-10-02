@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.6")
+    response.headers.setdefault("X-BL3-Version", "20.7")
     return response
 
 
@@ -19364,12 +19364,152 @@ def railway_launch_check_page():
         digest=esc(str(data.get("config_digest") or "")), policy=esc(str(data.get("policy") or ""))
     )
 
+
+# ===== V20.7 PERSISTENT STORAGE + BACKUP / RESTART SURVIVAL CHECK =====
+def _v207_storage_survival_snapshot():
+    """Read-only durability diagnostics for SQLite + backups across restart/redeploy cycles."""
+    db_path = os.path.abspath(DB)
+    db_dir = os.path.dirname(db_path) or "."
+    backup_path = os.path.abspath(BL3_BACKUP_DIR)
+    checks = []
+
+    def add(key, label, ok, detail, severity="critical", weight=10):
+        checks.append({
+            "key": str(key), "label": str(label), "ok": bool(ok),
+            "detail": str(detail)[:500], "severity": str(severity), "weight": int(weight)
+        })
+
+    db_exists = os.path.exists(db_path)
+    add("db_exists", "SQLite database exists", db_exists,
+        db_path if db_exists else f"Database file is not present yet: {db_path}", "critical", 14)
+
+    db_writable = os.access(db_dir, os.W_OK)
+    add("db_writable", "Database directory is writable", db_writable, db_dir, "critical", 12)
+
+    quick_ok = False
+    table_count = 0
+    db_bytes = 0
+    if db_exists:
+        try:
+            db_bytes = int(os.path.getsize(db_path))
+            conn = sqlite3.connect(DB)
+            row = conn.execute("PRAGMA quick_check").fetchone()
+            quick_ok = bool(row and str(row[0]).lower() == "ok")
+            table_count = int(conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone()[0] or 0)
+            conn.close()
+        except Exception:
+            quick_ok = False
+    add("sqlite_integrity", "SQLite quick_check passes", quick_ok,
+        f"quick_check={'ok' if quick_ok else 'failed'}; tables={table_count}; bytes={db_bytes}", "critical", 16)
+
+    backup_ready = os.path.isdir(backup_path) and os.access(backup_path, os.W_OK)
+    add("backup_dir", "Backup directory is ready", backup_ready, backup_path, "critical", 12)
+
+    backups = []
+    if os.path.isdir(backup_path):
+        try:
+            for name in os.listdir(backup_path):
+                if not name.lower().endswith('.db'):
+                    continue
+                p = os.path.join(backup_path, name)
+                if os.path.isfile(p):
+                    st = os.stat(p)
+                    backups.append({"name": name, "bytes": int(st.st_size), "mtime": int(st.st_mtime)})
+            backups.sort(key=lambda x: x["mtime"], reverse=True)
+        except Exception:
+            backups = []
+    latest = backups[0] if backups else None
+    add("backup_evidence", "At least one backup exists", bool(latest),
+        (f"latest={latest['name']}; bytes={latest['bytes']}" if latest else "No .db backup found yet."), "warning", 8)
+
+    railway_volume = bool(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or os.environ.get("RAILWAY_VOLUME_NAME"))
+    db_env = (os.environ.get("BL3_DB_PATH") or "").strip()
+    backup_env = (os.environ.get("BL3_BACKUP_DIR") or "").strip()
+    path_persistent_hint = db_path.startswith('/data/') or db_path.startswith('/mnt/') or railway_volume
+    add("persistent_db_path", "Database path looks persistent", bool(path_persistent_hint),
+        f"DB={db_path}; railway_volume={'detected' if railway_volume else 'not-detected'}", "critical", 16)
+    add("db_path_explicit", "BL3_DB_PATH is explicit", bool(db_env),
+        db_env or "BL3_DB_PATH is using the default relative path.", "warning", 6)
+    add("backup_path_explicit", "BL3_BACKUP_DIR is explicit", bool(backup_env),
+        backup_env or "BL3_BACKUP_DIR is using the default derived path.", "warning", 6)
+
+    same_persistence_root = False
+    try:
+        same_persistence_root = os.path.commonpath([db_path, backup_path]) in (os.path.dirname(db_path), db_dir, '/data', '/mnt')
+    except Exception:
+        same_persistence_root = False
+    add("backup_persistence", "Backup path is aligned with durable storage", bool(railway_volume and (backup_path.startswith('/data/') or backup_path.startswith('/mnt/')) or backup_env),
+        backup_path, "warning", 6)
+
+    total_weight = sum(c["weight"] for c in checks)
+    earned = sum(c["weight"] for c in checks if c["ok"])
+    score = int(round((earned / total_weight) * 100)) if total_weight else 0
+    critical_failed = [c for c in checks if c["severity"] == "critical" and not c["ok"]]
+    state = "READY" if not critical_failed and score >= 85 else ("REVIEW" if score >= 60 else "HOLD")
+
+    restart_contract = [
+        "Attach one Railway persistent Volume before Public Beta.",
+        "Set BL3_DB_PATH to a file inside that mounted Volume (example: /data/bl3.db).",
+        "Set BL3_BACKUP_DIR to a directory on durable storage (example: /data/backups).",
+        "Create and verify a backup before every schema-affecting release.",
+        "Restart the service and confirm the same user / arena / title counts remain.",
+        "Redeploy once and repeat the counts + SQLite quick_check before opening Public Beta."
+    ]
+    proof = {
+        "version": "V20.7", "state": state, "score": score,
+        "db_path": db_path, "backup_path": backup_path,
+        "db_bytes": db_bytes, "table_count": table_count,
+        "backup_count": len(backups), "latest_backup": latest,
+        "railway_volume_detected": railway_volume,
+        "checks": checks, "restart_contract": restart_contract,
+        "policy": "Read-only diagnostics only. V20.7 never creates, restores, deletes, copies or modifies database or backup files."
+    }
+    canonical = json.dumps(proof, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    proof["survival_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return proof
+
+
+@app.route("/api/storage-survival-check")
+def api_storage_survival_check_v207():
+    return jsonify(_v207_storage_survival_snapshot())
+
+
+@app.route("/storage-survival-check.json")
+def storage_survival_check_json_v207():
+    payload = json.dumps(_v207_storage_survival_snapshot(), ensure_ascii=False, indent=2)
+    response = Response(payload, mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-storage-survival-v20-7.json"'
+    return response
+
+
+@app.route("/storage-survival-check")
+def storage_survival_check_v207():
+    data = _v207_storage_survival_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "HOLD")
+    cls = "ok" if state == "READY" else ("warn" if state == "REVIEW" else "bad")
+    rows = []
+    for c in data.get("checks") or []:
+        icon = "✓" if c.get("ok") else "!"
+        rows.append("<div class='row'><span class='%s'>%s</span><div><b>%s</b><small>%s</small></div></div>" % (
+            "ok" if c.get("ok") else "bad", icon, esc(str(c.get("label") or "")), esc(str(c.get("detail") or ""))
+        ))
+    contract = "".join("<li>%s</li>" % esc(str(x)) for x in (data.get("restart_contract") or []))
+    return """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V20.7 // Storage Survival</title><style>
+    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#050507;color:#f5f6fa;font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:980px;margin:auto;padding:28px}.hero,.panel{background:#111218;border:1px solid #292b35;border-radius:22px;padding:22px;margin-bottom:16px}.k{color:#baff5a;font-weight:900;letter-spacing:1.5px;font-size:11px}h1{font-size:clamp(34px,6vw,68px);line-height:.95;margin:12px 0}.score{display:flex;gap:10px;align-items:center}.pill{border:1px solid #353846;padding:7px 10px;border-radius:999px}.ok{color:#baff5a}.warn{color:#ffd66b}.bad{color:#ff6f7d}.row{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid #242630}.row:last-child{border-bottom:0}.row small{display:block;color:#9296a8;margin-top:3px;word-break:break-all}.meta{color:#9ba0b3}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.actions a{color:#fff;text-decoration:none;border:1px solid #343745;border-radius:12px;padding:9px 12px}.digest{font-family:ui-monospace,monospace;word-break:break-all;color:#8f94a7;font-size:12px}li{margin:7px 0}</style></head><body><div class='wrap'>
+    <section class='hero'><div class='k'>V20.7 // PERSISTENT STORAGE + BACKUP / RESTART SURVIVAL</div><h1>PROVE THE DATA SURVIVES.</h1><div class='score'><b class='%s'>%s</b><span class='pill'>%s/100</span></div><p class='meta'>Read-only launch diagnostics for SQLite durability, backup evidence, Railway Volume signals and restart/redeploy readiness.</p><div class='actions'><a href='/railway-launch-check'>RAILWAY CHECK</a><a href='/security-session-audit'>SECURITY AUDIT</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/storage-survival-check.json'>EXPORT JSON</a></div></section>
+    <section class='panel'><h2>Durability checks</h2>%s</section><section class='panel'><h2>Restart survival contract</h2><ol>%s</ol></section><section class='panel'><div class='digest'>SURVIVAL DIGEST // %s</div><p class='meta'>%s</p></section></div></body></html>""" % (
+        cls, esc(state), int(data.get("score") or 0), "".join(rows), contract,
+        esc(str(data.get("survival_digest") or "")), esc(str(data.get("policy") or ""))
+    )
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🚂 BL3 ARENA V20.6 // PRODUCTION CONFIG DOCTOR + RAILWAY LAUNCH CHECK")
+    print("💾 BL3 ARENA V20.7 // PERSISTENT STORAGE + BACKUP / RESTART SURVIVAL")
+    print("💾 Persistent Storage + Backup / Restart Survival Check enabled")
     print("🚂 Production Config Doctor + Railway Launch Check enabled")
     print("🛡️ Security Headers + Session Launch Audit enabled")
     print("♿ Accessibility + Error UX Audit enabled")
