@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "20.1")
+    response.headers.setdefault("X-BL3-Version", "20.2")
     return response
 
 
@@ -18468,12 +18468,241 @@ def public_beta_smoke_page():
         checks="".join(checks_html), journeys="".join(journey_html), digest=esc(str(data.get("smoke_digest") or "")), policy=esc(str(data.get("policy") or "")))
 
 
+# ===== V20.2 LIVE JOURNEY VALIDATOR + BETA QA =====
+def _beta_qa_contracts():
+    """Critical public-beta journeys expressed as read-only route contracts."""
+    return [
+        {
+            "key": "visitor",
+            "title": "Visitor discovery",
+            "summary": "Landing, discovery and public Hunter identity surfaces are reachable.",
+            "routes": ["/", "/api/leaderboard"],
+            "manual": "Open Home on desktop + mobile, use discovery/search, then open a Hunter profile.",
+        },
+        {
+            "key": "hunter",
+            "title": "Hunter identity",
+            "summary": "Core Hunter identity and progression APIs remain registered for signed-in flows.",
+            "routes": ["/api/user/<username>", "/api/leaderboard"],
+            "manual": "Sign in with a test Hunter; verify passport/loadout/check-in state renders correctly.",
+        },
+        {
+            "key": "arena",
+            "title": "Arena participation",
+            "summary": "At least one Arena discovery/submission surface is available.",
+            "routes_any": ["/api/arenas", "/arenas", "/api/arena"],
+            "manual": "Open an Arena, review bounty details and stop before any irreversible or paid action.",
+        },
+        {
+            "key": "rivalry",
+            "title": "Rivalry loop",
+            "summary": "Rivalry, championship and Crown-history surfaces remain available.",
+            "routes_any": ["/champions", "/crown-archive", "/crown-compare"],
+            "manual": "Open a rivalry/championship history page and verify navigation across related records.",
+        },
+        {
+            "key": "proof",
+            "title": "Proof verification",
+            "summary": "Crown provenance, integrity and launch evidence surfaces are linked together.",
+            "routes": ["/crown-provenance", "/crown-integrity", "/public-beta-readiness"],
+            "manual": "Open a sealed title and follow its evidence chain through provenance and integrity views.",
+        },
+    ]
+
+
+def _beta_qa_safe_probe_paths():
+    """GET-only surfaces selected to avoid user/account mutations during QA probes."""
+    return [
+        "/",
+        "/api/leaderboard",
+        "/crown-provenance",
+        "/crown-integrity",
+        "/public-beta-readiness",
+        "/public-beta-smoke",
+    ]
+
+
+def _beta_qa_probe(path):
+    """Run one internal GET probe through Flask's test client; no external network is used."""
+    started = time.perf_counter()
+    try:
+        with app.test_client() as client:
+            response = client.get(str(path), follow_redirects=False)
+        elapsed_ms = round((time.perf_counter() - started) * 1000.0, 1)
+        status = int(response.status_code)
+        ok = 200 <= status < 400
+        return {
+            "path": str(path),
+            "ok": bool(ok),
+            "status": status,
+            "ms": elapsed_ms,
+            "content_type": str(response.headers.get("Content-Type") or "")[:100],
+            "version": str(response.headers.get("X-BL3-Version") or ""),
+        }
+    except Exception as exc:
+        return {
+            "path": str(path),
+            "ok": False,
+            "status": 0,
+            "ms": round((time.perf_counter() - started) * 1000.0, 1),
+            "error": type(exc).__name__,
+            "version": "",
+        }
+
+
+def _beta_qa_snapshot(run_probes=False):
+    smoke = _public_beta_smoke_snapshot()
+    try:
+        rules = {str(rule.rule): sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS")) for rule in app.url_map.iter_rules()}
+    except Exception:
+        rules = {}
+
+    contracts = []
+    contract_failures = 0
+    for spec in _beta_qa_contracts():
+        item = dict(spec)
+        required = list(item.get("routes") or [])
+        any_routes = list(item.get("routes_any") or [])
+        missing = [r for r in required if r not in rules]
+        any_ok = True if not any_routes else any(r in rules for r in any_routes)
+        ok = (not missing) and any_ok
+        if not ok:
+            contract_failures += 1
+        item["ok"] = bool(ok)
+        item["missing"] = missing
+        item["matched_any"] = [r for r in any_routes if r in rules]
+        item["status"] = "READY FOR MANUAL QA" if ok else "STRUCTURAL GAP"
+        contracts.append(item)
+
+    probes = []
+    if run_probes:
+        probes = [_beta_qa_probe(path) for path in _beta_qa_safe_probe_paths()]
+    probe_failures = sum(1 for p in probes if not p.get("ok"))
+
+    smoke_state = str(smoke.get("state") or "FAIL")
+    smoke_ok = smoke_state == "PASS"
+    structural_total = len(contracts) + 1
+    structural_pass = sum(1 for x in contracts if x.get("ok")) + (1 if smoke_ok else 0)
+    probe_total = len(probes)
+    probe_pass = sum(1 for p in probes if p.get("ok"))
+    denominator = structural_total + probe_total
+    score = round(((structural_pass + probe_pass) / max(1, denominator)) * 100)
+
+    if contract_failures or smoke_state == "FAIL" or probe_failures:
+        state = "FAIL"
+    elif smoke_state == "REVIEW" or not run_probes:
+        state = "REVIEW"
+    else:
+        state = "PASS"
+
+    digest_payload = {
+        "state": state,
+        "smoke_digest": str(smoke.get("smoke_digest") or ""),
+        "contracts": [(c.get("key"), bool(c.get("ok"))) for c in contracts],
+        "probes": [(p.get("path"), int(p.get("status") or 0), bool(p.get("ok"))) for p in probes],
+        "run_probes": bool(run_probes),
+    }
+    qa_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        "success": True,
+        "version": "V20.2",
+        "state": state,
+        "score": int(score),
+        "run_probes": bool(run_probes),
+        "contracts": contracts,
+        "contract_failures": int(contract_failures),
+        "probes": probes,
+        "probe_failures": int(probe_failures),
+        "smoke": {
+            "state": smoke_state,
+            "score": int(smoke.get("score") or 0),
+            "digest": str(smoke.get("smoke_digest") or ""),
+        },
+        "qa_digest": qa_digest,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V20.2 Beta QA is read-only. Structural checks inspect Flask route contracts and the existing smoke suite. "
+            "Optional probes issue internal GET requests only to a bounded safe list; they do not use external network, submit forms, "
+            "create users, trigger payments, deploy, restore, rollback or mutate production data. Manual browser QA is still required."
+        ),
+    }
+
+
+@app.route("/api/beta-qa")
+def beta_qa_api():
+    run_probes = str(request.args.get("probe") or "").strip().lower() in ("1", "true", "yes", "run")
+    return jsonify(_beta_qa_snapshot(run_probes))
+
+
+@app.route("/beta-qa.json")
+def beta_qa_export():
+    run_probes = str(request.args.get("probe") or "").strip().lower() in ("1", "true", "yes", "run")
+    data = _beta_qa_snapshot(run_probes)
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-beta-qa-v20-2.json"'
+    return response
+
+
+@app.route("/beta-qa")
+def beta_qa_page():
+    run_probes = str(request.args.get("probe") or "").strip().lower() in ("1", "true", "yes", "run")
+    data = _beta_qa_snapshot(run_probes)
+    esc = html.escape
+    state = str(data.get("state") or "REVIEW")
+    cls = {"PASS":"pass", "FAIL":"fail", "REVIEW":"review"}.get(state, "review")
+
+    contract_rows = []
+    for item in data.get("contracts") or []:
+        ok = bool(item.get("ok"))
+        detail = str(item.get("summary") or "")
+        missing = list(item.get("missing") or [])
+        if missing:
+            detail += " Missing: " + ", ".join(str(x) for x in missing)
+        contract_rows.append(
+            "<article class='row {}'><div><b>{}</b><span>{}</span><small>{}</small></div><strong>{}</strong></article>".format(
+                "ok" if ok else "bad",
+                esc(str(item.get("title") or "Journey")),
+                esc(detail),
+                esc(str(item.get("manual") or "")),
+                "READY" if ok else "GAP",
+            )
+        )
+
+    probe_rows = []
+    for probe in data.get("probes") or []:
+        ok = bool(probe.get("ok"))
+        probe_rows.append(
+            "<article class='row {}'><div><b>{}</b><span>HTTP {} · {} ms · version {}</span></div><strong>{}</strong></article>".format(
+                "ok" if ok else "bad", esc(str(probe.get("path") or "")), int(probe.get("status") or 0),
+                esc(str(probe.get("ms") or 0)), esc(str(probe.get("version") or "—")), "PASS" if ok else "FAIL"
+            )
+        )
+    if not probe_rows:
+        probe_rows.append("<div class='empty'>Safe live probes have not been run yet. Use RUN SAFE PROBES.</div>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>BL3 Beta QA</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#13283d,transparent 31%),radial-gradient(circle at 88% 0,#33204c,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1120px;margin:auto}.hero,.panel{border:1px solid #343743;border-radius:28px;background:#0b0c11;padding:25px;margin-top:18px}.kicker{color:#61f4ff;font-size:10px;letter-spacing:2px;font-weight:950}h1{font-size:clamp(52px,8vw,92px);line-height:.88;margin:9px 0 16px}.state{display:inline-block;border:1px solid #393b44;border-radius:999px;padding:8px 12px;font-weight:950}.state.pass{color:#baff5a;border-color:rgba(186,255,90,.35)}.state.fail{color:#ff6b7a;border-color:rgba(255,107,122,.45)}.state.review{color:#ffd66b;border-color:rgba(255,214,107,.4)}.meta,.row span,.row small,.empty{color:#9296a5;font-size:10px;line-height:1.6}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #30323b;border-radius:14px;padding:14px}.stat b{font-size:25px}.stat span{display:block;color:#858899;font-size:9px}.rows{display:grid;gap:9px}.row{display:flex;justify-content:space-between;gap:15px;align-items:center;border:1px solid #30323b;border-radius:15px;padding:14px;background:#08090d}.row span,.row small{display:block}.row small{margin-top:5px}.row.ok{border-color:rgba(186,255,90,.28)}.row.ok>strong{color:#baff5a}.row.bad{border-color:rgba(255,107,122,.42)}.row.bad>strong{color:#ff6b7a}.actions a{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:10px 12px;margin:10px 7px 0 0;font-size:9px;font-weight:950}.digest{margin-top:16px;color:#727581;font:9px ui-monospace,monospace;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}.row{align-items:flex-start;flex-direction:column}}
+</style></head><body><div class='wrap'><section class='hero'><div class='kicker'>V20.2 // LIVE JOURNEY VALIDATOR + BETA QA</div><h1>VERIFY THE PATH.</h1><div class='state {cls}'>{state} · {score}/100</div><p class='meta'>Validate the public-beta journey contracts first, then run a bounded set of safe internal GET probes before real users arrive.</p><div class='stats'><div class='stat'><b>{ready}/{total}</b><span>JOURNEYS STRUCTURALLY READY</span></div><div class='stat'><b>{probe_pass}/{probe_total}</b><span>SAFE PROBES PASSED</span></div><div class='stat'><b>{smoke_state}</b><span>SMOKE SUITE</span></div><div class='stat'><b>{smoke_score}</b><span>SMOKE SCORE</span></div></div><div class='actions'><a href='/beta-qa?probe=1'>RUN SAFE PROBES</a><a href='/beta-qa'>STRUCTURAL ONLY</a><a href='/public-beta-smoke'>SMOKE SUITE</a><a href='/public-beta-readiness'>BETA GATE</a><a href='/beta-qa.json?probe={probe_flag}'>EXPORT JSON</a></div></section><section class='panel'><div class='kicker'>USER JOURNEY CONTRACTS</div><div class='rows'>{contracts}</div></section><section class='panel'><div class='kicker'>SAFE INTERNAL GET PROBES</div><p class='meta'>These probes stay inside Flask's test client and do not submit forms or call external networks.</p><div class='rows'>{probes}</div></section><div class='digest'>BETA QA DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        cls=cls, state=esc(state), score=int(data.get("score") or 0),
+        ready=sum(1 for c in (data.get("contracts") or []) if c.get("ok")), total=len(data.get("contracts") or []),
+        probe_pass=sum(1 for p in (data.get("probes") or []) if p.get("ok")), probe_total=len(data.get("probes") or []),
+        smoke_state=esc(str((data.get("smoke") or {}).get("state") or "—")), smoke_score=int((data.get("smoke") or {}).get("score") or 0),
+        contracts="".join(contract_rows), probes="".join(probe_rows), digest=esc(str(data.get("qa_digest") or "")),
+        policy=esc(str(data.get("policy") or "")), probe_flag="1" if run_probes else "0"
+    )
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🧪 BL3 ARENA V20.1 // PUBLIC BETA SMOKE SUITE + USER JOURNEY CHECKS")
+    print("🧭 BL3 ARENA V20.2 // LIVE JOURNEY VALIDATOR + BETA QA")
+    print("🧭 Live Journey Validator + Beta QA enabled")
     print("🧪 Public Beta Smoke Suite + User Journey Checks enabled")
     print("🚦 Public Beta Gate + Launch Readiness enabled")
     print("🛡️ Crown Integrity Registry + SVG Trust Badges enabled")
