@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.9")
+    response.headers.setdefault("X-BL3-Version", "20.0")
     return response
 
 
@@ -18157,12 +18157,167 @@ def crown_integrity_page():
         count=int(data.get("count") or 0), valid=int(data.get("valid") or 0), broken=int(data.get("broken") or 0), avg=esc(str(data.get("average_integrity_score") or 0)), q=esc(str(request.args.get("q", ""))), valid_sel="selected" if status == "VALID" else "", broken_sel="selected" if status == "BROKEN" else "", cards="".join(cards) or '<div class="meta">No Crown integrity records matched.</div>', digest=esc(str(data.get("registry_digest") or "")), policy=esc(str(data.get("policy") or "")))
 
 
+# ===== V20.0 PUBLIC BETA GATE + LAUNCH READINESS =====
+def _public_beta_gate_snapshot():
+    """Read-only synthesis of the evidence BL3 already records before a public beta."""
+    preflight = _release_preflight()
+    launch = _launch_command_snapshot()
+    integrity = _db_integrity_report()
+    audit = _audit_verify_chain()
+    incidents = _incident_assessment()
+    crown = _crown_integrity_snapshot("", "", 500)
+
+    critical_incidents = sum(
+        1 for row in (incidents.get("incidents") or [])
+        if str(row.get("severity") or "").lower() == "critical"
+    )
+    high_incidents = sum(
+        1 for row in (incidents.get("incidents") or [])
+        if str(row.get("severity") or "").lower() == "high"
+    )
+    backup = preflight.get("latest_backup") or {}
+    backup_validation = preflight.get("backup_validation") or {}
+    production = BL3_ENV in ("production", "prod")
+    public_url_ready = bool(BL3_PUBLIC_URL) if production else True
+    startup_ready = not bool(_PROD_WARNINGS) if production else True
+
+    checks = []
+    def add(key, title, ok, weight, detail, required=False):
+        checks.append({
+            "key": key,
+            "title": title,
+            "ok": bool(ok),
+            "weight": int(weight),
+            "required": bool(required),
+            "detail": str(detail)[:240],
+        })
+
+    add("database", "Database integrity", bool(integrity.get("ok")), 20,
+        "SQLite quick_check passed." if integrity.get("ok") else "SQLite integrity requires review.", True)
+    add("audit", "Audit evidence", bool(audit.get("valid")), 15,
+        f'{int(audit.get("events") or 0)} audit event(s) verified.' if audit.get("valid") else "Audit hash chain requires review.", True)
+    add("release", "Release preflight", preflight.get("verdict") != "HOLD", 20,
+        f'{preflight.get("verdict")} · {int(preflight.get("release_score") or 0)}/100', True)
+    add("incidents", "Incident posture", critical_incidents == 0, 15,
+        f'{critical_incidents} critical · {high_incidents} high severity incident(s).', True)
+    add("recovery", "Recovery evidence", bool(backup) and bool(backup_validation.get("validated")), 10,
+        "Recent recovery evidence is present and validated." if backup and backup_validation.get("validated") else "Validated recovery evidence is incomplete.")
+    add("crown_integrity", "Crown proof integrity", int(crown.get("broken") or 0) == 0, 10,
+        f'{int(crown.get("valid") or 0)} valid · {int(crown.get("broken") or 0)} broken sealed Crown proof(s).')
+    add("production_config", "Production configuration", startup_ready and public_url_ready, 5,
+        "Production configuration has no startup warning." if startup_ready and public_url_ready else "Production configuration still has a startup warning or missing public URL.")
+    add("launch_command", "Launch command posture", launch.get("state") != "HOLD", 5,
+        f'Launch Command: {launch.get("state") or "UNKNOWN"}.')
+
+    score = max(0, min(100, sum(c["weight"] for c in checks if c["ok"])))
+    blockers = [c for c in checks if c["required"] and not c["ok"]]
+    cautions = [c for c in checks if (not c["required"]) and not c["ok"]]
+    if blockers:
+        state = "HOLD"
+    elif score >= 90 and not cautions and high_incidents == 0:
+        state = "READY"
+    else:
+        state = "CAUTION"
+
+    public_routes = 0
+    api_routes = 0
+    try:
+        for rule in app.url_map.iter_rules():
+            if "GET" in (rule.methods or set()):
+                public_routes += 1
+            if str(rule.rule).startswith("/api/"):
+                api_routes += 1
+    except Exception:
+        pass
+
+    digest_payload = {
+        "state": state,
+        "score": score,
+        "checks": [(c["key"], c["ok"], c["weight"]) for c in checks],
+        "critical_incidents": critical_incidents,
+        "high_incidents": high_incidents,
+        "crown_registry_digest": str(crown.get("registry_digest") or ""),
+        "audit_hash_prefix": str(audit.get("last_hash_prefix") or ""),
+    }
+    gate_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        "success": True,
+        "version": "V20.0",
+        "engine": "public-beta-gate-v20.0",
+        "state": state,
+        "readiness_score": score,
+        "checks": checks,
+        "blockers": blockers,
+        "cautions": cautions,
+        "summary": {
+            "critical_incidents": critical_incidents,
+            "high_incidents": high_incidents,
+            "crown_valid": int(crown.get("valid") or 0),
+            "crown_broken": int(crown.get("broken") or 0),
+            "get_routes": public_routes,
+            "api_routes": api_routes,
+            "environment": BL3_ENV,
+        },
+        "links": {
+            "home": "/",
+            "crown_integrity": "/crown-integrity",
+            "proof_explorer": "/crown-provenance",
+            "release_feed": "/releases",
+            "ops": "/ops",
+        },
+        "gate_digest": gate_digest,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Public Beta Gate is a read-only launch-readiness summary. It does not deploy, restore, roll back, delete, mutate production data, or guarantee that the application is vulnerability-free.",
+    }
+
+
+@app.route("/api/public-beta-readiness")
+def public_beta_readiness_api():
+    return jsonify(_public_beta_gate_snapshot())
+
+
+@app.route("/public-beta-readiness.json")
+def public_beta_readiness_json():
+    data = _public_beta_gate_snapshot()
+    response = Response(json.dumps(data, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-public-beta-readiness.json"'
+    return response
+
+
+@app.route("/public-beta-readiness")
+def public_beta_readiness_page():
+    data = _public_beta_gate_snapshot()
+    esc = html.escape
+    state = str(data.get("state") or "CAUTION")
+    cls = "ready" if state == "READY" else ("hold" if state == "HOLD" else "caution")
+    rows = []
+    for c in data.get("checks") or []:
+        rows.append("""<article class='check {cls}'><div><span>{title}</span><small>{detail}</small></div><b>{status}</b></article>""".format(
+            cls="ok" if c.get("ok") else "bad",
+            title=esc(str(c.get("title") or "")),
+            detail=esc(str(c.get("detail") or "")),
+            status="PASS" if c.get("ok") else ("BLOCK" if c.get("required") else "REVIEW"),
+        ))
+    summary = data.get("summary") or {}
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Public Beta Gate</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#26390b,transparent 28%),radial-gradient(circle at 85% 0,#24134c,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1120px;margin:auto}.hero,.panel{border:1px solid #343641;background:#0b0c11;border-radius:28px;padding:26px;margin-top:18px}.kicker{color:#baff5a;font-weight:950;letter-spacing:1.3px}h1{font-size:clamp(58px,10vw,108px);line-height:.84;margin:10px 0 15px}.state{font-size:34px;font-weight:950}.state.ready{color:#baff5a}.state.caution{color:#ffd66b}.state.hold{color:#ff6b7a}.meta{color:#989baa;font-size:10px;line-height:1.7}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:18px}.stat{border:1px solid #30323b;border-radius:14px;padding:14px}.stat b{font-size:27px}.stat span{display:block;color:#858899;font-size:9px}.checks{display:grid;gap:9px}.check{display:flex;justify-content:space-between;gap:16px;align-items:center;border:1px solid #30323b;border-radius:15px;padding:14px;background:#08090d}.check span{font-weight:900}.check small{display:block;color:#8f92a1;margin-top:5px;line-height:1.5}.check.ok{border-color:rgba(186,255,90,.28)}.check.ok>b{color:#baff5a}.check.bad{border-color:rgba(255,107,122,.42)}.check.bad>b{color:#ff6b7a}.links a{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;margin:10px 7px 0 0;font-size:9px;font-weight:900}.digest{margin-top:16px;color:#727581;font:9px ui-monospace,monospace;word-break:break-all}@media(max-width:760px){.stats{grid-template-columns:1fr 1fr}.check{align-items:flex-start;flex-direction:column}}
+</style></head><body><div class='wrap'><section class='hero'><div class='kicker'>V20.0 // PUBLIC BETA GATE</div><h1>SHIP WITH EVIDENCE.</h1><div class='state {cls}'>{state} · {score}/100</div><p class='meta'>One read-only launch surface that combines database integrity, audit evidence, recovery posture, incidents, Crown proof integrity and release readiness before BL3 public beta.</p><div class='stats'><div class='stat'><b>{routes}</b><span>GET ROUTES</span></div><div class='stat'><b>{apis}</b><span>API ROUTES</span></div><div class='stat'><b>{valid}</b><span>VALID CROWNS</span></div><div class='stat'><b>{broken}</b><span>BROKEN CROWNS</span></div></div><div class='links'><a href='/'>HOME</a><a href='/crown-integrity'>CROWN INTEGRITY</a><a href='/crown-provenance'>PROOF EXPLORER</a><a href='/public-beta-readiness.json'>EXPORT JSON</a></div></section><section class='panel'><div class='kicker'>LAUNCH CHECKS</div><div class='checks'>{rows}</div></section><div class='digest'>BETA GATE DIGEST // {digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        cls=cls, state=esc(state), score=int(data.get("readiness_score") or 0),
+        routes=int(summary.get("get_routes") or 0), apis=int(summary.get("api_routes") or 0),
+        valid=int(summary.get("crown_valid") or 0), broken=int(summary.get("crown_broken") or 0),
+        rows="".join(rows), digest=esc(str(data.get("gate_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🛡️ BL3 ARENA V19.9 // CROWN INTEGRITY REGISTRY + TRUST BADGES")
+    print("🚦 BL3 ARENA V20.0 // PUBLIC BETA GATE + LAUNCH READINESS")
+    print("🚦 Public Beta Gate + Launch Readiness enabled")
     print("🛡️ Crown Integrity Registry + SVG Trust Badges enabled")
     print("🔎 Crown Provenance + Proof Explorer enabled")
     print("🔎 Crown Provenance + Proof Explorer enabled")
