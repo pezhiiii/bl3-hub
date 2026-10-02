@@ -10693,7 +10693,7 @@ def quality_headers(response):
         status = int(getattr(response, "status_code", 0) or 0)
         if status >= 400 or elapsed_ms >= _OBS_SLOW_MS or request.method not in ("GET", "HEAD", "OPTIONS"):
             _log_event("request", method=request.method, route=_obs_route_key(), status=status, ms=round(elapsed_ms, 1))
-    response.headers.setdefault("X-BL3-Version", "19.6")
+    response.headers.setdefault("X-BL3-Version", "19.8")
     return response
 
 
@@ -17712,12 +17712,287 @@ a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1p
     )
 
 
+# ===== V19.8 CROWN PROVENANCE + PROOF EXPLORER =====
+# Read-only evidence explorer. No new tables, writes, deploy actions or registry mutations.
+def _crown_provenance_result_verify(result_row):
+    if not result_row:
+        return {"valid": False, "reason": "missing_result", "stored_digest": "", "computed_digest": ""}
+    try:
+        conn = db()
+        battle = conn.execute(
+            "SELECT id,challenger,opponent,winner,season_key,created_at FROM creature_battles WHERE id=?",
+            (int(result_row.get("battle_id") or 0),),
+        ).fetchone()
+        conn.close()
+    except Exception as exc:
+        return {"valid": False, "reason": "battle_lookup_failed", "error": type(exc).__name__, "stored_digest": str(result_row.get("result_digest") or ""), "computed_digest": ""}
+    if not battle:
+        return {"valid": False, "reason": "battle_missing", "stored_digest": str(result_row.get("result_digest") or ""), "computed_digest": ""}
+    canonical = json.dumps({
+        "season_key": str(result_row.get("season_key") or ""),
+        "bracket_size": int(result_row.get("bracket_size") or 0),
+        "round_key": str(result_row.get("round_key") or ""),
+        "match_number": int(result_row.get("match_number") or 0),
+        "a": str(result_row.get("a_username") or ""),
+        "b": str(result_row.get("b_username") or ""),
+        "battle_id": int(result_row.get("battle_id") or 0),
+        "winner": str(result_row.get("winner") or ""),
+        "battle_created_at": str(battle["created_at"] or ""),
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    computed = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    stored = str(result_row.get("result_digest") or "")
+    participants_match = {str(battle["challenger"] or ""), str(battle["opponent"] or "")} == {
+        str(result_row.get("a_username") or ""), str(result_row.get("b_username") or "")
+    }
+    winner_match = str(battle["winner"] or "") == str(result_row.get("winner") or "")
+    season_match = str(battle["season_key"] or str(battle["created_at"] or "")[:7]) == str(result_row.get("season_key") or "")
+    return {
+        "valid": bool(secrets.compare_digest(computed, stored) and participants_match and winner_match and season_match),
+        "stored_digest": stored,
+        "computed_digest": computed,
+        "participants_match": bool(participants_match),
+        "winner_match": bool(winner_match),
+        "season_match": bool(season_match),
+        "battle": dict(battle),
+    }
+
+
+def _crown_provenance_title(title_row):
+    row = dict(title_row or {})
+    if not row:
+        return None
+    season_key = str(row.get("season_key") or "")
+    bracket_size = int(row.get("bracket_size") or 8)
+    title_verify = _championship_title_verify(row)
+    final_result = None
+    try:
+        conn = db()
+        rr = conn.execute(
+            """SELECT id,season_key,bracket_size,round_key,match_number,a_username,b_username,battle_id,winner,recorded_at,result_digest
+               FROM championship_match_results
+               WHERE season_key=? AND bracket_size=? AND round_key='final' AND match_number=1
+               LIMIT 1""",
+            (season_key, bracket_size),
+        ).fetchone()
+        conn.close()
+        final_result = dict(rr) if rr else None
+    except Exception:
+        final_result = None
+    result_verify = _crown_provenance_result_verify(final_result)
+    try:
+        center = _championship_match_center_snapshot(season_key, bracket_size)
+        current_center_digest = str(center.get("match_center_digest") or "")
+    except Exception as exc:
+        center = {"error": type(exc).__name__}
+        current_center_digest = ""
+    stored_center_digest = str(row.get("match_center_digest") or "")
+    center_match = bool(stored_center_digest and current_center_digest and secrets.compare_digest(stored_center_digest, current_center_digest))
+    final_digest_match = bool(final_result and secrets.compare_digest(str(row.get("final_result_digest") or ""), str(final_result.get("result_digest") or "")))
+    final_battle_match = bool(final_result and int(row.get("final_battle_id") or 0) == int(final_result.get("battle_id") or 0))
+    champion_match = bool(final_result and str(row.get("champion") or "") == str(final_result.get("winner") or ""))
+    checks = {
+        "title_digest_valid": bool(title_verify.get("valid")),
+        "final_result_digest_valid": bool(result_verify.get("valid")),
+        "sealed_result_digest_matches_registry": final_digest_match,
+        "sealed_battle_matches_registry": final_battle_match,
+        "sealed_champion_matches_final_winner": champion_match,
+        "sealed_match_center_matches_current": center_match,
+    }
+    integrity = "VALID" if all(checks.values()) else "BROKEN"
+    proof_core = {
+        "season_key": season_key,
+        "bracket_size": bracket_size,
+        "champion": str(row.get("champion") or ""),
+        "title_digest": str(row.get("title_digest") or ""),
+        "final_battle_id": int(row.get("final_battle_id") or 0),
+        "final_result_digest": str(row.get("final_result_digest") or ""),
+        "match_center_digest": stored_center_digest,
+        "checks": checks,
+    }
+    proof_digest = hashlib.sha256(
+        json.dumps(proof_core, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return {
+        "season_key": season_key,
+        "bracket_size": bracket_size,
+        "champion": str(row.get("champion") or ""),
+        "sealed_at": str(row.get("sealed_at") or ""),
+        "final_battle_id": int(row.get("final_battle_id") or 0),
+        "final_result_digest": str(row.get("final_result_digest") or ""),
+        "match_center_digest": stored_center_digest,
+        "title_digest": str(row.get("title_digest") or ""),
+        "integrity": integrity,
+        "checks": checks,
+        "title_verify": title_verify,
+        "result_verify": result_verify,
+        "current_match_center_digest": current_center_digest,
+        "proof_digest": proof_digest,
+        "proof_url": "/crown-proof/{}".format(urllib.parse.quote(str(row.get("title_digest") or ""))),
+    }
+
+
+def _crown_provenance_snapshot(query="", season="", champion="", battle="", digest="", limit=100):
+    query = str(query or "").strip().lower()
+    season = str(season or "").strip().lower()
+    champion = str(champion or "").strip().lower()
+    digest = str(digest or "").strip().lower()
+    try:
+        battle_id = int(str(battle).strip()) if str(battle or "").strip() else 0
+    except Exception:
+        battle_id = 0
+    try:
+        limit = max(1, min(int(limit or 100), 250))
+    except Exception:
+        limit = 100
+    rows = _championship_title_rows(250)
+    proofs = []
+    for row in rows:
+        p = _crown_provenance_title(row)
+        if not p:
+            continue
+        hay = " ".join([
+            str(p.get("season_key") or ""), str(p.get("champion") or ""), str(p.get("final_battle_id") or ""),
+            str(p.get("title_digest") or ""), str(p.get("final_result_digest") or ""),
+            str(p.get("match_center_digest") or ""), str(p.get("proof_digest") or ""), str(p.get("integrity") or ""),
+        ]).lower()
+        if query and query not in hay:
+            continue
+        if season and season not in str(p.get("season_key") or "").lower():
+            continue
+        if champion and champion not in str(p.get("champion") or "").lower():
+            continue
+        if battle_id and battle_id != int(p.get("final_battle_id") or 0):
+            continue
+        if digest:
+            digest_hay = " ".join([
+                str(p.get("title_digest") or ""), str(p.get("final_result_digest") or ""),
+                str(p.get("match_center_digest") or ""), str(p.get("proof_digest") or ""),
+            ]).lower()
+            if digest not in digest_hay:
+                continue
+        proofs.append(p)
+        if len(proofs) >= limit:
+            break
+    valid_count = sum(1 for p in proofs if p.get("integrity") == "VALID")
+    snapshot_core = [(p.get("title_digest"), p.get("proof_digest"), p.get("integrity")) for p in proofs]
+    explorer_digest = hashlib.sha256(
+        json.dumps(snapshot_core, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return {
+        "success": True,
+        "version": "V19.8",
+        "query": query,
+        "season_filter": season,
+        "champion_filter": champion,
+        "battle_filter": battle_id,
+        "digest_filter": digest,
+        "proofs": proofs,
+        "matched": len(proofs),
+        "valid": valid_count,
+        "broken": len(proofs) - valid_count,
+        "explorer_digest": explorer_digest,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Crown Provenance is read-only. It verifies BL3's recorded championship evidence chain against stored SHA-256 digests; it does not create, alter, rank or predict Crown outcomes.",
+    }
+
+
+def _crown_proof_by_digest(title_digest):
+    needle = str(title_digest or "").strip().lower()
+    if not needle:
+        return None
+    for row in _championship_title_rows(500):
+        if str(row.get("title_digest") or "").lower() == needle:
+            return _crown_provenance_title(row)
+    return None
+
+
+@app.route("/api/crown-provenance")
+def crown_provenance_api():
+    return jsonify(_crown_provenance_snapshot(
+        request.args.get("q"), request.args.get("season"), request.args.get("champion"),
+        request.args.get("battle"), request.args.get("digest"), request.args.get("limit", 100)
+    ))
+
+
+@app.route("/crown-provenance.json")
+def crown_provenance_json():
+    data = _crown_provenance_snapshot(
+        request.args.get("q"), request.args.get("season"), request.args.get("champion"),
+        request.args.get("battle"), request.args.get("digest"), request.args.get("limit", 100)
+    )
+    response = jsonify(data)
+    response.headers["Content-Disposition"] = 'attachment; filename="bl3-crown-provenance.json"'
+    return response
+
+
+@app.route("/api/crown-proof/<title_digest>")
+def crown_proof_api(title_digest):
+    proof = _crown_proof_by_digest(title_digest)
+    if not proof:
+        return jsonify({"success": False, "message": "Crown proof not found."}), 404
+    return jsonify({"success": True, "version": "V19.8", "proof": proof})
+
+
+@app.route("/crown-proof/<title_digest>.json")
+def crown_proof_json(title_digest):
+    proof = _crown_proof_by_digest(title_digest)
+    if not proof:
+        return jsonify({"success": False, "message": "Crown proof not found."}), 404
+    return Response(json.dumps({"success": True, "version": "V19.8", "proof": proof}, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
+
+
+@app.route("/crown-proof/<title_digest>")
+def crown_proof_page(title_digest):
+    proof = _crown_proof_by_digest(title_digest)
+    if not proof:
+        return "<!doctype html><meta charset='utf-8'><title>BL3 Crown Proof</title><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>Crown proof not found.</h1><a style='color:#baff5a' href='/crown-provenance'>Back to Proof Explorer</a></body>", 404
+    esc = html.escape
+    checks = proof.get("checks") or {}
+    chain = [
+        ("SEASON", proof.get("season_key")),
+        ("CHAMPION", proof.get("champion")),
+        ("FINAL BATTLE", "#{}".format(int(proof.get("final_battle_id") or 0))),
+        ("FINAL RESULT DIGEST", proof.get("final_result_digest")),
+        ("MATCH CENTER DIGEST", proof.get("match_center_digest")),
+        ("TITLE DIGEST", proof.get("title_digest")),
+        ("PROOF DIGEST", proof.get("proof_digest")),
+    ]
+    chain_html = "".join('<div class="node"><span>{}</span><b>{}</b></div>'.format(esc(str(k)), esc(str(v or "—"))) for k,v in chain)
+    check_html = "".join('<div class="check {}"><span>{}</span><b>{}</b></div>'.format("ok" if v else "bad", esc(str(k).replace("_"," ").upper()), "VALID" if v else "FAILED") for k,v in checks.items())
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Proof</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#382907,transparent 28%),radial-gradient(circle at 80% 10%,#1b2248,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1060px;margin:auto}.hero,.panel{border:1px solid #343640;background:#0b0c11;border-radius:26px;padding:24px;margin-top:16px}.gold{color:#ffd66b;font-weight:950;letter-spacing:1px}.status{font-size:clamp(54px,9vw,96px);line-height:.9;margin:9px 0}.meta{color:#999cab;font-size:10px;line-height:1.6}.chain{display:grid;gap:9px}.node,.check{border:1px solid #30323b;border-radius:15px;padding:14px;background:#08090d}.node span,.check span{display:block;color:#858899;font-size:9px;letter-spacing:1px}.node b{display:block;margin-top:6px;font:12px ui-monospace,monospace;word-break:break-all}.checks{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.check b{display:block;margin-top:6px}.check.ok{border-color:rgba(186,255,90,.35)}.check.ok b{color:#baff5a}.check.bad{border-color:rgba(255,95,112,.45)}.check.bad b{color:#ff6b7a}a{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;margin:10px 8px 0 0;font-size:9px;font-weight:900}@media(max-width:720px){.checks{grid-template-columns:1fr}}
+</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V19.8 // CROWN PROVENANCE</div><div class='status'>{integrity}</div><p class='meta'>Sealed championship evidence chain for {season} · {champion} · bracket {size}.</p><a href='/crown-provenance'>PROOF EXPLORER</a><a href='/crown-proof/{digest}.json'>EXPORT JSON</a><a href='/championship-title/{season_q}?size={size}'>TITLE REGISTRY</a></section><section class='panel'><div class='gold'>EVIDENCE CHAIN</div><div class='chain'>{chain}</div></section><section class='panel'><div class='gold'>INTEGRITY CHECKS</div><div class='checks'>{checks}</div></section><p class='meta'>Read-only verification. Stored evidence is not modified by this page.</p></div></body></html>""".format(
+        integrity=esc(str(proof.get("integrity") or "UNKNOWN")), season=esc(str(proof.get("season_key") or "")), champion=esc(str(proof.get("champion") or "")), size=int(proof.get("bracket_size") or 8), digest=esc(str(proof.get("title_digest") or "")), season_q=urllib.parse.quote(str(proof.get("season_key") or "")), chain=chain_html, checks=check_html)
+
+
+@app.route("/crown-provenance")
+def crown_provenance_page():
+    data = _crown_provenance_snapshot(
+        request.args.get("q"), request.args.get("season"), request.args.get("champion"),
+        request.args.get("battle"), request.args.get("digest"), request.args.get("limit", 100)
+    )
+    esc = html.escape
+    cards = []
+    for p in data.get("proofs") or []:
+        cls = "ok" if p.get("integrity") == "VALID" else "bad"
+        cards.append("""<article class='proof {cls}'><div class='top'><span>{season} · bracket {size}</span><b>{integrity}</b></div><h2>{champion}</h2><div class='facts'><div><span>FINAL BATTLE</span><b>#{battle}</b></div><div><span>SEALED</span><b>{sealed}</b></div></div><code>{digest}</code><a href='{url}'>OPEN PROOF CHAIN →</a></article>""".format(
+            cls=cls, season=esc(str(p.get("season_key") or "")), size=int(p.get("bracket_size") or 8), integrity=esc(str(p.get("integrity") or "")), champion=esc(str(p.get("champion") or "—")), battle=int(p.get("final_battle_id") or 0), sealed=esc(str(p.get("sealed_at") or "—")), digest=esc(str(p.get("title_digest") or "")), url=esc(str(p.get("proof_url") or "#"))))
+    qs = {"q": request.args.get("q", ""), "season": request.args.get("season", ""), "champion": request.args.get("champion", ""), "battle": request.args.get("battle", ""), "digest": request.args.get("digest", "")}
+    export_url = "/crown-provenance.json?" + urllib.parse.urlencode(qs)
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Crown Provenance</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#3d2d0a,transparent 29%),radial-gradient(circle at 90% 0,#172f59,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #353742;background:#0b0c11;border-radius:28px;padding:25px;margin-top:18px}.gold{color:#ffd66b;font-weight:950;letter-spacing:1.2px}h1{font-size:clamp(58px,9vw,100px);line-height:.86;margin:10px 0 16px}.meta{color:#999cab;font-size:10px;line-height:1.7}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:18px 0}.stat{border:1px solid #30323b;border-radius:14px;padding:14px}.stat b{font-size:28px}.stat span{display:block;color:#858899;font-size:9px}.filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 2fr auto;gap:8px}input,button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:11px;font:inherit}button{font-weight:900;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.proof{border:1px solid #30323b;border-radius:20px;padding:18px;background:#08090d}.proof.ok{border-color:rgba(186,255,90,.27)}.proof.bad{border-color:rgba(255,95,112,.4)}.top{display:flex;justify-content:space-between;color:#9a9dac;font-size:9px}.proof.ok .top b{color:#baff5a}.proof.bad .top b{color:#ff6b7a}.proof h2{font-size:28px;margin:12px 0}.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px}.facts div{border:1px solid #292b33;border-radius:12px;padding:10px}.facts span{display:block;color:#858899;font-size:8px}.facts b{font-size:12px}.proof code{display:block;margin-top:12px;color:#777;word-break:break-all;font-size:8px}.proof a,.hero a{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;margin-top:12px;font-size:8px;font-weight:900}.digest{color:#737681;font:9px ui-monospace,monospace;word-break:break-all;margin-top:15px}@media(max-width:850px){.filters,.grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr 1fr}}
+</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V19.8 // CROWN PROVENANCE + PROOF EXPLORER</div><h1>TRACE THE CROWN.</h1><p class='meta'>Follow sealed Crown evidence from season → final battle → result digest → Match Center digest → title digest.</p><div class='stats'><div class='stat'><b>{matched}</b><span>MATCHED PROOFS</span></div><div class='stat'><b>{valid}</b><span>VALID CHAINS</span></div><div class='stat'><b>{broken}</b><span>BROKEN CHAINS</span></div></div><form class='filters' method='get'><input name='q' value='{q}' placeholder='search everything'><input name='season' value='{season}' placeholder='season'><input name='champion' value='{champion}' placeholder='champion'><input name='battle' value='{battle}' placeholder='battle id'><input name='digest' value='{digest_filter}' placeholder='digest / hash'><button>SEARCH</button></form><a href='/crown-archive'>ARCHIVE</a> <a href='/crown-compare'>COMPARE</a> <a href='{export_url}'>EXPORT JSON</a></section><section class='panel'><div class='grid'>{cards}</div></section><div class='digest'>EXPLORER DIGEST // {explorer_digest}</div><p class='meta'>{policy}</p></div></body></html>""".format(
+        matched=int(data.get("matched") or 0), valid=int(data.get("valid") or 0), broken=int(data.get("broken") or 0),
+        q=esc(str(request.args.get("q", ""))), season=esc(str(request.args.get("season", ""))), champion=esc(str(request.args.get("champion", ""))), battle=esc(str(request.args.get("battle", ""))), digest_filter=esc(str(request.args.get("digest", ""))), export_url=esc(export_url), cards="".join(cards) or '<div class="meta">No sealed Crown proof matched these filters.</div>', explorer_digest=esc(str(data.get("explorer_digest") or "")), policy=esc(str(data.get("policy") or "")))
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("⚖️ BL3 ARENA V19.7 // CROWN COMPARE + RIVAL LEGACY")
+    print("🔎 BL3 ARENA V19.8 // CROWN PROVENANCE + PROOF EXPLORER")
+    print("🔎 Crown Provenance + Proof Explorer enabled")
     print("⚖️ Crown Compare + Rival Legacy enabled")
     print("📖 Crown Storybook + Share Cards enabled")
     print("🧭 Crown Pathfinder + Ancestry Chains enabled")
