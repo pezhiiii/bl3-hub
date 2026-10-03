@@ -18206,6 +18206,7 @@ def _crown_universe_snapshot():
             {"key":"network","title":"Crown Network","href":"/crown-network","detail":"Explore relationships across the Crown ecosystem."},
             {"key":"live","title":"Crown Live","href":"/crown-live","detail":"Watch the global Crown activity pulse and latest sealed events."},
             {"key":"watch","title":"Crown Watchlist","href":"/crown-watch","detail":"Follow champions, rivals and seasons with in-app alerts."},
+            {"key":"notifications","title":"Notification Center","href":"/crown-notifications","detail":"Review Crown alerts ranked by smart signal priority."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18237,7 +18238,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -18904,7 +18905,7 @@ h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}.stats{display:
 <p class="meta">Follow champions, rivals or seasons and receive in-app alerts when sealed Crown events match your watchlist.</p>
 <div class="stats"><div class="stat"><b>{watch_count}</b><span>ACTIVE WATCHES</span></div><div class="stat"><b>{unread}</b><span>UNREAD ALERTS</span></div></div>
 <form class="form" onsubmit="addWatch(event)"><select id="watchType"><option value="champion">CHAMPION</option><option value="rival">RIVAL</option><option value="season">SEASON</option></select><input id="watchValue" placeholder="username or season" required><button>ADD WATCH</button></form>
-<a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
+<a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
 </section>
 <section class="panel"><div class="gold">YOUR WATCHLIST</div>{watches}</section>
 <section class="panel"><div class="gold">CROWN ALERTS</div>{alerts}</section>
@@ -18936,12 +18937,124 @@ async function markRead(id){{
 
 
 
+
+# ===== V20.3 CROWN NOTIFICATION CENTER + SMART PRIORITY =====
+def _crown_alert_priority(alert):
+    title = str(alert.get("title") or "").lower()
+    detail = str(alert.get("detail") or "").lower()
+    watch_type = str(alert.get("watch_type") or "").lower()
+    score = 10
+    reasons = []
+    if "turnover" in title or "seized the crown" in detail:
+        score += 55; reasons.append("crown turnover")
+    elif "defense" in title or "defended the crown" in detail:
+        score += 30; reasons.append("title defense")
+    elif "crown event" in title or "entered crown history" in detail:
+        score += 24; reasons.append("crown event")
+    if watch_type == "rival":
+        score += 18; reasons.append("rival watch")
+    elif watch_type == "champion":
+        score += 12; reasons.append("champion watch")
+    elif watch_type == "season":
+        score += 6; reasons.append("season watch")
+    if not int(alert.get("is_read") or 0):
+        score += 10; reasons.append("unread")
+    score = min(100, score)
+    level = "CRITICAL" if score >= 70 else ("HIGH" if score >= 45 else "NORMAL")
+    return {"level": level, "score": score, "reasons": reasons}
+
+def _crown_notification_center_snapshot(username, limit=120):
+    username = str(username or "").strip()
+    if not username:
+        return {"username":"","alerts":[],"counts":{"CRITICAL":0,"HIGH":0,"NORMAL":0},"unread":0,"total":0,
+                "generated_at": datetime.utcnow().isoformat(timespec="seconds")+"Z",
+                "policy":"Notification Center requires a signed-in BL3 username."}
+    _materialize_watch_alerts(username)
+    alerts = _watch_alerts_for(username, limit)
+    enriched=[]; counts={"CRITICAL":0,"HIGH":0,"NORMAL":0}; unread=0
+    for alert in alerts:
+        row=dict(alert); p=_crown_alert_priority(row)
+        row["priority"]=p["level"]; row["priority_score"]=p["score"]; row["priority_reasons"]=p["reasons"]
+        counts[p["level"]] += 1
+        if not int(row.get("is_read") or 0): unread += 1
+        enriched.append(row)
+    enriched.sort(key=lambda x:(int(x.get("is_read") or 0)==0,int(x.get("priority_score") or 0),int(x.get("id") or 0)),reverse=True)
+    payload={"username":username,"alerts":enriched,"counts":counts,"unread":unread,"total":len(enriched),
+             "highest_priority":enriched[0]["priority"] if enriched else "NORMAL",
+             "generated_at":datetime.utcnow().isoformat(timespec="seconds")+"Z",
+             "policy":"Smart Priority is a local display heuristic derived from alert type, watch type and unread state. It does not predict Crown outcomes or modify stored Crown history."}
+    payload["notification_digest"]=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False,default=str).encode("utf-8")).hexdigest()
+    return payload
+
+@app.route("/api/crown-notifications")
+def crown_notifications_api():
+    username=str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success":False,"message":"Sign in or provide username."}),401
+    return jsonify({"success":True,**_crown_notification_center_snapshot(username,request.args.get("limit",120))})
+
+@app.route("/api/crown-notifications/badge")
+def crown_notifications_badge_api():
+    username=str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success":True,"unread":0,"critical":0,"high":0,"highest_priority":"NORMAL"})
+    data=_crown_notification_center_snapshot(username,120)
+    return jsonify({"success":True,"unread":int(data.get("unread") or 0),
+                    "critical":int((data.get("counts") or {}).get("CRITICAL") or 0),
+                    "high":int((data.get("counts") or {}).get("HIGH") or 0),
+                    "highest_priority":str(data.get("highest_priority") or "NORMAL")})
+
+@app.route("/crown-notifications")
+def crown_notifications_page():
+    username=str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;font-family:system-ui;padding:40px'><h1>🔔 Crown Notification Center</h1><p>Sign in to BL3 to open your notification center.</p><a style='color:#ffd66b' href='/'>Back to BL3</a></body>"
+    data=_crown_notification_center_snapshot(username,120)
+    esc=html.escape; rows=[]
+    for a in data.get("alerts") or []:
+        p=str(a.get("priority") or "NORMAL")
+        reasons=" · ".join(a.get("priority_reasons") or []) or "standard signal"
+        rows.append("<article style='border:1px solid #353842;border-radius:16px;padding:14px;margin:9px 0;background:#090a0f'>"
+                    f"<div style='color:#ffd66b;font-size:11px;font-weight:900'>{esc(p)} · {int(a.get('priority_score') or 0)}</div>"
+                    f"<h3>{esc(str(a.get('title') or ''))}</h3>"
+                    f"<p style='color:#aaa'>{esc(str(a.get('detail') or ''))}</p>"
+                    f"<div style='font-size:10px;color:#777'>{esc(reasons)}</div>"
+                    f"<a style='color:white' href='{esc(str(a.get('href') or '#'))}' onclick='markRead({int(a.get('id') or 0)})'>OPEN ↗</a>"
+                    "</article>")
+    counts=data.get("counts") or {}
+    page=f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Crown Notification Center</title></head>
+<body style="margin:0;background:#040406;color:#fff;font-family:Inter,system-ui;padding:24px">
+<div style="max-width:1080px;margin:auto">
+<section style="border:1px solid #353842;border-radius:30px;background:#0b0c11;padding:26px">
+<div style="color:#ffd66b;font-weight:900">V20.3 // NOTIFICATION CENTER</div>
+<h1 style="font-size:clamp(58px,9vw,104px);line-height:.86;margin:10px 0">PRIORITY SIGNALS.</h1>
+<p style="color:#999cab">Your Crown alerts, ranked by signal importance so the moments that matter surface first.</p>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+<div><b>{int(data.get("unread") or 0)}</b><div>UNREAD</div></div>
+<div><b>{int(counts.get("CRITICAL") or 0)}</b><div>CRITICAL</div></div>
+<div><b>{int(counts.get("HIGH") or 0)}</b><div>HIGH</div></div>
+<div><b>{int(counts.get("NORMAL") or 0)}</b><div>NORMAL</div></div>
+</div>
+<p><a style="color:#fff" href="/crown-watch">WATCHLIST</a> · <a style="color:#fff" href="/crown-live">CROWN LIVE</a> · <a style="color:#fff" href="/crown-universe">UNIVERSE</a></p>
+</section>
+<section style="border:1px solid #353842;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px">
+<div style="color:#ffd66b;font-weight:900">SMART PRIORITY QUEUE</div>{''.join(rows) or '<div style="color:#999cab">No Crown notifications yet.</div>'}
+</section>
+<div style="margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all">NOTIFICATION DIGEST // {esc(str(data.get("notification_digest") or ""))}</div>
+</div>
+<script>
+async function markRead(id){{fetch('/api/crown-watch/read',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{alert_id:id}})}});}}
+</script></body></html>"""
+    return page
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🔔 BL3 ARENA V20.2 // CROWN ALERTS + WATCHLIST")
+    print("⚡ BL3 ARENA V20.3 // NOTIFICATION CENTER + SMART PRIORITY")
+    print("⚡ Crown Notification Center + Smart Priority enabled")
     print("🔔 Crown Alerts + Watchlist enabled")
     print("📡 Crown Universe Live Feed + Global Activity Pulse enabled")
     print("🌌 Crown Universe Hub enabled")
