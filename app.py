@@ -18204,6 +18204,7 @@ def _crown_universe_snapshot():
             {"key":"relics","title":"Crown Relics","href":"/crown-relics","detail":"Open legendary moments and historic battle artifacts."},
             {"key":"story","title":"Crown Storybook","href":"/crown-story","detail":"Read the Crown timeline as a living story."},
             {"key":"network","title":"Crown Network","href":"/crown-network","detail":"Explore relationships across the Crown ecosystem."},
+            {"key":"live","title":"Crown Live","href":"/crown-live","detail":"Watch the global Crown activity pulse and latest sealed events."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18235,7 +18236,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -18349,12 +18350,250 @@ display:flex;flex-direction:column;align-items:center;justify-content:center;tex
 
 
 
+# ===== V20.1 CROWN UNIVERSE LIVE FEED + GLOBAL ACTIVITY PULSE =====
+def _crown_live_feed_snapshot(limit=80):
+    try:
+        limit = max(1, min(int(limit or 80), 300))
+    except Exception:
+        limit = 80
+
+    ledger = _crown_ledger_snapshot(1000)
+    relics = _crown_relics_snapshot(limit=500)
+    hall = _hall_of_kings_snapshot(limit=500)
+    archive = _crown_archive_snapshot(limit=500)
+
+    events = []
+    for item in reversed(ledger.get("events") or []):
+        champ = str(item.get("champion") or "")
+        prev = str(item.get("previous_champion") or "")
+        etype = str(item.get("event_type") or "EVENT").upper()
+        season = str(item.get("season_key") or "")
+        battle = int(item.get("final_battle_id") or 0)
+        integrity = str(item.get("integrity") or "")
+        created_at = str(item.get("created_at") or "")
+
+        if etype == "TURNOVER":
+            title = f"{champ} seized the Crown"
+            detail = f"Turnover vs {prev or 'unknown'} · battle #{battle} · {season}"
+            icon = "⚔️"
+            intensity = 5
+        elif etype == "CROWNED":
+            title = f"{champ} entered Crown history"
+            detail = f"Crowned in battle #{battle} · {season}"
+            icon = "👑"
+            intensity = 4
+        elif etype == "DEFENSE":
+            title = f"{champ} defended the Crown"
+            detail = f"Defense in battle #{battle} · {season}"
+            icon = "🛡️"
+            intensity = 3
+        else:
+            title = f"{champ or 'Unknown'} recorded a Crown event"
+            detail = f"{etype} · battle #{battle} · {season}"
+            icon = "✦"
+            intensity = 2
+
+        events.append({
+            "kind": "crown_event",
+            "icon": icon,
+            "title": title,
+            "detail": detail,
+            "champion": champ,
+            "previous_champion": prev,
+            "season_key": season,
+            "battle_id": battle,
+            "event_type": etype,
+            "integrity": integrity,
+            "created_at": created_at,
+            "intensity": intensity,
+            "href": "/crown-archive?{}".format(
+                urllib.parse.urlencode({"q": str(battle) if battle else champ})
+            ),
+        })
+
+    # Fold recent relics into the same read-only global activity stream.
+    for relic in relics.get("relics") or []:
+        events.append({
+            "kind": "relic",
+            "icon": "🏺",
+            "title": str(relic.get("title") or "Crown Relic"),
+            "detail": str(relic.get("story") or ""),
+            "champion": str(relic.get("champion") or ""),
+            "season_key": str(relic.get("season_key") or ""),
+            "battle_id": int(relic.get("battle_id") or 0),
+            "event_type": str(relic.get("event_type") or ""),
+            "integrity": str(relic.get("integrity") or ""),
+            "created_at": "",
+            "intensity": 2 if str(relic.get("rarity") or "") in ("RARE", "ARCHIVED") else 4,
+            "href": str(relic.get("museum_url") or "/crown-relics"),
+        })
+
+    # Crown events remain first; relic artifacts are supplementary.
+    events = sorted(
+        events,
+        key=lambda x: (
+            1 if x.get("kind") == "crown_event" else 0,
+            str(x.get("created_at") or ""),
+            int(x.get("battle_id") or 0),
+        ),
+        reverse=True,
+    )[:limit]
+
+    champions = hall.get("champions") or []
+    hot = champions[0] if champions else {}
+    current = str(ledger.get("current_champion") or "")
+
+    event_counts = {"TURNOVER": 0, "CROWNED": 0, "DEFENSE": 0}
+    integrity_valid = 0
+    crown_event_total = 0
+    for e in ledger.get("events") or []:
+        et = str(e.get("event_type") or "").upper()
+        if et in event_counts:
+            event_counts[et] += 1
+        crown_event_total += 1
+        if str(e.get("integrity") or "").upper() == "VALID":
+            integrity_valid += 1
+
+    integrity_rate = round((integrity_valid / max(1, crown_event_total)) * 100, 1)
+
+    pulse_score = min(
+        100,
+        int(event_counts.get("TURNOVER", 0) * 8)
+        + int(event_counts.get("DEFENSE", 0) * 3)
+        + min(25, int(hall.get("total_champions") or 0) * 2)
+        + min(20, int(archive.get("season_count") or 0) * 2)
+    )
+    if pulse_score >= 75:
+        pulse_state = "SURGING"
+    elif pulse_score >= 45:
+        pulse_state = "ACTIVE"
+    elif pulse_score >= 20:
+        pulse_state = "BUILDING"
+    else:
+        pulse_state = "QUIET"
+
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "current_champion": current,
+        "pulse_state": pulse_state,
+        "pulse_score": pulse_score,
+        "hot_champion": str(hot.get("username") or current),
+        "hot_legacy_score": int(hot.get("legacy_score") or 0),
+        "sealed_events": int(ledger.get("event_count") or 0),
+        "champions": int(hall.get("total_champions") or 0),
+        "seasons": int(archive.get("season_count") or 0),
+        "relics": int(relics.get("total_relics") or 0),
+        "turnovers": int(event_counts.get("TURNOVER") or 0),
+        "defenses": int(event_counts.get("DEFENSE") or 0),
+        "crowned_events": int(event_counts.get("CROWNED") or 0),
+        "integrity_rate": integrity_rate,
+        "feed": events,
+        "policy": (
+            "Global Activity Pulse is a read-only visualization derived from recorded BL3 Crown history. "
+            "Pulse Score is a display metric based on observed historical activity and is not a prediction."
+        ),
+    }
+    payload["pulse_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/crown-live")
+def crown_live_api():
+    return jsonify({"success": True, **_crown_live_feed_snapshot(request.args.get("limit", 80))})
+
+
+@app.route("/crown-live.json")
+def crown_live_export():
+    return Response(
+        json.dumps(_crown_live_feed_snapshot(request.args.get("limit", 80)), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/crown-live")
+def crown_live_page():
+    data = _crown_live_feed_snapshot(request.args.get("limit", 80))
+    esc = html.escape
+
+    rows = []
+    for item in data.get("feed") or []:
+        rows.append(
+            '<a class="feed-item i{intensity}" href="{href}">'
+            '<div class="feed-icon">{icon}</div><div class="feed-copy">'
+            '<div class="feed-kind">{kind}</div><h3>{title}</h3><p>{detail}</p>'
+            '<div class="feed-meta">{season} · battle #{battle} · {integrity}</div>'
+            '</div><div class="feed-arrow">↗</div></a>'.format(
+                intensity=int(item.get("intensity") or 1),
+                href=esc(str(item.get("href") or "#")),
+                icon=esc(str(item.get("icon") or "✦")),
+                kind=esc(str(item.get("kind") or "event").upper()),
+                title=esc(str(item.get("title") or "")),
+                detail=esc(str(item.get("detail") or "")),
+                season=esc(str(item.get("season_key") or "—")),
+                battle=int(item.get("battle_id") or 0),
+                integrity=esc(str(item.get("integrity") or "—")),
+            )
+        )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Crown Live</title><style>
+*{box-sizing:border-box}body{margin:0;background:
+radial-gradient(circle at 18% 0,#311248,transparent 30%),
+radial-gradient(circle at 82% 0,#5d380d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1120px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.hot{color:#b786ff}.meta{color:#9699a8;font-size:10px;line-height:1.6}
+h1{font-size:clamp(62px,10vw,110px);line-height:.84;margin:9px 0 16px}.pulse{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;border:1px solid #353842;border-radius:22px;padding:18px;background:linear-gradient(135deg,rgba(183,134,255,.09),rgba(255,214,107,.04))}
+.pulse-orb{width:108px;height:108px;border-radius:50%;display:grid;place-items:center;border:1px solid #5d4b74;background:radial-gradient(circle,#7f22d9 0,#251034 46%,#0b0c11 72%);box-shadow:0 0 48px rgba(149,78,255,.22);font-weight:900}
+.pulse h2{margin:0;font-size:32px}.pulse p{margin:6px 0 0;color:#9699a8;font-size:10px}
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#989ba8}
+.feed{display:grid;gap:9px;margin-top:12px}.feed-item{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;border:1px solid #2f323b;border-radius:18px;padding:14px;text-decoration:none;color:#fff;background:#0a0b10;transition:.15s}.feed-item:hover{transform:translateY(-1px);border-color:#7a5ca0}
+.feed-item.i5{border-color:#7d6530}.feed-item.i4{border-color:#55406d}.feed-icon{font-size:30px}.feed-kind{font-size:7px;color:#ffd66b;letter-spacing:1.5px;font-weight:900}.feed-copy h3{margin:4px 0;font-size:18px}.feed-copy p{margin:0;color:#c1c3cc;font-size:10px;line-height:1.5}.feed-meta{margin-top:6px;color:#777b89;font-size:8px}.feed-arrow{font-size:18px;color:#777}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:880px){.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:600px){.stats{grid-template-columns:1fr 1fr}.pulse{grid-template-columns:1fr}.pulse-orb{width:86px;height:86px}.feed-item{grid-template-columns:auto 1fr}.feed-arrow{display:none}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.1 // CROWN LIVE</div><h1>THE UNIVERSE HAS A PULSE.</h1>
+<div class="pulse"><div><div class="gold">GLOBAL ACTIVITY PULSE</div><h2>{state} <span class="hot">{score}/100</span></h2><p>Current Crown: {current} · Hot signal: {hot}</p></div><div class="pulse-orb">{score}</div></div>
+<div class="stats">
+<div class="stat"><b>{events}</b><span>SEALED EVENTS</span></div>
+<div class="stat"><b>{champions}</b><span>CHAMPIONS</span></div>
+<div class="stat"><b>{seasons}</b><span>SEASONS</span></div>
+<div class="stat"><b>{relics}</b><span>RELICS</span></div>
+<div class="stat"><b>{defenses}</b><span>DEFENSES</span></div>
+<div class="stat"><b>{integrity}%</b><span>INTEGRITY</span></div>
+</div>
+<a class="nav" href="/crown-universe">CROWN UNIVERSE</a> <a class="nav" href="/crown-archive">ARCHIVE</a> <a class="nav" href="/crown-live.json">EXPORT JSON</a>
+</section>
+<section class="panel"><div class="gold">GLOBAL ACTIVITY STREAM</div><div class="feed">{rows}</div></section>
+<div class="digest">PULSE DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        state=esc(str(data.get("pulse_state") or "QUIET")),
+        score=int(data.get("pulse_score") or 0),
+        current=esc(str(data.get("current_champion") or "—")),
+        hot=esc(str(data.get("hot_champion") or "—")),
+        events=int(data.get("sealed_events") or 0),
+        champions=int(data.get("champions") or 0),
+        seasons=int(data.get("seasons") or 0),
+        relics=int(data.get("relics") or 0),
+        defenses=int(data.get("defenses") or 0),
+        integrity=float(data.get("integrity_rate") or 0.0),
+        rows="".join(rows) or '<div class="meta">No Crown activity has been recorded yet.</div>',
+        digest=esc(str(data.get("pulse_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🌌 BL3 ARENA V20.0 // CROWN UNIVERSE HUB")
+    print("📡 BL3 ARENA V20.1 // CROWN UNIVERSE LIVE PULSE")
+    print("📡 Crown Universe Live Feed + Global Activity Pulse enabled")
     print("🌌 Crown Universe Hub enabled")
     print("🏺 Crown Relics + Legendary Moments enabled")
     print("🏛️ Hall of Kings + Interactive Legacy Museum enabled")
