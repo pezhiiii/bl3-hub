@@ -18211,6 +18211,7 @@ def _crown_universe_snapshot():
             {"key":"briefing","title":"Hunter Briefing","href":"/hunter-briefing","detail":"Get a personal daily-style summary of the Crown signals that matter to you."},
             {"key":"missions","title":"Hunter Daily Missions","href":"/hunter-missions","detail":"Turn live Crown signals into personalized daily actions and reputation progress."},
             {"key":"rewards","title":"Mission Streaks","href":"/hunter-mission-rewards","detail":"Build perfect-day streaks and unlock Daily Chest rewards."},
+            {"key":"loot","title":"Loot History","href":"/hunter-loot-history","detail":"Review opened chests, REP rewards and streak milestone badges."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18242,7 +18243,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁","loot":"🏅"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -19617,7 +19618,7 @@ a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;borde
 </style></head><body><div class="wrap">
 <section class="hero"><div class="gold">V20.5 // HUNTER INTELLIGENCE BRIEFING</div>
 <div class="brief"><div><h1>KNOW WHAT MATTERS.</h1><p class="meta">{summary}</p>
-<a class="nav" href="/hunter-missions">MISSIONS</a> <a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
+<a class="nav" href="/hunter-loot-history">LOOT HISTORY</a> <a class="nav" href="/hunter-missions">MISSIONS</a> <a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
 </div><div class="score">{score}</div></div>
 <p class="meta">BRIEFING STATE // <span class="violet">{state}</span> · HUNTER // {username}</p>
 <div class="stats">
@@ -20341,12 +20342,205 @@ async function openChest(){{
 
 
 
+
+# ===== V20.8 CHEST LOOT HISTORY + STREAK MILESTONES =====
+def _ensure_streak_milestones_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_streak_milestones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            milestone_days INTEGER NOT NULL,
+            badge_name TEXT NOT NULL,
+            badge_icon TEXT NOT NULL,
+            unlocked_at TEXT NOT NULL,
+            UNIQUE(username, milestone_days)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_streak_milestones_user ON hunter_streak_milestones(username, milestone_days)")
+    conn.commit()
+    conn.close()
+
+_ensure_streak_milestones_schema()
+
+STREAK_MILESTONES = [
+    {"days": 3, "badge_name": "SPARK", "badge_icon": "✨"},
+    {"days": 7, "badge_name": "FLAME", "badge_icon": "🔥"},
+    {"days": 14, "badge_name": "CROWNED DISCIPLINE", "badge_icon": "👑"},
+    {"days": 30, "badge_name": "MYTHIC HUNTER", "badge_icon": "🌌"},
+]
+
+def _sync_streak_milestones(username):
+    username = str(username or "").strip()
+    streak = _recalculate_mission_streak(username)
+    current = int(streak.get("current_streak") or 0)
+    conn = db()
+    for m in STREAK_MILESTONES:
+        if current >= int(m["days"]):
+            try:
+                conn.execute(
+                    """INSERT INTO hunter_streak_milestones
+                       (username, milestone_days, badge_name, badge_icon, unlocked_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (username, int(m["days"]), str(m["badge_name"]), str(m["badge_icon"]), datetime.utcnow().isoformat())
+                )
+            except sqlite3.IntegrityError:
+                pass
+    conn.commit()
+    rows = conn.execute(
+        """SELECT id, username, milestone_days, badge_name, badge_icon, unlocked_at
+           FROM hunter_streak_milestones
+           WHERE username = ?
+           ORDER BY milestone_days ASC""",
+        (username,)
+    ).fetchall()
+    conn.close()
+
+    unlocked = [dict(r) for r in rows]
+    unlocked_days = {int(x.get("milestone_days") or 0) for x in unlocked}
+    roadmap = []
+    for m in STREAK_MILESTONES:
+        roadmap.append({
+            **m,
+            "unlocked": int(m["days"]) in unlocked_days,
+            "progress": min(100.0, round((current / max(1, int(m["days"]))) * 100, 1)),
+        })
+    return {"current_streak": current, "unlocked": unlocked, "roadmap": roadmap}
+
+def _chest_history(username, limit=100):
+    try:
+        limit = max(1, min(int(limit or 100), 365))
+    except Exception:
+        limit = 100
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, username, chest_date, chest_tier, reward_rep, status, opened_at, created_at
+           FROM hunter_daily_chests
+           WHERE username = ?
+           ORDER BY chest_date DESC, id DESC
+           LIMIT ?""",
+        (username, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def _hunter_loot_history_snapshot(username):
+    username = str(username or "").strip()
+    rewards = _mission_rewards_snapshot(username)
+    milestones = _sync_streak_milestones(username)
+    history = _chest_history(username, 120)
+    opened = [x for x in history if str(x.get("status") or "").upper() == "OPENED"]
+    total_rep = sum(int(x.get("reward_rep") or 0) for x in opened)
+    tier_counts = {"STANDARD":0, "EPIC":0, "LEGENDARY":0, "MYTHIC":0}
+    for x in opened:
+        tier = str(x.get("chest_tier") or "STANDARD").upper()
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+    payload = {
+        "username": username,
+        "current_streak": int(milestones.get("current_streak") or 0),
+        "best_streak": int(rewards.get("best_streak") or 0),
+        "opened_chests": len(opened),
+        "total_chest_rep": total_rep,
+        "tier_counts": tier_counts,
+        "milestones": milestones.get("roadmap") or [],
+        "unlocked_badges": milestones.get("unlocked") or [],
+        "chest_history": history,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Chest history and streak milestones are in-app progression records. REP and badges are application-level reputation features and have no guaranteed monetary value.",
+    }
+    payload["loot_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+@app.route("/api/hunter-loot-history")
+def hunter_loot_history_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in or provide username."}), 401
+    return jsonify({"success": True, **_hunter_loot_history_snapshot(username)})
+
+@app.route("/hunter-loot-history.json")
+def hunter_loot_history_export():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return Response(json.dumps({"success":False,"message":"Sign in or provide username."}), status=401, mimetype="application/json")
+    return Response(json.dumps(_hunter_loot_history_snapshot(username), ensure_ascii=False, indent=2), mimetype="application/json")
+
+@app.route("/hunter-loot-history")
+def hunter_loot_history_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    esc = html.escape
+    if not username:
+        return "<!doctype html><meta charset='utf-8'><body style='margin:0;background:#050507;color:white;font-family:system-ui;padding:40px'><h1>🏅 Chest Loot History</h1><p>Sign in to view your chest history and streak milestones.</p><a style='color:#ffd66b' href='/'>Back to BL3</a></body>"
+    data = _hunter_loot_history_snapshot(username)
+    milestone_cards = []
+    for m in data.get("milestones") or []:
+        milestone_cards.append(
+            '<article class="milestone {state}"><div class="icon">{icon}</div><div><b>{name}</b><span>{days}-DAY STREAK</span></div><em>{progress}%</em></article>'.format(
+                state="unlocked" if m.get("unlocked") else "locked",
+                icon=esc(str(m.get("badge_icon") or "🏅")),
+                name=esc(str(m.get("badge_name") or "")),
+                days=int(m.get("days") or 0),
+                progress=float(m.get("progress") or 0.0),
+            )
+        )
+    chest_rows = []
+    for c in data.get("chest_history") or []:
+        status = str(c.get("status") or "LOCKED").upper()
+        chest_rows.append(
+            '<article class="chest-row {status}"><div><div class="tier">{tier}</div><b>{date}</b><span>{status} · +{rep} REP</span></div><div class="when">{opened}</div></article>'.format(
+                status=esc(status.lower()),
+                tier=esc(str(c.get("chest_tier") or "STANDARD")),
+                date=esc(str(c.get("chest_date") or "")),
+                rep=int(c.get("reward_rep") or 0),
+                opened=esc(str(c.get("opened_at") or "—")),
+            )
+        )
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Chest Loot History</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 18% 0,#391650,transparent 30%),radial-gradient(circle at 84% 0,#60370d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1100px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px;line-height:1.6}h1{font-size:clamp(58px,9vw,104px);line-height:.86;margin:10px 0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:24px}.stat span{font-size:8px;color:#989ba8}
+.milestones{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.milestone{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}.milestone.unlocked{border-color:#75612d}.milestone.locked{opacity:.55}.icon{font-size:28px}.milestone b{display:block;font-size:14px}.milestone span{display:block;color:#9296a4;font-size:8px;margin-top:3px}.milestone em{font-style:normal;color:#ffd66b;font-size:10px}
+.history{display:grid;gap:8px;margin-top:12px}.chest-row{display:flex;justify-content:space-between;align-items:center;border:1px solid #30323b;border-radius:14px;padding:13px;background:#090a0f}.chest-row.opened{border-color:#3f664d}.tier{font-size:8px;color:#ffd66b;font-weight:900;letter-spacing:1px}.chest-row b{display:block;font-size:16px}.chest-row span,.when{color:#9296a4;font-size:8px;margin-top:4px}.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:860px){.milestones{grid-template-columns:1fr 1fr}.stats{grid-template-columns:1fr 1fr}}@media(max-width:520px){.milestones,.stats{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.8 // CHEST HISTORY + STREAK MILESTONES</div><h1>YOUR STREAK LEAVES A TRAIL.</h1>
+<p class="meta">Track every Daily Chest, total REP earned and milestone badge unlocked through consistent mission completion.</p>
+<div class="stats">
+<div class="stat"><b>{current}</b><span>CURRENT STREAK</span></div>
+<div class="stat"><b>{best}</b><span>BEST STREAK</span></div>
+<div class="stat"><b>{opened}</b><span>OPENED CHESTS</span></div>
+<div class="stat"><b>{rep}</b><span>CHEST REP</span></div>
+</div>
+<a class="nav" href="/hunter-mission-rewards">STREAK + CHEST</a> <a class="nav" href="/hunter-missions">MISSIONS</a>
+</section>
+<section class="panel"><div class="gold">STREAK MILESTONES</div><div class="milestones">{milestones}</div></section>
+<section class="panel"><div class="gold">CHEST LOOT HISTORY</div><div class="history">{history}</div></section>
+<div class="digest">LOOT DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+    return page.format(
+        current=int(data.get("current_streak") or 0),
+        best=int(data.get("best_streak") or 0),
+        opened=int(data.get("opened_chests") or 0),
+        rep=int(data.get("total_chest_rep") or 0),
+        milestones="".join(milestone_cards),
+        history="".join(chest_rows) or '<div class="meta">No chest history yet.</div>',
+        digest=esc(str(data.get("loot_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🎁 BL3 ARENA V20.7 // MISSION STREAKS + DAILY CHEST")
+    print("🏅 BL3 ARENA V20.8 // CHEST HISTORY + STREAK MILESTONES")
+    print("🏅 Chest Loot History + Streak Milestones enabled")
     print("🎁 Mission Streaks + Daily Chest enabled")
     print("🎯 Hunter Daily Missions from Live Signals enabled")
     print("🧠 Hunter Intelligence Briefing enabled")
