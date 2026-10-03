@@ -18207,6 +18207,7 @@ def _crown_universe_snapshot():
             {"key":"live","title":"Crown Live","href":"/crown-live","detail":"Watch the global Crown activity pulse and latest sealed events."},
             {"key":"watch","title":"Crown Watchlist","href":"/crown-watch","detail":"Follow champions, rivals and seasons with in-app alerts."},
             {"key":"notifications","title":"Notification Center","href":"/crown-notifications","detail":"Review Crown alerts ranked by smart signal priority."},
+            {"key":"radar","title":"Crown Intelligence Radar","href":"/crown-radar","detail":"Analyze champion heat, season pressure and rivalry signals."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18238,7 +18239,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -19048,12 +19049,299 @@ async function markRead(id){{fetch('/api/crown-watch/read',{{method:'POST',heade
     return page
 
 
+# ===== V20.4 CROWN INTELLIGENCE RADAR =====
+def _crown_intelligence_snapshot(username=""):
+    username = str(username or "").strip()
+
+    ledger = _crown_ledger_snapshot(1000)
+    hall = _hall_of_kings_snapshot(limit=500)
+    archive = _crown_archive_snapshot(limit=500)
+    relics = _crown_relics_snapshot(limit=500)
+
+    raw_events = list(reversed(ledger.get("events") or []))
+    champions = list(hall.get("champions") or [])
+    seasons = list(archive.get("seasons") or [])
+
+    # Champion heat: observed historical activity only.
+    champion_heat = []
+    for row in champions:
+        heat = (
+            int(row.get("defenses") or 0) * 4
+            + int(row.get("crown_events") or 0) * 6
+            + int(row.get("turnovers_won") or 0) * 8
+            + int(row.get("season_count") or 0) * 2
+        )
+        champion_heat.append({
+            "username": str(row.get("username") or ""),
+            "heat": heat,
+            "legacy_score": int(row.get("legacy_score") or 0),
+            "defenses": int(row.get("defenses") or 0),
+            "season_count": int(row.get("season_count") or 0),
+            "href": str(row.get("museum_url") or "#"),
+        })
+    champion_heat.sort(key=lambda x: (x["heat"], x["legacy_score"]), reverse=True)
+
+    # Season heat: event density and turnover/defense intensity.
+    season_heat = []
+    for season in seasons:
+        skey = str(season.get("season_key") or "")
+        related = [e for e in raw_events if str(e.get("season_key") or "") == skey]
+        turnovers = sum(1 for e in related if str(e.get("event_type") or "").upper() == "TURNOVER")
+        defenses = sum(1 for e in related if str(e.get("event_type") or "").upper() == "DEFENSE")
+        crowned = sum(1 for e in related if str(e.get("event_type") or "").upper() == "CROWNED")
+        heat = len(related) * 3 + turnovers * 8 + defenses * 4 + crowned * 5
+        season_heat.append({
+            "season_key": skey,
+            "heat": heat,
+            "events": len(related),
+            "turnovers": turnovers,
+            "defenses": defenses,
+            "integrity_rate": float(season.get("integrity_rate") or 0.0),
+            "href": str(season.get("season_url") or "#"),
+        })
+    season_heat.sort(key=lambda x: (x["heat"], x["events"]), reverse=True)
+
+    # Rival heat from direct previous/current champion pairings.
+    rival_map = {}
+    for e in raw_events:
+        a = str(e.get("champion") or "").strip()
+        b = str(e.get("previous_champion") or "").strip()
+        if not a or not b or a == b:
+            continue
+        pair = tuple(sorted([a, b], key=str.lower))
+        key = "||".join(pair)
+        row = rival_map.setdefault(key, {
+            "a": pair[0], "b": pair[1], "clashes": 0, "turnovers": 0, "defenses": 0, "battle_ids": []
+        })
+        row["clashes"] += 1
+        etype = str(e.get("event_type") or "").upper()
+        if etype == "TURNOVER":
+            row["turnovers"] += 1
+        elif etype == "DEFENSE":
+            row["defenses"] += 1
+        battle = int(e.get("final_battle_id") or 0)
+        if battle:
+            row["battle_ids"].append(battle)
+
+    rivalry_heat = []
+    for row in rival_map.values():
+        heat = row["clashes"] * 4 + row["turnovers"] * 10 + row["defenses"] * 5
+        rivalry_heat.append({
+            **row,
+            "heat": heat,
+            "href": "/crown-compare?{}".format(
+                urllib.parse.urlencode({"mode": "champion", "left": row["a"], "right": row["b"]})
+            ),
+        })
+    rivalry_heat.sort(key=lambda x: (x["heat"], x["clashes"]), reverse=True)
+
+    personal = {
+        "enabled": bool(username),
+        "username": username,
+        "watch_count": 0,
+        "unread": 0,
+        "critical": 0,
+        "high": 0,
+        "watched_hotspots": [],
+    }
+
+    if username:
+        watch = _crown_watch_snapshot(username)
+        notifications = _crown_notification_center_snapshot(username, 120)
+        personal["watch_count"] = int(watch.get("watch_count") or 0)
+        personal["unread"] = int(notifications.get("unread") or 0)
+        personal["critical"] = int((notifications.get("counts") or {}).get("CRITICAL") or 0)
+        personal["high"] = int((notifications.get("counts") or {}).get("HIGH") or 0)
+
+        for item in watch.get("watchlist") or []:
+            wtype = str(item.get("watch_type") or "").lower()
+            value = str(item.get("watch_value") or "")
+            hit = None
+            if wtype in ("champion", "rival"):
+                hit = next((x for x in champion_heat if x["username"].lower() == value.lower()), None)
+            elif wtype == "season":
+                hit = next((x for x in season_heat if x["season_key"].lower() == value.lower()), None)
+            if hit:
+                personal["watched_hotspots"].append({
+                    "watch_type": wtype,
+                    "watch_value": value,
+                    "heat": int(hit.get("heat") or 0),
+                })
+
+        personal["watched_hotspots"].sort(key=lambda x: x["heat"], reverse=True)
+
+    radar_score = min(
+        100,
+        (champion_heat[0]["heat"] if champion_heat else 0)
+        + (season_heat[0]["heat"] if season_heat else 0) // 2
+        + min(20, len(relics.get("relics") or []))
+    )
+    if radar_score >= 80:
+        radar_state = "REDLINE"
+    elif radar_score >= 55:
+        radar_state = "HOT"
+    elif radar_score >= 30:
+        radar_state = "ACTIVE"
+    else:
+        radar_state = "CALM"
+
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "radar_state": radar_state,
+        "radar_score": radar_score,
+        "current_champion": str(ledger.get("current_champion") or ""),
+        "champion_heat": champion_heat[:10],
+        "season_heat": season_heat[:10],
+        "rivalry_heat": rivalry_heat[:10],
+        "personal": personal,
+        "policy": (
+            "Crown Intelligence Radar is a read-only analytical view over recorded BL3 activity. "
+            "Heat scores summarize historical activity and alert relevance only; they are not predictions, rankings of worth, or guarantees."
+        ),
+    }
+    payload["radar_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/crown-radar")
+def crown_radar_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    return jsonify({"success": True, **_crown_intelligence_snapshot(username)})
+
+
+@app.route("/crown-radar.json")
+def crown_radar_export():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    return Response(
+        json.dumps(_crown_intelligence_snapshot(username), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/crown-radar")
+def crown_radar_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    data = _crown_intelligence_snapshot(username)
+    esc = html.escape
+
+    champions_html = []
+    for i, x in enumerate(data.get("champion_heat") or []):
+        champions_html.append(
+            '<a class="signal" href="{href}"><div class="rank">#{rank}</div><div><b>{name}</b>'
+            '<span>{heat} HEAT · {defenses} defenses · {seasons} seasons</span></div></a>'.format(
+                href=esc(str(x.get("href") or "#")),
+                rank=i + 1,
+                name=esc(str(x.get("username") or "—")),
+                heat=int(x.get("heat") or 0),
+                defenses=int(x.get("defenses") or 0),
+                seasons=int(x.get("season_count") or 0),
+            )
+        )
+
+    seasons_html = []
+    for i, x in enumerate(data.get("season_heat") or []):
+        seasons_html.append(
+            '<a class="signal" href="{href}"><div class="rank">#{rank}</div><div><b>{season}</b>'
+            '<span>{heat} HEAT · {events} events · {turnovers} turnovers</span></div></a>'.format(
+                href=esc(str(x.get("href") or "#")),
+                rank=i + 1,
+                season=esc(str(x.get("season_key") or "—")),
+                heat=int(x.get("heat") or 0),
+                events=int(x.get("events") or 0),
+                turnovers=int(x.get("turnovers") or 0),
+            )
+        )
+
+    rivals_html = []
+    for i, x in enumerate(data.get("rivalry_heat") or []):
+        rivals_html.append(
+            '<a class="signal" href="{href}"><div class="rank">#{rank}</div><div><b>{a} vs {b}</b>'
+            '<span>{heat} HEAT · {clashes} clashes · {turnovers} turnovers</span></div></a>'.format(
+                href=esc(str(x.get("href") or "#")),
+                rank=i + 1,
+                a=esc(str(x.get("a") or "—")),
+                b=esc(str(x.get("b") or "—")),
+                heat=int(x.get("heat") or 0),
+                clashes=int(x.get("clashes") or 0),
+                turnovers=int(x.get("turnovers") or 0),
+            )
+        )
+
+    p = data.get("personal") or {}
+    personal_html = '<div class="meta">Sign in to unlock a personal radar overlay.</div>'
+    if p.get("enabled"):
+        hotspots = p.get("watched_hotspots") or []
+        hot_text = ", ".join(
+            "{}:{} ({})".format(x.get("watch_type"), x.get("watch_value"), x.get("heat"))
+            for x in hotspots[:4]
+        ) or "No watched hotspot currently detected."
+        personal_html = (
+            '<div class="personal-grid">'
+            '<div class="stat"><b>{w}</b><span>WATCHES</span></div>'
+            '<div class="stat"><b>{u}</b><span>UNREAD</span></div>'
+            '<div class="stat"><b>{c}</b><span>CRITICAL</span></div>'
+            '<div class="stat"><b>{h}</b><span>HIGH</span></div>'
+            '</div><p class="meta">WATCHED HOTSPOTS // {hot}</p>'
+        ).format(
+            w=int(p.get("watch_count") or 0),
+            u=int(p.get("unread") or 0),
+            c=int(p.get("critical") or 0),
+            h=int(p.get("high") or 0),
+            hot=esc(hot_text),
+        )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Crown Intelligence Radar</title><style>
+*{box-sizing:border-box}body{margin:0;background:
+radial-gradient(circle at 50% -10%,#3b1659,transparent 30%),
+radial-gradient(circle at 85% 5%,#55320c,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.hot{color:#b57cff}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(60px,10vw,108px);line-height:.84;margin:10px 0}.radar{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+.orb{width:130px;height:130px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,#8d25e2 0,#321046 44%,#0b0c11 72%);border:1px solid #624277;box-shadow:0 0 55px rgba(141,37,226,.23);font-size:28px;font-weight:900}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.signal{display:grid;grid-template-columns:44px 1fr;gap:10px;align-items:center;border:1px solid #30323b;border-radius:14px;padding:12px;text-decoration:none;color:#fff;margin-top:8px;background:#090a0f}.signal:hover{border-color:#725398}.signal b{display:block;font-size:15px}.signal span{display:block;color:#8f93a1;font-size:8px;margin-top:4px}.rank{font-size:20px;font-weight:900;color:#5d606d}
+.personal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:24px}.stat span{font-size:8px;color:#989ba8}.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:900px){.cols{grid-template-columns:1fr}.radar{grid-template-columns:1fr}.orb{width:100px;height:100px}}@media(max-width:650px){.personal-grid{grid-template-columns:1fr 1fr}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.4 // CROWN INTELLIGENCE RADAR</div>
+<div class="radar"><div><h1>READ THE SIGNALS.</h1><p class="meta">A live analytical view of Crown activity, rivalry heat, season pressure and personal watch signals.</p>
+<a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
+</div><div class="orb">{score}</div></div>
+<p class="meta">RADAR STATE // <span class="hot">{state}</span> · CURRENT CROWN // {champion}</p>
+</section>
+<section class="panel"><div class="gold">PERSONAL RADAR OVERLAY</div>{personal}</section>
+<div class="cols">
+<section class="panel"><div class="gold">CHAMPION HEAT</div>{champions}</section>
+<section class="panel"><div class="gold">SEASON PRESSURE</div>{seasons}</section>
+<section class="panel"><div class="gold">RIVALRY HEAT</div>{rivals}</section>
+</div>
+<div class="digest">RADAR DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        score=int(data.get("radar_score") or 0),
+        state=esc(str(data.get("radar_state") or "CALM")),
+        champion=esc(str(data.get("current_champion") or "—")),
+        personal=personal_html,
+        champions="".join(champions_html) or '<div class="meta">No champion activity yet.</div>',
+        seasons="".join(seasons_html) or '<div class="meta">No season activity yet.</div>',
+        rivals="".join(rivals_html) or '<div class="meta">No rivalry activity yet.</div>',
+        digest=esc(str(data.get("radar_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V20.3 // NOTIFICATION CENTER + SMART PRIORITY")
+    print("📡 BL3 ARENA V20.4 // CROWN INTELLIGENCE RADAR")
+    print("📡 Crown Intelligence Radar enabled")
     print("⚡ Crown Notification Center + Smart Priority enabled")
     print("🔔 Crown Alerts + Watchlist enabled")
     print("📡 Crown Universe Live Feed + Global Activity Pulse enabled")
