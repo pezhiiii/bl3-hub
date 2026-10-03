@@ -18212,6 +18212,7 @@ def _crown_universe_snapshot():
             {"key":"missions","title":"Hunter Daily Missions","href":"/hunter-missions","detail":"Turn live Crown signals into personalized daily actions and reputation progress."},
             {"key":"rewards","title":"Mission Streaks","href":"/hunter-mission-rewards","detail":"Build perfect-day streaks and unlock Daily Chest rewards."},
             {"key":"loot","title":"Loot History","href":"/hunter-loot-history","detail":"Review opened chests, REP rewards and streak milestone badges."},
+            {"key":"trophy","title":"Hunter Trophy Room","href":"/hunter-trophy-room","detail":"Showcase badges, Crown relics, streaks and opened Daily Chests."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18243,7 +18244,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁","loot":"🏅"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁","loot":"🏅","trophy":"🏆"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -18910,7 +18911,7 @@ h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}.stats{display:
 <p class="meta">Follow champions, rivals or seasons and receive in-app alerts when sealed Crown events match your watchlist.</p>
 <div class="stats"><div class="stat"><b>{watch_count}</b><span>ACTIVE WATCHES</span></div><div class="stat"><b>{unread}</b><span>UNREAD ALERTS</span></div></div>
 <form class="form" onsubmit="addWatch(event)"><select id="watchType"><option value="champion">CHAMPION</option><option value="rival">RIVAL</option><option value="season">SEASON</option></select><input id="watchValue" placeholder="username or season" required><button>ADD WATCH</button></form>
-<a class="nav" href="/hunter-mission-rewards">STREAK + CHEST</a> <a class="nav" href="/hunter-briefing">BRIEFING</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
+<a class="nav" href="/hunter-trophy-room">TROPHY ROOM</a> <a class="nav" href="/hunter-mission-rewards">STREAK + CHEST</a> <a class="nav" href="/hunter-briefing">BRIEFING</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
 </section>
 <section class="panel"><div class="gold">YOUR WATCHLIST</div>{watches}</section>
 <section class="panel"><div class="gold">CROWN ALERTS</div>{alerts}</section>
@@ -20534,12 +20535,227 @@ a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;borde
     )
 
 
+# ===== V20.9 BADGE SHOWCASE + HUNTER TROPHY ROOM =====
+def _hunter_trophy_room_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {
+            "username": "",
+            "badges": [],
+            "relics": [],
+            "chests": [],
+            "stats": {},
+            "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "policy": "Hunter Trophy Room requires a signed-in BL3 username.",
+        }
+
+    loot = _hunter_loot_history_snapshot(username)
+    hall = _hall_of_kings_snapshot(limit=500)
+    relics = _crown_relics_snapshot(username=username, limit=500)
+
+    badges = list(loot.get("unlocked_badges") or [])
+    opened_chests = [
+        x for x in (loot.get("chest_history") or [])
+        if str(x.get("status") or "").upper() == "OPENED"
+    ]
+
+    # Build a compact relic showcase tied to the hunter where possible.
+    relic_showcase = []
+    for r in relics.get("relics") or []:
+        relic_showcase.append({
+            "relic_id": str(r.get("relic_id") or ""),
+            "rarity": str(r.get("rarity") or ""),
+            "title": str(r.get("title") or ""),
+            "story": str(r.get("story") or ""),
+            "season_key": str(r.get("season_key") or ""),
+            "battle_id": int(r.get("battle_id") or 0),
+            "href": str(r.get("museum_url") or "#"),
+        })
+
+    champ_profile = next(
+        (x for x in hall.get("champions") or [] if str(x.get("username") or "").lower() == username.lower()),
+        None
+    ) or {}
+
+    stats = {
+        "badge_count": len(badges),
+        "relic_count": len(relic_showcase),
+        "opened_chests": len(opened_chests),
+        "chest_rep": int(loot.get("total_chest_rep") or 0),
+        "current_streak": int(loot.get("current_streak") or 0),
+        "best_streak": int(loot.get("best_streak") or 0),
+        "legacy_score": int(champ_profile.get("legacy_score") or 0),
+        "defenses": int(champ_profile.get("defenses") or 0),
+    }
+
+    # Trophy tier is display-only and based on owned in-app achievements.
+    trophy_score = (
+        stats["badge_count"] * 40
+        + stats["relic_count"] * 25
+        + stats["opened_chests"] * 10
+        + stats["best_streak"] * 5
+        + stats["defenses"] * 20
+    )
+    if trophy_score >= 500:
+        trophy_tier = "MYTHIC VAULT"
+    elif trophy_score >= 250:
+        trophy_tier = "ROYAL GALLERY"
+    elif trophy_score >= 100:
+        trophy_tier = "HUNTER HALL"
+    else:
+        trophy_tier = "RISING CABINET"
+
+    payload = {
+        "username": username,
+        "trophy_score": trophy_score,
+        "trophy_tier": trophy_tier,
+        "badges": badges,
+        "relics": relic_showcase[:24],
+        "chests": opened_chests[:24],
+        "stats": stats,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Hunter Trophy Room is a read-only showcase of in-app BL3 achievements, relics, "
+            "mission streaks and chest history. Trophy Score is a display metric only."
+        ),
+    }
+    payload["trophy_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-trophy-room")
+def hunter_trophy_room_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in or provide username."}), 401
+    return jsonify({"success": True, **_hunter_trophy_room_snapshot(username)})
+
+
+@app.route("/hunter-trophy-room.json")
+def hunter_trophy_room_export():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return Response(json.dumps({"success":False,"message":"Sign in or provide username."}), status=401, mimetype="application/json")
+    return Response(
+        json.dumps(_hunter_trophy_room_snapshot(username), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/hunter-trophy-room")
+def hunter_trophy_room_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    esc = html.escape
+
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px">
+        <h1>🏆 Hunter Trophy Room</h1><p>Sign in to open your trophy room.</p>
+        <a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _hunter_trophy_room_snapshot(username)
+    stats = data.get("stats") or {}
+
+    badge_cards = []
+    for b in data.get("badges") or []:
+        badge_cards.append(
+            '<article class="badge"><div class="icon">{icon}</div><b>{name}</b>'
+            '<span>{days}-DAY STREAK</span></article>'.format(
+                icon=esc(str(b.get("badge_icon") or "🏅")),
+                name=esc(str(b.get("badge_name") or "")),
+                days=int(b.get("milestone_days") or 0),
+            )
+        )
+
+    relic_cards = []
+    for r in data.get("relics") or []:
+        relic_cards.append(
+            '<a class="relic" href="{href}"><div class="rarity">{rarity}</div><b>{title}</b>'
+            '<span>{season} · battle #{battle}</span></a>'.format(
+                href=esc(str(r.get("href") or "#")),
+                rarity=esc(str(r.get("rarity") or "")),
+                title=esc(str(r.get("title") or "")),
+                season=esc(str(r.get("season_key") or "—")),
+                battle=int(r.get("battle_id") or 0),
+            )
+        )
+
+    chest_cards = []
+    for c in data.get("chests") or []:
+        chest_cards.append(
+            '<article class="chest"><div class="tier">{tier}</div><b>{date}</b>'
+            '<span>+{rep} REP</span></article>'.format(
+                tier=esc(str(c.get("chest_tier") or "STANDARD")),
+                date=esc(str(c.get("chest_date") or "")),
+                rep=int(c.get("reward_rep") or 0),
+            )
+        )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Hunter Trophy Room</title><style>
+*{box-sizing:border-box}body{margin:0;background:
+radial-gradient(circle at 18% 0,#391650,transparent 30%),
+radial-gradient(circle at 84% 0,#60370d,transparent 28%),
+#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1160px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(58px,9vw,106px);line-height:.86;margin:10px 0}.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:16px}
+.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#989ba8}
+.showcase{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.badge,.relic,.chest{border:1px solid #30323b;border-radius:18px;padding:16px;background:#090a0f;text-decoration:none;color:#fff}
+.badge{min-height:150px;text-align:center;display:flex;flex-direction:column;justify-content:center}.badge .icon{font-size:38px}.badge b,.relic b,.chest b{display:block;font-size:15px;margin-top:6px}.badge span,.relic span,.chest span{display:block;color:#9296a4;font-size:8px;margin-top:4px}
+.rarity,.tier{font-size:8px;color:#ffd66b;font-weight:900;letter-spacing:1px}.trophy{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+.score{width:140px;height:140px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,#8c25df 0,#321046 45%,#0b0c11 72%);border:1px solid #624277;box-shadow:0 0 55px rgba(141,37,226,.23);font-size:28px;font-weight:900}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:900px){.showcase{grid-template-columns:1fr 1fr}.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:600px){.showcase,.stats,.trophy{grid-template-columns:1fr}.score{width:105px;height:105px}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.9 // HUNTER TROPHY ROOM</div>
+<div class="trophy"><div><h1>SHOW WHAT YOU'VE EARNED.</h1><p class="meta">A personal gallery for your BL3 badges, relics, streaks and opened Daily Chests.</p>
+<a class="nav" href="/hunter-loot-history">LOOT HISTORY</a> <a class="nav" href="/hunter-mission-rewards">STREAK + CHEST</a> <a class="nav" href="/hunter-missions">MISSIONS</a>
+</div><div class="score">{score}</div></div>
+<p class="meta">TROPHY TIER // <span class="gold">{tier}</span> · HUNTER // {username}</p>
+<div class="stats">
+<div class="stat"><b>{badges}</b><span>BADGES</span></div>
+<div class="stat"><b>{relics}</b><span>RELICS</span></div>
+<div class="stat"><b>{chests}</b><span>OPENED CHESTS</span></div>
+<div class="stat"><b>{rep}</b><span>CHEST REP</span></div>
+<div class="stat"><b>{streak}</b><span>BEST STREAK</span></div>
+<div class="stat"><b>{legacy}</b><span>LEGACY SCORE</span></div>
+</div></section>
+
+<section class="panel"><div class="gold">BADGE SHOWCASE</div><div class="showcase">{badge_cards}</div></section>
+<section class="panel"><div class="gold">CROWN RELICS</div><div class="showcase">{relic_cards}</div></section>
+<section class="panel"><div class="gold">DAILY CHEST SHELF</div><div class="showcase">{chest_cards}</div></section>
+
+<div class="digest">TROPHY DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        score=int(data.get("trophy_score") or 0),
+        tier=esc(str(data.get("trophy_tier") or "")),
+        username=esc(str(data.get("username") or "")),
+        badges=int(stats.get("badge_count") or 0),
+        relics=int(stats.get("relic_count") or 0),
+        chests=int(stats.get("opened_chests") or 0),
+        rep=int(stats.get("chest_rep") or 0),
+        streak=int(stats.get("best_streak") or 0),
+        legacy=int(stats.get("legacy_score") or 0),
+        badge_cards="".join(badge_cards) or '<div class="meta">No badges unlocked yet.</div>',
+        relic_cards="".join(relic_cards) or '<div class="meta">No Crown relics associated with this Hunter yet.</div>',
+        chest_cards="".join(chest_cards) or '<div class="meta">No opened Daily Chests yet.</div>',
+        digest=esc(str(data.get("trophy_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏅 BL3 ARENA V20.8 // CHEST HISTORY + STREAK MILESTONES")
+    print("🏆 BL3 ARENA V20.9 // HUNTER TROPHY ROOM")
+    print("🏆 Hunter Trophy Room enabled")
     print("🏅 Chest Loot History + Streak Milestones enabled")
     print("🎁 Mission Streaks + Daily Chest enabled")
     print("🎯 Hunter Daily Missions from Live Signals enabled")
