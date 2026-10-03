@@ -17850,7 +17850,315 @@ def hall_of_kings_page():
         active = str(row.get("username") or "") == current and bool(current)
         cards.append('<article class="king {}"><div class="rank">#{:02d}</div><div class="badge">{}</div><h2>{}</h2><div class="score">{}</div><div class="score-label">LEGACY SCORE</div><div class="mini"><span><b>{}</b> DEFENSES</span><span><b>{}</b> SEASONS</span><span><b>{}%</b> INTEGRITY</span></div><a href="{}">ENTER MUSEUM PROFILE ↗</a></article>'.format("current" if active else "", i + 1, "CURRENT CROWN" if active else "ARCHIVED LEGACY", esc(str(row.get("username") or "—")), int(row.get("legacy_score") or 0), int(row.get("defenses") or 0), int(row.get("season_count") or 0), float(row.get("integrity_rate") or 0.0), esc(str(row.get("museum_url") or "#"))))
     sort_key = str(data.get("sort") or "legacy")
-    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hall of Kings</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#5b340b,transparent 28%),radial-gradient(circle at 88% 0,#251052,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #373943;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px}h1{font-size:clamp(60px,10vw,112px);line-height:.84;margin:8px 0 16px}.filters{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;margin-top:18px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:12px;font:inherit}.museum{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.king{position:relative;border:1px solid #30323b;border-radius:22px;padding:20px;background:linear-gradient(145deg,#11121a,#090a0f)}.king.current{border-color:#ffd66b}.rank{position:absolute;right:15px;top:12px;color:#666;font-size:28px;font-weight:900}.badge{color:#ffd66b;font-size:8px;font-weight:900}.king h2{font-size:28px}.score{font-size:42px;font-weight:950}.score-label{font-size:8px;color:#8c8f9d}.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}.mini span{border:1px solid #2c2e36;border-radius:11px;padding:9px;font-size:8px;color:#9396a4}.mini b{display:block;color:#fff;font-size:16px}a{display:inline-block;margin-top:14px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:900px){.museum{grid-template-columns:1fr 1fr}}@media(max-width:620px){.museum,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.8 // HALL OF KINGS</div><h1>THE CROWN REMEMBERS.</h1><p class="meta">An interactive museum of every champion reconstructed from sealed Crown history.</p><form class="filters" method="get"><input name="q" value="{query}" placeholder="Search champion or season"><select name="sort"><option value="legacy" {legacy}>LEGACY SCORE</option><option value="defenses" {defenses}>DEFENSES</option><option value="seasons" {seasons}>SEASONS</option><option value="integrity" {integrity}>INTEGRITY</option><option value="name" {name}>NAME</option></select><button>EXPLORE</button></form><a href="/crown-archive">ARCHIVE</a> <a href="/crown-compare">COMPARE</a> <a href="/hall-of-kings.json">EXPORT JSON</a></section><section class="panel"><div class="gold">LEGACY GALLERY</div><div class="museum">{cards}</div></section></div></body></html>'''.format(query=esc(str(data.get("query") or "")), legacy="selected" if sort_key == "legacy" else "", defenses="selected" if sort_key == "defenses" else "", seasons="selected" if sort_key == "seasons" else "", integrity="selected" if sort_key == "integrity" else "", name="selected" if sort_key == "name" else "", cards="".join(cards) or '<div class="meta">No champions matched.</div>')
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hall of Kings</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#5b340b,transparent 28%),radial-gradient(circle at 88% 0,#251052,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #373943;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px}h1{font-size:clamp(60px,10vw,112px);line-height:.84;margin:8px 0 16px}.filters{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;margin-top:18px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:12px;font:inherit}.museum{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.king{position:relative;border:1px solid #30323b;border-radius:22px;padding:20px;background:linear-gradient(145deg,#11121a,#090a0f)}.king.current{border-color:#ffd66b}.rank{position:absolute;right:15px;top:12px;color:#666;font-size:28px;font-weight:900}.badge{color:#ffd66b;font-size:8px;font-weight:900}.king h2{font-size:28px}.score{font-size:42px;font-weight:950}.score-label{font-size:8px;color:#8c8f9d}.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}.mini span{border:1px solid #2c2e36;border-radius:11px;padding:9px;font-size:8px;color:#9396a4}.mini b{display:block;color:#fff;font-size:16px}a{display:inline-block;margin-top:14px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:900px){.museum{grid-template-columns:1fr 1fr}}@media(max-width:620px){.museum,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.8 // HALL OF KINGS</div><h1>THE CROWN REMEMBERS.</h1><p class="meta">An interactive museum of every champion reconstructed from sealed Crown history.</p><form class="filters" method="get"><input name="q" value="{query}" placeholder="Search champion or season"><select name="sort"><option value="legacy" {legacy}>LEGACY SCORE</option><option value="defenses" {defenses}>DEFENSES</option><option value="seasons" {seasons}>SEASONS</option><option value="integrity" {integrity}>INTEGRITY</option><option value="name" {name}>NAME</option></select><button>EXPLORE</button></form><a href="/crown-archive">ARCHIVE</a> <a href="/crown-compare">COMPARE</a> <a href="/crown-relics">RELICS</a> <a href="/hall-of-kings.json">EXPORT JSON</a></section><section class="panel"><div class="gold">LEGACY GALLERY</div><div class="museum">{cards}</div></section></div></body></html>'''.format(query=esc(str(data.get("query") or "")), legacy="selected" if sort_key == "legacy" else "", defenses="selected" if sort_key == "defenses" else "", seasons="selected" if sort_key == "seasons" else "", integrity="selected" if sort_key == "integrity" else "", name="selected" if sort_key == "name" else "", cards="".join(cards) or '<div class="meta">No champions matched.</div>')
+
+
+# ===== V19.9 CROWN RELICS + LEGENDARY MOMENTS =====
+def _relic_rarity(event):
+    etype = str(event.get("event_type") or "").upper()
+    integrity = str(event.get("integrity") or "").upper()
+    if etype == "TURNOVER" and integrity == "VALID":
+        return "LEGENDARY"
+    if etype == "CROWNED":
+        return "EPIC"
+    if etype == "DEFENSE":
+        return "RARE"
+    return "ARCHIVED"
+
+
+def _relic_story(event):
+    champ = str(event.get("champion") or "Unknown")
+    prev = str(event.get("previous_champion") or "").strip()
+    etype = str(event.get("event_type") or "").upper()
+    battle = int(event.get("final_battle_id") or 0)
+    season = str(event.get("season_key") or "unknown season")
+
+    if etype == "TURNOVER":
+        if prev:
+            return f"{champ} seized the Crown from {prev} in battle #{battle} during {season}."
+        return f"{champ} completed a Crown turnover in battle #{battle} during {season}."
+    if etype == "CROWNED":
+        return f"{champ} was sealed into Crown history in battle #{battle} during {season}."
+    if etype == "DEFENSE":
+        return f"{champ} successfully defended the Crown in battle #{battle} during {season}."
+    return f"{champ} recorded a sealed Crown event in battle #{battle} during {season}."
+
+
+def _crown_relics_snapshot(username="", season="", rarity="", limit=120):
+    try:
+        limit = max(1, min(int(limit or 120), 500))
+    except Exception:
+        limit = 120
+
+    user_filter = str(username or "").strip().lower()
+    season_filter = str(season or "").strip().lower()
+    rarity_filter = str(rarity or "").strip().upper()
+
+    ledger = _crown_ledger_snapshot(1000)
+    events = list(reversed(ledger.get("events") or []))
+    relics = []
+
+    for event in events:
+        champ = str(event.get("champion") or "").strip()
+        prev = str(event.get("previous_champion") or "").strip()
+        skey = str(event.get("season_key") or "").strip()
+        battle = int(event.get("final_battle_id") or 0)
+        rarity_name = _relic_rarity(event)
+
+        if user_filter and user_filter not in (champ.lower(), prev.lower()):
+            continue
+        if season_filter and skey.lower() != season_filter:
+            continue
+        if rarity_filter and rarity_name != rarity_filter:
+            continue
+
+        relic_seed = {
+            "season": skey,
+            "battle": battle,
+            "champion": champ,
+            "previous_champion": prev,
+            "event_type": str(event.get("event_type") or ""),
+            "integrity": str(event.get("integrity") or ""),
+        }
+        relic_id = hashlib.sha256(
+            json.dumps(relic_seed, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()[:16]
+
+        relic = {
+            "relic_id": relic_id,
+            "rarity": rarity_name,
+            "title": "{} // {}".format(
+                rarity_name,
+                str(event.get("event_type") or "CROWN EVENT").upper()
+            ),
+            "champion": champ,
+            "previous_champion": prev,
+            "season_key": skey,
+            "battle_id": battle,
+            "event_type": str(event.get("event_type") or ""),
+            "integrity": str(event.get("integrity") or ""),
+            "story": _relic_story(event),
+            "museum_url": "/crown-relics/{}".format(relic_id),
+        }
+        relics.append(relic)
+
+    counts = {"LEGENDARY": 0, "EPIC": 0, "RARE": 0, "ARCHIVED": 0}
+    for r in relics:
+        counts[r["rarity"]] = counts.get(r["rarity"], 0) + 1
+
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "username_filter": str(username or ""),
+        "season_filter": str(season or ""),
+        "rarity_filter": str(rarity or ""),
+        "total_relics": len(relics),
+        "rarity_counts": counts,
+        "relics": relics[:limit],
+        "policy": (
+            "Crown Relics are read-only narrative artifacts derived only from sealed Crown events. "
+            "Rarity is a display classification based on recorded event type and integrity; it has no monetary value."
+        ),
+    }
+    payload["relics_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def _crown_relic_detail(relic_id):
+    rid = str(relic_id or "").strip().lower()
+    if not rid:
+        return None
+    data = _crown_relics_snapshot(limit=500)
+    relic = next(
+        (x for x in data.get("relics") or [] if str(x.get("relic_id") or "").lower() == rid),
+        None
+    )
+    if not relic:
+        return None
+
+    related = [
+        x for x in data.get("relics") or []
+        if x.get("relic_id") != relic.get("relic_id")
+        and (
+            str(x.get("champion") or "") == str(relic.get("champion") or "")
+            or str(x.get("season_key") or "") == str(relic.get("season_key") or "")
+        )
+    ][:6]
+
+    payload = {
+        "relic": relic,
+        "related_relics": related,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Relic detail pages reconstruct recorded sealed Crown history only.",
+    }
+    payload["relic_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/crown-relics")
+def crown_relics_api():
+    data = _crown_relics_snapshot(
+        request.args.get("username", ""),
+        request.args.get("season", ""),
+        request.args.get("rarity", ""),
+        request.args.get("limit", 120),
+    )
+    return jsonify({"success": True, **data})
+
+
+@app.route("/crown-relics.json")
+def crown_relics_export():
+    data = _crown_relics_snapshot(
+        request.args.get("username", ""),
+        request.args.get("season", ""),
+        request.args.get("rarity", ""),
+        request.args.get("limit", 120),
+    )
+    return Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/api/crown-relics/<relic_id>")
+def crown_relic_detail_api(relic_id):
+    data = _crown_relic_detail(relic_id)
+    if not data:
+        return jsonify({"success": False, "message": "Relic not found."}), 404
+    return jsonify({"success": True, **data})
+
+
+@app.route("/crown-relics/<relic_id>")
+def crown_relic_detail_page(relic_id):
+    data = _crown_relic_detail(relic_id)
+    if not data:
+        return (
+            "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;"
+            "font-family:system-ui;padding:40px'><h1>Relic not found.</h1>"
+            "<a style='color:#ffd66b' href='/crown-relics'>Back to Crown Relics</a></body>",
+            404,
+        )
+
+    esc = html.escape
+    relic = data.get("relic") or {}
+    related = []
+    for r in data.get("related_relics") or []:
+        related.append(
+            '<a class="related" href="{url}"><b>{title}</b><span>{champ} · {season} · battle #{battle}</span></a>'.format(
+                url=esc(str(r.get("museum_url") or "#")),
+                title=esc(str(r.get("title") or "")),
+                champ=esc(str(r.get("champion") or "—")),
+                season=esc(str(r.get("season_key") or "—")),
+                battle=int(r.get("battle_id") or 0),
+            )
+        )
+
+    rarity = str(relic.get("rarity") or "ARCHIVED").upper()
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Crown Relic</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#5d370e,transparent 30%),radial-gradient(circle at 90% 10%,#2d0d54,transparent 28%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:940px;margin:auto}.relic,.panel{border:1px solid #393b45;border-radius:30px;background:#0b0c11;padding:28px;margin-top:20px}
+.rarity{display:inline-block;border:1px solid #ffd66b;color:#ffd66b;border-radius:999px;padding:7px 11px;font-size:9px;font-weight:900;letter-spacing:1.5px}
+h1{font-size:clamp(54px,9vw,96px);line-height:.88;margin:14px 0}.story{font-size:20px;line-height:1.6;color:#d8d8e0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:20px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:22px}.stat span{font-size:9px;color:#989ba8}
+.meta{font-size:10px;color:#989ba8;line-height:1.6}.related-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.related{display:block;border:1px solid #30323b;border-radius:14px;padding:13px;text-decoration:none;color:#fff}.related span{display:block;color:#979aa8;font-size:9px;margin-top:5px}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+a.nav{display:inline-block;margin-top:14px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:720px){.stats,.related-grid{grid-template-columns:1fr 1fr}}
+</style></head><body><div class="wrap">
+<section class="relic"><div class="rarity">{rarity}</div><h1>{title}</h1><div class="story">{story}</div>
+<div class="stats">
+<div class="stat"><b>{champion}</b><span>CHAMPION</span></div>
+<div class="stat"><b>{season}</b><span>SEASON</span></div>
+<div class="stat"><b>#{battle}</b><span>BATTLE</span></div>
+<div class="stat"><b>{integrity}</b><span>INTEGRITY</span></div>
+</div>
+<a class="nav" href="/crown-relics">ALL RELICS</a> <a class="nav" href="/hall-of-kings/champion/{champ_q}">CHAMPION MUSEUM</a>
+</section>
+<section class="panel"><div class="rarity">RELATED RELICS</div><div class="related-grid">{related}</div></section>
+<div class="digest">RELIC DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        rarity=esc(rarity),
+        title=esc(str(relic.get("title") or "CROWN RELIC")),
+        story=esc(str(relic.get("story") or "")),
+        champion=esc(str(relic.get("champion") or "—")),
+        season=esc(str(relic.get("season_key") or "—")),
+        battle=int(relic.get("battle_id") or 0),
+        integrity=esc(str(relic.get("integrity") or "—")),
+        champ_q=esc(urllib.parse.quote(str(relic.get("champion") or ""), safe="")),
+        related="".join(related) or '<div class="meta">No related relics yet.</div>',
+        digest=esc(str(data.get("relic_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+@app.route("/crown-relics")
+def crown_relics_page():
+    data = _crown_relics_snapshot(
+        request.args.get("username", ""),
+        request.args.get("season", ""),
+        request.args.get("rarity", ""),
+        request.args.get("limit", 120),
+    )
+    esc = html.escape
+    cards = []
+    for r in data.get("relics") or []:
+        cards.append(
+            '<article class="relic-card {rarity}"><div class="rarity">{rarity}</div><h2>{title}</h2>'
+            '<p>{story}</p><div class="meta">{champ} · {season} · battle #{battle}</div>'
+            '<a href="{url}">OPEN RELIC ↗</a></article>'.format(
+                rarity=esc(str(r.get("rarity") or "").lower()),
+                title=esc(str(r.get("title") or "")),
+                story=esc(str(r.get("story") or "")),
+                champ=esc(str(r.get("champion") or "—")),
+                season=esc(str(r.get("season_key") or "—")),
+                battle=int(r.get("battle_id") or 0),
+                url=esc(str(r.get("museum_url") or "#")),
+            )
+        )
+
+    counts = data.get("rarity_counts") or {}
+    rf = str(data.get("rarity_filter") or "").upper()
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Crown Relics</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#5f380d,transparent 28%),radial-gradient(circle at 85% 0,#25104d,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #393b45;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#989ba8;font-size:10px;line-height:1.6}
+h1{font-size:clamp(60px,10vw,108px);line-height:.84;margin:10px 0 15px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:24px}.stat span{font-size:9px;color:#989ba8}
+.filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-top:18px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:12px;font:inherit}.filters button{font-weight:900;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.relic-card{border:1px solid #30323b;border-radius:20px;padding:18px;background:linear-gradient(145deg,#11121a,#090a0f)}.relic-card.legendary{border-color:#ffd66b}.relic-card.epic{border-color:#a57cff}.relic-card.rare{border-color:#61f4ff}
+.rarity{font-size:8px;letter-spacing:1.5px;font-weight:900;color:#ffd66b}.relic-card h2{font-size:22px;margin:8px 0}.relic-card p{font-size:12px;color:#c5c7d0;line-height:1.5}
+a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}@media(max-width:620px){.grid,.stats,.filters{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V19.9 // CROWN RELICS</div><h1>LEGENDS LEAVE ARTIFACTS.</h1>
+<p class="meta">A museum of the sealed battles, defenses and Crown turnovers that became part of BL3 history.</p>
+<div class="stats"><div class="stat"><b>{legendary}</b><span>LEGENDARY</span></div><div class="stat"><b>{epic}</b><span>EPIC</span></div><div class="stat"><b>{rare}</b><span>RARE</span></div><div class="stat"><b>{total}</b><span>TOTAL RELICS</span></div></div>
+<form class="filters" method="get"><input name="username" value="{username}" placeholder="Champion username"><input name="season" value="{season}" placeholder="Season">
+<select name="rarity"><option value="">ALL RARITIES</option><option {l}>LEGENDARY</option><option {e}>EPIC</option><option {r}>RARE</option><option {a}>ARCHIVED</option></select><button>EXPLORE</button></form>
+<a href="/hall-of-kings">HALL OF KINGS</a> <a href="/crown-archive">ARCHIVE</a> <a href="/crown-relics.json">EXPORT JSON</a>
+</section>
+<section class="panel"><div class="gold">RELIC VAULT</div><div class="grid">{cards}</div></section>
+<div class="digest">RELICS DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        legendary=int(counts.get("LEGENDARY") or 0),
+        epic=int(counts.get("EPIC") or 0),
+        rare=int(counts.get("RARE") or 0),
+        total=int(data.get("total_relics") or 0),
+        username=esc(str(data.get("username_filter") or "")),
+        season=esc(str(data.get("season_filter") or "")),
+        l="selected" if rf == "LEGENDARY" else "",
+        e="selected" if rf == "EPIC" else "",
+        r="selected" if rf == "RARE" else "",
+        a="selected" if rf == "ARCHIVED" else "",
+        cards="".join(cards) or '<div class="meta">No relics matched the current filters.</div>',
+        digest=esc(str(data.get("relics_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
 
 
 if __name__ == "__main__":
@@ -17858,7 +18166,8 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🏛️ BL3 ARENA V19.8 // HALL OF KINGS + LEGACY MUSEUM")
+    print("🏺 BL3 ARENA V19.9 // CROWN RELICS + LEGENDARY MOMENTS")
+    print("🏺 Crown Relics + Legendary Moments enabled")
     print("🏛️ Hall of Kings + Interactive Legacy Museum enabled")
     print("⚖️ Crown Compare + Rival Legacy enabled")
     print("📖 Crown Storybook + Share Cards enabled")
