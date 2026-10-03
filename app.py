@@ -18205,6 +18205,7 @@ def _crown_universe_snapshot():
             {"key":"story","title":"Crown Storybook","href":"/crown-story","detail":"Read the Crown timeline as a living story."},
             {"key":"network","title":"Crown Network","href":"/crown-network","detail":"Explore relationships across the Crown ecosystem."},
             {"key":"live","title":"Crown Live","href":"/crown-live","detail":"Watch the global Crown activity pulse and latest sealed events."},
+            {"key":"watch","title":"Crown Watchlist","href":"/crown-watch","detail":"Follow champions, rivals and seasons with in-app alerts."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18236,7 +18237,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -18563,7 +18564,7 @@ h1{font-size:clamp(62px,10vw,110px);line-height:.84;margin:9px 0 16px}.pulse{dis
 <div class="stat"><b>{defenses}</b><span>DEFENSES</span></div>
 <div class="stat"><b>{integrity}%</b><span>INTEGRITY</span></div>
 </div>
-<a class="nav" href="/crown-universe">CROWN UNIVERSE</a> <a class="nav" href="/crown-archive">ARCHIVE</a> <a class="nav" href="/crown-live.json">EXPORT JSON</a>
+<a class="nav" href="/crown-universe">CROWN UNIVERSE</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-archive">ARCHIVE</a> <a class="nav" href="/crown-live.json">EXPORT JSON</a>
 </section>
 <section class="panel"><div class="gold">GLOBAL ACTIVITY STREAM</div><div class="feed">{rows}</div></section>
 <div class="digest">PULSE DIGEST // {digest}</div><p class="meta">{policy}</p>
@@ -18587,12 +18588,361 @@ h1{font-size:clamp(62px,10vw,110px);line-height:.84;margin:9px 0 16px}.pulse{dis
 
 
 
+# ===== V20.2 CROWN ALERTS + WATCHLIST =====
+def _ensure_crown_watchlist_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS crown_watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            watch_type TEXT NOT NULL,
+            watch_value TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, watch_type, watch_value)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS crown_watch_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            watch_type TEXT NOT NULL,
+            watch_value TEXT NOT NULL,
+            event_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            href TEXT DEFAULT '',
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, event_key)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_crown_watchlist_user ON crown_watchlist(username, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_crown_alerts_user_read ON crown_watch_alerts(username, is_read, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+_ensure_crown_watchlist_schema()
+
+
+def _watchlist_for(username):
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, username, watch_type, watch_value, created_at
+           FROM crown_watchlist WHERE username = ? ORDER BY id DESC""",
+        (username,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _watch_alerts_for(username, limit=100):
+    try:
+        limit = max(1, min(int(limit or 100), 300))
+    except Exception:
+        limit = 100
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, username, watch_type, watch_value, event_key, title, detail, href, is_read, created_at
+           FROM crown_watch_alerts WHERE username = ? ORDER BY id DESC LIMIT ?""",
+        (username, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _watch_event_key(event):
+    return hashlib.sha256(
+        json.dumps({
+            "season": str(event.get("season_key") or ""),
+            "champion": str(event.get("champion") or ""),
+            "previous": str(event.get("previous_champion") or ""),
+            "event_type": str(event.get("event_type") or ""),
+            "battle": int(event.get("final_battle_id") or 0),
+            "integrity": str(event.get("integrity") or ""),
+        }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _watch_matches(watch, event):
+    wtype = str(watch.get("watch_type") or "").lower()
+    value = str(watch.get("watch_value") or "").strip().lower()
+    champ = str(event.get("champion") or "").strip().lower()
+    prev = str(event.get("previous_champion") or "").strip().lower()
+    season = str(event.get("season_key") or "").strip().lower()
+
+    if wtype == "champion":
+        return value in (champ, prev)
+    if wtype == "season":
+        return value == season
+    if wtype == "rival":
+        return value in (champ, prev)
+    return False
+
+
+def _materialize_watch_alerts(username):
+    watches = _watchlist_for(username)
+    if not watches:
+        return 0
+
+    ledger = _crown_ledger_snapshot(1000)
+    events = list(reversed(ledger.get("events") or []))
+    conn = db()
+    created = 0
+
+    for event in events:
+        ekey = _watch_event_key(event)
+        champ = str(event.get("champion") or "")
+        prev = str(event.get("previous_champion") or "")
+        etype = str(event.get("event_type") or "EVENT").upper()
+        season = str(event.get("season_key") or "")
+        battle = int(event.get("final_battle_id") or 0)
+
+        for watch in watches:
+            if not _watch_matches(watch, event):
+                continue
+
+            wtype = str(watch.get("watch_type") or "")
+            wvalue = str(watch.get("watch_value") or "")
+            if etype == "TURNOVER":
+                title = f"⚔️ Crown turnover matched your {wtype} watch"
+                detail = f"{champ} vs {prev or 'unknown'} · battle #{battle} · {season}"
+            elif etype == "DEFENSE":
+                title = f"🛡️ Crown defense matched your {wtype} watch"
+                detail = f"{champ} defended the Crown · battle #{battle} · {season}"
+            elif etype == "CROWNED":
+                title = f"👑 Crown event matched your {wtype} watch"
+                detail = f"{champ} entered Crown history · battle #{battle} · {season}"
+            else:
+                title = f"✦ Crown activity matched your {wtype} watch"
+                detail = f"{etype} · battle #{battle} · {season}"
+
+            href = "/crown-archive?{}".format(
+                urllib.parse.urlencode({"q": str(battle) if battle else champ})
+            )
+            try:
+                conn.execute(
+                    """INSERT INTO crown_watch_alerts
+                       (username, watch_type, watch_value, event_key, title, detail, href, is_read, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                    (
+                        username, wtype, wvalue, ekey, title, detail, href,
+                        datetime.utcnow().isoformat()
+                    )
+                )
+                created += 1
+            except sqlite3.IntegrityError:
+                pass
+
+    conn.commit()
+    conn.close()
+    return created
+
+
+def _crown_watch_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {
+            "username": "",
+            "watchlist": [],
+            "alerts": [],
+            "unread": 0,
+            "watch_count": 0,
+            "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "policy": "Crown Alerts require a signed-in BL3 username.",
+        }
+
+    _materialize_watch_alerts(username)
+    watches = _watchlist_for(username)
+    alerts = _watch_alerts_for(username, 120)
+    unread = sum(1 for x in alerts if not int(x.get("is_read") or 0))
+
+    payload = {
+        "username": username,
+        "watchlist": watches,
+        "alerts": alerts,
+        "unread": unread,
+        "watch_count": len(watches),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Crown Alerts are in-app, read-only notifications derived from recorded BL3 Crown events. "
+            "Creating or removing a watch never changes Crown history or battle outcomes."
+        ),
+    }
+    payload["watch_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/crown-watch")
+def crown_watch_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in or provide username."}), 401
+    return jsonify({"success": True, **_crown_watch_snapshot(username)})
+
+
+@app.route("/api/crown-watch/add", methods=["POST"])
+def crown_watch_add_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+    body = request.get_json(silent=True) or request.form
+    watch_type = str(body.get("watch_type") or "").strip().lower()
+    watch_value = str(body.get("watch_value") or "").strip()
+    if watch_type not in ("champion", "season", "rival"):
+        return jsonify({"success": False, "message": "watch_type must be champion, season, or rival."}), 400
+    if not watch_value:
+        return jsonify({"success": False, "message": "watch_value is required."}), 400
+
+    conn = db()
+    try:
+        conn.execute(
+            """INSERT INTO crown_watchlist (username, watch_type, watch_value, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (username, watch_type, watch_value, datetime.utcnow().isoformat())
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"success": True, "message": "Already watching.", **_crown_watch_snapshot(username)})
+    conn.close()
+
+    _materialize_watch_alerts(username)
+    return jsonify({"success": True, "message": "Watch added.", **_crown_watch_snapshot(username)})
+
+
+@app.route("/api/crown-watch/remove", methods=["POST"])
+def crown_watch_remove_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+    body = request.get_json(silent=True) or request.form
+    watch_id = int(body.get("watch_id") or 0)
+    conn = db()
+    conn.execute("DELETE FROM crown_watchlist WHERE id = ? AND username = ?", (watch_id, username))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, **_crown_watch_snapshot(username)})
+
+
+@app.route("/api/crown-watch/read", methods=["POST"])
+def crown_watch_mark_read_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+    body = request.get_json(silent=True) or request.form
+    alert_id = int(body.get("alert_id") or 0)
+
+    conn = db()
+    if alert_id:
+        conn.execute(
+            "UPDATE crown_watch_alerts SET is_read = 1 WHERE id = ? AND username = ?",
+            (alert_id, username)
+        )
+    else:
+        conn.execute(
+            "UPDATE crown_watch_alerts SET is_read = 1 WHERE username = ?",
+            (username,)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, **_crown_watch_snapshot(username)})
+
+
+@app.route("/crown-watch")
+def crown_watch_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    esc = html.escape
+
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px">
+        <h1>🔔 Crown Watchlist</h1><p>Sign in to BL3 to create Crown alerts.</p>
+        <a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _crown_watch_snapshot(username)
+
+    watch_rows = []
+    for w in data.get("watchlist") or []:
+        watch_rows.append(
+            '<article class="watch"><div><div class="kind">{kind}</div><b>{value}</b></div>'
+            '<button onclick="removeWatch({id})">REMOVE</button></article>'.format(
+                kind=esc(str(w.get("watch_type") or "").upper()),
+                value=esc(str(w.get("watch_value") or "")),
+                id=int(w.get("id") or 0),
+            )
+        )
+
+    alert_rows = []
+    for a in data.get("alerts") or []:
+        unread = not int(a.get("is_read") or 0)
+        alert_rows.append(
+            '<a class="alert {unread}" href="{href}" onclick="markRead({id})">'
+            '<div class="dot"></div><div><div class="kind">{kind}</div><h3>{title}</h3><p>{detail}</p></div><span>↗</span></a>'.format(
+                unread="unread" if unread else "",
+                href=esc(str(a.get("href") or "#")),
+                id=int(a.get("id") or 0),
+                kind=esc(str(a.get("watch_type") or "").upper()),
+                title=esc(str(a.get("title") or "")),
+                detail=esc(str(a.get("detail") or "")),
+            )
+        )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Crown Watchlist</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0,#32144c,transparent 30%),radial-gradient(circle at 85% 0,#60380c,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1040px;margin:auto}.hero,.panel{border:1px solid #353842;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#989ba8;font-size:10px}
+h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:26px}.stat span{font-size:8px;color:#989ba8}
+.form{display:grid;grid-template-columns:1fr 2fr auto;gap:8px;margin-top:16px}.form input,.form select,.form button,.watch button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:11px;font:inherit}.form button,.watch button{font-weight:900;cursor:pointer}
+.watch{display:flex;justify-content:space-between;align-items:center;border:1px solid #30323b;border-radius:14px;padding:13px;margin-top:8px}.watch b{font-size:18px}.kind{font-size:7px;letter-spacing:1.4px;color:#ffd66b;font-weight:900}
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;border:1px solid #30323b;border-radius:16px;padding:14px;margin-top:8px;text-decoration:none;color:#fff;background:#090a0f}.alert.unread{border-color:#7855a6;background:rgba(120,85,166,.08)}.alert .dot{width:9px;height:9px;border-radius:50%;background:#4c4f58}.alert.unread .dot{background:#b57cff;box-shadow:0 0 15px #b57cff}.alert h3{margin:4px 0;font-size:17px}.alert p{margin:0;color:#a5a8b5;font-size:10px}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:650px){.form,.stats{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.2 // CROWN WATCHLIST</div><h1>WATCH THE CROWN.</h1>
+<p class="meta">Follow champions, rivals or seasons and receive in-app alerts when sealed Crown events match your watchlist.</p>
+<div class="stats"><div class="stat"><b>{watch_count}</b><span>ACTIVE WATCHES</span></div><div class="stat"><b>{unread}</b><span>UNREAD ALERTS</span></div></div>
+<form class="form" onsubmit="addWatch(event)"><select id="watchType"><option value="champion">CHAMPION</option><option value="rival">RIVAL</option><option value="season">SEASON</option></select><input id="watchValue" placeholder="username or season" required><button>ADD WATCH</button></form>
+<a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
+</section>
+<section class="panel"><div class="gold">YOUR WATCHLIST</div>{watches}</section>
+<section class="panel"><div class="gold">CROWN ALERTS</div>{alerts}</section>
+<div class="digest">WATCH DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div>
+<script>
+async function addWatch(e){{
+  e.preventDefault();
+  const r=await fetch('/api/crown-watch/add',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{watch_type:document.getElementById('watchType').value,watch_value:document.getElementById('watchValue').value}})}});
+  const d=await r.json(); if(!d.success) alert(d.message||'Could not add watch.'); else location.reload();
+}}
+async function removeWatch(id){{
+  await fetch('/api/crown-watch/remove',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{watch_id:id}})}});
+  location.reload();
+}}
+async function markRead(id){{
+  fetch('/api/crown-watch/read',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{alert_id:id}})}});
+}}
+</script></body></html>"""
+
+    return page.format(
+        watch_count=int(data.get("watch_count") or 0),
+        unread=int(data.get("unread") or 0),
+        watches="".join(watch_rows) or '<div class="meta">No watches yet. Add a champion, rival or season above.</div>',
+        alerts="".join(alert_rows) or '<div class="meta">No Crown alerts yet.</div>',
+        digest=esc(str(data.get("watch_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("📡 BL3 ARENA V20.1 // CROWN UNIVERSE LIVE PULSE")
+    print("🔔 BL3 ARENA V20.2 // CROWN ALERTS + WATCHLIST")
+    print("🔔 Crown Alerts + Watchlist enabled")
     print("📡 Crown Universe Live Feed + Global Activity Pulse enabled")
     print("🌌 Crown Universe Hub enabled")
     print("🏺 Crown Relics + Legendary Moments enabled")
