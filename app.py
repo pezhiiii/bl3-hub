@@ -18209,6 +18209,7 @@ def _crown_universe_snapshot():
             {"key":"notifications","title":"Notification Center","href":"/crown-notifications","detail":"Review Crown alerts ranked by smart signal priority."},
             {"key":"radar","title":"Crown Intelligence Radar","href":"/crown-radar","detail":"Analyze champion heat, season pressure and rivalry signals."},
             {"key":"briefing","title":"Hunter Briefing","href":"/hunter-briefing","detail":"Get a personal daily-style summary of the Crown signals that matter to you."},
+            {"key":"missions","title":"Hunter Daily Missions","href":"/hunter-missions","detail":"Turn live Crown signals into personalized daily actions and reputation progress."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18240,7 +18241,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -19615,7 +19616,7 @@ a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;borde
 </style></head><body><div class="wrap">
 <section class="hero"><div class="gold">V20.5 // HUNTER INTELLIGENCE BRIEFING</div>
 <div class="brief"><div><h1>KNOW WHAT MATTERS.</h1><p class="meta">{summary}</p>
-<a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
+<a class="nav" href="/hunter-missions">MISSIONS</a> <a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
 </div><div class="score">{score}</div></div>
 <p class="meta">BRIEFING STATE // <span class="violet">{state}</span> · HUNTER // {username}</p>
 <div class="stats">
@@ -19652,12 +19653,346 @@ a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;borde
 
 
 
+# ===== V20.6 HUNTER DAILY MISSIONS FROM LIVE SIGNALS =====
+def _ensure_daily_missions_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_daily_missions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            mission_key TEXT NOT NULL,
+            mission_date TEXT NOT NULL,
+            mission_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            href TEXT DEFAULT '',
+            reward_rep INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT '',
+            UNIQUE(username, mission_key, mission_date)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_missions_user_date ON hunter_daily_missions(username, mission_date, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+_ensure_daily_missions_schema()
+
+
+def _daily_mission_date():
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def _daily_mission_key(mission_type, seed):
+    return hashlib.sha256(
+        f"{mission_type}|{seed}".encode("utf-8")
+    ).hexdigest()[:20]
+
+
+def _generate_daily_missions(username):
+    username = str(username or "").strip()
+    if not username:
+        return []
+
+    today = _daily_mission_date()
+    briefing = _hunter_intelligence_briefing(username)
+    radar = _crown_intelligence_snapshot(username)
+    watch = _crown_watch_snapshot(username)
+
+    candidates = []
+
+    # Mission 1: review highest priority alert.
+    alerts = briefing.get("top_alerts") or []
+    if alerts:
+        a = alerts[0]
+        candidates.append({
+            "mission_type": "ALERT_REVIEW",
+            "seed": f"{a.get('id')}|{a.get('priority')}",
+            "title": f"Review {str(a.get('priority') or 'NORMAL').title()} Crown Signal",
+            "detail": str(a.get("title") or "Open your highest-priority Crown alert."),
+            "href": str(a.get("href") or "/crown-notifications"),
+            "reward_rep": 20 if str(a.get("priority") or "") == "CRITICAL" else 12,
+        })
+
+    # Mission 2: inspect hottest watched signal.
+    hotspots = briefing.get("watch_hotspots") or []
+    if hotspots:
+        h = hotspots[0]
+        candidates.append({
+            "mission_type": "WATCH_HOTSPOT",
+            "seed": f"{h.get('watch_type')}|{h.get('watch_value')}|{h.get('heat')}",
+            "title": f"Inspect {str(h.get('watch_value') or 'Watch').title()} Hotspot",
+            "detail": f"{str(h.get('watch_type') or '').upper()} watch is at {int(h.get('heat') or 0)} heat.",
+            "href": "/crown-watch",
+            "reward_rep": 15,
+        })
+
+    # Mission 3: investigate rivalry.
+    rivals = briefing.get("rival_signals") or []
+    if rivals:
+        r = rivals[0]
+        candidates.append({
+            "mission_type": "RIVAL_SCAN",
+            "seed": f"{r.get('a')}|{r.get('b')}|{r.get('heat')}",
+            "title": f"Scan Rivalry: {r.get('a')} vs {r.get('b')}",
+            "detail": f"Review {int(r.get('clashes') or 0)} clash(es) at {int(r.get('heat') or 0)} heat.",
+            "href": str(r.get("href") or "/crown-radar"),
+            "reward_rep": 15,
+        })
+
+    # Mission 4: inspect season pressure.
+    seasons = briefing.get("season_signals") or []
+    if seasons:
+        ss = seasons[0]
+        candidates.append({
+            "mission_type": "SEASON_SCAN",
+            "seed": f"{ss.get('season_key')}|{ss.get('heat')}",
+            "title": f"Inspect Season {ss.get('season_key')}",
+            "detail": f"Review {int(ss.get('events') or 0)} recorded event(s) at {int(ss.get('heat') or 0)} heat.",
+            "href": str(ss.get("href") or "/crown-archive"),
+            "reward_rep": 10,
+        })
+
+    # Mission 5: expand watchlist if underused.
+    if int(watch.get("watch_count") or 0) < 2:
+        candidates.append({
+            "mission_type": "WATCH_EXPAND",
+            "seed": f"watch-count-{int(watch.get('watch_count') or 0)}",
+            "title": "Add a Crown Watch",
+            "detail": "Add a champion, rival or season to make your intelligence feed more personal.",
+            "href": "/crown-watch",
+            "reward_rep": 8,
+        })
+
+    # Fallback mission from live feed.
+    if len(candidates) < 3:
+        candidates.append({
+            "mission_type": "LIVE_SCAN",
+            "seed": f"live-scan-{today}",
+            "title": "Scan Crown Live",
+            "detail": "Open the global activity stream and review the latest sealed Crown signals.",
+            "href": "/crown-live",
+            "reward_rep": 8,
+        })
+
+    # Keep a compact daily set.
+    candidates = candidates[:4]
+
+    conn = db()
+    for m in candidates:
+        key = _daily_mission_key(m["mission_type"], m["seed"])
+        try:
+            conn.execute(
+                """INSERT INTO hunter_daily_missions
+                   (username, mission_key, mission_date, mission_type, title, detail, href, reward_rep, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)""",
+                (
+                    username,
+                    key,
+                    today,
+                    m["mission_type"],
+                    m["title"],
+                    m["detail"],
+                    m["href"],
+                    int(m["reward_rep"]),
+                    datetime.utcnow().isoformat(),
+                )
+            )
+        except sqlite3.IntegrityError:
+            pass
+    conn.commit()
+
+    rows = conn.execute(
+        """SELECT id, username, mission_key, mission_date, mission_type, title, detail, href,
+                  reward_rep, status, created_at, completed_at
+           FROM hunter_daily_missions
+           WHERE username = ? AND mission_date = ?
+           ORDER BY CASE status WHEN 'OPEN' THEN 0 ELSE 1 END, id ASC""",
+        (username, today)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _hunter_daily_missions_snapshot(username):
+    username = str(username or "").strip()
+    missions = _generate_daily_missions(username) if username else []
+    completed = sum(1 for x in missions if str(x.get("status") or "").upper() == "COMPLETED")
+    total_rep = sum(int(x.get("reward_rep") or 0) for x in missions)
+    earned_rep = sum(
+        int(x.get("reward_rep") or 0)
+        for x in missions
+        if str(x.get("status") or "").upper() == "COMPLETED"
+    )
+
+    payload = {
+        "username": username,
+        "mission_date": _daily_mission_date(),
+        "missions": missions,
+        "mission_count": len(missions),
+        "completed": completed,
+        "open": max(0, len(missions) - completed),
+        "total_rep": total_rep,
+        "earned_rep": earned_rep,
+        "progress_percent": round((completed / max(1, len(missions))) * 100, 1),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Hunter Daily Missions are generated from recorded BL3 signals and local watch activity. "
+            "Mission rewards are application-level reputation points only and do not represent money, tokens or guaranteed value."
+        ),
+    }
+    payload["mission_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-missions")
+def hunter_missions_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in or provide username."}), 401
+    return jsonify({"success": True, **_hunter_daily_missions_snapshot(username)})
+
+
+@app.route("/api/hunter-missions/complete", methods=["POST"])
+def hunter_missions_complete_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+
+    body = request.get_json(silent=True) or request.form
+    mission_id = int(body.get("mission_id") or 0)
+    if not mission_id:
+        return jsonify({"success": False, "message": "mission_id is required."}), 400
+
+    conn = db()
+    row = conn.execute(
+        """SELECT id, status, reward_rep FROM hunter_daily_missions
+           WHERE id = ? AND username = ? AND mission_date = ?""",
+        (mission_id, username, _daily_mission_date())
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "message": "Mission not found."}), 404
+
+    if str(row["status"] or "").upper() != "COMPLETED":
+        conn.execute(
+            """UPDATE hunter_daily_missions
+               SET status = 'COMPLETED', completed_at = ?
+               WHERE id = ? AND username = ?""",
+            (datetime.utcnow().isoformat(), mission_id, username)
+        )
+        conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, **_hunter_daily_missions_snapshot(username)})
+
+
+@app.route("/hunter-missions.json")
+def hunter_missions_export():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return Response(json.dumps({"success":False,"message":"Sign in or provide username."}), status=401, mimetype="application/json")
+    return Response(
+        json.dumps(_hunter_daily_missions_snapshot(username), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/hunter-missions")
+def hunter_missions_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    esc = html.escape
+
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px">
+        <h1>🎯 Hunter Daily Missions</h1><p>Sign in to generate your daily missions.</p>
+        <a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _hunter_daily_missions_snapshot(username)
+    cards = []
+
+    for m in data.get("missions") or []:
+        done = str(m.get("status") or "").upper() == "COMPLETED"
+        cards.append(
+            '<article class="mission {done}"><div class="type">{mtype}</div>'
+            '<h3>{title}</h3><p>{detail}</p>'
+            '<div class="footer"><span>+{rep} REP</span>'
+            '<div><a href="{href}">OPEN ↗</a>{button}</div></div></article>'.format(
+                done="done" if done else "",
+                mtype=esc(str(m.get("mission_type") or "")),
+                title=esc(str(m.get("title") or "")),
+                detail=esc(str(m.get("detail") or "")),
+                rep=int(m.get("reward_rep") or 0),
+                href=esc(str(m.get("href") or "#")),
+                button=(
+                    '<button disabled>COMPLETED ✓</button>'
+                    if done else
+                    '<button onclick="completeMission({})">COMPLETE</button>'.format(int(m.get("id") or 0))
+                ),
+            )
+        )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Hunter Daily Missions</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 18% 0,#381651,transparent 30%),radial-gradient(circle at 84% 0,#5a350d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1080px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
+.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:24px}.stat span{font-size:8px;color:#989ba8}
+.progress{height:10px;border-radius:999px;background:#171821;overflow:hidden;margin-top:14px}.progress i{display:block;height:100%;background:linear-gradient(90deg,#7f22d9,#ffd66b)}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.mission{border:1px solid #30323b;border-radius:20px;padding:18px;background:#090a0f}.mission.done{opacity:.68;border-color:#375c48}.type{font-size:8px;letter-spacing:1.4px;color:#b57cff;font-weight:900}.mission h3{font-size:21px;margin:8px 0}.mission p{color:#aeb1bd;font-size:10px;line-height:1.5}.footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}.footer>span{color:#ffd66b;font-weight:900}.footer a,.footer button,a.nav{display:inline-block;background:#08090d;color:#fff;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900;text-decoration:none;cursor:pointer}.footer button[disabled]{cursor:default;color:#7fcb97}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+@media(max-width:720px){.grid,.stats{grid-template-columns:1fr 1fr}}@media(max-width:520px){.grid,.stats{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.6 // HUNTER DAILY MISSIONS</div><h1>TURN SIGNALS INTO ACTION.</h1>
+<p class="meta">Dynamic daily missions generated from your Crown intelligence, watchlist and live BL3 activity.</p>
+<div class="stats">
+<div class="stat"><b>{count}</b><span>MISSIONS</span></div>
+<div class="stat"><b>{completed}</b><span>COMPLETED</span></div>
+<div class="stat"><b>{earned}</b><span>REP EARNED</span></div>
+<div class="stat"><b>{total}</b><span>REP AVAILABLE</span></div>
+</div>
+<div class="progress"><i style="width:{progress}%"></i></div>
+<a class="nav" href="/hunter-briefing">BRIEFING</a> <a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-live">LIVE</a>
+</section>
+<section class="panel"><div class="gold">TODAY'S MISSION BOARD // {date}</div><div class="grid">{cards}</div></section>
+<div class="digest">MISSION DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div>
+<script>
+async function completeMission(id){{
+  const r=await fetch('/api/hunter-missions/complete',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{mission_id:id}})}});
+  const d=await r.json();
+  if(!d.success) alert(d.message||'Could not complete mission.');
+  else location.reload();
+}}
+</script></body></html>"""
+
+    return page.format(
+        count=int(data.get("mission_count") or 0),
+        completed=int(data.get("completed") or 0),
+        earned=int(data.get("earned_rep") or 0),
+        total=int(data.get("total_rep") or 0),
+        progress=float(data.get("progress_percent") or 0.0),
+        date=esc(str(data.get("mission_date") or "")),
+        cards="".join(cards) or '<div class="meta">No missions generated yet.</div>',
+        digest=esc(str(data.get("mission_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🧠 BL3 ARENA V20.5 // HUNTER INTELLIGENCE BRIEFING")
+    print("🎯 BL3 ARENA V20.6 // HUNTER DAILY MISSIONS")
+    print("🎯 Hunter Daily Missions from Live Signals enabled")
     print("🧠 Hunter Intelligence Briefing enabled")
     print("📡 Crown Intelligence Radar enabled")
     print("⚡ Crown Notification Center + Smart Priority enabled")
