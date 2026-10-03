@@ -18213,6 +18213,7 @@ def _crown_universe_snapshot():
             {"key":"rewards","title":"Mission Streaks","href":"/hunter-mission-rewards","detail":"Build perfect-day streaks and unlock Daily Chest rewards."},
             {"key":"loot","title":"Loot History","href":"/hunter-loot-history","detail":"Review opened chests, REP rewards and streak milestone badges."},
             {"key":"trophy","title":"Hunter Trophy Room","href":"/hunter-trophy-room","detail":"Showcase badges, Crown relics, streaks and opened Daily Chests."},
+            {"key":"profile","title":"Hunter Profile 2.0","href":"/u/demo_user","detail":"Open a public shareable Hunter profile with Trophy showcase and Crown progression."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18244,7 +18245,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁","loot":"🏅","trophy":"🏆"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁","loot":"🏅","trophy":"🏆","profile":"🪪"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -19619,7 +19620,7 @@ a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;borde
 </style></head><body><div class="wrap">
 <section class="hero"><div class="gold">V20.5 // HUNTER INTELLIGENCE BRIEFING</div>
 <div class="brief"><div><h1>KNOW WHAT MATTERS.</h1><p class="meta">{summary}</p>
-<a class="nav" href="/hunter-loot-history">LOOT HISTORY</a> <a class="nav" href="/hunter-missions">MISSIONS</a> <a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
+<a class="nav" href="/u/{username}">PUBLIC PROFILE</a> <a class="nav" href="/hunter-loot-history">LOOT HISTORY</a> <a class="nav" href="/hunter-missions">MISSIONS</a> <a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
 </div><div class="score">{score}</div></div>
 <p class="meta">BRIEFING STATE // <span class="violet">{state}</span> · HUNTER // {username}</p>
 <div class="stats">
@@ -20749,12 +20750,194 @@ h1{font-size:clamp(58px,9vw,106px);line-height:.86;margin:10px 0}.stats{display:
 
 
 
+# ===== V21.0 HUNTER PROFILE 2.0 + PUBLIC TROPHY SHOWCASE =====
+def _hunter_public_profile_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return None
+
+    trophy = _hunter_trophy_room_snapshot(username)
+    hall = _hall_of_kings_snapshot(limit=500)
+    watch = _crown_watch_snapshot(username) if username else {}
+    briefing = _hunter_intelligence_briefing(username) if username else {}
+    missions = _hunter_daily_missions_snapshot(username) if username else {}
+
+    champ_profile = next(
+        (x for x in hall.get("champions") or [] if str(x.get("username") or "").lower() == username.lower()),
+        None
+    ) or {}
+
+    public_badges = list(trophy.get("badges") or [])[:8]
+    public_relics = list(trophy.get("relics") or [])[:8]
+    public_chests = list(trophy.get("chests") or [])[:8]
+
+    stats = dict(trophy.get("stats") or {})
+    stats.update({
+        "watch_count": int(watch.get("watch_count") or 0),
+        "mission_count": int(missions.get("mission_count") or 0),
+        "mission_completed": int(missions.get("completed") or 0),
+        "briefing_state": str(briefing.get("briefing_state") or "CLEAR"),
+        "briefing_score": int(briefing.get("briefing_score") or 0),
+        "season_count": int(champ_profile.get("season_count") or 0),
+        "integrity_rate": float(champ_profile.get("integrity_rate") or 0.0),
+    })
+
+    payload = {
+        "username": username,
+        "trophy_tier": str(trophy.get("trophy_tier") or "RISING CABINET"),
+        "trophy_score": int(trophy.get("trophy_score") or 0),
+        "stats": stats,
+        "badges": public_badges,
+        "relics": public_relics,
+        "chests": public_chests,
+        "share_url": "/u/{}".format(urllib.parse.quote(username, safe="")),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Public Hunter Profiles display application-level BL3 progression and recorded Crown history. "
+            "Scores, badges and REP are in-app display metrics and do not represent monetary value."
+        ),
+    }
+    payload["profile_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/u/<path:username>")
+def hunter_public_profile_api(username):
+    data = _hunter_public_profile_snapshot(urllib.parse.unquote(username))
+    if not data:
+        return jsonify({"success": False, "message": "Hunter not found."}), 404
+    return jsonify({"success": True, **data})
+
+
+@app.route("/u/<path:username>.json")
+def hunter_public_profile_export(username):
+    data = _hunter_public_profile_snapshot(urllib.parse.unquote(username))
+    if not data:
+        return Response(json.dumps({"success":False,"message":"Hunter not found."}), status=404, mimetype="application/json")
+    return Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json")
+
+
+@app.route("/u/<path:username>")
+def hunter_public_profile_page(username):
+    data = _hunter_public_profile_snapshot(urllib.parse.unquote(username))
+    if not data:
+        return (
+            "<!doctype html><meta charset='utf-8'><body style='background:#050507;color:white;"
+            "font-family:system-ui;padding:40px'><h1>Hunter not found.</h1>"
+            "<a style='color:#ffd66b' href='/'>Back to BL3</a></body>",
+            404,
+        )
+
+    esc = html.escape
+    stats = data.get("stats") or {}
+
+    badge_cards = []
+    for b in data.get("badges") or []:
+        badge_cards.append(
+            '<article class="badge"><div class="icon">{icon}</div><b>{name}</b><span>{days}-DAY STREAK</span></article>'.format(
+                icon=esc(str(b.get("badge_icon") or "🏅")),
+                name=esc(str(b.get("badge_name") or "")),
+                days=int(b.get("milestone_days") or 0),
+            )
+        )
+
+    relic_cards = []
+    for r in data.get("relics") or []:
+        relic_cards.append(
+            '<a class="card" href="{href}"><div class="eyebrow">{rarity}</div><b>{title}</b>'
+            '<span>{season} · battle #{battle}</span></a>'.format(
+                href=esc(str(r.get("href") or "#")),
+                rarity=esc(str(r.get("rarity") or "")),
+                title=esc(str(r.get("title") or "")),
+                season=esc(str(r.get("season_key") or "—")),
+                battle=int(r.get("battle_id") or 0),
+            )
+        )
+
+    chest_cards = []
+    for c in data.get("chests") or []:
+        chest_cards.append(
+            '<article class="card"><div class="eyebrow">{tier}</div><b>{date}</b><span>+{rep} REP</span></article>'.format(
+                tier=esc(str(c.get("chest_tier") or "STANDARD")),
+                date=esc(str(c.get("chest_date") or "")),
+                rep=int(c.get("reward_rep") or 0),
+            )
+        )
+
+    share_text = urllib.parse.quote(
+        "BL3 Hunter Profile — {} | {} | Trophy Score {}".format(
+            data.get("username") or "",
+            data.get("trophy_tier") or "",
+            data.get("trophy_score") or 0,
+        )
+    )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Hunter Profile</title><style>
+*{box-sizing:border-box}body{margin:0;background:
+radial-gradient(circle at 16% 0,#3a1554,transparent 30%),
+radial-gradient(circle at 84% 0,#60370d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1160px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.purple{color:#b57cff}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(62px,10vw,112px);line-height:.84;margin:10px 0}.profile{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}
+.avatar{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;font-size:52px;font-weight:900;border:1px solid #6a4d85;background:radial-gradient(circle,#8d25e2 0,#321046 45%,#0b0c11 72%);box-shadow:0 0 60px rgba(141,37,226,.2)}
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#989ba8}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.badge,.card{border:1px solid #30323b;border-radius:18px;padding:16px;background:#090a0f;text-decoration:none;color:#fff}.badge{text-align:center;min-height:145px;display:flex;flex-direction:column;justify-content:center}.icon{font-size:38px}.badge b,.card b{display:block;font-size:14px;margin-top:6px}.badge span,.card span{display:block;color:#9296a4;font-size:8px;margin-top:4px}.eyebrow{font-size:8px;color:#ffd66b;font-weight:900;letter-spacing:1px}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:600px){.profile,.grid,.stats{grid-template-columns:1fr}.avatar{width:110px;height:110px}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V21.0 // HUNTER PROFILE 2.0</div>
+<div class="profile"><div><h1>{username}</h1><p class="meta">PUBLIC TROPHY SHOWCASE // <span class="purple">{tier}</span></p>
+<p class="meta">A public BL3 profile combining Trophy Room achievements, Crown history and Hunter progression.</p>
+<a class="nav" href="/hunter-trophy-room">MY TROPHY ROOM</a> <a class="nav" href="/hunter-loot-history">LOOT HISTORY</a>
+<a class="nav" href="https://twitter.com/intent/tweet?text={share_text}">SHARE PROFILE</a>
+</div><div class="avatar">🏆</div></div>
+
+<div class="stats">
+<div class="stat"><b>{score}</b><span>TROPHY SCORE</span></div>
+<div class="stat"><b>{badges}</b><span>BADGES</span></div>
+<div class="stat"><b>{relics}</b><span>RELICS</span></div>
+<div class="stat"><b>{streak}</b><span>BEST STREAK</span></div>
+<div class="stat"><b>{legacy}</b><span>LEGACY SCORE</span></div>
+<div class="stat"><b>{integrity}%</b><span>INTEGRITY</span></div>
+</div></section>
+
+<section class="panel"><div class="gold">BADGE SHOWCASE</div><div class="grid">{badges_html}</div></section>
+<section class="panel"><div class="gold">CROWN RELICS</div><div class="grid">{relics_html}</div></section>
+<section class="panel"><div class="gold">CHEST SHELF</div><div class="grid">{chests_html}</div></section>
+
+<div class="digest">PUBLIC PROFILE DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        username=esc(str(data.get("username") or "")),
+        tier=esc(str(data.get("trophy_tier") or "")),
+        score=int(data.get("trophy_score") or 0),
+        badges=int(stats.get("badge_count") or 0),
+        relics=int(stats.get("relic_count") or 0),
+        streak=int(stats.get("best_streak") or 0),
+        legacy=int(stats.get("legacy_score") or 0),
+        integrity=float(stats.get("integrity_rate") or 0.0),
+        badges_html="".join(badge_cards) or '<div class="meta">No public badges yet.</div>',
+        relics_html="".join(relic_cards) or '<div class="meta">No public relics yet.</div>',
+        chests_html="".join(chest_cards) or '<div class="meta">No opened chests yet.</div>',
+        share_text=esc(share_text),
+        digest=esc(str(data.get("profile_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏆 BL3 ARENA V20.9 // HUNTER TROPHY ROOM")
+    print("🪪 BL3 ARENA V21.0 // HUNTER PROFILE 2.0 + PUBLIC TROPHY SHOWCASE")
+    print("🪪 Hunter Profile 2.0 + Public Trophy Showcase enabled")
     print("🏆 Hunter Trophy Room enabled")
     print("🏅 Chest Loot History + Streak Milestones enabled")
     print("🎁 Mission Streaks + Daily Chest enabled")
