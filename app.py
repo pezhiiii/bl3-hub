@@ -17850,7 +17850,7 @@ def hall_of_kings_page():
         active = str(row.get("username") or "") == current and bool(current)
         cards.append('<article class="king {}"><div class="rank">#{:02d}</div><div class="badge">{}</div><h2>{}</h2><div class="score">{}</div><div class="score-label">LEGACY SCORE</div><div class="mini"><span><b>{}</b> DEFENSES</span><span><b>{}</b> SEASONS</span><span><b>{}%</b> INTEGRITY</span></div><a href="{}">ENTER MUSEUM PROFILE ↗</a></article>'.format("current" if active else "", i + 1, "CURRENT CROWN" if active else "ARCHIVED LEGACY", esc(str(row.get("username") or "—")), int(row.get("legacy_score") or 0), int(row.get("defenses") or 0), int(row.get("season_count") or 0), float(row.get("integrity_rate") or 0.0), esc(str(row.get("museum_url") or "#"))))
     sort_key = str(data.get("sort") or "legacy")
-    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hall of Kings</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#5b340b,transparent 28%),radial-gradient(circle at 88% 0,#251052,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #373943;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px}h1{font-size:clamp(60px,10vw,112px);line-height:.84;margin:8px 0 16px}.filters{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;margin-top:18px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:12px;font:inherit}.museum{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.king{position:relative;border:1px solid #30323b;border-radius:22px;padding:20px;background:linear-gradient(145deg,#11121a,#090a0f)}.king.current{border-color:#ffd66b}.rank{position:absolute;right:15px;top:12px;color:#666;font-size:28px;font-weight:900}.badge{color:#ffd66b;font-size:8px;font-weight:900}.king h2{font-size:28px}.score{font-size:42px;font-weight:950}.score-label{font-size:8px;color:#8c8f9d}.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}.mini span{border:1px solid #2c2e36;border-radius:11px;padding:9px;font-size:8px;color:#9396a4}.mini b{display:block;color:#fff;font-size:16px}a{display:inline-block;margin-top:14px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:900px){.museum{grid-template-columns:1fr 1fr}}@media(max-width:620px){.museum,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.8 // HALL OF KINGS</div><h1>THE CROWN REMEMBERS.</h1><p class="meta">An interactive museum of every champion reconstructed from sealed Crown history.</p><form class="filters" method="get"><input name="q" value="{query}" placeholder="Search champion or season"><select name="sort"><option value="legacy" {legacy}>LEGACY SCORE</option><option value="defenses" {defenses}>DEFENSES</option><option value="seasons" {seasons}>SEASONS</option><option value="integrity" {integrity}>INTEGRITY</option><option value="name" {name}>NAME</option></select><button>EXPLORE</button></form><a href="/crown-archive">ARCHIVE</a> <a href="/crown-compare">COMPARE</a> <a href="/crown-relics">RELICS</a> <a href="/hall-of-kings.json">EXPORT JSON</a></section><section class="panel"><div class="gold">LEGACY GALLERY</div><div class="museum">{cards}</div></section></div></body></html>'''.format(query=esc(str(data.get("query") or "")), legacy="selected" if sort_key == "legacy" else "", defenses="selected" if sort_key == "defenses" else "", seasons="selected" if sort_key == "seasons" else "", integrity="selected" if sort_key == "integrity" else "", name="selected" if sort_key == "name" else "", cards="".join(cards) or '<div class="meta">No champions matched.</div>')
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hall of Kings</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#5b340b,transparent 28%),radial-gradient(circle at 88% 0,#251052,transparent 30%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.panel{border:1px solid #373943;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px}h1{font-size:clamp(60px,10vw,112px);line-height:.84;margin:8px 0 16px}.filters{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;margin-top:18px}.filters input,.filters select,.filters button{background:#08090d;color:#fff;border:1px solid #343640;border-radius:11px;padding:12px;font:inherit}.museum{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.king{position:relative;border:1px solid #30323b;border-radius:22px;padding:20px;background:linear-gradient(145deg,#11121a,#090a0f)}.king.current{border-color:#ffd66b}.rank{position:absolute;right:15px;top:12px;color:#666;font-size:28px;font-weight:900}.badge{color:#ffd66b;font-size:8px;font-weight:900}.king h2{font-size:28px}.score{font-size:42px;font-weight:950}.score-label{font-size:8px;color:#8c8f9d}.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}.mini span{border:1px solid #2c2e36;border-radius:11px;padding:9px;font-size:8px;color:#9396a4}.mini b{display:block;color:#fff;font-size:16px}a{display:inline-block;margin-top:14px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}@media(max-width:900px){.museum{grid-template-columns:1fr 1fr}}@media(max-width:620px){.museum,.filters{grid-template-columns:1fr}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V19.8 // HALL OF KINGS</div><h1>THE CROWN REMEMBERS.</h1><p class="meta">An interactive museum of every champion reconstructed from sealed Crown history.</p><form class="filters" method="get"><input name="q" value="{query}" placeholder="Search champion or season"><select name="sort"><option value="legacy" {legacy}>LEGACY SCORE</option><option value="defenses" {defenses}>DEFENSES</option><option value="seasons" {seasons}>SEASONS</option><option value="integrity" {integrity}>INTEGRITY</option><option value="name" {name}>NAME</option></select><button>EXPLORE</button></form><a href="/crown-universe">CROWN UNIVERSE</a> <a href="/crown-archive">ARCHIVE</a> <a href="/crown-compare">COMPARE</a> <a href="/crown-relics">RELICS</a> <a href="/hall-of-kings.json">EXPORT JSON</a></section><section class="panel"><div class="gold">LEGACY GALLERY</div><div class="museum">{cards}</div></section></div></body></html>'''.format(query=esc(str(data.get("query") or "")), legacy="selected" if sort_key == "legacy" else "", defenses="selected" if sort_key == "defenses" else "", seasons="selected" if sort_key == "seasons" else "", integrity="selected" if sort_key == "integrity" else "", name="selected" if sort_key == "name" else "", cards="".join(cards) or '<div class="meta">No champions matched.</div>')
 
 
 # ===== V19.9 CROWN RELICS + LEGENDARY MOMENTS =====
@@ -18137,7 +18137,7 @@ a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1p
 <div class="stats"><div class="stat"><b>{legendary}</b><span>LEGENDARY</span></div><div class="stat"><b>{epic}</b><span>EPIC</span></div><div class="stat"><b>{rare}</b><span>RARE</span></div><div class="stat"><b>{total}</b><span>TOTAL RELICS</span></div></div>
 <form class="filters" method="get"><input name="username" value="{username}" placeholder="Champion username"><input name="season" value="{season}" placeholder="Season">
 <select name="rarity"><option value="">ALL RARITIES</option><option {l}>LEGENDARY</option><option {e}>EPIC</option><option {r}>RARE</option><option {a}>ARCHIVED</option></select><button>EXPLORE</button></form>
-<a href="/hall-of-kings">HALL OF KINGS</a> <a href="/crown-archive">ARCHIVE</a> <a href="/crown-relics.json">EXPORT JSON</a>
+<a href="/crown-universe">CROWN UNIVERSE</a> <a href="/hall-of-kings">HALL OF KINGS</a> <a href="/crown-archive">ARCHIVE</a> <a href="/crown-relics.json">EXPORT JSON</a>
 </section>
 <section class="panel"><div class="gold">RELIC VAULT</div><div class="grid">{cards}</div></section>
 <div class="digest">RELICS DIGEST // {digest}</div><p class="meta">{policy}</p>
@@ -18161,12 +18161,201 @@ a{display:inline-block;margin-top:12px;color:#fff;text-decoration:none;border:1p
 
 
 
+# ===== V20.0 CROWN UNIVERSE HUB =====
+def _crown_universe_snapshot():
+    ledger = _crown_ledger_snapshot(1000)
+    archive = _crown_archive_snapshot(limit=500)
+    hall = _hall_of_kings_snapshot(limit=500)
+    relics = _crown_relics_snapshot(limit=500)
+    eras = _crown_era_snapshot(500)
+
+    champions = hall.get("champions") or []
+    relic_rows = relics.get("relics") or []
+    seasons = archive.get("seasons") or []
+
+    top_legacy = champions[0] if champions else {}
+    newest_relic = relic_rows[0] if relic_rows else {}
+    current_champion = str(ledger.get("current_champion") or "")
+
+    spotlight = {
+        "current_champion": current_champion,
+        "top_legacy_champion": str(top_legacy.get("username") or ""),
+        "top_legacy_score": int(top_legacy.get("legacy_score") or 0),
+        "latest_relic_id": str(newest_relic.get("relic_id") or ""),
+        "latest_relic_title": str(newest_relic.get("title") or ""),
+    }
+
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "current_champion": current_champion,
+        "sealed_events": int(ledger.get("event_count") or 0),
+        "season_count": len(seasons),
+        "champion_count": int(hall.get("total_champions") or 0),
+        "relic_count": int(relics.get("total_relics") or 0),
+        "era_count": len(eras.get("eras") or []),
+        "spotlight": spotlight,
+        "top_champions": champions[:6],
+        "latest_relics": relic_rows[:6],
+        "latest_seasons": seasons[:6],
+        "navigation": [
+            {"key":"archive","title":"Crown Archive","href":"/crown-archive","detail":"Search sealed Crown history and season capsules."},
+            {"key":"compare","title":"Crown Compare","href":"/crown-compare","detail":"Compare champions or seasons side by side."},
+            {"key":"hall","title":"Hall of Kings","href":"/hall-of-kings","detail":"Explore champion legacy museum profiles."},
+            {"key":"relics","title":"Crown Relics","href":"/crown-relics","detail":"Open legendary moments and historic battle artifacts."},
+            {"key":"story","title":"Crown Storybook","href":"/crown-story","detail":"Read the Crown timeline as a living story."},
+            {"key":"network","title":"Crown Network","href":"/crown-network","detail":"Explore relationships across the Crown ecosystem."},
+        ],
+        "policy": (
+            "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
+            "It does not alter battles, champions, payouts, or historical records."
+        ),
+    }
+    payload["universe_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/crown-universe")
+def crown_universe_api():
+    return jsonify({"success": True, **_crown_universe_snapshot()})
+
+
+@app.route("/crown-universe.json")
+def crown_universe_export():
+    return Response(
+        json.dumps(_crown_universe_snapshot(), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/crown-universe")
+def crown_universe_page():
+    data = _crown_universe_snapshot()
+    esc = html.escape
+
+    nav_cards = []
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️"}
+    for item in data.get("navigation") or []:
+        nav_cards.append(
+            '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
+            '<div><h3>{title}</h3><p>{detail}</p></div><span>ENTER ↗</span></a>'.format(
+                href=esc(str(item.get("href") or "#")),
+                icon=esc(icons.get(str(item.get("key") or ""), "✦")),
+                title=esc(str(item.get("title") or "")),
+                detail=esc(str(item.get("detail") or "")),
+            )
+        )
+
+    champion_cards = []
+    for i, row in enumerate(data.get("top_champions") or []):
+        champion_cards.append(
+            '<a class="champ" href="{url}"><div class="rank">#{rank:02d}</div><b>{user}</b>'
+            '<span>{score} LEGACY · {defenses} DEFENSES</span></a>'.format(
+                url=esc(str(row.get("museum_url") or "#")),
+                rank=i+1,
+                user=esc(str(row.get("username") or "—")),
+                score=int(row.get("legacy_score") or 0),
+                defenses=int(row.get("defenses") or 0),
+            )
+        )
+
+    relic_cards = []
+    for row in data.get("latest_relics") or []:
+        relic_cards.append(
+            '<a class="relic" href="{url}"><div class="rarity">{rarity}</div><b>{title}</b>'
+            '<span>{champ} · {season} · battle #{battle}</span></a>'.format(
+                url=esc(str(row.get("museum_url") or "#")),
+                rarity=esc(str(row.get("rarity") or "")),
+                title=esc(str(row.get("title") or "")),
+                champ=esc(str(row.get("champion") or "—")),
+                season=esc(str(row.get("season_key") or "—")),
+                battle=int(row.get("battle_id") or 0),
+            )
+        )
+
+    season_cards = []
+    for row in data.get("latest_seasons") or []:
+        season_cards.append(
+            '<a class="season" href="{url}"><b>{season}</b><span>{events} EVENTS · {champions} CHAMPION(S) · {integrity}% INTEGRITY</span></a>'.format(
+                url=esc(str(row.get("season_url") or "#")),
+                season=esc(str(row.get("season_key") or "—")),
+                events=int(row.get("events") or 0),
+                champions=len(row.get("champions") or []),
+                integrity=float(row.get("integrity_rate") or 0.0),
+            )
+        )
+
+    sp = data.get("spotlight") or {}
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Crown Universe</title><style>
+*{box-sizing:border-box}body{margin:0;background:
+radial-gradient(circle at 10% 0,#3b1558,transparent 28%),
+radial-gradient(circle at 88% 4%,#5f390d,transparent 29%),
+radial-gradient(circle at 50% 100%,#10243d,transparent 34%),
+#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1240px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:32px;background:rgba(10,11,16,.94);padding:28px;margin-top:18px;box-shadow:0 24px 80px rgba(0,0,0,.3)}
+.gold{color:#ffd66b;font-weight:900}.purple{color:#b285ff}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(68px,11vw,128px);line-height:.82;margin:12px 0 18px;letter-spacing:-5px}
+.hero-grid{display:grid;grid-template-columns:1.35fr .65fr;gap:18px}.orb{min-height:330px;border:1px solid #3c3f49;border-radius:28px;background:
+radial-gradient(circle at 50% 40%,rgba(177,128,255,.25),transparent 24%),
+radial-gradient(circle at 50% 50%,rgba(255,214,107,.13),transparent 44%),#08090d;
+display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;position:relative;overflow:hidden}
+.orb:before{content:"";width:190px;height:190px;border-radius:50%;border:1px solid rgba(255,255,255,.12);position:absolute;box-shadow:0 0 80px rgba(177,128,255,.16)}
+.orb .crown{font-size:84px;z-index:1}.orb b{font-size:24px;z-index:1;margin-top:10px}.orb span{z-index:1;color:#999cab;font-size:9px;letter-spacing:1.5px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:20px}.stat{border:1px solid #30323b;border-radius:15px;padding:14px}.stat b{display:block;font-size:26px}.stat span{font-size:8px;color:#989ba8;letter-spacing:1px}
+.modules{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.module{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;border:1px solid #30323b;border-radius:20px;padding:16px;background:linear-gradient(145deg,#11121a,#090a0f);text-decoration:none;color:#fff}.module:hover{border-color:#b285ff}.module-icon{font-size:32px}.module h3{margin:0;font-size:18px}.module p{margin:5px 0 0;color:#9699a7;font-size:9px;line-height:1.4}.module>span{font-size:8px;color:#ffd66b;font-weight:900}
+.columns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.stack{display:grid;gap:8px;margin-top:12px}.champ,.relic,.season{display:block;border:1px solid #30323b;border-radius:14px;padding:13px;text-decoration:none;color:#fff;background:#0a0b10;position:relative}.champ b,.relic b,.season b{display:block;font-size:15px}.champ span,.relic span,.season span{display:block;color:#9296a4;font-size:8px;margin-top:5px}.rank{position:absolute;right:10px;top:8px;color:#555;font-size:18px;font-weight:900}.rarity{font-size:7px;color:#ffd66b;font-weight:900;letter-spacing:1px;margin-bottom:4px}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}a.export{display:inline-block;margin-top:14px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:960px){.hero-grid,.columns{grid-template-columns:1fr}.modules{grid-template-columns:1fr 1fr}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.modules,.stats{grid-template-columns:1fr}h1{letter-spacing:-3px}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.0 // CROWN UNIVERSE</div><div class="hero-grid">
+<div><h1>ONE CROWN.<br><span class="purple">ONE UNIVERSE.</span></h1><p class="meta">The unified gateway to every Crown story, champion, relic, comparison and sealed historical event inside BL3.</p>
+<div class="stats">
+<div class="stat"><b>{champion}</b><span>CURRENT CHAMPION</span></div>
+<div class="stat"><b>{events}</b><span>SEALED EVENTS</span></div>
+<div class="stat"><b>{seasons}</b><span>SEASONS</span></div>
+<div class="stat"><b>{champions}</b><span>CHAMPIONS</span></div>
+<div class="stat"><b>{relics}</b><span>RELICS</span></div>
+</div><a class="export" href="/crown-universe.json">EXPORT UNIVERSE JSON</a></div>
+<div class="orb"><div class="crown">👑</div><b>{spotlight}</b><span>CURRENT CROWN SIGNAL</span></div>
+</div></section>
+
+<section class="panel"><div class="gold">UNIVERSE MODULES</div><div class="modules">{modules}</div></section>
+
+<div class="columns">
+<section class="panel"><div class="gold">TOP LEGACY</div><div class="stack">{champ_cards}</div></section>
+<section class="panel"><div class="gold">LATEST RELICS</div><div class="stack">{relic_cards}</div></section>
+<section class="panel"><div class="gold">SEASON GATES</div><div class="stack">{season_cards}</div></section>
+</div>
+
+<div class="digest">UNIVERSE DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        champion=esc(str(data.get("current_champion") or "—")),
+        events=int(data.get("sealed_events") or 0),
+        seasons=int(data.get("season_count") or 0),
+        champions=int(data.get("champion_count") or 0),
+        relics=int(data.get("relic_count") or 0),
+        spotlight=esc(str(sp.get("current_champion") or "NO ACTIVE CROWN")),
+        modules="".join(nav_cards),
+        champ_cards="".join(champion_cards) or '<div class="meta">No champion records yet.</div>',
+        relic_cards="".join(relic_cards) or '<div class="meta">No relics yet.</div>',
+        season_cards="".join(season_cards) or '<div class="meta">No season capsules yet.</div>',
+        digest=esc(str(data.get("universe_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏺 BL3 ARENA V19.9 // CROWN RELICS + LEGENDARY MOMENTS")
+    print("🌌 BL3 ARENA V20.0 // CROWN UNIVERSE HUB")
+    print("🌌 Crown Universe Hub enabled")
     print("🏺 Crown Relics + Legendary Moments enabled")
     print("🏛️ Hall of Kings + Interactive Legacy Museum enabled")
     print("⚖️ Crown Compare + Rival Legacy enabled")
