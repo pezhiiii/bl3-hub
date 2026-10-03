@@ -18208,6 +18208,7 @@ def _crown_universe_snapshot():
             {"key":"watch","title":"Crown Watchlist","href":"/crown-watch","detail":"Follow champions, rivals and seasons with in-app alerts."},
             {"key":"notifications","title":"Notification Center","href":"/crown-notifications","detail":"Review Crown alerts ranked by smart signal priority."},
             {"key":"radar","title":"Crown Intelligence Radar","href":"/crown-radar","detail":"Analyze champion heat, season pressure and rivalry signals."},
+            {"key":"briefing","title":"Hunter Briefing","href":"/hunter-briefing","detail":"Get a personal daily-style summary of the Crown signals that matter to you."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18239,7 +18240,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -18906,7 +18907,7 @@ h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}.stats{display:
 <p class="meta">Follow champions, rivals or seasons and receive in-app alerts when sealed Crown events match your watchlist.</p>
 <div class="stats"><div class="stat"><b>{watch_count}</b><span>ACTIVE WATCHES</span></div><div class="stat"><b>{unread}</b><span>UNREAD ALERTS</span></div></div>
 <form class="form" onsubmit="addWatch(event)"><select id="watchType"><option value="champion">CHAMPION</option><option value="rival">RIVAL</option><option value="season">SEASON</option></select><input id="watchValue" placeholder="username or season" required><button>ADD WATCH</button></form>
-<a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
+<a class="nav" href="/hunter-briefing">BRIEFING</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
 </section>
 <section class="panel"><div class="gold">YOUR WATCHLIST</div>{watches}</section>
 <section class="panel"><div class="gold">CROWN ALERTS</div>{alerts}</section>
@@ -19335,12 +19336,329 @@ a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;borde
 
 
 
+# ===== V20.5 HUNTER INTELLIGENCE BRIEFING =====
+def _hunter_intelligence_briefing(username):
+    username = str(username or "").strip()
+    if not username:
+        return {
+            "username": "",
+            "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "summary": "Sign in to generate a personal intelligence briefing.",
+            "priorities": [],
+            "watch_hotspots": [],
+            "top_alerts": [],
+            "rival_signals": [],
+            "season_signals": [],
+            "briefing_score": 0,
+            "briefing_state": "NO SIGNAL",
+            "policy": "Hunter Intelligence Briefing requires a signed-in BL3 username.",
+        }
+
+    radar = _crown_intelligence_snapshot(username)
+    notifications = _crown_notification_center_snapshot(username, 120)
+    watch = _crown_watch_snapshot(username)
+
+    top_alerts = []
+    for a in (notifications.get("alerts") or [])[:8]:
+        top_alerts.append({
+            "id": int(a.get("id") or 0),
+            "priority": str(a.get("priority") or "NORMAL"),
+            "priority_score": int(a.get("priority_score") or 0),
+            "title": str(a.get("title") or ""),
+            "detail": str(a.get("detail") or ""),
+            "href": str(a.get("href") or "#"),
+        })
+
+    watch_hotspots = list((radar.get("personal") or {}).get("watched_hotspots") or [])[:8]
+
+    # Match watched rivals/champions against hottest rivalry signals.
+    watch_values = {
+        str(x.get("watch_value") or "").strip().lower()
+        for x in (watch.get("watchlist") or [])
+        if str(x.get("watch_type") or "").lower() in ("champion", "rival")
+    }
+
+    rival_signals = []
+    for row in radar.get("rivalry_heat") or []:
+        a = str(row.get("a") or "")
+        b = str(row.get("b") or "")
+        watched = a.lower() in watch_values or b.lower() in watch_values
+        if watched or len(rival_signals) < 3:
+            rival_signals.append({
+                "a": a,
+                "b": b,
+                "heat": int(row.get("heat") or 0),
+                "clashes": int(row.get("clashes") or 0),
+                "turnovers": int(row.get("turnovers") or 0),
+                "watched": bool(watched),
+                "href": str(row.get("href") or "#"),
+            })
+        if len(rival_signals) >= 5:
+            break
+
+    watched_seasons = {
+        str(x.get("watch_value") or "").strip().lower()
+        for x in (watch.get("watchlist") or [])
+        if str(x.get("watch_type") or "").lower() == "season"
+    }
+
+    season_signals = []
+    for row in radar.get("season_heat") or []:
+        skey = str(row.get("season_key") or "")
+        watched = skey.lower() in watched_seasons
+        if watched or len(season_signals) < 3:
+            season_signals.append({
+                "season_key": skey,
+                "heat": int(row.get("heat") or 0),
+                "events": int(row.get("events") or 0),
+                "turnovers": int(row.get("turnovers") or 0),
+                "watched": bool(watched),
+                "href": str(row.get("href") or "#"),
+            })
+        if len(season_signals) >= 5:
+            break
+
+    priorities = []
+    critical = int((notifications.get("counts") or {}).get("CRITICAL") or 0)
+    high = int((notifications.get("counts") or {}).get("HIGH") or 0)
+    unread = int(notifications.get("unread") or 0)
+
+    if critical:
+        priorities.append({
+            "level": "CRITICAL",
+            "title": f"Review {critical} critical Crown alert(s)",
+            "detail": "Critical alerts include the strongest matched Crown signals in your watchlist.",
+            "href": "/crown-notifications",
+        })
+    if watch_hotspots:
+        hottest = watch_hotspots[0]
+        priorities.append({
+            "level": "HIGH",
+            "title": f"Watch hotspot: {hottest.get('watch_value')}",
+            "detail": f"{str(hottest.get('watch_type') or '').upper()} watch is currently at {int(hottest.get('heat') or 0)} heat.",
+            "href": "/crown-watch",
+        })
+    if rival_signals:
+        r = rival_signals[0]
+        priorities.append({
+            "level": "HIGH" if r.get("watched") else "NORMAL",
+            "title": f"Rivalry signal: {r.get('a')} vs {r.get('b')}",
+            "detail": f"{int(r.get('heat') or 0)} heat across {int(r.get('clashes') or 0)} recorded clash(es).",
+            "href": str(r.get("href") or "#"),
+        })
+    if season_signals:
+        ss = season_signals[0]
+        priorities.append({
+            "level": "HIGH" if ss.get("watched") else "NORMAL",
+            "title": f"Season pressure: {ss.get('season_key')}",
+            "detail": f"{int(ss.get('heat') or 0)} heat from {int(ss.get('events') or 0)} recorded event(s).",
+            "href": str(ss.get("href") or "#"),
+        })
+    if not priorities:
+        priorities.append({
+            "level": "NORMAL",
+            "title": "No urgent Crown signals",
+            "detail": "Your watchlist is quiet right now. Review Crown Live for broader activity.",
+            "href": "/crown-live",
+        })
+
+    briefing_score = min(
+        100,
+        critical * 20
+        + high * 8
+        + min(25, unread * 2)
+        + min(20, sum(int(x.get("heat") or 0) for x in watch_hotspots[:3]) // 5)
+    )
+
+    if briefing_score >= 75:
+        briefing_state = "IMMEDIATE"
+    elif briefing_score >= 45:
+        briefing_state = "FOCUSED"
+    elif briefing_score >= 20:
+        briefing_state = "AWARE"
+    else:
+        briefing_state = "CLEAR"
+
+    current = str(radar.get("current_champion") or "")
+    top_rival = rival_signals[0] if rival_signals else {}
+    top_season = season_signals[0] if season_signals else {}
+
+    summary_parts = [
+        f"Current Crown: {current or 'none'}",
+        f"{unread} unread alert(s)",
+        f"{critical} critical signal(s)",
+    ]
+    if top_rival:
+        summary_parts.append(f"hottest rivalry {top_rival.get('a')} vs {top_rival.get('b')}")
+    if top_season:
+        summary_parts.append(f"top season pressure {top_season.get('season_key')}")
+
+    payload = {
+        "username": username,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "summary": " · ".join(summary_parts),
+        "briefing_score": briefing_score,
+        "briefing_state": briefing_state,
+        "current_champion": current,
+        "priorities": priorities,
+        "watch_hotspots": watch_hotspots,
+        "top_alerts": top_alerts,
+        "rival_signals": rival_signals,
+        "season_signals": season_signals,
+        "watch_count": int(watch.get("watch_count") or 0),
+        "unread": unread,
+        "critical": critical,
+        "high": high,
+        "policy": (
+            "Hunter Intelligence Briefing summarizes recorded BL3 activity, watchlist matches and local priority heuristics. "
+            "It is a read-only briefing and does not predict future Crown outcomes."
+        ),
+    }
+    payload["briefing_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-briefing")
+def hunter_briefing_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in or provide username."}), 401
+    return jsonify({"success": True, **_hunter_intelligence_briefing(username)})
+
+
+@app.route("/hunter-briefing.json")
+def hunter_briefing_export():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return Response(json.dumps({"success":False,"message":"Sign in or provide username."}), status=401, mimetype="application/json")
+    return Response(
+        json.dumps(_hunter_intelligence_briefing(username), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/hunter-briefing")
+def hunter_briefing_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    esc = html.escape
+
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px">
+        <h1>🧠 Hunter Intelligence Briefing</h1><p>Sign in to generate your personal BL3 briefing.</p>
+        <a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _hunter_intelligence_briefing(username)
+
+    priority_rows = []
+    for p in data.get("priorities") or []:
+        level = str(p.get("level") or "NORMAL")
+        priority_rows.append(
+            '<a class="priority {level}" href="{href}"><div class="level">{level}</div>'
+            '<div><b>{title}</b><span>{detail}</span></div><em>↗</em></a>'.format(
+                level=esc(level.lower()),
+                href=esc(str(p.get("href") or "#")),
+                title=esc(str(p.get("title") or "")),
+                detail=esc(str(p.get("detail") or "")),
+            )
+        )
+
+    alerts_html = []
+    for a in data.get("top_alerts") or []:
+        alerts_html.append(
+            '<a class="line" href="{href}"><b>{priority} · {title}</b><span>{detail}</span></a>'.format(
+                href=esc(str(a.get("href") or "#")),
+                priority=esc(str(a.get("priority") or "NORMAL")),
+                title=esc(str(a.get("title") or "")),
+                detail=esc(str(a.get("detail") or "")),
+            )
+        )
+
+    rivals_html = []
+    for r in data.get("rival_signals") or []:
+        rivals_html.append(
+            '<a class="line" href="{href}"><b>{a} vs {b}</b><span>{heat} HEAT · {clashes} clashes{watch}</span></a>'.format(
+                href=esc(str(r.get("href") or "#")),
+                a=esc(str(r.get("a") or "—")),
+                b=esc(str(r.get("b") or "—")),
+                heat=int(r.get("heat") or 0),
+                clashes=int(r.get("clashes") or 0),
+                watch=" · WATCHED" if r.get("watched") else "",
+            )
+        )
+
+    seasons_html = []
+    for r in data.get("season_signals") or []:
+        seasons_html.append(
+            '<a class="line" href="{href}"><b>{season}</b><span>{heat} HEAT · {events} events{watch}</span></a>'.format(
+                href=esc(str(r.get("href") or "#")),
+                season=esc(str(r.get("season_key") or "—")),
+                heat=int(r.get("heat") or 0),
+                events=int(r.get("events") or 0),
+                watch=" · WATCHED" if r.get("watched") else "",
+            )
+        )
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Hunter Intelligence Briefing</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 18% 0,#381651,transparent 30%),radial-gradient(circle at 84% 0,#5a350d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1120px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.violet{color:#b57cff}.meta{color:#999cab;font-size:10px;line-height:1.6}
+h1{font-size:clamp(58px,9vw,104px);line-height:.86;margin:10px 0}.brief{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+.score{width:130px;height:130px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,#8c25df 0,#321046 45%,#0b0c11 72%);border:1px solid #624277;box-shadow:0 0 55px rgba(141,37,226,.23);font-size:28px;font-weight:900}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:23px}.stat span{font-size:8px;color:#989ba8}
+.priority{display:grid;grid-template-columns:90px 1fr auto;gap:12px;align-items:center;border:1px solid #30323b;border-radius:16px;padding:14px;text-decoration:none;color:#fff;margin-top:8px;background:#090a0f}.priority.critical{border-color:#7d3340}.priority.high{border-color:#665129}.priority .level{font-size:9px;font-weight:900;color:#ffd66b}.priority b{display:block}.priority span{display:block;color:#a0a3b0;font-size:9px;margin-top:4px}.priority em{font-style:normal;color:#777}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.line{display:block;border:1px solid #30323b;border-radius:14px;padding:12px;text-decoration:none;color:#fff;margin-top:8px;background:#090a0f}.line b{display:block;font-size:14px}.line span{display:block;color:#9396a4;font-size:8px;margin-top:4px}.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}
+@media(max-width:900px){.cols{grid-template-columns:1fr}.brief{grid-template-columns:1fr}.score{width:100px;height:100px}}@media(max-width:650px){.stats{grid-template-columns:1fr 1fr}.priority{grid-template-columns:70px 1fr}.priority em{display:none}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.5 // HUNTER INTELLIGENCE BRIEFING</div>
+<div class="brief"><div><h1>KNOW WHAT MATTERS.</h1><p class="meta">{summary}</p>
+<a class="nav" href="/crown-radar">RADAR</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-watch">WATCHLIST</a> <a class="nav" href="/crown-live">LIVE</a>
+</div><div class="score">{score}</div></div>
+<p class="meta">BRIEFING STATE // <span class="violet">{state}</span> · HUNTER // {username}</p>
+<div class="stats">
+<div class="stat"><b>{watch}</b><span>WATCHES</span></div>
+<div class="stat"><b>{unread}</b><span>UNREAD</span></div>
+<div class="stat"><b>{critical}</b><span>CRITICAL</span></div>
+<div class="stat"><b>{high}</b><span>HIGH</span></div>
+</div></section>
+<section class="panel"><div class="gold">TODAY'S PRIORITIES</div>{priorities}</section>
+<div class="cols">
+<section class="panel"><div class="gold">TOP ALERTS</div>{alerts}</section>
+<section class="panel"><div class="gold">RIVAL SIGNALS</div>{rivals}</section>
+<section class="panel"><div class="gold">SEASON SIGNALS</div>{seasons}</section>
+</div>
+<div class="digest">BRIEFING DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div></body></html>"""
+
+    return page.format(
+        summary=esc(str(data.get("summary") or "")),
+        score=int(data.get("briefing_score") or 0),
+        state=esc(str(data.get("briefing_state") or "CLEAR")),
+        username=esc(str(data.get("username") or "")),
+        watch=int(data.get("watch_count") or 0),
+        unread=int(data.get("unread") or 0),
+        critical=int(data.get("critical") or 0),
+        high=int(data.get("high") or 0),
+        priorities="".join(priority_rows),
+        alerts="".join(alerts_html) or '<div class="meta">No alerts to surface.</div>',
+        rivals="".join(rivals_html) or '<div class="meta">No rivalry signals yet.</div>',
+        seasons="".join(seasons_html) or '<div class="meta">No season signals yet.</div>',
+        digest=esc(str(data.get("briefing_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("📡 BL3 ARENA V20.4 // CROWN INTELLIGENCE RADAR")
+    print("🧠 BL3 ARENA V20.5 // HUNTER INTELLIGENCE BRIEFING")
+    print("🧠 Hunter Intelligence Briefing enabled")
     print("📡 Crown Intelligence Radar enabled")
     print("⚡ Crown Notification Center + Smart Priority enabled")
     print("🔔 Crown Alerts + Watchlist enabled")
