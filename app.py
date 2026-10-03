@@ -14,7 +14,7 @@ import hashlib
 import threading
 import logging
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timedelta
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
@@ -18210,6 +18210,7 @@ def _crown_universe_snapshot():
             {"key":"radar","title":"Crown Intelligence Radar","href":"/crown-radar","detail":"Analyze champion heat, season pressure and rivalry signals."},
             {"key":"briefing","title":"Hunter Briefing","href":"/hunter-briefing","detail":"Get a personal daily-style summary of the Crown signals that matter to you."},
             {"key":"missions","title":"Hunter Daily Missions","href":"/hunter-missions","detail":"Turn live Crown signals into personalized daily actions and reputation progress."},
+            {"key":"rewards","title":"Mission Streaks","href":"/hunter-mission-rewards","detail":"Build perfect-day streaks and unlock Daily Chest rewards."},
         ],
         "policy": (
             "Crown Universe is a read-only navigation and history layer built from recorded BL3 Crown data. "
@@ -18241,7 +18242,7 @@ def crown_universe_page():
     esc = html.escape
 
     nav_cards = []
-    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯"}
+    icons = {"archive":"📚","compare":"⚖️","hall":"🏛️","relics":"🏺","story":"📖","network":"🕸️","live":"📡","watch":"🔔","notifications":"⚡","radar":"📡","briefing":"🧠","missions":"🎯","rewards":"🎁"}
     for item in data.get("navigation") or []:
         nav_cards.append(
             '<a class="module" href="{href}"><div class="module-icon">{icon}</div>'
@@ -18908,7 +18909,7 @@ h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}.stats{display:
 <p class="meta">Follow champions, rivals or seasons and receive in-app alerts when sealed Crown events match your watchlist.</p>
 <div class="stats"><div class="stat"><b>{watch_count}</b><span>ACTIVE WATCHES</span></div><div class="stat"><b>{unread}</b><span>UNREAD ALERTS</span></div></div>
 <form class="form" onsubmit="addWatch(event)"><select id="watchType"><option value="champion">CHAMPION</option><option value="rival">RIVAL</option><option value="season">SEASON</option></select><input id="watchValue" placeholder="username or season" required><button>ADD WATCH</button></form>
-<a class="nav" href="/hunter-briefing">BRIEFING</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
+<a class="nav" href="/hunter-mission-rewards">STREAK + CHEST</a> <a class="nav" href="/hunter-briefing">BRIEFING</a> <a class="nav" href="/crown-notifications">NOTIFICATIONS</a> <a class="nav" href="/crown-live">CROWN LIVE</a> <a class="nav" href="/crown-universe">UNIVERSE</a>
 </section>
 <section class="panel"><div class="gold">YOUR WATCHLIST</div>{watches}</section>
 <section class="panel"><div class="gold">CROWN ALERTS</div>{alerts}</section>
@@ -19986,12 +19987,367 @@ async function completeMission(id){{
 
 
 
+# ===== V20.7 MISSION STREAKS + DAILY CHEST =====
+def _ensure_mission_streak_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_mission_streaks (
+            username TEXT PRIMARY KEY,
+            current_streak INTEGER NOT NULL DEFAULT 0,
+            best_streak INTEGER NOT NULL DEFAULT 0,
+            last_completed_date TEXT DEFAULT '',
+            total_perfect_days INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_daily_chests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            chest_date TEXT NOT NULL,
+            chest_tier TEXT NOT NULL,
+            reward_rep INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'LOCKED',
+            opened_at TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            UNIQUE(username, chest_date)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_chests_user_date ON hunter_daily_chests(username, chest_date, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+_ensure_mission_streak_schema()
+
+
+def _date_minus_days(date_text, days):
+    try:
+        d = datetime.strptime(date_text, "%Y-%m-%d")
+        return (d - timedelta(days=days)).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def _mission_day_complete(username, mission_date):
+    conn = db()
+    rows = conn.execute(
+        """SELECT status FROM hunter_daily_missions
+           WHERE username = ? AND mission_date = ?""",
+        (username, mission_date)
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return False
+    return all(str(r["status"] or "").upper() == "COMPLETED" for r in rows)
+
+
+def _recalculate_mission_streak(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"current_streak": 0, "best_streak": 0, "total_perfect_days": 0, "last_completed_date": ""}
+
+    today = _daily_mission_date()
+    conn = db()
+    old = conn.execute(
+        """SELECT current_streak, best_streak, last_completed_date, total_perfect_days
+           FROM hunter_mission_streaks WHERE username = ?""",
+        (username,)
+    ).fetchone()
+    conn.close()
+
+    # Count consecutive perfect mission days backwards from today,
+    # allowing today's board to still be in progress.
+    anchor = today if _mission_day_complete(username, today) else _date_minus_days(today, 1)
+    streak = 0
+    cursor = anchor
+    for _ in range(365):
+        if not cursor or not _mission_day_complete(username, cursor):
+            break
+        streak += 1
+        cursor = _date_minus_days(cursor, 1)
+
+    conn = db()
+    perfect_rows = conn.execute(
+        """SELECT mission_date,
+                  SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) AS completed_count,
+                  COUNT(*) AS total_count
+           FROM hunter_daily_missions
+           WHERE username = ?
+           GROUP BY mission_date""",
+        (username,)
+    ).fetchall()
+    perfect_days = sum(
+        1 for r in perfect_rows
+        if int(r["total_count"] or 0) > 0 and int(r["completed_count"] or 0) == int(r["total_count"] or 0)
+    )
+
+    best = max(int(old["best_streak"] or 0) if old else 0, streak)
+    last_completed = anchor if streak > 0 else (str(old["last_completed_date"] or "") if old else "")
+
+    conn.execute(
+        """INSERT INTO hunter_mission_streaks
+           (username, current_streak, best_streak, last_completed_date, total_perfect_days, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             current_streak=excluded.current_streak,
+             best_streak=excluded.best_streak,
+             last_completed_date=excluded.last_completed_date,
+             total_perfect_days=excluded.total_perfect_days,
+             updated_at=excluded.updated_at""",
+        (
+            username,
+            streak,
+            best,
+            last_completed,
+            perfect_days,
+            datetime.utcnow().isoformat(),
+        )
+    )
+    conn.commit()
+    conn.close()
+
+    return {
+        "current_streak": streak,
+        "best_streak": best,
+        "total_perfect_days": perfect_days,
+        "last_completed_date": last_completed,
+    }
+
+
+def _daily_chest_tier(streak):
+    streak = int(streak or 0)
+    if streak >= 14:
+        return "MYTHIC"
+    if streak >= 7:
+        return "LEGENDARY"
+    if streak >= 3:
+        return "EPIC"
+    return "STANDARD"
+
+
+def _daily_chest_reward(tier):
+    return {
+        "STANDARD": 15,
+        "EPIC": 30,
+        "LEGENDARY": 60,
+        "MYTHIC": 100,
+    }.get(str(tier or "").upper(), 15)
+
+
+def _sync_daily_chest(username):
+    username = str(username or "").strip()
+    today = _daily_mission_date()
+    streak = _recalculate_mission_streak(username)
+    board = _hunter_daily_missions_snapshot(username)
+
+    all_complete = bool(board.get("mission_count")) and int(board.get("completed") or 0) == int(board.get("mission_count") or 0)
+    tier = _daily_chest_tier(streak.get("current_streak") or 0)
+    reward = _daily_chest_reward(tier)
+
+    conn = db()
+    row = conn.execute(
+        """SELECT id, username, chest_date, chest_tier, reward_rep, status, opened_at, created_at
+           FROM hunter_daily_chests WHERE username = ? AND chest_date = ?""",
+        (username, today)
+    ).fetchone()
+
+    target_status = "READY" if all_complete else "LOCKED"
+
+    if not row:
+        conn.execute(
+            """INSERT INTO hunter_daily_chests
+               (username, chest_date, chest_tier, reward_rep, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (username, today, tier, reward, target_status, datetime.utcnow().isoformat())
+        )
+        conn.commit()
+    elif str(row["status"] or "").upper() != "OPENED":
+        conn.execute(
+            """UPDATE hunter_daily_chests
+               SET chest_tier = ?, reward_rep = ?, status = ?
+               WHERE username = ? AND chest_date = ?""",
+            (tier, reward, target_status, username, today)
+        )
+        conn.commit()
+
+    row = conn.execute(
+        """SELECT id, username, chest_date, chest_tier, reward_rep, status, opened_at, created_at
+           FROM hunter_daily_chests WHERE username = ? AND chest_date = ?""",
+        (username, today)
+    ).fetchone()
+    conn.close()
+
+    return {
+        "streak": streak,
+        "chest": dict(row) if row else None,
+        "all_complete": all_complete,
+        "mission_progress": float(board.get("progress_percent") or 0.0),
+    }
+
+
+def _mission_rewards_snapshot(username):
+    username = str(username or "").strip()
+    sync = _sync_daily_chest(username)
+    streak = sync.get("streak") or {}
+    chest = sync.get("chest") or {}
+
+    payload = {
+        "username": username,
+        "date": _daily_mission_date(),
+        "current_streak": int(streak.get("current_streak") or 0),
+        "best_streak": int(streak.get("best_streak") or 0),
+        "total_perfect_days": int(streak.get("total_perfect_days") or 0),
+        "last_completed_date": str(streak.get("last_completed_date") or ""),
+        "mission_progress": float(sync.get("mission_progress") or 0.0),
+        "chest": chest,
+        "all_complete": bool(sync.get("all_complete")),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Mission streaks and Daily Chest rewards are application-level progression features. "
+            "REP is an in-app reputation metric and does not represent money, tokens or guaranteed monetary value."
+        ),
+    }
+    payload["rewards_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-mission-rewards")
+def hunter_mission_rewards_api():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in or provide username."}), 401
+    return jsonify({"success": True, **_mission_rewards_snapshot(username)})
+
+
+@app.route("/api/hunter-mission-rewards/open", methods=["POST"])
+def hunter_mission_chest_open_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+
+    data = _mission_rewards_snapshot(username)
+    chest = data.get("chest") or {}
+    status = str(chest.get("status") or "").upper()
+
+    if status == "LOCKED":
+        return jsonify({"success": False, "message": "Complete all daily missions to unlock the chest.", **data}), 409
+    if status == "OPENED":
+        return jsonify({"success": True, "message": "Chest already opened.", **data})
+
+    conn = db()
+    conn.execute(
+        """UPDATE hunter_daily_chests
+           SET status = 'OPENED', opened_at = ?
+           WHERE username = ? AND chest_date = ? AND status = 'READY'""",
+        (datetime.utcnow().isoformat(), username, _daily_mission_date())
+    )
+    conn.commit()
+    conn.close()
+
+    result = _mission_rewards_snapshot(username)
+    return jsonify({
+        "success": True,
+        "message": "Daily Chest opened.",
+        "reward_rep": int((result.get("chest") or {}).get("reward_rep") or 0),
+        **result
+    })
+
+
+@app.route("/hunter-mission-rewards.json")
+def hunter_mission_rewards_export():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return Response(json.dumps({"success":False,"message":"Sign in or provide username."}), status=401, mimetype="application/json")
+    return Response(
+        json.dumps(_mission_rewards_snapshot(username), ensure_ascii=False, indent=2),
+        mimetype="application/json"
+    )
+
+
+@app.route("/hunter-mission-rewards")
+def hunter_mission_rewards_page():
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    esc = html.escape
+
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px">
+        <h1>🎁 Mission Streaks + Daily Chest</h1><p>Sign in to view your streak and daily chest.</p>
+        <a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _mission_rewards_snapshot(username)
+    chest = data.get("chest") or {}
+    status = str(chest.get("status") or "LOCKED").upper()
+    tier = str(chest.get("chest_tier") or "STANDARD").upper()
+    reward = int(chest.get("reward_rep") or 0)
+
+    if status == "READY":
+        chest_button = '<button onclick="openChest()">OPEN DAILY CHEST</button>'
+    elif status == "OPENED":
+        chest_button = '<button disabled>OPENED ✓</button>'
+    else:
+        chest_button = '<button disabled>LOCKED</button>'
+
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BL3 Mission Streaks</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 18% 0,#391650,transparent 30%),radial-gradient(circle at 84% 0,#60370d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}
+.wrap{max-width:1040px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}
+.gold{color:#ffd66b;font-weight:900}.meta{color:#999cab;font-size:10px;line-height:1.6}h1{font-size:clamp(58px,9vw,102px);line-height:.86;margin:10px 0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:24px}.stat span{font-size:8px;color:#989ba8}
+.chest{min-height:340px;border:1px solid #4d4357;border-radius:28px;background:radial-gradient(circle at 50% 30%,rgba(255,214,107,.16),transparent 25%),radial-gradient(circle at 50% 55%,rgba(140,37,223,.18),transparent 40%),#090a0f;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+.chest-icon{font-size:82px}.tier{font-size:12px;letter-spacing:2px;color:#ffd66b;font-weight:900}.reward{font-size:44px;font-weight:950;margin:8px 0}.chest button,a.nav{background:#08090d;color:#fff;border:1px solid #393b44;border-radius:10px;padding:10px 13px;font-size:9px;font-weight:900;text-decoration:none;cursor:pointer}.chest button[disabled]{opacity:.55;cursor:default}
+.progress{height:11px;border-radius:999px;background:#171821;overflow:hidden;margin-top:15px}.progress i{display:block;height:100%;background:linear-gradient(90deg,#7f22d9,#ffd66b)}
+.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}
+@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
+</style></head><body><div class="wrap">
+<section class="hero"><div class="gold">V20.7 // MISSION STREAKS + DAILY CHEST</div><h1>KEEP THE STREAK ALIVE.</h1>
+<p class="meta">Complete your full daily mission board, build a perfect-day streak and unlock a Daily Chest.</p>
+<div class="stats">
+<div class="stat"><b>{current}</b><span>CURRENT STREAK</span></div>
+<div class="stat"><b>{best}</b><span>BEST STREAK</span></div>
+<div class="stat"><b>{perfect}</b><span>PERFECT DAYS</span></div>
+<div class="stat"><b>{progress}%</b><span>MISSION PROGRESS</span></div>
+</div>
+<div class="progress"><i style="width:{progress}%"></i></div>
+<p><a class="nav" href="/hunter-missions">MISSIONS</a> <a class="nav" href="/hunter-briefing">BRIEFING</a></p>
+</section>
+<section class="panel"><div class="chest"><div class="tier">{tier} DAILY CHEST</div><div class="chest-icon">🎁</div>
+<div class="reward">+{reward} REP</div><p class="meta">STATUS // {status}</p>{button}</div></section>
+<div class="digest">REWARDS DIGEST // {digest}</div><p class="meta">{policy}</p>
+</div>
+<script>
+async function openChest(){{
+  const r=await fetch('/api/hunter-mission-rewards/open',{{method:'POST'}});
+  const d=await r.json();
+  if(!d.success) alert(d.message||'Could not open chest.');
+  else location.reload();
+}}
+</script></body></html>"""
+
+    return page.format(
+        current=int(data.get("current_streak") or 0),
+        best=int(data.get("best_streak") or 0),
+        perfect=int(data.get("total_perfect_days") or 0),
+        progress=float(data.get("mission_progress") or 0.0),
+        tier=esc(tier),
+        reward=reward,
+        status=esc(status),
+        button=chest_button,
+        digest=esc(str(data.get("rewards_digest") or "")),
+        policy=esc(str(data.get("policy") or "")),
+    )
+
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🎯 BL3 ARENA V20.6 // HUNTER DAILY MISSIONS")
+    print("🎁 BL3 ARENA V20.7 // MISSION STREAKS + DAILY CHEST")
+    print("🎁 Mission Streaks + Daily Chest enabled")
     print("🎯 Hunter Daily Missions from Live Signals enabled")
     print("🧠 Hunter Intelligence Briefing enabled")
     print("📡 Crown Intelligence Radar enabled")
