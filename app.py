@@ -22906,16 +22906,522 @@ def hunter_circles_member():
         pass
     return response
 
+
+
+# ===== V22.3 CIRCLE CHALLENGES + SHARED GOALS + GROUP PROGRESS =====
+def _ensure_circle_challenge_schema():
+    _ensure_circle_feed_schema()
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_challenges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            goal_target INTEGER NOT NULL DEFAULT 1,
+            unit_label TEXT NOT NULL DEFAULT 'POINTS',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_challenge_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenge_id INTEGER NOT NULL,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            contributor TEXT NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 1,
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_challenges_circle ON hunter_circle_challenges(circle_id, status, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_challenges_owner ON hunter_circle_challenges(owner, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_progress_challenge ON hunter_circle_challenge_progress(challenge_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_progress_contributor ON hunter_circle_challenge_progress(contributor, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+def _circle_access_row(circle_id, username):
+    circle_id = int(circle_id or 0)
+    username = str(username or '').strip()
+    if circle_id <= 0 or not username:
+        return None
+    _ensure_circle_challenge_schema()
+    conn = db()
+    row = conn.execute(
+        """SELECT c.id,c.owner,c.name,c.emoji,c.description,c.created_at,
+                  CASE
+                    WHEN lower(c.owner)=lower(?) THEN 'owner'
+                    WHEN EXISTS(
+                        SELECT 1 FROM hunter_social_circle_members m
+                        WHERE m.circle_id=c.id AND m.owner=c.owner AND lower(m.member)=lower(?)
+                    ) THEN 'member'
+                    ELSE ''
+                  END AS access_role
+           FROM hunter_social_circles c
+           WHERE c.id=?""",
+        (username, username, circle_id)
+    ).fetchone()
+    conn.close()
+    if not row or not str(row["access_role"] or ''):
+        return None
+    return row
+
+
+def _circle_challenges_snapshot(circle_id, viewer):
+    circle_id = int(circle_id or 0)
+    viewer = str(viewer or '').strip()
+    access = _circle_access_row(circle_id, viewer)
+    if not access:
+        return {"success": False, "message": "Circle not found or access denied."}
+
+    owner = str(access["owner"] or '')
+    conn = db()
+    member_rows = conn.execute(
+        """SELECT member,added_at
+           FROM hunter_social_circle_members
+           WHERE circle_id=? AND owner=?
+           ORDER BY added_at DESC, member ASC""",
+        (circle_id, owner)
+    ).fetchall()
+
+    challenge_rows = conn.execute(
+        """SELECT id,circle_id,owner,title,description,goal_target,unit_label,status,created_at,completed_at
+           FROM hunter_circle_challenges
+           WHERE circle_id=? AND owner=?
+           ORDER BY CASE WHEN status='ACTIVE' THEN 0 ELSE 1 END, id DESC
+           LIMIT 100""",
+        (circle_id, owner)
+    ).fetchall()
+
+    challenges = []
+    total_progress_all = 0
+    for row in challenge_rows:
+        challenge_id = int(row["id"] or 0)
+        progress_rows = conn.execute(
+            """SELECT contributor, SUM(amount) AS total, COUNT(*) AS updates
+               FROM hunter_circle_challenge_progress
+               WHERE challenge_id=? AND circle_id=? AND owner=?
+               GROUP BY contributor
+               ORDER BY total DESC, contributor ASC""",
+            (challenge_id, circle_id, owner)
+        ).fetchall()
+        recent_rows = conn.execute(
+            """SELECT id,contributor,amount,note,created_at
+               FROM hunter_circle_challenge_progress
+               WHERE challenge_id=? AND circle_id=? AND owner=?
+               ORDER BY id DESC
+               LIMIT 20""",
+            (challenge_id, circle_id, owner)
+        ).fetchall()
+
+        contribution_total = sum(int(r["total"] or 0) for r in progress_rows)
+        total_progress_all += contribution_total
+        target = max(1, int(row["goal_target"] or 1))
+        pct = min(100.0, round((contribution_total / target) * 100.0, 1))
+        challenges.append({
+            "id": challenge_id,
+            "title": str(row["title"] or ""),
+            "description": str(row["description"] or ""),
+            "goal_target": target,
+            "unit_label": str(row["unit_label"] or "POINTS"),
+            "status": str(row["status"] or "ACTIVE"),
+            "created_at": str(row["created_at"] or ""),
+            "completed_at": str(row["completed_at"] or ""),
+            "progress_total": contribution_total,
+            "progress_percent": pct,
+            "contributors": [
+                {
+                    "username": str(r["contributor"] or ""),
+                    "amount": int(r["total"] or 0),
+                    "updates": int(r["updates"] or 0),
+                }
+                for r in progress_rows
+            ],
+            "recent_progress": [
+                {
+                    "id": int(r["id"] or 0),
+                    "contributor": str(r["contributor"] or ""),
+                    "amount": int(r["amount"] or 0),
+                    "note": str(r["note"] or ""),
+                    "created_at": str(r["created_at"] or ""),
+                }
+                for r in recent_rows
+            ],
+        })
+    conn.close()
+
+    active = [c for c in challenges if c.get("status") == "ACTIVE"]
+    completed = [c for c in challenges if c.get("status") == "COMPLETED"]
+
+    payload = {
+        "success": True,
+        "viewer": viewer,
+        "access_role": str(access["access_role"] or ""),
+        "circle": {
+            "id": int(access["id"] or 0),
+            "owner": owner,
+            "name": str(access["name"] or ""),
+            "emoji": str(access["emoji"] or "🫂"),
+            "description": str(access["description"] or ""),
+        },
+        "members": [
+            {"username": str(r["member"] or ""), "added_at": str(r["added_at"] or "")}
+            for r in member_rows
+        ],
+        "challenges": challenges,
+        "counts": {
+            "active": len(active),
+            "completed": len(completed),
+            "members": len(member_rows),
+            "progress_units": total_progress_all,
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Circle Challenges are collaborative in-app goals. Progress values are user-entered "
+            "group tracking units and do not represent money, verified off-platform performance, "
+            "or guaranteed outcomes."
+        ),
+    }
+    payload["challenge_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.post("/api/hunter/circles/challenges/create")
+def hunter_circle_challenge_create():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        circle_id = int(payload.get("circle_id") or 0)
+        goal_target = int(payload.get("goal_target") or 0)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid numeric values."}), 400
+
+    title = " ".join(str(payload.get("title") or "").split()).strip()[:100]
+    description = " ".join(str(payload.get("description") or "").replace("\n", " ").split()).strip()[:300]
+    unit_label = " ".join(str(payload.get("unit_label") or "POINTS").split()).strip().upper()[:30] or "POINTS"
+
+    access = _circle_access_row(circle_id, username)
+    if not access or str(access["access_role"] or "") != "owner":
+        return jsonify({"success": False, "message": "Only the Circle owner can create challenges."}), 403
+    if not title:
+        return jsonify({"success": False, "message": "Challenge title required."}), 400
+    if goal_target <= 0 or goal_target > 1_000_000:
+        return jsonify({"success": False, "message": "Goal target must be between 1 and 1,000,000."}), 400
+
+    owner = str(access["owner"] or "")
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = db()
+    cur = conn.execute(
+        """INSERT INTO hunter_circle_challenges
+           (circle_id,owner,title,description,goal_target,unit_label,status,created_at,completed_at)
+           VALUES(?,?,?,?,?,?,'ACTIVE',?,NULL)""",
+        (circle_id, owner, title, description, goal_target, unit_label, now)
+    )
+    challenge_id = int(cur.lastrowid or 0)
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(circle_id, owner, username, "challenge_created", title, f"Shared goal: {goal_target} {unit_label}.")
+    return jsonify({
+        "success": True,
+        "message": "Circle Challenge created.",
+        "challenge_id": challenge_id,
+        "snapshot": _circle_challenges_snapshot(circle_id, username),
+    })
+
+
+@app.post("/api/hunter/circles/challenges/progress")
+def hunter_circle_challenge_progress():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        challenge_id = int(payload.get("challenge_id") or 0)
+        amount = int(payload.get("amount") or 0)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid numeric values."}), 400
+
+    note = " ".join(str(payload.get("note") or "").replace("\n", " ").split()).strip()[:240]
+    if challenge_id <= 0 or amount <= 0 or amount > 100_000:
+        return jsonify({"success": False, "message": "Valid challenge_id and positive amount required."}), 400
+
+    _ensure_circle_challenge_schema()
+    conn = db()
+    challenge = conn.execute(
+        """SELECT id,circle_id,owner,title,goal_target,unit_label,status
+           FROM hunter_circle_challenges
+           WHERE id=?""",
+        (challenge_id,)
+    ).fetchone()
+    conn.close()
+    if not challenge:
+        return jsonify({"success": False, "message": "Challenge not found."}), 404
+
+    circle_id = int(challenge["circle_id"] or 0)
+    access = _circle_access_row(circle_id, username)
+    if not access or str(access["owner"] or "").lower() != str(challenge["owner"] or "").lower():
+        return jsonify({"success": False, "message": "You are not part of this Circle."}), 403
+    if str(challenge["status"] or "") != "ACTIVE":
+        return jsonify({"success": False, "message": "Challenge is not active."}), 400
+
+    owner = str(challenge["owner"] or "")
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = db()
+    conn.execute(
+        """INSERT INTO hunter_circle_challenge_progress
+           (challenge_id,circle_id,owner,contributor,amount,note,created_at)
+           VALUES(?,?,?,?,?,?,?)""",
+        (challenge_id, circle_id, owner, username, amount, note, now)
+    )
+    total_row = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM hunter_circle_challenge_progress WHERE challenge_id=?",
+        (challenge_id,)
+    ).fetchone()
+    total = int((total_row["total"] if total_row else 0) or 0)
+    target = max(1, int(challenge["goal_target"] or 1))
+    completed_now = total >= target
+    if completed_now:
+        conn.execute(
+            "UPDATE hunter_circle_challenges SET status='COMPLETED',completed_at=? WHERE id=? AND status='ACTIVE'",
+            (now, challenge_id)
+        )
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(
+        circle_id,
+        owner,
+        username,
+        "challenge_progress",
+        str(challenge["title"] or ""),
+        f"+{amount} {str(challenge['unit_label'] or 'POINTS')} — {note}"[:300],
+    )
+    if completed_now:
+        _record_circle_activity(
+            circle_id,
+            owner,
+            username,
+            "challenge_completed",
+            str(challenge["title"] or ""),
+            f"Goal completed at {total}/{target} {str(challenge['unit_label'] or 'POINTS')}.",
+        )
+
+    return jsonify({
+        "success": True,
+        "message": "Progress added." if not completed_now else "Progress added — challenge completed!",
+        "completed": completed_now,
+        "snapshot": _circle_challenges_snapshot(circle_id, username),
+    })
+
+
+@app.post("/api/hunter/circles/challenges/status")
+def hunter_circle_challenge_status():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        challenge_id = int(payload.get("challenge_id") or 0)
+    except Exception:
+        challenge_id = 0
+    status = str(payload.get("status") or "").strip().upper()
+    if challenge_id <= 0 or status not in {"ACTIVE", "COMPLETED"}:
+        return jsonify({"success": False, "message": "Valid challenge_id and status required."}), 400
+
+    _ensure_circle_challenge_schema()
+    conn = db()
+    row = conn.execute(
+        "SELECT id,circle_id,owner,title FROM hunter_circle_challenges WHERE id=?",
+        (challenge_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "message": "Challenge not found."}), 404
+    if str(row["owner"] or "").lower() != username.lower():
+        conn.close()
+        return jsonify({"success": False, "message": "Only the Circle owner can change challenge status."}), 403
+
+    completed_at = datetime.utcnow().isoformat(timespec="seconds") + "Z" if status == "COMPLETED" else None
+    conn.execute(
+        "UPDATE hunter_circle_challenges SET status=?,completed_at=? WHERE id=?",
+        (status, completed_at, challenge_id)
+    )
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(
+        int(row["circle_id"] or 0),
+        username,
+        username,
+        "challenge_status",
+        str(row["title"] or ""),
+        f"Challenge status changed to {status}.",
+    )
+    return jsonify({
+        "success": True,
+        "message": f"Challenge set to {status}.",
+        "snapshot": _circle_challenges_snapshot(int(row["circle_id"] or 0), username),
+    })
+
+
+@app.route("/api/hunter/circles/<int:circle_id>/challenges")
+def hunter_circle_challenges_api(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_challenges_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/challenges.json")
+def hunter_circle_challenges_json(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_challenges_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/challenges")
+def hunter_circle_challenges_page(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>🏆 Circle Challenges</h1><p>Sign in to continue.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _circle_challenges_snapshot(circle_id, username)
+    if not data.get("success"):
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>""", 403
+
+    esc = html.escape
+    circle = data.get("circle") or {}
+    is_owner = str(data.get("access_role") or "") == "owner"
+
+    challenge_cards = []
+    for ch in data.get("challenges") or []:
+        contributor_html = "".join(
+            '<span class="contrib">@{name} <b>{amount}</b></span>'.format(
+                name=esc(str(c.get("username") or "")),
+                amount=int(c.get("amount") or 0),
+            )
+            for c in ch.get("contributors") or []
+        ) or '<span class="meta">No contributions yet.</span>'
+
+        updates_html = "".join(
+            '<div class="update"><b>@{name}</b> +{amount}<span>{note}</span><small>{created}</small></div>'.format(
+                name=esc(str(u.get("contributor") or "")),
+                amount=int(u.get("amount") or 0),
+                note=esc(str(u.get("note") or "")),
+                created=esc(str(u.get("created_at") or "")),
+            )
+            for u in (ch.get("recent_progress") or [])[:6]
+        ) or '<div class="meta">No progress updates yet.</div>'
+
+        status_buttons = ""
+        if is_owner:
+            next_status = "ACTIVE" if str(ch.get("status") or "") == "COMPLETED" else "COMPLETED"
+            status_buttons = "<button onclick=\"setStatus({id},'{status}')\">MARK {status}</button>".format(
+                id=int(ch.get("id") or 0),
+                status=next_status,
+            )
+
+        challenge_cards.append(
+            '<article class="challenge"><div class="challenge-top"><div><span class="status {status_lc}">{status}</span>'
+            '<h3>{title}</h3><p>{description}</p></div><div class="pct">{pct}%</div></div>'
+            '<div class="bar"><i style="width:{pct}%"></i></div>'
+            '<div class="progress-line"><b>{current}</b> / {target} {unit}</div>'
+            '<div class="contributors">{contributors}</div>'
+            '<div class="add-progress"><input id="amount-{id}" type="number" min="1" value="1">'
+            '<input id="note-{id}" maxlength="240" placeholder="What did you contribute?">'
+            '<button onclick="addProgress({id})">ADD PROGRESS</button>{status_buttons}</div>'
+            '<div class="updates">{updates}</div></article>'.format(
+                status_lc=esc(str(ch.get("status") or "ACTIVE").lower()),
+                status=esc(str(ch.get("status") or "ACTIVE")),
+                title=esc(str(ch.get("title") or "")),
+                description=esc(str(ch.get("description") or "")),
+                pct=float(ch.get("progress_percent") or 0),
+                current=int(ch.get("progress_total") or 0),
+                target=int(ch.get("goal_target") or 0),
+                unit=esc(str(ch.get("unit_label") or "POINTS")),
+                contributors=contributor_html,
+                id=int(ch.get("id") or 0),
+                status_buttons=status_buttons,
+                updates=updates_html,
+            )
+        )
+
+    create_panel = ""
+    if is_owner:
+        create_panel = """
+        <section class="panel">
+          <div class="gold">CREATE SHARED GOAL</div>
+          <div class="creator">
+            <input id="newTitle" maxlength="100" placeholder="Challenge title">
+            <input id="newTarget" type="number" min="1" value="10" placeholder="Target">
+            <input id="newUnit" maxlength="30" value="POINTS" placeholder="Unit label">
+            <textarea id="newDescription" maxlength="300" placeholder="What is the Circle trying to accomplish?"></textarea>
+            <button class="primary" onclick="createChallenge()">CREATE CHALLENGE</button>
+          </div>
+        </section>
+        """
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Circle Challenges</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#51175f,transparent 30%),radial-gradient(circle at 88% 0,#70440f,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1100px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(44px,8vw,86px);line-height:.9;margin:10px 0}}h3{{margin:8px 0;font-size:24px}}p,.meta{{color:#9da1ad;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;background:#090a0f;padding:14px}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}a.nav,button{{appearance:none;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900;background:transparent;cursor:pointer}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}button.primary{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}.creator{{display:grid;grid-template-columns:1fr 160px 160px;gap:10px;margin-top:14px}}input,textarea{{width:100%;border-radius:12px;border:1px solid #353844;background:#07080c;color:#fff;padding:12px;font:inherit}}textarea{{grid-column:1/-1;min-height:90px;resize:vertical}}.creator button{{grid-column:1/-1}}.challenge{{border:1px solid #30323b;border-radius:20px;background:#090a0f;padding:18px;margin-top:14px}}.challenge-top{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}}.pct{{font-size:32px;font-weight:950;color:#ffd66b}}.status{{display:inline-block;border:1px solid #3b3e48;border-radius:999px;padding:5px 8px;font-size:8px;font-weight:900}}.status.completed{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}.bar{{height:12px;background:#171820;border-radius:999px;overflow:hidden;margin:14px 0}}.bar i{{display:block;height:100%;background:linear-gradient(90deg,#8b5cff,#ffd66b)}}.progress-line{{font-size:12px;font-weight:900}}.contributors{{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}}.contrib{{border:1px solid #383b46;border-radius:999px;padding:7px 9px;font-size:9px}}.add-progress{{display:grid;grid-template-columns:100px 1fr auto auto;gap:8px;margin-top:12px}}.updates{{margin-top:14px;display:grid;gap:8px}}.update{{border-top:1px solid #252730;padding-top:8px;font-size:10px}}.update span{{display:block;color:#b6bac5;margin-top:4px}}.update small{{display:block;color:#737785;margin-top:4px}}.status-line{{min-height:22px;margin-top:10px;color:#ffd66b;font-size:11px}}.digest{{margin-top:14px;color:#767986;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:820px){{.stats,.creator,.add-progress{{grid-template-columns:1fr}}textarea,.creator button{{grid-column:auto}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.3 // CIRCLE CHALLENGES + SHARED GOALS</div><h1>{esc(str(circle.get('emoji') or '🫂'))} {esc(str(circle.get('name') or 'CIRCLE'))}</h1><p>{esc(str(circle.get('description') or ''))}</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('active') or 0)}</b><span>ACTIVE CHALLENGES</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('completed') or 0)}</b><span>COMPLETED</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('members') or 0)}</b><span>MEMBERS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('progress_units') or 0)}</b><span>GROUP PROGRESS UNITS</span></div></div><a class="nav" href="/hunter-circles/{circle_id}/feed">CIRCLE FEED</a><a class="nav" href="/hunter-circles">ALL CIRCLES</a><a class="nav" href="/hunter-circles/{circle_id}/challenges.json">JSON</a><div class="status-line" id="statusLine"></div></section>{create_panel}<section class="panel"><div class="gold">SHARED GOALS</div>{''.join(challenge_cards) or '<p class="meta">No Circle Challenges yet.</p>'}</section><div class="digest">CHALLENGE DIGEST // {esc(str(data.get('challenge_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div><script>
+const statusLine=document.getElementById('statusLine');
+async function createChallenge(){{const title=document.getElementById('newTitle').value.trim();const description=document.getElementById('newDescription').value.trim();const goal_target=Number(document.getElementById('newTarget').value||0);const unit_label=document.getElementById('newUnit').value.trim()||'POINTS';const r=await fetch('/api/hunter/circles/challenges/create',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{circle_id:{circle_id},title,description,goal_target,unit_label}})}});const d=await r.json();statusLine.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);}}
+async function addProgress(id){{const amount=Number(document.getElementById('amount-'+id).value||0);const note=document.getElementById('note-'+id).value.trim();const r=await fetch('/api/hunter/circles/challenges/progress',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{challenge_id:id,amount,note}})}});const d=await r.json();statusLine.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);}}
+async function setStatus(id,status){{const r=await fetch('/api/hunter/circles/challenges/status',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{challenge_id:id,status}})}});const d=await r.json();statusLine.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);}}
+</script></body></html>"""
+
+
+# Inject a Challenge link into the already-registered V22.2 Circle Feed route.
+if 'hunter_circle_feed_page' in app.view_functions:
+    _V222_circle_feed_view = app.view_functions['hunter_circle_feed_page']
+
+    def _V223_circle_feed_with_challenges(circle_id):
+        response = _V222_circle_feed_view(circle_id)
+        if isinstance(response, str):
+            challenge_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/challenges">CHALLENGES</a>'
+            if challenge_link not in response:
+                response = response.replace(
+                    '<a class="nav" href="/hunter-circles">ALL CIRCLES</a>',
+                    '<a class="nav" href="/hunter-circles">ALL CIRCLES</a>' + challenge_link,
+                    1
+                )
+            response = response.replace(
+                'V22.2 // CIRCLE FEED + GROUP ACTIVITY',
+                'V22.3 // CIRCLE FEED + SHARED GOALS',
+                1
+            )
+        return response
+
+    app.view_functions['hunter_circle_feed_page'] = _V223_circle_feed_with_challenges
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🫂 BL3 ARENA V22.2 // CIRCLE FEED + GROUP ACTIVITY + CIRCLE-SPECIFIC KUDOS")
+    print("🏆 BL3 ARENA V22.3 // CIRCLE CHALLENGES + SHARED GOALS + GROUP PROGRESS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏆 Circle Challenges + Shared Goals + Group Progress enabled")
     print("💌 Circle Feed + Group Activity + Circle-specific Kudos enabled")
     print("🫂 Hunter Circles + Close Allies + Social Network Groups enabled")
     print("🕸️ Hunter Social Graph + Follow Suggestions + Mutual Hunters enabled")
