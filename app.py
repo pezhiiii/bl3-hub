@@ -23919,16 +23919,622 @@ if 'hunter_circle_challenge_status' in app.view_functions:
 
     app.view_functions['hunter_circle_challenge_status'] = _V224_status_with_trophy
 
+
+
+# ===== V22.5 CIRCLE SEASONS + SEASONAL LEADERBOARD + TROPHY HISTORY =====
+def _ensure_circle_season_schema():
+    _ensure_circle_reward_schema()
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_seasons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            name TEXT NOT NULL,
+            emoji TEXT NOT NULL DEFAULT '📅',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            starts_at TEXT NOT NULL,
+            ends_at TEXT,
+            created_at TEXT NOT NULL,
+            closed_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_season_challenges (
+            season_id INTEGER NOT NULL,
+            challenge_id INTEGER NOT NULL UNIQUE,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            assigned_at TEXT NOT NULL,
+            PRIMARY KEY(season_id, challenge_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_seasons_circle ON hunter_circle_seasons(circle_id, status, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_seasons_owner ON hunter_circle_seasons(owner, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_season_challenges_season ON hunter_circle_season_challenges(season_id, challenge_id)")
+    conn.commit()
+    conn.close()
+
+
+def _active_circle_season(circle_id, owner):
+    _ensure_circle_season_schema()
+    conn = db()
+    row = conn.execute(
+        """SELECT id,circle_id,owner,name,emoji,status,starts_at,ends_at,created_at,closed_at
+           FROM hunter_circle_seasons
+           WHERE circle_id=? AND owner=? AND status='ACTIVE'
+           ORDER BY id DESC
+           LIMIT 1""",
+        (int(circle_id or 0), str(owner or '').strip())
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _assign_challenge_to_active_season(challenge_id, circle_id, owner):
+    challenge_id = int(challenge_id or 0)
+    circle_id = int(circle_id or 0)
+    owner = str(owner or '').strip()
+    if challenge_id <= 0 or circle_id <= 0 or not owner:
+        return None
+
+    season = _active_circle_season(circle_id, owner)
+    if not season:
+        return None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = db()
+    conn.execute(
+        """INSERT OR IGNORE INTO hunter_circle_season_challenges
+           (season_id,challenge_id,circle_id,owner,assigned_at)
+           VALUES(?,?,?,?,?)""",
+        (int(season["id"] or 0), challenge_id, circle_id, owner, now)
+    )
+    conn.commit()
+    conn.close()
+    return int(season["id"] or 0)
+
+
+def _circle_seasons_snapshot(circle_id, viewer):
+    circle_id = int(circle_id or 0)
+    viewer = str(viewer or '').strip()
+    access = _circle_access_row(circle_id, viewer)
+    if not access:
+        return {"success": False, "message": "Circle not found or access denied."}
+
+    owner = str(access["owner"] or "")
+    _ensure_circle_season_schema()
+    _award_completed_circle_trophies(circle_id, owner)
+
+    conn = db()
+    season_rows = conn.execute(
+        """SELECT id,circle_id,owner,name,emoji,status,starts_at,ends_at,created_at,closed_at
+           FROM hunter_circle_seasons
+           WHERE circle_id=? AND owner=?
+           ORDER BY id DESC""",
+        (circle_id, owner)
+    ).fetchall()
+
+    seasons = []
+    for s in season_rows:
+        season_id = int(s["id"] or 0)
+
+        challenge_rows = conn.execute(
+            """SELECT c.id,c.title,c.status,c.goal_target,c.unit_label,c.created_at,c.completed_at
+               FROM hunter_circle_season_challenges sc
+               JOIN hunter_circle_challenges c ON c.id=sc.challenge_id
+               WHERE sc.season_id=? AND sc.circle_id=? AND sc.owner=?
+               ORDER BY c.id DESC""",
+            (season_id, circle_id, owner)
+        ).fetchall()
+
+        leaderboard_rows = conn.execute(
+            """SELECT p.contributor,
+                      SUM(p.amount) AS total_amount,
+                      COUNT(DISTINCT p.challenge_id) AS challenges_helped,
+                      COUNT(*) AS updates
+               FROM hunter_circle_challenge_progress p
+               JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+               WHERE sc.season_id=? AND p.circle_id=? AND p.owner=?
+               GROUP BY p.contributor
+               ORDER BY total_amount DESC, challenges_helped DESC, contributor ASC""",
+            (season_id, circle_id, owner)
+        ).fetchall()
+
+        trophy_rows = conn.execute(
+            """SELECT t.id,t.challenge_id,t.trophy_icon,t.trophy_title,t.trophy_description,
+                      t.mvp_username,t.mvp_amount,t.total_progress,t.awarded_at,
+                      c.title AS challenge_title,c.unit_label
+               FROM hunter_circle_trophies t
+               JOIN hunter_circle_season_challenges sc ON sc.challenge_id=t.challenge_id
+               LEFT JOIN hunter_circle_challenges c ON c.id=t.challenge_id
+               WHERE sc.season_id=? AND t.circle_id=? AND t.owner=?
+               ORDER BY t.id DESC""",
+            (season_id, circle_id, owner)
+        ).fetchall()
+
+        completed_count = sum(1 for r in challenge_rows if str(r["status"] or "") == "COMPLETED")
+        total_progress = sum(int(r["total_amount"] or 0) for r in leaderboard_rows)
+
+        seasons.append({
+            "id": season_id,
+            "name": str(s["name"] or ""),
+            "emoji": str(s["emoji"] or "📅"),
+            "status": str(s["status"] or "ACTIVE"),
+            "starts_at": str(s["starts_at"] or ""),
+            "ends_at": str(s["ends_at"] or ""),
+            "created_at": str(s["created_at"] or ""),
+            "closed_at": str(s["closed_at"] or ""),
+            "challenge_count": len(challenge_rows),
+            "completed_challenges": completed_count,
+            "total_progress": total_progress,
+            "challenges": [
+                {
+                    "id": int(r["id"] or 0),
+                    "title": str(r["title"] or ""),
+                    "status": str(r["status"] or ""),
+                    "goal_target": int(r["goal_target"] or 0),
+                    "unit_label": str(r["unit_label"] or "POINTS"),
+                    "created_at": str(r["created_at"] or ""),
+                    "completed_at": str(r["completed_at"] or ""),
+                }
+                for r in challenge_rows
+            ],
+            "leaderboard": [
+                {
+                    "rank": i + 1,
+                    "username": str(r["contributor"] or ""),
+                    "total_amount": int(r["total_amount"] or 0),
+                    "challenges_helped": int(r["challenges_helped"] or 0),
+                    "updates": int(r["updates"] or 0),
+                }
+                for i, r in enumerate(leaderboard_rows)
+            ],
+            "trophies": [
+                {
+                    "id": int(r["id"] or 0),
+                    "challenge_id": int(r["challenge_id"] or 0),
+                    "challenge_title": str(r["challenge_title"] or ""),
+                    "icon": str(r["trophy_icon"] or "🏆"),
+                    "title": str(r["trophy_title"] or "Circle Victory"),
+                    "description": str(r["trophy_description"] or ""),
+                    "mvp_username": str(r["mvp_username"] or ""),
+                    "mvp_amount": int(r["mvp_amount"] or 0),
+                    "total_progress": int(r["total_progress"] or 0),
+                    "unit_label": str(r["unit_label"] or "POINTS"),
+                    "awarded_at": str(r["awarded_at"] or ""),
+                }
+                for r in trophy_rows
+            ],
+        })
+
+    conn.close()
+
+    active_season = next((s for s in seasons if s.get("status") == "ACTIVE"), None)
+    payload = {
+        "success": True,
+        "viewer": viewer,
+        "access_role": str(access["access_role"] or ""),
+        "circle": {
+            "id": int(access["id"] or 0),
+            "owner": owner,
+            "name": str(access["name"] or ""),
+            "emoji": str(access["emoji"] or "🫂"),
+            "description": str(access["description"] or ""),
+        },
+        "active_season": active_season,
+        "seasons": seasons,
+        "counts": {
+            "seasons": len(seasons),
+            "active": sum(1 for s in seasons if s.get("status") == "ACTIVE"),
+            "closed": sum(1 for s in seasons if s.get("status") == "CLOSED"),
+            "trophies": sum(len(s.get("trophies") or []) for s in seasons),
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Circle Seasons group recorded BL3 challenge activity into local historical periods. "
+            "Seasonal leaderboards use only user-entered in-app progress and are not financial, "
+            "skill, or real-world performance rankings."
+        ),
+    }
+    payload["season_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.post("/api/hunter/circles/seasons/create")
+def hunter_circle_season_create():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        circle_id = int(payload.get("circle_id") or 0)
+    except Exception:
+        circle_id = 0
+
+    name = " ".join(str(payload.get("name") or "").split()).strip()[:80]
+    emoji = str(payload.get("emoji") or "📅").strip()[:8] or "📅"
+    ends_at = str(payload.get("ends_at") or "").strip()[:40]
+
+    access = _circle_access_row(circle_id, username)
+    if not access or str(access["access_role"] or "") != "owner":
+        return jsonify({"success": False, "message": "Only the Circle owner can create seasons."}), 403
+    if not name:
+        return jsonify({"success": False, "message": "Season name required."}), 400
+
+    owner = str(access["owner"] or "")
+    _ensure_circle_season_schema()
+    conn = db()
+    existing = conn.execute(
+        "SELECT id FROM hunter_circle_seasons WHERE circle_id=? AND owner=? AND status='ACTIVE' LIMIT 1",
+        (circle_id, owner)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"success": False, "message": "Close the current active season before creating another."}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    cur = conn.execute(
+        """INSERT INTO hunter_circle_seasons
+           (circle_id,owner,name,emoji,status,starts_at,ends_at,created_at,closed_at)
+           VALUES(?,?,?,?,'ACTIVE',?,?,?,NULL)""",
+        (circle_id, owner, name, emoji, now, ends_at or None, now)
+    )
+    season_id = int(cur.lastrowid or 0)
+
+    # Existing ACTIVE challenges join the new Season.
+    active_challenges = conn.execute(
+        """SELECT id FROM hunter_circle_challenges
+           WHERE circle_id=? AND owner=? AND status='ACTIVE'
+           ORDER BY id ASC""",
+        (circle_id, owner)
+    ).fetchall()
+    for row in active_challenges:
+        conn.execute(
+            """INSERT OR IGNORE INTO hunter_circle_season_challenges
+               (season_id,challenge_id,circle_id,owner,assigned_at)
+               VALUES(?,?,?,?,?)""",
+            (season_id, int(row["id"] or 0), circle_id, owner, now)
+        )
+
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(circle_id, owner, username, "season_created", name, f"{emoji} Circle Season started.")
+    return jsonify({
+        "success": True,
+        "message": "Circle Season created.",
+        "season_id": season_id,
+        "snapshot": _circle_seasons_snapshot(circle_id, username),
+    })
+
+
+@app.post("/api/hunter/circles/seasons/status")
+def hunter_circle_season_status():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        season_id = int(payload.get("season_id") or 0)
+    except Exception:
+        season_id = 0
+    status = str(payload.get("status") or "").strip().upper()
+
+    if season_id <= 0 or status not in {"ACTIVE", "CLOSED"}:
+        return jsonify({"success": False, "message": "Valid season_id and status required."}), 400
+
+    _ensure_circle_season_schema()
+    conn = db()
+    row = conn.execute(
+        "SELECT id,circle_id,owner,name,status FROM hunter_circle_seasons WHERE id=?",
+        (season_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "message": "Season not found."}), 404
+    if str(row["owner"] or "").lower() != username.lower():
+        conn.close()
+        return jsonify({"success": False, "message": "Only the Circle owner can change Season status."}), 403
+
+    circle_id = int(row["circle_id"] or 0)
+    if status == "ACTIVE":
+        other = conn.execute(
+            """SELECT id FROM hunter_circle_seasons
+               WHERE circle_id=? AND owner=? AND status='ACTIVE' AND id<>?
+               LIMIT 1""",
+            (circle_id, username, season_id)
+        ).fetchone()
+        if other:
+            conn.close()
+            return jsonify({"success": False, "message": "Another Season is already active."}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn.execute(
+        "UPDATE hunter_circle_seasons SET status=?,closed_at=? WHERE id=?",
+        (status, now if status == "CLOSED" else None, season_id)
+    )
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(
+        circle_id,
+        username,
+        username,
+        "season_status",
+        str(row["name"] or ""),
+        f"Season status changed to {status}.",
+    )
+    return jsonify({
+        "success": True,
+        "message": f"Season set to {status}.",
+        "snapshot": _circle_seasons_snapshot(circle_id, username),
+    })
+
+
+@app.post("/api/hunter/circles/seasons/assign")
+def hunter_circle_season_assign():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        season_id = int(payload.get("season_id") or 0)
+        challenge_id = int(payload.get("challenge_id") or 0)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid IDs."}), 400
+
+    _ensure_circle_season_schema()
+    conn = db()
+    season = conn.execute(
+        "SELECT id,circle_id,owner,name FROM hunter_circle_seasons WHERE id=?",
+        (season_id,)
+    ).fetchone()
+    challenge = conn.execute(
+        "SELECT id,circle_id,owner,title FROM hunter_circle_challenges WHERE id=?",
+        (challenge_id,)
+    ).fetchone()
+    if not season or not challenge:
+        conn.close()
+        return jsonify({"success": False, "message": "Season or Challenge not found."}), 404
+    if str(season["owner"] or "").lower() != username.lower():
+        conn.close()
+        return jsonify({"success": False, "message": "Only the Circle owner can assign Challenges."}), 403
+    if int(season["circle_id"] or 0) != int(challenge["circle_id"] or 0) or str(challenge["owner"] or "").lower() != username.lower():
+        conn.close()
+        return jsonify({"success": False, "message": "Season and Challenge must belong to the same Circle."}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn.execute(
+        """INSERT INTO hunter_circle_season_challenges(season_id,challenge_id,circle_id,owner,assigned_at)
+           VALUES(?,?,?,?,?)
+           ON CONFLICT(challenge_id) DO UPDATE SET
+             season_id=excluded.season_id,
+             circle_id=excluded.circle_id,
+             owner=excluded.owner,
+             assigned_at=excluded.assigned_at""",
+        (
+            season_id,
+            challenge_id,
+            int(season["circle_id"] or 0),
+            username,
+            now,
+        )
+    )
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(
+        int(season["circle_id"] or 0),
+        username,
+        username,
+        "season_assignment",
+        str(season["name"] or ""),
+        "Assigned challenge: {}".format(str(challenge["title"] or "")),
+    )
+    return jsonify({
+        "success": True,
+        "message": "Challenge assigned to Season.",
+        "snapshot": _circle_seasons_snapshot(int(season["circle_id"] or 0), username),
+    })
+
+
+@app.route("/api/hunter/circles/<int:circle_id>/seasons")
+def hunter_circle_seasons_api(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_seasons_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/seasons.json")
+def hunter_circle_seasons_json(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_seasons_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/seasons")
+def hunter_circle_seasons_page(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>📅 Circle Seasons</h1><p>Sign in to continue.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _circle_seasons_snapshot(circle_id, username)
+    if not data.get("success"):
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>""", 403
+
+    esc = html.escape
+    circle = data.get("circle") or {}
+    is_owner = str(data.get("access_role") or "") == "owner"
+
+    season_cards = []
+    for s in data.get("seasons") or []:
+        leaders = "".join(
+            '<div class="leader"><span>#{rank}</span><b>@{name}</b><small>{amount} progress · {helped} challenges</small></div>'.format(
+                rank=int(row.get("rank") or 0),
+                name=esc(str(row.get("username") or "")),
+                amount=int(row.get("total_amount") or 0),
+                helped=int(row.get("challenges_helped") or 0),
+            )
+            for row in (s.get("leaderboard") or [])[:8]
+        ) or '<div class="empty">No Season contributions yet.</div>'
+
+        trophies = "".join(
+            '<div class="trophy"><span>{icon}</span><div><b>{title}</b><small>{challenge}</small></div></div>'.format(
+                icon=esc(str(t.get("icon") or "🏆")),
+                title=esc(str(t.get("title") or "")),
+                challenge=esc(str(t.get("challenge_title") or "")),
+            )
+            for t in (s.get("trophies") or [])
+        ) or '<div class="empty">No trophies in this Season yet.</div>'
+
+        challenge_rows = "".join(
+            '<div class="challenge-row"><b>{title}</b><span>{status}</span></div>'.format(
+                title=esc(str(ch.get("title") or "")),
+                status=esc(str(ch.get("status") or "")),
+            )
+            for ch in (s.get("challenges") or [])
+        ) or '<div class="empty">No challenges assigned.</div>'
+
+        owner_buttons = ""
+        if is_owner:
+            next_status = "ACTIVE" if str(s.get("status") or "") == "CLOSED" else "CLOSED"
+            owner_buttons = "<button onclick=\"setSeasonStatus({id},'{status}')\">SET {status}</button>".format(
+                id=int(s.get("id") or 0),
+                status=next_status,
+            )
+
+        season_cards.append(
+            '<article class="season"><div class="season-top"><div><span class="status {status_lc}">{status}</span>'
+            '<h2>{emoji} {name}</h2><div class="meta">{starts} → {ends}</div></div>'
+            '<div class="score">{progress}<small>PROGRESS</small></div></div>'
+            '<div class="season-stats"><span>{challenge_count} CHALLENGES</span>'
+            '<span>{completed} COMPLETED</span><span>{trophy_count} TROPHIES</span></div>'
+            '<div class="columns"><div><h3>SEASON LEADERBOARD</h3>{leaders}</div>'
+            '<div><h3>TROPHY HISTORY</h3>{trophies}</div></div>'
+            '<div class="challenge-list"><h3>ASSIGNED CHALLENGES</h3>{challenges}</div>'
+            '<div class="actions">{owner_buttons}</div></article>'.format(
+                status_lc=esc(str(s.get("status") or "ACTIVE").lower()),
+                status=esc(str(s.get("status") or "ACTIVE")),
+                emoji=esc(str(s.get("emoji") or "📅")),
+                name=esc(str(s.get("name") or "")),
+                starts=esc(str(s.get("starts_at") or "")),
+                ends=esc(str(s.get("ends_at") or "OPEN")),
+                progress=int(s.get("total_progress") or 0),
+                challenge_count=int(s.get("challenge_count") or 0),
+                completed=int(s.get("completed_challenges") or 0),
+                trophy_count=len(s.get("trophies") or []),
+                leaders=leaders,
+                trophies=trophies,
+                challenges=challenge_rows,
+                owner_buttons=owner_buttons,
+            )
+        )
+
+    create_panel = ""
+    if is_owner:
+        create_panel = """
+        <section class="panel">
+          <div class="gold">CREATE CIRCLE SEASON</div>
+          <div class="creator">
+            <input id="seasonEmoji" maxlength="8" value="📅" placeholder="📅">
+            <input id="seasonName" maxlength="80" placeholder="Season name">
+            <input id="seasonEnds" maxlength="40" placeholder="Optional end label/date">
+            <button class="primary" onclick="createSeason()">START SEASON</button>
+          </div>
+        </section>
+        """
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Circle Seasons</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#51165f,transparent 30%),radial-gradient(circle at 88% 0,#70460d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel,.season{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(46px,8vw,88px);line-height:.88;margin:10px 0}}h2{{font-size:28px;margin:7px 0}}h3{{font-size:11px;color:#ffd66b;margin:14px 0 8px}}.meta{{color:#9da1ad;font-size:10px}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;background:#090a0f;padding:14px}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}a.nav,button{{appearance:none;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900;background:transparent;cursor:pointer}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}button.primary{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}.creator{{display:grid;grid-template-columns:100px 1fr 1fr auto;gap:10px}}input{{width:100%;border-radius:12px;border:1px solid #353844;background:#07080c;color:#fff;padding:12px;font:inherit}}.season-top{{display:flex;justify-content:space-between;gap:20px}}.status{{display:inline-block;border:1px solid #3b3e48;border-radius:999px;padding:5px 8px;font-size:8px;font-weight:900}}.status.active{{color:#ffd66b;border-color:#ffd66b}}.status.closed{{color:#9da1ad}}.score{{font-size:34px;font-weight:950;color:#ffd66b;text-align:right}}.score small{{display:block;font-size:8px;color:#9296a4}}.season-stats{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.season-stats span{{border:1px solid #343741;border-radius:999px;padding:7px 9px;font-size:8px;font-weight:900}}.columns{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}.leader,.trophy,.challenge-row{{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;border:1px solid #2e3038;border-radius:13px;padding:10px;background:#090a0f;margin-top:7px}}.leader small,.trophy small{{display:block;color:#8f93a0;font-size:9px}}.challenge-row span{{font-size:8px;color:#ffd66b}}.trophy>span{{font-size:22px}}.actions{{margin-top:14px}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:13px;color:#9da1ad;font-size:10px}}.status-line{{min-height:22px;margin-top:10px;color:#ffd66b;font-size:11px}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats,.columns,.creator{{grid-template-columns:1fr}}.season-top{{display:block}}.score{{text-align:left;margin-top:12px}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.5 // CIRCLE SEASONS + SEASONAL HISTORY</div><h1>{esc(str(circle.get('emoji') or '🫂'))} SEASONS.</h1><p class="meta">{esc(str(circle.get('name') or 'CIRCLE'))} · group Challenges, leaderboards and trophies into permanent historical Seasons.</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('seasons') or 0)}</b><span>SEASONS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('active') or 0)}</b><span>ACTIVE</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('closed') or 0)}</b><span>CLOSED</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('trophies') or 0)}</b><span>TROPHY HISTORY</span></div></div><a class="nav" href="/hunter-circles/{circle_id}/challenges">CHALLENGES</a><a class="nav" href="/hunter-circles/{circle_id}/trophies">TROPHY CABINET</a><a class="nav" href="/hunter-circles/{circle_id}/feed">CIRCLE FEED</a><a class="nav" href="/hunter-circles/{circle_id}/seasons.json">JSON</a><div id="statusLine" class="status-line"></div></section>{create_panel}<section>{''.join(season_cards) or '<div class="panel empty">No Circle Seasons yet.</div>'}</section><div class="digest">SEASON DIGEST // {esc(str(data.get('season_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div><script>
+const statusLine=document.getElementById('statusLine');
+async function createSeason(){{const emoji=document.getElementById('seasonEmoji').value.trim()||'📅';const name=document.getElementById('seasonName').value.trim();const ends_at=document.getElementById('seasonEnds').value.trim();const r=await fetch('/api/hunter/circles/seasons/create',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{circle_id:{circle_id},emoji,name,ends_at}})}});const d=await r.json();statusLine.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);}}
+async function setSeasonStatus(id,status){{const r=await fetch('/api/hunter/circles/seasons/status',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{season_id:id,status}})}});const d=await r.json();statusLine.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);}}
+</script></body></html>"""
+
+
+# Auto-assign newly created Challenges to the current active Season.
+if 'hunter_circle_challenge_create' in app.view_functions:
+    _V224_challenge_create_view = app.view_functions['hunter_circle_challenge_create']
+
+    def _V225_challenge_create_with_season():
+        response = _V224_challenge_create_view()
+        try:
+            body = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+            if body and body.get("success"):
+                snapshot = body.get("snapshot") or {}
+                circle = snapshot.get("circle") or {}
+                challenge_id = int(body.get("challenge_id") or 0)
+                if challenge_id and circle.get("id") and circle.get("owner"):
+                    _assign_challenge_to_active_season(
+                        challenge_id,
+                        int(circle.get("id") or 0),
+                        str(circle.get("owner") or "")
+                    )
+        except Exception:
+            pass
+        return response
+
+    app.view_functions['hunter_circle_challenge_create'] = _V225_challenge_create_with_season
+
+
+# Add Seasons navigation into Challenge and Trophy pages.
+if 'hunter_circle_challenges_page' in app.view_functions:
+    _V224_challenge_page_view_season = app.view_functions['hunter_circle_challenges_page']
+
+    def _V225_challenge_page_with_seasons(circle_id):
+        response = _V224_challenge_page_view_season(circle_id)
+        if isinstance(response, str):
+            seasons_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/seasons">SEASONS</a>'
+            if seasons_link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/trophies">TROPHY CABINET</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/trophies">TROPHY CABINET</a>' + seasons_link,
+                    1
+                )
+        return response
+
+    app.view_functions['hunter_circle_challenges_page'] = _V225_challenge_page_with_seasons
+
+
+if 'hunter_circle_trophies_page' in app.view_functions:
+    _V224_trophy_page_view_season = app.view_functions['hunter_circle_trophies_page']
+
+    def _V225_trophy_page_with_seasons(circle_id):
+        response = _V224_trophy_page_view_season(circle_id)
+        if isinstance(response, str):
+            seasons_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/seasons">SEASONS</a>'
+            if seasons_link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/challenges">CHALLENGES</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/challenges">CHALLENGES</a>' + seasons_link,
+                    1
+                )
+        return response
+
+    app.view_functions['hunter_circle_trophies_page'] = _V225_trophy_page_with_seasons
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("💎 BL3 ARENA V22.4 // CHALLENGE REWARDS + CONTRIBUTION MVP + TROPHY CABINET")
+    print("📅 BL3 ARENA V22.5 // CIRCLE SEASONS + SEASONAL LEADERBOARD + TROPHY HISTORY")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("📅 Circle Seasons + Seasonal Leaderboard + Trophy History enabled")
     print("💎 Challenge Rewards + Contribution MVP + Circle Trophy Cabinet enabled")
     print("🏆 Circle Challenges + Shared Goals + Group Progress enabled")
     print("💌 Circle Feed + Group Activity + Circle-specific Kudos enabled")
