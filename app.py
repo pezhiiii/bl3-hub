@@ -25002,16 +25002,330 @@ if 'hunter_circle_season_status' in app.view_functions:
 
     app.view_functions['hunter_circle_season_status'] = _V226_season_status_with_awards
 
+
+
+# ===== V22.7 CIRCLE LEGACY SCORE + DYNASTY RANKINGS + LEGENDARY HUNTERS =====
+def _circle_legacy_snapshot(circle_id, viewer):
+    circle_id = int(circle_id or 0)
+    viewer = str(viewer or '').strip()
+    access = _circle_access_row(circle_id, viewer)
+    if not access:
+        return {"success": False, "message": "Circle not found or access denied."}
+
+    owner = str(access["owner"] or "")
+    hall = _hall_of_seasons_snapshot(circle_id, viewer)
+    if not hall.get("success"):
+        return hall
+
+    seasons = hall.get("hall_of_seasons") or []
+    all_time = hall.get("all_time_rankings") or []
+
+    # Circle Legacy Score: local historical summary only.
+    season_count = len(seasons)
+    closed_count = sum(1 for s in seasons if str(s.get("status") or "") == "CLOSED")
+    total_progress = sum(int(s.get("total_progress") or 0) for s in seasons)
+    total_completed = sum(int(s.get("completed_challenges") or 0) for s in seasons)
+    total_trophies = sum(int(s.get("trophies") or 0) for s in seasons)
+    total_awards = sum(len(s.get("awards") or []) for s in seasons)
+
+    legacy_score = min(
+        1000,
+        closed_count * 45
+        + total_completed * 18
+        + total_trophies * 14
+        + total_awards * 10
+        + min(300, total_progress // 5)
+    )
+
+    if legacy_score >= 800:
+        legacy_tier = "MYTHIC DYNASTY"
+    elif legacy_score >= 600:
+        legacy_tier = "LEGENDARY DYNASTY"
+    elif legacy_score >= 400:
+        legacy_tier = "ESTABLISHED DYNASTY"
+    elif legacy_score >= 200:
+        legacy_tier = "RISING DYNASTY"
+    else:
+        legacy_tier = "FOUNDING ERA"
+
+    legendary_hunters = []
+    for row in all_time:
+        progress = int(row.get("total_amount") or 0)
+        awards = int(row.get("season_awards") or 0)
+        seasons_played = int(row.get("seasons_played") or 0)
+        challenges_helped = int(row.get("challenges_helped") or 0)
+        updates = int(row.get("updates") or 0)
+
+        legend_score = min(
+            1000,
+            progress
+            + awards * 75
+            + seasons_played * 35
+            + challenges_helped * 20
+            + min(150, updates * 2)
+        )
+
+        if legend_score >= 800:
+            legend_tier = "IMMORTAL"
+        elif legend_score >= 600:
+            legend_tier = "LEGENDARY"
+        elif legend_score >= 400:
+            legend_tier = "ELITE"
+        elif legend_score >= 200:
+            legend_tier = "VETERAN"
+        else:
+            legend_tier = "RISING"
+
+        legendary_hunters.append({
+            **row,
+            "legend_score": legend_score,
+            "legend_tier": legend_tier,
+            "profile_url": "/u/{}".format(urllib.parse.quote(str(row.get("username") or ""), safe="")),
+        })
+
+    legendary_hunters.sort(
+        key=lambda x: (
+            int(x.get("legend_score") or 0),
+            int(x.get("season_awards") or 0),
+            int(x.get("total_amount") or 0),
+        ),
+        reverse=True
+    )
+    for idx, hunter in enumerate(legendary_hunters, 1):
+        hunter["legacy_rank"] = idx
+
+    dynasty_rows = []
+    conn = db()
+    circle_rows = conn.execute(
+        """SELECT id,owner,name,emoji,description,created_at
+           FROM hunter_social_circles
+           ORDER BY id ASC"""
+    ).fetchall()
+    conn.close()
+
+    for c in circle_rows:
+        cid = int(c["id"] or 0)
+        circle_owner = str(c["owner"] or "")
+        try:
+            # Internal ranking snapshot: access through owner identity only.
+            c_hall = _hall_of_seasons_snapshot(cid, circle_owner)
+            if not c_hall.get("success"):
+                continue
+        except Exception:
+            continue
+
+        c_seasons = c_hall.get("hall_of_seasons") or []
+        c_progress = sum(int(s.get("total_progress") or 0) for s in c_seasons)
+        c_completed = sum(int(s.get("completed_challenges") or 0) for s in c_seasons)
+        c_trophies = sum(int(s.get("trophies") or 0) for s in c_seasons)
+        c_awards = sum(len(s.get("awards") or []) for s in c_seasons)
+        c_closed = sum(1 for s in c_seasons if str(s.get("status") or "") == "CLOSED")
+        c_score = min(
+            1000,
+            c_closed * 45
+            + c_completed * 18
+            + c_trophies * 14
+            + c_awards * 10
+            + min(300, c_progress // 5)
+        )
+        dynasty_rows.append({
+            "circle_id": cid,
+            "owner": circle_owner,
+            "name": str(c["name"] or ""),
+            "emoji": str(c["emoji"] or "🫂"),
+            "score": c_score,
+            "closed_seasons": c_closed,
+            "completed_challenges": c_completed,
+            "trophies": c_trophies,
+            "season_awards": c_awards,
+            "total_progress": c_progress,
+            "href": "/hunter-circles/{}/hall-of-seasons".format(cid),
+        })
+
+    dynasty_rows.sort(
+        key=lambda x: (
+            int(x.get("score") or 0),
+            int(x.get("season_awards") or 0),
+            int(x.get("trophies") or 0),
+            int(x.get("total_progress") or 0),
+        ),
+        reverse=True
+    )
+    for idx, row in enumerate(dynasty_rows, 1):
+        row["rank"] = idx
+
+    current_rank = next(
+        (int(r.get("rank") or 0) for r in dynasty_rows if int(r.get("circle_id") or 0) == circle_id),
+        None
+    )
+
+    payload = {
+        "success": True,
+        "viewer": viewer,
+        "access_role": str(access["access_role"] or ""),
+        "circle": {
+            "id": int(access["id"] or 0),
+            "owner": owner,
+            "name": str(access["name"] or ""),
+            "emoji": str(access["emoji"] or "🫂"),
+            "description": str(access["description"] or ""),
+        },
+        "legacy": {
+            "score": legacy_score,
+            "tier": legacy_tier,
+            "dynasty_rank": current_rank,
+            "seasons": season_count,
+            "closed_seasons": closed_count,
+            "completed_challenges": total_completed,
+            "trophies": total_trophies,
+            "season_awards": total_awards,
+            "total_progress": total_progress,
+        },
+        "legendary_hunters": legendary_hunters,
+        "dynasty_rankings": dynasty_rows,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Legacy, Dynasty and Legendary Hunter scores are deterministic BL3 in-app historical "
+            "summaries derived from recorded challenge progress, trophies, Seasons and awards. "
+            "They are not financial, real-world, predictive, or universal skill rankings."
+        ),
+    }
+    payload["legacy_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter/circles/<int:circle_id>/legacy")
+def hunter_circle_legacy_api(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_legacy_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/legacy.json")
+def hunter_circle_legacy_json(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_legacy_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/legacy")
+def hunter_circle_legacy_page(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>👑 Circle Legacy</h1><p>Sign in to continue.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _circle_legacy_snapshot(circle_id, username)
+    if not data.get("success"):
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>""", 403
+
+    esc = html.escape
+    circle = data.get("circle") or {}
+    legacy = data.get("legacy") or {}
+
+    hunter_cards = []
+    for hunter in (data.get("legendary_hunters") or [])[:20]:
+        medal = "👑" if int(hunter.get("legacy_rank") or 0) == 1 else ("🥈" if int(hunter.get("legacy_rank") or 0) == 2 else ("🥉" if int(hunter.get("legacy_rank") or 0) == 3 else "⚡"))
+        hunter_cards.append(
+            '<article class="hunter"><div class="rank">{medal} #{rank}</div><div><b>@{name}</b>'
+            '<span class="tier">{tier}</span><div class="meta">{score} LEGEND SCORE · {progress} PROGRESS · {awards} AWARDS · {seasons} SEASONS</div></div>'
+            '<a href="{href}">PROFILE</a></article>'.format(
+                medal=medal,
+                rank=int(hunter.get("legacy_rank") or 0),
+                name=esc(str(hunter.get("username") or "")),
+                tier=esc(str(hunter.get("legend_tier") or "")),
+                score=int(hunter.get("legend_score") or 0),
+                progress=int(hunter.get("total_amount") or 0),
+                awards=int(hunter.get("season_awards") or 0),
+                seasons=int(hunter.get("seasons_played") or 0),
+                href=esc(str(hunter.get("profile_url") or "#")),
+            )
+        )
+
+    dynasty_cards = []
+    for row in (data.get("dynasty_rankings") or [])[:20]:
+        badge = "👑" if int(row.get("rank") or 0) == 1 else ("🥈" if int(row.get("rank") or 0) == 2 else ("🥉" if int(row.get("rank") or 0) == 3 else "🏛️"))
+        current = " current" if int(row.get("circle_id") or 0) == int(circle_id) else ""
+        dynasty_cards.append(
+            '<article class="dynasty{current}"><div class="rank">{badge} #{rank}</div><div><b>{emoji} {name}</b>'
+            '<div class="meta">LEGACY {score} · {closed} CLOSED SEASONS · {trophies} TROPHIES · {awards} AWARDS · {progress} PROGRESS</div></div>'
+            '<a href="{href}">HISTORY</a></article>'.format(
+                current=current,
+                badge=badge,
+                rank=int(row.get("rank") or 0),
+                emoji=esc(str(row.get("emoji") or "🫂")),
+                name=esc(str(row.get("name") or "")),
+                score=int(row.get("score") or 0),
+                closed=int(row.get("closed_seasons") or 0),
+                trophies=int(row.get("trophies") or 0),
+                awards=int(row.get("season_awards") or 0),
+                progress=int(row.get("total_progress") or 0),
+                href=esc(str(row.get("href") or "#")),
+            )
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Circle Legacy</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#50125f,transparent 30%),radial-gradient(circle at 88% 0,#73510e,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #393741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}.meta{{color:#9da1ad;font-size:10px;line-height:1.5}}.legacy-box{{display:grid;grid-template-columns:220px 1fr;gap:18px;margin-top:18px}}.legacy-score{{border:1px solid #56482b;border-radius:24px;background:linear-gradient(145deg,rgba(255,214,107,.10),rgba(139,92,255,.04));display:grid;place-items:center;padding:20px;text-align:center}}.legacy-score b{{font-size:62px;color:#ffd66b}}.legacy-score span{{display:block;font-size:10px;font-weight:900}}.stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.stat{{border:1px solid #30323b;border-radius:16px;background:#090a0f;padding:14px}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}a.nav,.hunter>a,.dynasty>a{{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}a.nav{{margin-top:12px;margin-right:8px}}.hunter,.dynasty{{display:grid;grid-template-columns:90px 1fr auto;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}.dynasty.current{{border-color:#ffd66b;box-shadow:0 0 0 1px rgba(255,214,107,.08)}}.rank{{color:#ffd66b;font-weight:900}}.tier{{display:inline-block;margin-left:8px;border:1px solid #49413a;border-radius:999px;padding:4px 7px;font-size:8px;color:#ffd66b}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:13px;color:#9da1ad}}@media(max-width:850px){{.legacy-box,.stats{{grid-template-columns:1fr}}.hunter,.dynasty{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.7 // CIRCLE LEGACY + DYNASTY RANKINGS</div><h1>{esc(str(circle.get('emoji') or '🫂'))} LEGACY.</h1><p class="meta">{esc(str(circle.get('name') or 'CIRCLE'))} · a permanent historical summary of Seasons, trophies, awards, progress and legendary Hunters.</p><div class="legacy-box"><div class="legacy-score"><div><b>{int(legacy.get('score') or 0)}</b><span>{esc(str(legacy.get('tier') or 'FOUNDING ERA'))}</span><span>DYNASTY RANK #{esc(str(legacy.get('dynasty_rank') or '—'))}</span></div></div><div class="stats"><div class="stat"><b>{int(legacy.get('closed_seasons') or 0)}</b><span>CLOSED SEASONS</span></div><div class="stat"><b>{int(legacy.get('completed_challenges') or 0)}</b><span>COMPLETED CHALLENGES</span></div><div class="stat"><b>{int(legacy.get('trophies') or 0)}</b><span>TROPHIES</span></div><div class="stat"><b>{int(legacy.get('season_awards') or 0)}</b><span>SEASON AWARDS</span></div><div class="stat"><b>{int(legacy.get('total_progress') or 0)}</b><span>TOTAL PROGRESS</span></div><div class="stat"><b>{len(data.get('legendary_hunters') or [])}</b><span>RANKED HUNTERS</span></div></div></div><a class="nav" href="/hunter-circles/{circle_id}/hall-of-seasons">HALL OF SEASONS</a><a class="nav" href="/hunter-circles/{circle_id}/seasons">SEASONS</a><a class="nav" href="/hunter-circles/{circle_id}/trophies">TROPHIES</a><a class="nav" href="/hunter-circles/{circle_id}/legacy.json">JSON</a></section><section class="panel"><div class="gold">LEGENDARY HUNTERS</div>{''.join(hunter_cards) or '<div class="empty">No ranked Hunters yet.</div>'}</section><section class="panel"><div class="gold">DYNASTY RANKINGS</div>{''.join(dynasty_cards) or '<div class="empty">No Circle dynasty history yet.</div>'}</section><div class="digest">LEGACY DIGEST // {esc(str(data.get('legacy_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add Legacy navigation to Hall of Seasons and Seasons.
+if 'hunter_hall_of_seasons_page' in app.view_functions:
+    _V226_hall_view_legacy = app.view_functions['hunter_hall_of_seasons_page']
+
+    def _V227_hall_with_legacy(circle_id):
+        response = _V226_hall_view_legacy(circle_id)
+        if isinstance(response, str):
+            legacy_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/legacy">CIRCLE LEGACY</a>'
+            if legacy_link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/seasons">SEASONS</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/seasons">SEASONS</a>' + legacy_link,
+                    1
+                )
+            response = response.replace(
+                'V22.6 // SEASON AWARDS + HALL OF SEASONS',
+                'V22.7 // HALL OF SEASONS + CIRCLE LEGACY',
+                1
+            )
+        return response
+
+    app.view_functions['hunter_hall_of_seasons_page'] = _V227_hall_with_legacy
+
+
+if 'hunter_circle_seasons_page' in app.view_functions:
+    _V226_seasons_view_legacy = app.view_functions['hunter_circle_seasons_page']
+
+    def _V227_seasons_with_legacy(circle_id):
+        response = _V226_seasons_view_legacy(circle_id)
+        if isinstance(response, str):
+            legacy_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/legacy">CIRCLE LEGACY</a>'
+            if legacy_link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-seasons">HALL OF SEASONS</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-seasons">HALL OF SEASONS</a>' + legacy_link,
+                    1
+                )
+        return response
+
+    app.view_functions['hunter_circle_seasons_page'] = _V227_seasons_with_legacy
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("📜 BL3 ARENA V22.6 // SEASON AWARDS + HALL OF SEASONS + ALL-TIME CIRCLE RANKINGS")
+    print("👑 BL3 ARENA V22.7 // CIRCLE LEGACY SCORE + DYNASTY RANKINGS + LEGENDARY HUNTERS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("👑 Circle Legacy Score + Dynasty Rankings + Legendary Hunters enabled")
     print("📜 Season Awards + Hall of Seasons + All-Time Circle Rankings enabled")
     print("📅 Circle Seasons + Seasonal Leaderboard + Trophy History enabled")
     print("💎 Challenge Rewards + Contribution MVP + Circle Trophy Cabinet enabled")
