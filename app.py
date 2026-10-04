@@ -21978,7 +21978,7 @@ def hunter_social_feed_page():
 
     return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hunter Social Feed</title><style>
 *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#4e155f,transparent 30%),radial-gradient(circle at 88% 0,#70430f,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1200px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,90px);line-height:.88;margin:10px 0}}h2{{margin:4px 0 14px}}.meta{{color:#9ca0ad;font-size:10px;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9195a2}}.layout{{display:grid;grid-template-columns:1.35fr .8fr;gap:18px}}.feed{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.feed-card,.trend-card{{border:1px solid #30323b;border-radius:18px;background:#090a0f;padding:16px}}.feed-top{{display:flex;justify-content:space-between;gap:10px}}.signal,.score,.rank{{color:#ffd66b;font-size:10px;font-weight:900}}.route{{font-weight:900;margin-top:9px}}.message,.trend-message,.activity-detail{{margin-top:8px;line-height:1.5}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.actions a,a.nav,.trend-card>a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:8px 10px;font-size:9px;font-weight:900}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}.trend-stack,.activity-stack{{display:grid;gap:10px}}.trend-card{{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start}}.activity{{display:grid;grid-template-columns:38px 1fr;gap:10px;text-decoration:none;color:#fff;border:1px solid #2e3038;border-radius:15px;padding:12px;background:#090a0f}}.activity-icon{{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;border:1px solid #383b46;background:#0d0e14}}.digest{{margin-top:14px;color:#767986;font:9px ui-monospace,monospace;word-break:break-all}}.empty{{border:1px dashed #474a56;border-radius:16px;padding:18px;color:#9ca0ad}}@media(max-width:920px){{.layout,.feed{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:560px){{.stats{{grid-template-columns:1fr}}}}
-</style></head><body><div class="wrap"><section class="hero"><div class="gold">V21.9 // HUNTER SOCIAL FEED</div><h1>THE ARENA IS TALKING.</h1><p class="meta">Live Guestbook signals, your Hunter network, trending Kudos and the newest reaction activity in one place.</p><div class="stats"><div class="stat"><b>{esc(str(data.get('mode') or 'global').upper())}</b><span>FEED MODE</span></div><div class="stat"><b>{int(data.get('following_count') or 0)}</b><span>FOLLOWING</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('trending_items') or 0)}</b><span>TRENDING SIGNALS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('activity_items') or 0)}</b><span>ACTIVITY EVENTS</span></div></div><a class="nav" href="/hunter-guestbook-studio">GUESTBOOK STUDIO</a><a class="nav" href="/hunter-guestbook-reactions">REACTION LEADERBOARD</a><a class="nav" href="/hunter-social-feed.json">JSON</a></section><div class="layout"><main><section class="panel"><div class="gold">{feed_label}</div><h2>LIVE KUDOS FEED</h2><div class="feed">{''.join(feed_cards) or '<div class="empty">No feed items yet.</div>'}</div></section></main><aside><section class="panel"><div class="gold">TRENDING KUDOS</div><div class="trend-stack">{''.join(trending_cards) or '<div class="empty">No trending signals yet.</div>'}</div></section><section class="panel"><div class="gold">ACTIVITY STREAM</div><div class="activity-stack">{''.join(activity_cards) or '<div class="empty">No activity yet.</div>'}</div></section></aside></div><div class="digest">SOCIAL FEED DIGEST // {esc(str(data.get('feed_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V21.9 // HUNTER SOCIAL FEED</div><h1>THE ARENA IS TALKING.</h1><p class="meta">Live Guestbook signals, your Hunter network, trending Kudos and the newest reaction activity in one place.</p><div class="stats"><div class="stat"><b>{esc(str(data.get('mode') or 'global').upper())}</b><span>FEED MODE</span></div><div class="stat"><b>{int(data.get('following_count') or 0)}</b><span>FOLLOWING</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('trending_items') or 0)}</b><span>TRENDING SIGNALS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('activity_items') or 0)}</b><span>ACTIVITY EVENTS</span></div></div><a class="nav" href="/hunter-guestbook-studio">GUESTBOOK STUDIO</a><a class="nav" href="/hunter-guestbook-reactions">REACTION LEADERBOARD</a><a class="nav" href="/hunter-social-feed.json">JSON</a><a class="nav" href="/hunter-social-graph">SOCIAL GRAPH</a></section><div class="layout"><main><section class="panel"><div class="gold">{feed_label}</div><h2>LIVE KUDOS FEED</h2><div class="feed">{''.join(feed_cards) or '<div class="empty">No feed items yet.</div>'}</div></section></main><aside><section class="panel"><div class="gold">TRENDING KUDOS</div><div class="trend-stack">{''.join(trending_cards) or '<div class="empty">No trending signals yet.</div>'}</div></section><section class="panel"><div class="gold">ACTIVITY STREAM</div><div class="activity-stack">{''.join(activity_cards) or '<div class="empty">No activity yet.</div>'}</div></section></aside></div><div class="digest">SOCIAL FEED DIGEST // {esc(str(data.get('feed_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
 
 
 # Layer a Social Feed link into the V21.8 Guestbook page.
@@ -21996,16 +21996,308 @@ def _hunter_guestbook_page(username, guestbook):
         )
     return page
 
+
+
+# ===== V22.0 HUNTER SOCIAL GRAPH + FOLLOW SUGGESTIONS + MUTUAL HUNTERS =====
+def _hunter_social_graph_snapshot(viewer="", limit=18):
+    viewer = str(viewer or "").strip()
+    limit = max(6, min(int(limit or 18), 40))
+    if not viewer:
+        return {
+            "viewer": None,
+            "following": [],
+            "followers": [],
+            "mutuals": [],
+            "suggestions": [],
+            "nodes": [],
+            "edges": [],
+            "counts": {"following": 0, "followers": 0, "mutuals": 0, "suggestions": 0},
+            "policy": "Sign in to build a personalized Hunter Social Graph.",
+        }
+
+    conn = db()
+    get_user(viewer)
+
+    following_rows = conn.execute(
+        """SELECT hc.target AS username, hc.created_at, COALESCE(u.xp,0) AS xp
+           FROM hunter_connections hc
+           LEFT JOIN users u ON u.username = hc.target
+           WHERE hc.owner = ? AND hc.kind = 'follow'
+           ORDER BY hc.created_at DESC""",
+        (viewer,)
+    ).fetchall()
+    follower_rows = conn.execute(
+        """SELECT hc.owner AS username, hc.created_at, COALESCE(u.xp,0) AS xp
+           FROM hunter_connections hc
+           LEFT JOIN users u ON u.username = hc.owner
+           WHERE hc.target = ? AND hc.kind = 'follow'
+           ORDER BY hc.created_at DESC""",
+        (viewer,)
+    ).fetchall()
+
+    following_names = [str(r["username"] or "") for r in following_rows if str(r["username"] or "")]
+    follower_names = [str(r["username"] or "") for r in follower_rows if str(r["username"] or "")]
+    following_set = {x.lower() for x in following_names}
+    follower_set = {x.lower() for x in follower_names}
+    mutual_names = [x for x in following_names if x.lower() in follower_set]
+
+    follower_counts = {
+        str(r["target"] or ""): int(r["n"] or 0)
+        for r in conn.execute(
+            """SELECT target, COUNT(*) AS n
+               FROM hunter_connections
+               WHERE kind = 'follow'
+               GROUP BY target"""
+        ).fetchall()
+    }
+
+    users = conn.execute(
+        "SELECT username, COALESCE(xp,0) AS xp FROM users ORDER BY xp DESC, username COLLATE NOCASE ASC LIMIT 500"
+    ).fetchall()
+
+    # Mutual-follow discovery: viewers you follow -> hunters they follow.
+    mutual_map = {}
+    if following_names:
+        marks = ",".join("?" for _ in following_names)
+        rows = conn.execute(
+            f"""SELECT owner, target
+                FROM hunter_connections
+                WHERE kind = 'follow' AND owner IN ({marks})""",
+            tuple(following_names)
+        ).fetchall()
+        for row in rows:
+            owner = str(row["owner"] or "")
+            target = str(row["target"] or "")
+            if not owner or not target or target.lower() == viewer.lower():
+                continue
+            mutual_map.setdefault(target, set()).add(owner)
+
+    # Recent Kudos activity becomes a lightweight, non-predictive activity signal.
+    activity_counts = {
+        str(r["username"] or ""): int(r["n"] or 0)
+        for r in conn.execute(
+            """SELECT author AS username, COUNT(*) AS n
+               FROM hunter_guestbook_entries
+               GROUP BY author"""
+        ).fetchall()
+    }
+
+    suggestions = []
+    for row in users:
+        name = str(row["username"] or "").strip()
+        if not name or name.lower() == viewer.lower() or name.lower() in following_set:
+            continue
+        mutuals = sorted(mutual_map.get(name, set()), key=str.lower)
+        followers = int(follower_counts.get(name, 0))
+        activity = int(activity_counts.get(name, 0))
+        xp = int(row["xp"] or 0)
+        score = min(999, len(mutuals) * 40 + min(followers, 25) * 3 + min(activity, 20) * 2 + min(xp // 250, 20))
+        reasons = []
+        if mutuals:
+            reasons.append("{} mutual connection{}".format(len(mutuals), "" if len(mutuals) == 1 else "s"))
+        if followers:
+            reasons.append("{} follower{}".format(followers, "" if followers == 1 else "s"))
+        if activity:
+            reasons.append("{} Kudos signal{}".format(activity, "" if activity == 1 else "s"))
+        if not reasons:
+            reasons.append("active BL3 Hunter")
+        suggestions.append({
+            "username": name,
+            "xp": xp,
+            "followers": followers,
+            "activity": activity,
+            "mutual_count": len(mutuals),
+            "mutuals": mutuals[:8],
+            "suggestion_score": score,
+            "reason": " · ".join(reasons),
+            "profile_url": "/u/{}".format(urllib.parse.quote(name, safe="")),
+        })
+
+    suggestions.sort(
+        key=lambda x: (int(x.get("suggestion_score") or 0), int(x.get("mutual_count") or 0), int(x.get("followers") or 0), int(x.get("xp") or 0)),
+        reverse=True
+    )
+    suggestions = suggestions[:limit]
+
+    following = [
+        {
+            "username": str(r["username"] or ""),
+            "xp": int(r["xp"] or 0),
+            "followers": int(follower_counts.get(str(r["username"] or ""), 0)),
+            "since": str(r["created_at"] or ""),
+            "profile_url": "/u/{}".format(urllib.parse.quote(str(r["username"] or ""), safe="")),
+        }
+        for r in following_rows
+    ]
+    followers = [
+        {
+            "username": str(r["username"] or ""),
+            "xp": int(r["xp"] or 0),
+            "followers": int(follower_counts.get(str(r["username"] or ""), 0)),
+            "since": str(r["created_at"] or ""),
+            "follows_back": str(r["username"] or "").lower() in following_set,
+            "profile_url": "/u/{}".format(urllib.parse.quote(str(r["username"] or ""), safe="")),
+        }
+        for r in follower_rows
+    ]
+    mutuals = [x for x in following if str(x.get("username") or "").lower() in follower_set]
+
+    # Build a compact graph payload suitable for future visualization.
+    node_names = [viewer]
+    for name in following_names + follower_names + [str(x.get("username") or "") for x in suggestions[:8]]:
+        if name and name.lower() not in {n.lower() for n in node_names}:
+            node_names.append(name)
+    nodes = []
+    for name in node_names[:40]:
+        nodes.append({
+            "username": name,
+            "is_viewer": name.lower() == viewer.lower(),
+            "is_following": name.lower() in following_set,
+            "is_follower": name.lower() in follower_set,
+            "is_mutual": name.lower() in following_set and name.lower() in follower_set,
+            "followers": int(follower_counts.get(name, 0)),
+            "profile_url": "/u/{}".format(urllib.parse.quote(name, safe="")),
+        })
+
+    graph_names = {str(x.get("username") or "").lower() for x in nodes}
+    edge_rows = conn.execute(
+        """SELECT owner, target, kind, created_at
+           FROM hunter_connections
+           WHERE kind IN ('follow','rival')
+           ORDER BY created_at DESC
+           LIMIT 1000"""
+    ).fetchall()
+    edges = []
+    for row in edge_rows:
+        owner = str(row["owner"] or "")
+        target = str(row["target"] or "")
+        if owner.lower() in graph_names and target.lower() in graph_names:
+            edges.append({
+                "source": owner,
+                "target": target,
+                "kind": str(row["kind"] or "follow"),
+                "created_at": str(row["created_at"] or ""),
+            })
+            if len(edges) >= 120:
+                break
+    conn.close()
+
+    payload = {
+        "viewer": viewer,
+        "following": following,
+        "followers": followers,
+        "mutuals": mutuals,
+        "suggestions": suggestions,
+        "nodes": nodes,
+        "edges": edges,
+        "counts": {
+            "following": len(following),
+            "followers": len(followers),
+            "mutuals": len(mutuals),
+            "suggestions": len(suggestions),
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Follow suggestions use only recorded BL3 follow relationships, in-app activity and XP. "
+            "Suggestion Score is a local discovery heuristic, not a ranking of personal worth, financial value, or off-platform influence."
+        ),
+    }
+    payload["graph_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter/social-graph")
+def hunter_social_graph_api():
+    viewer = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not viewer:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+    return jsonify({"success": True, **_hunter_social_graph_snapshot(viewer, limit=24)})
+
+
+@app.route("/hunter-social-graph.json")
+def hunter_social_graph_json():
+    viewer = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not viewer:
+        return jsonify({"success": False, "message": "Sign in required."}), 401
+    return jsonify(_hunter_social_graph_snapshot(viewer, limit=32))
+
+
+@app.route("/hunter-social-graph")
+def hunter_social_graph_page():
+    viewer = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not viewer:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px"><h1>🌐 Hunter Social Graph</h1><p>Sign in to open your personalized social graph and follow suggestions.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _hunter_social_graph_snapshot(viewer, limit=24)
+    esc = html.escape
+
+    mutual_cards = []
+    for item in data.get("mutuals") or []:
+        mutual_cards.append(
+            '<article class="card"><div class="tag mutual">MUTUAL</div><h3>@{name}</h3><div class="meta">{followers} followers · {xp} XP</div><div class="actions"><a href="{profile}">PROFILE</a></div></article>'.format(
+                name=esc(str(item.get("username") or "")),
+                followers=int(item.get("followers") or 0),
+                xp=int(item.get("xp") or 0),
+                profile=esc(str(item.get("profile_url") or "#")),
+            )
+        )
+
+    suggestion_cards = []
+    for rank, item in enumerate(data.get("suggestions") or [], 1):
+        mutual_names = ", ".join("@" + str(x) for x in item.get("mutuals") or [])
+        mutual_line = ('<div class="meta">Mutuals: {}</div>'.format(esc(mutual_names))) if mutual_names else ''
+        suggestion_cards.append(
+            '<article class="card suggestion" data-user="{name}"><div class="suggestion-top"><span class="rank">#{rank}</span><span class="score">{score} DISCOVERY</span></div><h3>@{name}</h3><div class="reason">{reason}</div>{mutual_line}<div class="actions"><a href="{profile}">PROFILE</a><button onclick="toggleFollow(this, {user_json})">FOLLOW</button></div></article>'.format(
+                rank=rank,
+                score=int(item.get("suggestion_score") or 0),
+                name=esc(str(item.get("username") or "")),
+                reason=esc(str(item.get("reason") or "")),
+                mutual_line=mutual_line,
+                profile=esc(str(item.get("profile_url") or "#")),
+                user_json=json.dumps(str(item.get("username") or "")),
+            )
+        )
+
+    follower_cards = []
+    for item in (data.get("followers") or [])[:16]:
+        back = '<span class="tag mutual">MUTUAL</span>' if item.get("follows_back") else '<span class="tag">FOLLOWS YOU</span>'
+        follower_cards.append(
+            '<article class="mini"><div>{back}<b>@{name}</b><span>{followers} followers</span></div><a href="{profile}">OPEN</a></article>'.format(
+                back=back,
+                name=esc(str(item.get("username") or "")),
+                followers=int(item.get("followers") or 0),
+                profile=esc(str(item.get("profile_url") or "#")),
+            )
+        )
+
+    following_cards = []
+    for item in (data.get("following") or [])[:16]:
+        following_cards.append(
+            '<article class="mini"><div><span class="tag following">FOLLOWING</span><b>@{name}</b><span>{followers} followers</span></div><a href="{profile}">OPEN</a></article>'.format(
+                name=esc(str(item.get("username") or "")),
+                followers=int(item.get("followers") or 0),
+                profile=esc(str(item.get("profile_url") or "#")),
+            )
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hunter Social Graph</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 16% 0,#43185e,transparent 30%),radial-gradient(circle at 86% 0,#654013,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,90px);line-height:.88;margin:10px 0}}h2{{margin:4px 0 14px}}h3{{font-size:22px;margin:12px 0 6px}}.meta{{color:#9ea2af;font-size:10px;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:24px}}.stat span{{font-size:9px;color:#9296a4}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.card{{border:1px solid #30323b;border-radius:18px;background:#090a0f;padding:16px}}.suggestion-top{{display:flex;justify-content:space-between;gap:8px}}.rank,.score{{font-size:10px;font-weight:900;color:#ffd66b}}.reason{{font-size:13px;line-height:1.45;color:#d9dbe4}}.tag{{display:inline-flex;border:1px solid #3b3e48;border-radius:999px;padding:5px 8px;font-size:8px;font-weight:900;color:#cdd0da;margin-bottom:6px}}.tag.mutual{{border-color:#7ed9ff;color:#7ed9ff}}.tag.following{{border-color:#ffd66b;color:#ffd66b}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.actions a,.actions button,a.nav,.mini>a{{appearance:none;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900;background:transparent;cursor:pointer}}.actions button.following{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}.columns{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}.stack{{display:grid;gap:9px}}.mini{{display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px solid #2d3039;border-radius:15px;background:#090a0f;padding:12px}}.mini b,.mini span{{display:block}}.mini b{{margin-top:3px}}.digest{{margin-top:14px;color:#777b89;font:9px ui-monospace,monospace;word-break:break-all}}.status{{min-height:20px;margin-top:12px;color:#ffd66b;font-size:11px}}.empty{{border:1px dashed #474a56;border-radius:16px;padding:18px;color:#9ea2af}}@media(max-width:900px){{.grid{{grid-template-columns:1fr 1fr}}.columns{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:600px){{.grid,.stats{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.0 // HUNTER SOCIAL GRAPH</div><h1>FIND YOUR PEOPLE.</h1><p class="meta">Mutual Hunters, follower relationships and discovery suggestions built from BL3's recorded social graph.</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('following') or 0)}</b><span>FOLLOWING</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('followers') or 0)}</b><span>FOLLOWERS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('mutuals') or 0)}</b><span>MUTUAL HUNTERS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('suggestions') or 0)}</b><span>SUGGESTIONS</span></div></div><a class="nav" href="/hunter-social-feed">SOCIAL FEED</a><a class="nav" href="/hunter-social-graph.json">JSON</a><a class="nav" href="/api/social/me">MY CONNECTIONS API</a><div class="status" id="status"></div></section><section class="panel"><div class="gold">FOLLOW SUGGESTIONS</div><h2>DISCOVER HUNTERS</h2><div class="grid">{''.join(suggestion_cards) or '<div class="empty">No new suggestions right now.</div>'}</div></section><section class="panel"><div class="gold">MUTUAL HUNTERS</div><div class="grid">{''.join(mutual_cards) or '<div class="empty">No mutual follows yet.</div>'}</div></section><div class="columns"><section class="panel"><div class="gold">FOLLOWERS</div><div class="stack">{''.join(follower_cards) or '<div class="empty">No followers yet.</div>'}</div></section><section class="panel"><div class="gold">FOLLOWING</div><div class="stack">{''.join(following_cards) or '<div class="empty">Not following anyone yet.</div>'}</div></section></div><div class="digest">SOCIAL GRAPH DIGEST // {esc(str(data.get('graph_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div><script>async function toggleFollow(btn,user){{const status=document.getElementById('status');btn.disabled=true;status.textContent='Updating follow…';try{{const r=await fetch('/api/hunter/'+encodeURIComponent(user)+'/social',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{kind:'follow',enabled:true}})}});const d=await r.json();status.textContent=d.message||'Done';if(r.ok&&d.success){{btn.textContent='✓ FOLLOWING';btn.classList.add('following');setTimeout(()=>location.reload(),500);}}else{{btn.disabled=false;}}}}catch(e){{status.textContent='Network error. Try again.';btn.disabled=false;}}}}</script></body></html>"""
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🌐 BL3 ARENA V21.9 // HUNTER SOCIAL FEED + TRENDING KUDOS + ACTIVITY STREAM")
+    print("🌐 BL3 ARENA V22.0 // HUNTER SOCIAL GRAPH + FOLLOW SUGGESTIONS + MUTUAL HUNTERS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🕸️ Hunter Social Graph + Follow Suggestions + Mutual Hunters enabled")
     print("🌐 Hunter Social Feed + Trending Kudos + Activity Stream enabled")
     print("💖 Kudos Entry Reactions + Reaction Leaderboard + Most-Loved enabled")
     print("📚 Guestbook Pagination + Sort + Quick Replies enabled")
