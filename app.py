@@ -22287,6 +22287,185 @@ def hunter_social_graph_page():
 </style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.0 // HUNTER SOCIAL GRAPH</div><h1>FIND YOUR PEOPLE.</h1><p class="meta">Mutual Hunters, follower relationships and discovery suggestions built from BL3's recorded social graph.</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('following') or 0)}</b><span>FOLLOWING</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('followers') or 0)}</b><span>FOLLOWERS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('mutuals') or 0)}</b><span>MUTUAL HUNTERS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('suggestions') or 0)}</b><span>SUGGESTIONS</span></div></div><a class="nav" href="/hunter-social-feed">SOCIAL FEED</a><a class="nav" href="/hunter-social-graph.json">JSON</a><a class="nav" href="/api/social/me">MY CONNECTIONS API</a><div class="status" id="status"></div></section><section class="panel"><div class="gold">FOLLOW SUGGESTIONS</div><h2>DISCOVER HUNTERS</h2><div class="grid">{''.join(suggestion_cards) or '<div class="empty">No new suggestions right now.</div>'}</div></section><section class="panel"><div class="gold">MUTUAL HUNTERS</div><div class="grid">{''.join(mutual_cards) or '<div class="empty">No mutual follows yet.</div>'}</div></section><div class="columns"><section class="panel"><div class="gold">FOLLOWERS</div><div class="stack">{''.join(follower_cards) or '<div class="empty">No followers yet.</div>'}</div></section><section class="panel"><div class="gold">FOLLOWING</div><div class="stack">{''.join(following_cards) or '<div class="empty">Not following anyone yet.</div>'}</div></section></div><div class="digest">SOCIAL GRAPH DIGEST // {esc(str(data.get('graph_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div><script>async function toggleFollow(btn,user){{const status=document.getElementById('status');btn.disabled=true;status.textContent='Updating follow…';try{{const r=await fetch('/api/hunter/'+encodeURIComponent(user)+'/social',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{kind:'follow',enabled:true}})}});const d=await r.json();status.textContent=d.message||'Done';if(r.ok&&d.success){{btn.textContent='✓ FOLLOWING';btn.classList.add('following');setTimeout(()=>location.reload(),500);}}else{{btn.disabled=false;}}}}catch(e){{status.textContent='Network error. Try again.';btn.disabled=false;}}}}</script></body></html>"""
 
 
+
+
+# ===== V22.1 HUNTER CIRCLES + CLOSE ALLIES + SOCIAL NETWORK GROUPS =====
+def _ensure_hunter_circle_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_social_circles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner TEXT NOT NULL,
+            name TEXT NOT NULL,
+            emoji TEXT NOT NULL DEFAULT '🫂',
+            description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            UNIQUE(owner, name)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_social_circle_members (
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            member TEXT NOT NULL,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY(circle_id, member),
+            FOREIGN KEY(circle_id) REFERENCES hunter_social_circles(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_circles_owner ON hunter_social_circles(owner, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_circle_members_owner ON hunter_social_circle_members(owner, added_at DESC)")
+    conn.commit(); conn.close()
+
+
+def _hunter_circles_snapshot(username):
+    username = str(username or '').strip()
+    _ensure_hunter_circle_schema()
+    if not username:
+        return {"username":"", "circles":[], "close_allies":[], "counts":{"circles":0,"members":0,"close_allies":0}}
+    graph = _hunter_social_graph_snapshot(username)
+    mutuals = list(graph.get('mutuals') or [])
+    following = list(graph.get('following') or [])
+    close_allies = []
+    for item in mutuals:
+        name = str(item.get('username') or '').strip()
+        if name:
+            close_allies.append({
+                "username":name,
+                "followers":int(item.get('followers') or 0),
+                "xp":int(item.get('xp') or 0),
+                "profile_url":"/u/{}".format(urllib.parse.quote(name, safe='')),
+                "reason":"Mutual follow relationship",
+                "ally_score":min(100, 60 + min(int(item.get('followers') or 0),20) + min(int(item.get('xp') or 0)//500,20)),
+            })
+    if not close_allies:
+        for item in following[:8]:
+            name=str(item.get('username') or '').strip()
+            if name:
+                close_allies.append({
+                    "username":name,
+                    "followers":int(item.get('followers') or 0),
+                    "xp":int(item.get('xp') or 0),
+                    "profile_url":"/u/{}".format(urllib.parse.quote(name, safe='')),
+                    "reason":"Hunter you follow",
+                    "ally_score":min(79,35+min(int(item.get('followers') or 0),20)+min(int(item.get('xp') or 0)//500,20)),
+                })
+    close_allies.sort(key=lambda x:(int(x.get('ally_score') or 0),int(x.get('followers') or 0),int(x.get('xp') or 0)), reverse=True)
+    close_allies=close_allies[:12]
+    conn=db()
+    rows=conn.execute("SELECT id,owner,name,emoji,description,created_at FROM hunter_social_circles WHERE owner=? ORDER BY id DESC",(username,)).fetchall()
+    circles=[]; total_members=0
+    for row in rows:
+        members=conn.execute("SELECT member,added_at FROM hunter_social_circle_members WHERE circle_id=? AND owner=? ORDER BY added_at DESC,member ASC",(int(row['id']),username)).fetchall()
+        member_list=[{"username":str(m['member'] or ''),"added_at":str(m['added_at'] or ''),"profile_url":"/u/{}".format(urllib.parse.quote(str(m['member'] or ''),safe=''))} for m in members]
+        total_members += len(member_list)
+        circles.append({"id":int(row['id']),"name":str(row['name'] or ''),"emoji":str(row['emoji'] or '🫂'),"description":str(row['description'] or ''),"created_at":str(row['created_at'] or ''),"members":member_list,"member_count":len(member_list)})
+    conn.close()
+    payload={"username":username,"circles":circles,"close_allies":close_allies,"counts":{"circles":len(circles),"members":total_members,"close_allies":len(close_allies)},"generated_at":datetime.utcnow().isoformat(timespec='seconds')+'Z',"policy":"Hunter Circles are private organization tools built from the signed-in Hunter's BL3 social relationships. Ally scores are local convenience heuristics, not trust, financial, or real-world relationship scores."}
+    payload['circles_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/circles')
+def hunter_circles_api():
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username: return jsonify({"success":False,"message":"Login required."}),401
+    return jsonify({"success":True,**_hunter_circles_snapshot(username)})
+
+
+@app.post('/api/hunter/circles/create')
+def hunter_circles_create():
+    username=str(session.get('authenticated_username') or '').strip()
+    if not username: return jsonify({"success":False,"message":"Login required."}),401
+    payload=request.get_json(silent=True) or request.form or {}
+    name=' '.join(str(payload.get('name') or '').split()).strip()[:40]
+    emoji=str(payload.get('emoji') or '🫂').strip()[:8] or '🫂'
+    description=' '.join(str(payload.get('description') or '').replace('\n',' ').split()).strip()[:180]
+    if not name: return jsonify({"success":False,"message":"Circle name required."}),400
+    _ensure_hunter_circle_schema(); conn=db()
+    try:
+        cur=conn.execute("INSERT INTO hunter_social_circles(owner,name,emoji,description,created_at) VALUES(?,?,?,?,?)",(username,name,emoji,description,datetime.utcnow().isoformat(timespec='seconds')+'Z'))
+        conn.commit(); circle_id=int(cur.lastrowid or 0)
+    except sqlite3.IntegrityError:
+        conn.close(); return jsonify({"success":False,"message":"You already have a circle with that name."}),409
+    conn.close(); return jsonify({"success":True,"message":"Circle created.","circle_id":circle_id,"snapshot":_hunter_circles_snapshot(username)})
+
+
+@app.post('/api/hunter/circles/member')
+def hunter_circles_member():
+    username=str(session.get('authenticated_username') or '').strip()
+    if not username: return jsonify({"success":False,"message":"Login required."}),401
+    payload=request.get_json(silent=True) or request.form or {}
+    try: circle_id=int(payload.get('circle_id') or 0)
+    except Exception: circle_id=0
+    member=str(payload.get('member') or '').strip()[:80]
+    enabled=payload.get('enabled',True) not in (False,0,'0','false','False','off')
+    if circle_id<=0 or not member: return jsonify({"success":False,"message":"circle_id and member required."}),400
+    if member.lower()==username.lower(): return jsonify({"success":False,"message":"You do not need to add yourself to your own circle."}),400
+    get_user(member)
+    _ensure_hunter_circle_schema(); conn=db()
+    row=conn.execute("SELECT id FROM hunter_social_circles WHERE id=? AND owner=?",(circle_id,username)).fetchone()
+    if not row: conn.close(); return jsonify({"success":False,"message":"Circle not found."}),404
+    if enabled:
+        conn.execute("INSERT OR IGNORE INTO hunter_social_circle_members(circle_id,owner,member,added_at) VALUES(?,?,?,?)",(circle_id,username,member,datetime.utcnow().isoformat(timespec='seconds')+'Z')); message='Hunter added to circle.'
+    else:
+        conn.execute("DELETE FROM hunter_social_circle_members WHERE circle_id=? AND owner=? AND member=?",(circle_id,username,member)); message='Hunter removed from circle.'
+    conn.commit(); conn.close(); return jsonify({"success":True,"message":message,"snapshot":_hunter_circles_snapshot(username)})
+
+
+@app.post('/api/hunter/circles/delete')
+def hunter_circles_delete():
+    username=str(session.get('authenticated_username') or '').strip()
+    if not username: return jsonify({"success":False,"message":"Login required."}),401
+    payload=request.get_json(silent=True) or request.form or {}
+    try: circle_id=int(payload.get('circle_id') or 0)
+    except Exception: circle_id=0
+    if circle_id<=0: return jsonify({"success":False,"message":"Valid circle_id required."}),400
+    _ensure_hunter_circle_schema(); conn=db()
+    row=conn.execute("SELECT id FROM hunter_social_circles WHERE id=? AND owner=?",(circle_id,username)).fetchone()
+    if not row: conn.close(); return jsonify({"success":False,"message":"Circle not found."}),404
+    conn.execute("DELETE FROM hunter_social_circle_members WHERE circle_id=? AND owner=?",(circle_id,username)); conn.execute("DELETE FROM hunter_social_circles WHERE id=? AND owner=?",(circle_id,username)); conn.commit(); conn.close()
+    return jsonify({"success":True,"message":"Circle deleted.","snapshot":_hunter_circles_snapshot(username)})
+
+
+@app.route('/hunter-circles.json')
+def hunter_circles_json():
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username: return jsonify({"success":False,"message":"Login required."}),401
+    return jsonify(_hunter_circles_snapshot(username))
+
+
+@app.route('/hunter-circles')
+def hunter_circles_page():
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return """<!doctype html><meta charset=\"utf-8\"><body style=\"margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px\"><h1>🫂 Hunter Circles</h1><p>Sign in to organize your BL3 social network.</p><a style=\"color:#ffd66b\" href=\"/\">Back to BL3</a></body>"""
+    data=_hunter_circles_snapshot(username); esc=html.escape
+    allies=[]
+    for item in data.get('close_allies') or []:
+        allies.append('<article class="ally"><div><b>@{name}</b><span>{reason} · ALLY {score}</span></div><div class="actions"><a href="{profile}">PROFILE</a><button onclick="openAdd({user})">ADD TO CIRCLE</button></div></article>'.format(name=esc(str(item.get('username') or '')),reason=esc(str(item.get('reason') or '')),score=int(item.get('ally_score') or 0),profile=esc(str(item.get('profile_url') or '#')),user=json.dumps(str(item.get('username') or ''))))
+    circles=[]
+    for circle in data.get('circles') or []:
+        member_html=''.join('<div class="member"><a href="{profile}">@{name}</a><button onclick="removeMember({cid},{user})">REMOVE</button></div>'.format(profile=esc(str(m.get('profile_url') or '#')),name=esc(str(m.get('username') or '')),cid=int(circle.get('id') or 0),user=json.dumps(str(m.get('username') or ''))) for m in circle.get('members') or []) or '<div class="empty">No members yet.</div>'
+        circles.append('<article class="circle"><div class="circle-top"><div><div class="eyebrow">{emoji} CIRCLE #{cid}</div><h3>{name}</h3><div class="meta">{desc}</div></div><button class="danger" onclick="deleteCircle({cid})">DELETE</button></div><div class="member-list">{members}</div><div class="actions"><button onclick="openAddTo({cid})">ADD HUNTER</button></div></article>'.format(emoji=esc(str(circle.get('emoji') or '🫂')),cid=int(circle.get('id') or 0),name=esc(str(circle.get('name') or '')),desc=esc(str(circle.get('description') or '')),members=member_html))
+    circle_options=''.join('<option value="{id}">{emoji} {name}</option>'.format(id=int(c.get('id') or 0),emoji=esc(str(c.get('emoji') or '🫂')),name=esc(str(c.get('name') or ''))) for c in data.get('circles') or [])
+    return f"""<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>BL3 Hunter Circles</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 14% 0,#48165f,transparent 30%),radial-gradient(circle at 86% 0,#6d4214,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.eyebrow{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,88px);line-height:.9;margin:10px 0}}h2{{margin:6px 0 16px}}h3{{font-size:24px;margin:4px 0}}.meta{{color:#9ea2af;font-size:10px;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:24px}}.stat span{{font-size:9px;color:#9296a4}}.layout{{display:grid;grid-template-columns:.8fr 1.2fr;gap:18px}}.ally,.member{{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:15px;padding:12px;background:#090a0f;margin-top:9px}}.ally b,.ally span{{display:block}}.circle{{border:1px solid #30323b;border-radius:20px;background:#090a0f;padding:17px;margin-top:12px}}.circle-top{{display:flex;justify-content:space-between;gap:12px}}.member-list{{margin-top:12px}}.member a{{color:#fff;text-decoration:none;font-weight:900}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}button,a.nav,.actions a{{appearance:none;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900;background:transparent;cursor:pointer}}button.danger{{border-color:#7d3240;color:#ffb5c0}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}.form{{display:grid;grid-template-columns:120px 1fr;gap:10px;margin-top:14px}}input,select,textarea{{width:100%;border-radius:12px;border:1px solid #353844;background:#07080c;color:#fff;padding:12px;font:inherit}}textarea{{min-height:90px;resize:vertical}}.span2{{grid-column:1/-1}}.status{{min-height:22px;margin-top:12px;color:#ffd66b;font-size:11px}}.empty{{border:1px dashed #474a56;border-radius:15px;padding:14px;color:#9ea2af}}.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;padding:20px}}.modal.open{{display:flex}}.modal-card{{width:min(540px,100%);border:1px solid #3a3d48;border-radius:22px;background:#0b0c11;padding:22px}}@media(max-width:900px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr}}.form{{grid-template-columns:1fr}}}}</style></head><body><div class=\"wrap\"><section class=\"hero\"><div class=\"gold\">V22.1 // HUNTER CIRCLES + CLOSE ALLIES</div><h1>BUILD YOUR INNER RING.</h1><p class=\"meta\">Group Hunters into private Circles, surface close allies from your BL3 graph, and keep your social network organized without changing public follow relationships.</p><div class=\"stats\"><div class=\"stat\"><b>{int((data.get('counts') or {}).get('circles') or 0)}</b><span>CIRCLES</span></div><div class=\"stat\"><b>{int((data.get('counts') or {}).get('members') or 0)}</b><span>GROUP MEMBERSHIPS</span></div><div class=\"stat\"><b>{int((data.get('counts') or {}).get('close_allies') or 0)}</b><span>CLOSE ALLIES</span></div></div><a class=\"nav\" href=\"/hunter-social-graph\">SOCIAL GRAPH</a><a class=\"nav\" href=\"/hunter-social-feed\">SOCIAL FEED</a><a class=\"nav\" href=\"/hunter-circles.json\">JSON</a><div class=\"status\" id=\"status\"></div></section><div class=\"layout\"><aside><section class=\"panel\"><div class=\"gold\">CLOSE ALLIES</div><h2>YOUR STRONGEST CONNECTIONS</h2>{''.join(allies) or '<div class=\"empty\">Follow more Hunters to build this list.</div>'}</section><section class=\"panel\"><div class=\"gold\">CREATE CIRCLE</div><div class=\"form\"><input id=\"circleEmoji\" maxlength=\"8\" value=\"🫂\"><input id=\"circleName\" maxlength=\"40\" placeholder=\"Circle name\"><textarea class=\"span2\" id=\"circleDescription\" maxlength=\"180\" placeholder=\"What is this group for?\"></textarea><button class=\"span2\" onclick=\"createCircle()\">CREATE CIRCLE</button></div></section></aside><main><section class=\"panel\"><div class=\"gold\">YOUR CIRCLES</div><h2>PRIVATE NETWORK GROUPS</h2>{''.join(circles) or '<div class=\"empty\">Create your first Circle to organize close allies, collaborators, or rivals.</div>'}</section></main></div><div class=\"meta\">CIRCLES DIGEST // {esc(str(data.get('circles_digest') or ''))}</div><p class=\"meta\">{esc(str(data.get('policy') or ''))}</p></div><div class=\"modal\" id=\"addModal\"><div class=\"modal-card\"><div class=\"gold\">ADD HUNTER TO CIRCLE</div><h3 id=\"modalHunter\">Choose a Hunter</h3><select id=\"modalCircle\">{circle_options}</select><input id=\"modalMember\" placeholder=\"Hunter username\" style=\"margin-top:10px\"><div class=\"actions\"><button onclick=\"addMember()\">ADD</button><button onclick=\"closeModal()\">CANCEL</button></div></div></div><script>const statusEl=document.getElementById('status');const modal=document.getElementById('addModal');function openAdd(user){{document.getElementById('modalMember').value=user||'';document.getElementById('modalHunter').textContent='@'+(user||'Hunter');modal.classList.add('open')}}function openAddTo(cid){{document.getElementById('modalCircle').value=String(cid);document.getElementById('modalMember').value='';document.getElementById('modalHunter').textContent='Add Hunter';modal.classList.add('open')}}function closeModal(){{modal.classList.remove('open')}}async function post(url,body){{const r=await fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(body)}});const d=await r.json();statusEl.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);return d}}async function createCircle(){{const name=document.getElementById('circleName').value.trim();const emoji=document.getElementById('circleEmoji').value.trim()||'🫂';const description=document.getElementById('circleDescription').value.trim();if(!name){{statusEl.textContent='Circle name required.';return}}await post('/api/hunter/circles/create',{{name,emoji,description}})}}async function addMember(){{const circle_id=Number(document.getElementById('modalCircle').value||0);const member=document.getElementById('modalMember').value.trim();if(!circle_id||!member){{statusEl.textContent='Choose a circle and Hunter.';return}}await post('/api/hunter/circles/member',{{circle_id,member,enabled:true}})}}async function removeMember(circle_id,member){{await post('/api/hunter/circles/member',{{circle_id,member,enabled:false}})}}async function deleteCircle(circle_id){{await post('/api/hunter/circles/delete',{{circle_id}})}}</script></body></html>"""
+
+
+_V220_social_graph_page = hunter_social_graph_page
+def hunter_social_graph_page():
+    page=_V220_social_graph_page()
+    if isinstance(page,str) and '/hunter-circles' not in page:
+        page=page.replace('<a class="nav" href="/hunter-social-feed">SOCIAL FEED</a>','<a class="nav" href="/hunter-social-feed">SOCIAL FEED</a><a class="nav" href="/hunter-circles">HUNTER CIRCLES</a>',1)
+    return page
+
+_V219_social_feed_page = hunter_social_feed_page
+def hunter_social_feed_page():
+    page=_V219_social_feed_page()
+    if isinstance(page,str) and '/hunter-circles' not in page:
+        page=page.replace('<a class="nav" href="/hunter-social-graph">SOCIAL GRAPH</a>','<a class="nav" href="/hunter-social-graph">SOCIAL GRAPH</a><a class="nav" href="/hunter-circles">HUNTER CIRCLES</a>',1)
+    return page
+
 if __name__ == "__main__":
 
     init_db()
@@ -22297,6 +22476,7 @@ if __name__ == "__main__":
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🫂 Hunter Circles + Close Allies + Social Network Groups enabled")
     print("🕸️ Hunter Social Graph + Follow Suggestions + Mutual Hunters enabled")
     print("🌐 Hunter Social Feed + Trending Kudos + Activity Stream enabled")
     print("💖 Kudos Entry Reactions + Reaction Leaderboard + Most-Loved enabled")
