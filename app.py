@@ -25665,16 +25665,151 @@ if 'hunter_circle_hall_of_legends_page' in app.view_functions:
         return response
     app.view_functions['hunter_circle_hall_of_legends_page']=_V229_hall_legends_with_profiles
 
+
+
+# ===== V23.0 LEGEND MEDALS + ETERNAL RECORDS + GLOBAL HALL OF FAME =====
+def _legend_medals_for_row(row):
+    progress=int(row.get("total_progress") or row.get("total_amount") or 0)
+    awards=int(row.get("season_awards") or 0)
+    trophies=int(row.get("trophy_mvp") or 0)
+    seasons=int(row.get("seasons_played") or 0)
+    challenges=int(row.get("challenges_helped") or 0)
+    updates=int(row.get("updates") or 0)
+    medals=[]
+    specs=[
+        (progress>=100,"⚡","Century Force","100+ recorded Circle progress."),
+        (progress>=500,"💫","Progress Titan","500+ recorded Circle progress."),
+        (awards>=1,"🏅","Season Honored","Earned at least one Season Award."),
+        (awards>=3,"👑","Crown Collector","Earned 3+ Season Awards."),
+        (trophies>=1,"🏆","Trophy MVP","Recorded as MVP on a Circle Trophy."),
+        (seasons>=3,"📜","Season Veteran","Recorded across 3+ Circle Seasons."),
+        (challenges>=5,"⚔️","Challenge Ally","Contributed to 5+ Circle Challenges."),
+        (updates>=25,"🛡️","Iron Record","25+ recorded progress updates."),
+    ]
+    for ok,icon,title,detail in specs:
+        if ok:
+            medals.append({"icon":icon,"title":title,"detail":detail})
+    return medals
+
+
+def _global_hall_of_fame_snapshot(limit=100):
+    limit=max(10,min(int(limit or 100),250))
+    _ensure_season_award_schema()
+    _ensure_circle_reward_schema()
+    conn=db()
+    rows=conn.execute("""
+        SELECT p.contributor AS username,
+               SUM(p.amount) AS total_progress,
+               COUNT(*) AS updates,
+               COUNT(DISTINCT p.challenge_id) AS challenges_helped,
+               COUNT(DISTINCT sc.season_id) AS seasons_played,
+               COUNT(DISTINCT p.circle_id) AS circles_touched
+        FROM hunter_circle_challenge_progress p
+        LEFT JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+        GROUP BY p.contributor
+        ORDER BY total_progress DESC, challenges_helped DESC, username ASC
+        LIMIT ?
+    """,(limit,)).fetchall()
+    award_rows=conn.execute("SELECT winner,COUNT(*) AS c FROM hunter_circle_season_awards WHERE winner<>'' GROUP BY winner").fetchall()
+    trophy_rows=conn.execute("SELECT mvp_username,COUNT(*) AS c FROM hunter_circle_trophies WHERE mvp_username<>'' GROUP BY mvp_username").fetchall()
+    award_counts={str(r['winner'] or '').lower():int(r['c'] or 0) for r in award_rows}
+    trophy_counts={str(r['mvp_username'] or '').lower():int(r['c'] or 0) for r in trophy_rows}
+    hall=[]
+    for r in rows:
+        name=str(r['username'] or '')
+        key=name.lower()
+        row={
+            'username':name,
+            'total_progress':int(r['total_progress'] or 0),
+            'updates':int(r['updates'] or 0),
+            'challenges_helped':int(r['challenges_helped'] or 0),
+            'seasons_played':int(r['seasons_played'] or 0),
+            'circles_touched':int(r['circles_touched'] or 0),
+            'season_awards':award_counts.get(key,0),
+            'trophy_mvp':trophy_counts.get(key,0),
+        }
+        score=min(2000,row['total_progress']+row['season_awards']*90+row['trophy_mvp']*80+row['seasons_played']*40+row['challenges_helped']*20+row['circles_touched']*35+min(200,row['updates']*2))
+        row['eternal_score']=score
+        row['eternal_class']='ETERNAL' if score>=1500 else 'IMMORTAL' if score>=1000 else 'LEGEND' if score>=700 else 'ELITE' if score>=400 else 'VETERAN'
+        row['medals']=_legend_medals_for_row(row)
+        row['profile_url']='/u/{}'.format(urllib.parse.quote(name,safe=''))
+        hall.append(row)
+    hall.sort(key=lambda x:(x['eternal_score'],x['season_awards'],x['total_progress']),reverse=True)
+    for i,row in enumerate(hall,1): row['global_rank']=i
+    records=[]
+    for metric,icon,title,label in [
+        ('total_progress','⚡','Most Progress','TOTAL PROGRESS'),('season_awards','🏅','Most Season Awards','SEASON AWARDS'),('trophy_mvp','🏆','Most Trophy MVPs','TROPHY MVP'),('seasons_played','📜','Most Seasons Played','SEASONS'),('challenges_helped','⚔️','Most Challenges Helped','CHALLENGES'),('updates','🛡️','Most Progress Updates','UPDATES'),('circles_touched','🌐','Most Circles Touched','CIRCLES')]:
+        if hall:
+            winner=max(hall,key=lambda x:int(x.get(metric) or 0))
+            if int(winner.get(metric) or 0)>0:
+                records.append({'metric':metric,'icon':icon,'title':title,'winner':winner['username'],'value':int(winner.get(metric) or 0),'label':label})
+    conn.close()
+    payload={
+        'hall_of_fame':hall,'eternal_records':records,
+        'counts':{'ranked_hunters':len(hall),'eternal':sum(1 for x in hall if x['eternal_class']=='ETERNAL'),'immortal':sum(1 for x in hall if x['eternal_class']=='IMMORTAL'),'records':len(records)},
+        'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+        'policy':'Global Hall of Fame, Legend Medals and Eternal Records summarize recorded BL3 in-app challenge progress, Seasons, awards and trophies only. Scores are deterministic local display heuristics, not financial, predictive, or universal skill rankings.'
+    }
+    payload['global_hall_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/global-hall-of-fame')
+def hunter_global_hall_of_fame_api():
+    try: limit=int(request.args.get('limit') or 100)
+    except Exception: limit=100
+    return jsonify({'success':True,**_global_hall_of_fame_snapshot(limit)})
+
+
+@app.route('/hunter-global-hall-of-fame.json')
+def hunter_global_hall_of_fame_json():
+    return jsonify(_global_hall_of_fame_snapshot(200))
+
+
+@app.route('/hunter-global-hall-of-fame')
+def hunter_global_hall_of_fame_page():
+    data=_global_hall_of_fame_snapshot(120)
+    esc=html.escape
+    records=''.join('<article class="record"><b>{icon} {title}</b><span>@{winner}</span><small>{value} {label}</small></article>'.format(icon=esc(str(r.get('icon') or '🏆')),title=esc(str(r.get('title') or '')),winner=esc(str(r.get('winner') or '')),value=int(r.get('value') or 0),label=esc(str(r.get('label') or ''))) for r in data.get('eternal_records') or [])
+    hunters=''.join('<article class="hunter"><div class="rank">#{rank}</div><div><b>@{name}</b><span>{cls}</span><small>{score} ETERNAL · {progress} PROGRESS · {awards} AWARDS · {medals}</small></div><a href="{href}">PROFILE</a></article>'.format(rank=int(h.get('global_rank') or 0),name=esc(str(h.get('username') or '')),cls=esc(str(h.get('eternal_class') or 'VETERAN')),score=int(h.get('eternal_score') or 0),progress=int(h.get('total_progress') or 0),awards=int(h.get('season_awards') or 0),medals=' '.join(esc(str(m.get('icon') or '')) for m in h.get('medals') or []) or '—',href=esc(str(h.get('profile_url') or '#'))) for h in data.get('hall_of_fame') or [])
+    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Global Hall of Fame</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.rank,.hunter span{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,94px);line-height:.86;margin:10px 0}}.stats,.records{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.stat,.record{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span,.record span,.record small,.hunter small,.meta{{display:block;color:#9da1ad;font-size:10px;margin-top:4px}}.hunter{{display:grid;grid-template-columns:70px 1fr auto;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats,.records{{grid-template-columns:1fr 1fr}}.hunter{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V23.0 // GLOBAL HALL OF FAME</div><h1>ETERNAL RECORDS.</h1><p class='meta'>All-Circle BL3 Legend Medals, Eternal Scores and permanent recorded achievements.</p><div class='stats'><div class='stat'><b>{int((data.get('counts') or {}).get('ranked_hunters') or 0)}</b><span>RANKED HUNTERS</span></div><div class='stat'><b>{int((data.get('counts') or {}).get('eternal') or 0)}</b><span>ETERNAL</span></div><div class='stat'><b>{int((data.get('counts') or {}).get('immortal') or 0)}</b><span>IMMORTAL</span></div><div class='stat'><b>{int((data.get('counts') or {}).get('records') or 0)}</b><span>RECORDS</span></div></div><p><a href='/hunter-global-hall-of-fame.json'>JSON</a></p></section><section class='panel'><div class='gold'>ETERNAL RECORDS</div><div class='records'>{records or '<div class="meta">No records yet.</div>'}</div></section><section class='panel'><div class='gold'>GLOBAL HALL OF FAME</div>{hunters or '<div class="meta">No ranked Hunters yet.</div>'}</section><div class='digest'>GLOBAL HALL DIGEST // {esc(str(data.get('global_hall_digest') or ''))}</div><p class='meta'>{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add Global Hall navigation into V22.9 legend surfaces.
+if 'hunter_immortal_showcase_page' in app.view_functions:
+    _V229_showcase_view_global=app.view_functions['hunter_immortal_showcase_page']
+    def _V230_showcase_with_global(circle_id):
+        response=_V229_showcase_view_global(circle_id)
+        if isinstance(response,str):
+            link='<a class="nav" href="/hunter-global-hall-of-fame">GLOBAL HALL OF FAME</a>'
+            if link not in response:
+                response=response.replace('</section>',link+'</section>',1)
+            response=response.replace('V22.9 // IMMORTAL SHOWCASE','V23.0 // IMMORTAL SHOWCASE + ETERNAL RECORDS',1)
+        return response
+    app.view_functions['hunter_immortal_showcase_page']=_V230_showcase_with_global
+
+if 'hunter_hall_of_legends_page' in app.view_functions:
+    _V229_hall_legends_view_global=app.view_functions['hunter_hall_of_legends_page']
+    def _V230_hall_legends_with_global(circle_id):
+        response=_V229_hall_legends_view_global(circle_id)
+        if isinstance(response,str):
+            link='<a class="nav" href="/hunter-global-hall-of-fame">GLOBAL HALL OF FAME</a>'
+            if link not in response:
+                response=response.replace('</section>',link+'</section>',1)
+        return response
+    app.view_functions['hunter_hall_of_legends_page']=_V230_hall_legends_with_global
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🌌 BL3 ARENA V22.9 // LEGEND PROFILES + LEGACY TIMELINE + IMMORTAL SHOWCASE")
+    print("🏆 BL3 ARENA V23.0 // LEGEND MEDALS + ETERNAL RECORDS + GLOBAL HALL OF FAME")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏆 Legend Medals + Eternal Records + Global Hall of Fame enabled")
     print("🌌 Legend Profiles + Legacy Timeline + Immortal Showcase enabled")
     print("🏛️ Legacy Milestones + Dynasty Badges + Hunter Hall of Legends enabled")
     print("👑 Circle Legacy Score + Dynasty Rankings + Legendary Hunters enabled")
