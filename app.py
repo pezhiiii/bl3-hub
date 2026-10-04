@@ -25494,16 +25494,188 @@ if 'hunter_circle_legacy_page' in app.view_functions:
     app.view_functions['hunter_circle_legacy_page'] = _V228_legacy_with_hall
 
 
+
+
+# ===== V22.9 LEGEND PROFILES + LEGACY TIMELINE + IMMORTAL SHOWCASE =====
+def _legend_profile_snapshot(circle_id, viewer, legend_username):
+    circle_id = int(circle_id or 0)
+    viewer = str(viewer or '').strip()
+    legend_username = str(legend_username or '').strip()
+    if not legend_username:
+        return {'success': False, 'message': 'Legend username required.'}
+    access = _circle_access_row(circle_id, viewer)
+    if not access:
+        return {'success': False, 'message': 'Circle not found or access denied.'}
+    legacy_data = _circle_legacy_snapshot(circle_id, viewer)
+    if not legacy_data.get('success'):
+        return legacy_data
+    match = next((h for h in (legacy_data.get('legendary_hunters') or []) if str(h.get('username') or '').lower() == legend_username.lower()), None)
+    if not match:
+        return {'success': False, 'message': 'Hunter has no recorded Circle legacy profile yet.'}
+
+    owner = str((legacy_data.get('circle') or {}).get('owner') or '')
+    _ensure_season_award_schema()
+    conn = db()
+    progress_rows = conn.execute(
+        '''SELECT p.challenge_id,p.amount,p.note,p.created_at,
+                  c.title AS challenge_title,c.status AS challenge_status,
+                  sc.season_id,s.name AS season_name,s.emoji AS season_emoji
+           FROM hunter_circle_challenge_progress p
+           LEFT JOIN hunter_circle_challenges c ON c.id=p.challenge_id
+           LEFT JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+           LEFT JOIN hunter_circle_seasons s ON s.id=sc.season_id
+           WHERE p.circle_id=? AND p.owner=? AND lower(p.contributor)=lower(?)
+           ORDER BY p.id DESC LIMIT 250''',
+        (circle_id, owner, legend_username)
+    ).fetchall()
+    award_rows = conn.execute(
+        '''SELECT a.season_id,a.award_icon,a.award_title,a.metric_value,a.metric_label,a.detail,a.awarded_at,
+                  s.name AS season_name,s.emoji AS season_emoji
+           FROM hunter_circle_season_awards a
+           LEFT JOIN hunter_circle_seasons s ON s.id=a.season_id
+           WHERE a.circle_id=? AND a.owner=? AND lower(a.winner)=lower(?)
+           ORDER BY a.id DESC''',
+        (circle_id, owner, legend_username)
+    ).fetchall()
+    trophy_rows = conn.execute(
+        '''SELECT t.id,t.challenge_id,t.trophy_icon,t.trophy_title,t.trophy_description,
+                  t.mvp_amount,t.total_progress,t.awarded_at,c.title AS challenge_title,
+                  sc.season_id,s.name AS season_name,s.emoji AS season_emoji
+           FROM hunter_circle_trophies t
+           LEFT JOIN hunter_circle_challenges c ON c.id=t.challenge_id
+           LEFT JOIN hunter_circle_season_challenges sc ON sc.challenge_id=t.challenge_id
+           LEFT JOIN hunter_circle_seasons s ON s.id=sc.season_id
+           WHERE t.circle_id=? AND t.owner=? AND lower(t.mvp_username)=lower(?)
+           ORDER BY t.id DESC''',
+        (circle_id, owner, legend_username)
+    ).fetchall()
+    conn.close()
+
+    timeline=[]
+    for r in progress_rows:
+        timeline.append({'type':'progress','icon':'⚡','created_at':str(r['created_at'] or ''),'title':'Challenge contribution','detail':'+{} · {}'.format(int(r['amount'] or 0),str(r['challenge_title'] or 'Challenge')),'season_name':str(r['season_name'] or ''),'season_emoji':str(r['season_emoji'] or '📅'),'challenge_id':int(r['challenge_id'] or 0),'note':str(r['note'] or '')})
+    for r in award_rows:
+        timeline.append({'type':'award','icon':str(r['award_icon'] or '🏅'),'created_at':str(r['awarded_at'] or ''),'title':str(r['award_title'] or 'Season Award'),'detail':'{} {}'.format(int(r['metric_value'] or 0),str(r['metric_label'] or '')).strip(),'season_name':str(r['season_name'] or ''),'season_emoji':str(r['season_emoji'] or '📅'),'note':str(r['detail'] or '')})
+    for r in trophy_rows:
+        timeline.append({'type':'trophy_mvp','icon':str(r['trophy_icon'] or '🏆'),'created_at':str(r['awarded_at'] or ''),'title':'Trophy MVP · {}'.format(str(r['trophy_title'] or 'Circle Victory')),'detail':'{} · {} MVP progress'.format(str(r['challenge_title'] or 'Challenge'),int(r['mvp_amount'] or 0)),'season_name':str(r['season_name'] or ''),'season_emoji':str(r['season_emoji'] or '📅'),'note':str(r['trophy_description'] or '')})
+    timeline.sort(key=lambda x: str(x.get('created_at') or ''), reverse=True)
+    score=int(match.get('legend_score') or 0)
+    hall_class='IMMORTAL' if score>=800 else ('LEGEND' if score>=600 else ('ELITE' if score>=400 else 'VETERAN'))
+    payload={'success':True,'viewer':viewer,'circle':legacy_data.get('circle') or {},'legend':{**match,'hall_class':hall_class},'timeline':timeline[:200],
+             'counts':{'timeline_events':len(timeline),'progress_updates':len(progress_rows),'season_awards':len(award_rows),'trophy_mvp':len(trophy_rows)},
+             'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+             'policy':'Legend Profiles and Legacy Timelines summarize only recorded BL3 Circle history. Hall class and Legend Score are deterministic in-app labels, not real-world skill, financial, or predictive judgments.'}
+    payload['legend_profile_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+def _immortal_showcase_snapshot(circle_id, viewer):
+    data=_circle_legacy_snapshot(int(circle_id or 0), str(viewer or '').strip())
+    if not data.get('success'): return data
+    legends=[]
+    for h in data.get('legendary_hunters') or []:
+        score=int(h.get('legend_score') or 0)
+        if score<400: continue
+        klass='IMMORTAL' if score>=800 else ('LEGEND' if score>=600 else 'ELITE')
+        legends.append({**h,'showcase_class':klass})
+    legends.sort(key=lambda x:(int(x.get('legend_score') or 0),int(x.get('season_awards') or 0),int(x.get('total_amount') or 0)),reverse=True)
+    payload={'success':True,'circle':data.get('circle') or {},'legacy':data.get('legacy') or {},'all_showcase':legends,
+             'immortals':[x for x in legends if x.get('showcase_class')=='IMMORTAL'],'legends':[x for x in legends if x.get('showcase_class')=='LEGEND'],'elites':[x for x in legends if x.get('showcase_class')=='ELITE'],
+             'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','policy':'Immortal Showcase classes are BL3-only historical labels derived from recorded Circle legacy data.'}
+    payload['immortal_showcase_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/circles/<int:circle_id>/legends/<legend_username>')
+def hunter_legend_profile_api(circle_id, legend_username):
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username: return jsonify({'success':False,'message':'Login required.'}),401
+    data=_legend_profile_snapshot(circle_id,username,legend_username)
+    return jsonify(data),(200 if data.get('success') else 404)
+
+
+@app.route('/hunter-circles/<int:circle_id>/legends/<legend_username>.json')
+def hunter_legend_profile_json(circle_id, legend_username):
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username: return jsonify({'success':False,'message':'Login required.'}),401
+    data=_legend_profile_snapshot(circle_id,username,legend_username)
+    return jsonify(data),(200 if data.get('success') else 404)
+
+
+@app.route('/hunter-circles/<int:circle_id>/legends/<legend_username>')
+def hunter_legend_profile_page(circle_id, legend_username):
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return '<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>🌟 Legend Profile</h1><p>Sign in to continue.</p></body>'
+    data=_legend_profile_snapshot(circle_id,username,legend_username)
+    if not data.get('success'):
+        return '<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Legend profile unavailable.</h1></body>',404
+    esc=html.escape; circle=data.get('circle') or {}; legend=data.get('legend') or {}
+    events=''.join('<article class="event"><div class="icon">{icon}</div><div><b>{title}</b><span>{detail}</span><small>{season} · {created}</small>{note}</div></article>'.format(icon=esc(str(e.get('icon') or '⚡')),title=esc(str(e.get('title') or 'Event')),detail=esc(str(e.get('detail') or '')),season=esc(((str(e.get('season_emoji') or '')+' '+str(e.get('season_name') or '')).strip() or 'UNSEASONED')),created=esc(str(e.get('created_at') or '')),note=('<em>'+esc(str(e.get('note') or ''))+'</em>') if e.get('note') else '') for e in (data.get('timeline') or [])[:80]) or '<div class="empty">No recorded legacy events yet.</div>'
+    slug=urllib.parse.quote(str(legend.get('username') or legend_username),safe='')
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Legend Profile</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#52125f,transparent 30%),radial-gradient(circle at 88% 0,#72500d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1100px;margin:auto}}.hero,.panel{{border:1px solid #3a3943;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,90px);line-height:.88;margin:10px 0}}.score{{font-size:54px;color:#ffd66b;font-weight:950}}.chips{{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}}.chips span{{border:1px solid #3b3e48;border-radius:999px;padding:7px 9px;font-size:8px;font-weight:900}}a.nav{{display:inline-block;margin:8px 8px 0 0;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}.event{{display:grid;grid-template-columns:46px 1fr;gap:12px;border-left:2px solid #57492f;padding:12px 0 12px 14px}}.event .icon{{font-size:28px}}.event span,.event small,.event em{{display:block;color:#a0a4b0;margin-top:4px;font-size:10px}}.event em{{color:#d3d5dd;font-style:normal}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:13px;color:#9da1ad}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:760px){{.stats{{grid-template-columns:1fr 1fr}}}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.9 // LEGEND PROFILE + LEGACY TIMELINE</div><h1>@{esc(str(legend.get('username') or legend_username))}</h1><div class="score">{int(legend.get('legend_score') or 0)}</div><div class="chips"><span>{esc(str(legend.get('hall_class') or 'VETERAN'))}</span><span>{esc(str(legend.get('legend_tier') or 'RISING'))}</span><span>LEGACY RANK #{int(legend.get('legacy_rank') or 0)}</span><span>{esc(str(circle.get('emoji') or '🫂'))} {esc(str(circle.get('name') or 'CIRCLE'))}</span></div><a class="nav" href="/hunter-circles/{circle_id}/hall-of-legends">HALL OF LEGENDS</a><a class="nav" href="/hunter-circles/{circle_id}/immortal-showcase">IMMORTAL SHOWCASE</a><a class="nav" href="/hunter-circles/{circle_id}/legends/{slug}.json">JSON</a></section><section class="panel"><div class="stats"><div class="stat"><b>{int(legend.get('total_amount') or 0)}</b><span>TOTAL PROGRESS</span></div><div class="stat"><b>{int(legend.get('season_awards') or 0)}</b><span>SEASON AWARDS</span></div><div class="stat"><b>{int(legend.get('seasons_played') or 0)}</b><span>SEASONS PLAYED</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('trophy_mvp') or 0)}</b><span>TROPHY MVP</span></div></div></section><section class="panel"><div class="gold">LEGACY TIMELINE</div>{events}</section><div class="digest">LEGEND PROFILE DIGEST // {esc(str(data.get('legend_profile_digest') or ''))}</div><p style="color:#9da1ad;font-size:10px">{esc(str(data.get('policy') or ''))}</p></div></body></html>'''
+
+
+@app.route('/api/hunter/circles/<int:circle_id>/immortal-showcase')
+def hunter_immortal_showcase_api(circle_id):
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username: return jsonify({'success':False,'message':'Login required.'}),401
+    data=_immortal_showcase_snapshot(circle_id,username)
+    return jsonify(data),(200 if data.get('success') else 403)
+
+
+@app.route('/hunter-circles/<int:circle_id>/immortal-showcase.json')
+def hunter_immortal_showcase_json(circle_id):
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username: return jsonify({'success':False,'message':'Login required.'}),401
+    data=_immortal_showcase_snapshot(circle_id,username)
+    return jsonify(data),(200 if data.get('success') else 403)
+
+
+@app.route('/hunter-circles/<int:circle_id>/immortal-showcase')
+def hunter_immortal_showcase_page(circle_id):
+    username=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return '<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>🌌 Immortal Showcase</h1><p>Sign in to continue.</p></body>'
+    data=_immortal_showcase_snapshot(circle_id,username)
+    if not data.get('success'):
+        return '<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1></body>',403
+    esc=html.escape; circle=data.get('circle') or {}; cards=[]
+    for h in data.get('all_showcase') or []:
+        klass=str(h.get('showcase_class') or 'ELITE'); icon='💎' if klass=='IMMORTAL' else ('👑' if klass=='LEGEND' else '🌟'); slug=urllib.parse.quote(str(h.get('username') or ''),safe='')
+        cards.append('<article class="card {klass}"><div class="icon">{icon}</div><div><b>@{name}</b><span>{klass}</span><small>{score} SCORE · {progress} PROGRESS · {awards} AWARDS</small></div><a href="/hunter-circles/{cid}/legends/{slug}">PROFILE</a></article>'.format(klass=klass.lower(),icon=icon,name=esc(str(h.get('username') or '')),score=int(h.get('legend_score') or 0),progress=int(h.get('total_amount') or 0),awards=int(h.get('season_awards') or 0),cid=circle_id,slug=slug))
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Immortal Showcase</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 15% 0,#52125f,transparent 30%),radial-gradient(circle at 85% 0,#805c0d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1080px;margin:auto}}.hero,.panel{{border:1px solid #3a3943;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}a.nav,.card>a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}a.nav{{display:inline-block;margin:8px 8px 0 0}}.card{{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;border:1px solid #323540;border-radius:17px;padding:15px;background:#090a0f;margin-top:10px}}.card.immortal{{border-color:#8b6f2d;background:linear-gradient(145deg,rgba(255,214,107,.08),rgba(139,92,255,.04))}}.card.legend{{border-color:#624e33}}.icon{{font-size:32px}}.card span,.card small{{display:block;color:#9da1ad;margin-top:4px}}.card span{{color:#ffd66b;font-weight:900;font-size:9px}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:700px){{.card{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.9 // IMMORTAL SHOWCASE</div><h1>{esc(str(circle.get('emoji') or '🫂'))} IMMORTALS.</h1><p style="color:#9da1ad">The highest BL3 Circle legacy classes, separated into Immortal, Legend and Elite showcase tiers.</p><a class="nav" href="/hunter-circles/{circle_id}/hall-of-legends">HALL OF LEGENDS</a><a class="nav" href="/hunter-circles/{circle_id}/legacy">CIRCLE LEGACY</a><a class="nav" href="/hunter-circles/{circle_id}/immortal-showcase.json">JSON</a></section><section class="panel">{''.join(cards) or '<div style="color:#9da1ad">No Elite/Legend/Immortal Hunters yet.</div>'}</section><div class="digest">IMMORTAL SHOWCASE DIGEST // {esc(str(data.get('immortal_showcase_digest') or ''))}</div><p style="color:#9da1ad;font-size:10px">{esc(str(data.get('policy') or ''))}</p></div></body></html>'''
+
+
+if 'hunter_circle_hall_of_legends_page' in app.view_functions:
+    _V228_hall_legends_view=app.view_functions['hunter_circle_hall_of_legends_page']
+    def _V229_hall_legends_with_profiles(circle_id):
+        response=_V228_hall_legends_view(circle_id)
+        if isinstance(response,str):
+            showcase_link=f'<a class="nav" href="/hunter-circles/{int(circle_id)}/immortal-showcase">IMMORTAL SHOWCASE</a>'
+            if showcase_link not in response:
+                response=response.replace(f'<a class="nav" href="/hunter-circles/{int(circle_id)}/legacy">CIRCLE LEGACY</a>',f'<a class="nav" href="/hunter-circles/{int(circle_id)}/legacy">CIRCLE LEGACY</a>'+showcase_link,1)
+            response=response.replace('V22.8 // LEGACY MILESTONES + HALL OF LEGENDS','V22.9 // HALL OF LEGENDS + LEGEND PROFILES',1)
+            viewer=str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+            data=_legacy_milestones_snapshot(circle_id,viewer) if viewer else {}
+            for h in data.get('hall_of_legends') or []:
+                old=str(h.get('profile_url') or ''); new='/hunter-circles/{}/legends/{}'.format(int(circle_id),urllib.parse.quote(str(h.get('username') or ''),safe=''))
+                if old: response=response.replace('href="{}">PROFILE'.format(html.escape(old)),'href="{}">LEGEND PROFILE'.format(new))
+        return response
+    app.view_functions['hunter_circle_hall_of_legends_page']=_V229_hall_legends_with_profiles
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏛️ BL3 ARENA V22.8 // LEGACY MILESTONES + DYNASTY BADGES + HUNTER HALL OF LEGENDS")
+    print("🌌 BL3 ARENA V22.9 // LEGEND PROFILES + LEGACY TIMELINE + IMMORTAL SHOWCASE")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🌌 Legend Profiles + Legacy Timeline + Immortal Showcase enabled")
     print("🏛️ Legacy Milestones + Dynasty Badges + Hunter Hall of Legends enabled")
     print("👑 Circle Legacy Score + Dynasty Rankings + Legendary Hunters enabled")
     print("📜 Season Awards + Hall of Seasons + All-Time Circle Rankings enabled")
