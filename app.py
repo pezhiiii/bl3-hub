@@ -847,6 +847,19 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_guestbook_recipient_time ON hunter_guestbook_entries(recipient, is_pinned DESC, created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_guestbook_author_time ON hunter_guestbook_entries(author, created_at DESC)")
 
+    # V21.8: reactions on individual Kudos entries. One active reaction per Hunter per entry.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_guestbook_entry_reactions (
+            entry_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            reaction TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (entry_id, username)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_guestbook_entry_reactions_entry ON hunter_guestbook_entry_reactions(entry_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_guestbook_entry_reactions_user ON hunter_guestbook_entry_reactions(username, created_at DESC)")
+
     conn.commit()
     conn.close()
 
@@ -21499,16 +21512,248 @@ def hunter_guestbook_export_csv():
     return Response(out.getvalue(), mimetype="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="{}"'.format(filename)})
 
 
+
+
+# ===== V21.8 KUDOS REACTIONS + REACTION LEADERBOARD + MOST-LOVED MESSAGE =====
+HUNTER_ENTRY_REACTIONS = {
+    "❤️": "LOVE",
+    "🔥": "FIRE",
+    "👏": "CLAP",
+    "👑": "CROWN",
+    "⚡": "CHARGE",
+    "💎": "RARE",
+}
+
+
+def _guestbook_entry_reaction_snapshot(entry_ids, viewer=""):
+    ids = []
+    for raw in entry_ids or []:
+        try:
+            value = int(raw or 0)
+        except Exception:
+            value = 0
+        if value > 0 and value not in ids:
+            ids.append(value)
+    if not ids:
+        return {}
+
+    placeholders = ",".join(["?"] * len(ids))
+    conn = db()
+    rows = conn.execute(
+        f"""SELECT entry_id, reaction, COUNT(*) AS c
+            FROM hunter_guestbook_entry_reactions
+            WHERE entry_id IN ({placeholders})
+            GROUP BY entry_id, reaction""",
+        tuple(ids)
+    ).fetchall()
+    viewer_rows = []
+    if viewer:
+        viewer_rows = conn.execute(
+            f"""SELECT entry_id, reaction
+                FROM hunter_guestbook_entry_reactions
+                WHERE username = ? AND entry_id IN ({placeholders})""",
+            (str(viewer), *ids)
+        ).fetchall()
+    conn.close()
+
+    result = {entry_id: {"total": 0, "counts": {}, "viewer_reaction": None} for entry_id in ids}
+    for row in rows:
+        entry_id = int(row["entry_id"] or 0)
+        reaction = str(row["reaction"] or "")
+        count = int(row["c"] or 0)
+        if entry_id in result:
+            result[entry_id]["counts"][reaction] = count
+            result[entry_id]["total"] += count
+    for row in viewer_rows:
+        entry_id = int(row["entry_id"] or 0)
+        if entry_id in result:
+            result[entry_id]["viewer_reaction"] = str(row["reaction"] or "") or None
+    return result
+
+
+def _guestbook_reaction_leaderboard(limit=20):
+    limit = max(1, min(int(limit or 20), 100))
+    conn = db()
+    rows = conn.execute(
+        """SELECT e.id, e.recipient, e.author, e.reaction AS kudos_reaction, e.message, e.created_at,
+                  COUNT(r.username) AS reaction_total
+           FROM hunter_guestbook_entries e
+           LEFT JOIN hunter_guestbook_entry_reactions r ON r.entry_id = e.id
+           GROUP BY e.id
+           ORDER BY reaction_total DESC, e.id DESC
+           LIMIT ?""",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    items = [
+        {
+            "entry_id": int(row["id"] or 0),
+            "recipient": str(row["recipient"] or ""),
+            "author": str(row["author"] or ""),
+            "kudos_reaction": str(row["kudos_reaction"] or "🔥"),
+            "message": str(row["message"] or ""),
+            "created_at": str(row["created_at"] or ""),
+            "reaction_total": int(row["reaction_total"] or 0),
+        }
+        for row in rows
+    ]
+    most_loved = items[0] if items and int(items[0].get("reaction_total") or 0) > 0 else None
+    return {
+        "items": items,
+        "most_loved": most_loved,
+        "count": len(items),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Reaction totals are in-app engagement signals only. They do not represent monetary value, verified reputation, or off-platform popularity.",
+    }
+
+
+@app.post("/api/hunter/guestbook/react")
+def hunter_guestbook_react():
+    actor = str(session.get("authenticated_username") or "").strip()
+    if not actor:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        entry_id = int(payload.get("entry_id") or 0)
+    except Exception:
+        entry_id = 0
+    reaction = str(payload.get("reaction") or "").strip()
+    if entry_id <= 0:
+        return jsonify({"success": False, "message": "Valid entry_id required."}), 400
+    if reaction not in HUNTER_ENTRY_REACTIONS:
+        return jsonify({"success": False, "message": "Unsupported reaction."}), 400
+
+    conn = db()
+    entry = conn.execute(
+        "SELECT id, recipient, author FROM hunter_guestbook_entries WHERE id = ?",
+        (entry_id,)
+    ).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"success": False, "message": "Guestbook entry not found."}), 404
+
+    existing = conn.execute(
+        "SELECT reaction FROM hunter_guestbook_entry_reactions WHERE entry_id = ? AND username = ?",
+        (entry_id, actor)
+    ).fetchone()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    if existing and str(existing["reaction"] or "") == reaction:
+        conn.execute(
+            "DELETE FROM hunter_guestbook_entry_reactions WHERE entry_id = ? AND username = ?",
+            (entry_id, actor)
+        )
+        active_reaction = None
+        message = "Reaction removed."
+    else:
+        conn.execute(
+            """INSERT INTO hunter_guestbook_entry_reactions (entry_id, username, reaction, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(entry_id, username) DO UPDATE SET reaction = excluded.reaction, created_at = excluded.created_at""",
+            (entry_id, actor, reaction, now)
+        )
+        active_reaction = reaction
+        message = "Reaction updated."
+        recipient = str(entry["author"] or "").strip()
+        if recipient and recipient.lower() != actor.lower():
+            _notify(
+                conn,
+                recipient,
+                "kudos_reaction",
+                "{} reaction from @{}".format(reaction, actor),
+                "Your Kudos message received a new {} reaction.".format(HUNTER_ENTRY_REACTIONS.get(reaction, "reaction")),
+                "/u/{}/guestbook".format(urllib.parse.quote(str(entry["recipient"] or ""), safe=""))
+            )
+    conn.commit()
+    conn.close()
+    snap = _guestbook_entry_reaction_snapshot([entry_id], viewer=actor).get(entry_id, {"total": 0, "counts": {}, "viewer_reaction": active_reaction})
+    return jsonify({"success": True, "message": message, "entry_id": entry_id, "reaction": active_reaction, "reaction_data": snap})
+
+
+@app.route("/api/hunter/guestbook/reaction-leaderboard")
+def hunter_guestbook_reaction_leaderboard_api():
+    return jsonify({"success": True, **_guestbook_reaction_leaderboard(limit=request.args.get("limit") or 20)})
+
+
+@app.route("/hunter-guestbook-reactions")
+def hunter_guestbook_reaction_leaderboard_page():
+    data = _guestbook_reaction_leaderboard(limit=30)
+    esc = html.escape
+    most = data.get("most_loved")
+    hero = '<div class="empty">No entry has received a reaction yet.</div>'
+    if most:
+        hero = '<article class="winner"><div class="eyebrow">MOST-LOVED MESSAGE · {} REACTIONS</div><h2>{}</h2><div class="meta">BY @{} · ON @{}</div></article>'.format(
+            int(most.get("reaction_total") or 0),
+            esc(str(most.get("message") or "")),
+            esc(str(most.get("author") or "")),
+            esc(str(most.get("recipient") or "")),
+        )
+    cards = []
+    for rank, item in enumerate(data.get("items") or [], 1):
+        cards.append('<article class="card"><div class="rank">#{}</div><b>{} {}</b><div class="msg">{}</div><div class="meta">@{} → @{} · {} REACTIONS</div></article>'.format(
+            rank,
+            esc(str(item.get("kudos_reaction") or "🔥")),
+            esc(str(HUNTER_KUDOS_REACTIONS.get(str(item.get("kudos_reaction") or "🔥"), "SIGNAL"))),
+            esc(str(item.get("message") or "")),
+            esc(str(item.get("author") or "")),
+            esc(str(item.get("recipient") or "")),
+            int(item.get("reaction_total") or 0),
+        ))
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Kudos Reaction Leaderboard</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 16% 0,#51165e,transparent 28%),radial-gradient(circle at 86% 0,#704111,transparent 26%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1080px;margin:auto}}.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.eyebrow{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,88px);line-height:.9;margin:10px 0}}h2{{font-size:clamp(24px,4vw,44px);margin:10px 0}}.winner{{border:1px solid #644d19;border-radius:22px;background:linear-gradient(145deg,rgba(255,214,107,.08),#090a0f);padding:20px}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}}.card{{border:1px solid #30323b;border-radius:18px;background:#090a0f;padding:16px}}.rank{{color:#ffd66b;font-size:12px;font-weight:900}}.msg{{margin-top:9px;line-height:1.5}}.meta{{color:#9ca0ad;font-size:10px;margin-top:9px}}a.nav{{display:inline-block;margin-top:13px;margin-right:8px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:10px 12px;font-size:10px;font-weight:900}}.empty{{border:1px dashed #474a56;border-radius:18px;padding:18px;color:#9ca0ad}}@media(max-width:720px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><section class="panel"><div class="gold">V21.8 // KUDOS REACTION LEADERBOARD</div><h1>MOST-LOVED SIGNALS.</h1><p class="meta">A live board of BL3 Guestbook messages ranked by recorded in-app entry reactions.</p><a class="nav" href="/hunter-guestbook-studio">GUESTBOOK STUDIO</a></section><section class="panel">{hero}</section><section class="panel"><div class="gold">REACTION LEADERBOARD</div><div class="grid">{''.join(cards) or '<div class="empty">No Guestbook entries yet.</div>'}</div></section><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Preserve V21.7's page builder and layer V21.8 entry-reaction controls onto rendered HTML.
+_V217_hunter_guestbook_page = _hunter_guestbook_page
+
+
+def _hunter_guestbook_page(username, guestbook):
+    actor = str(session.get("authenticated_username") or "").strip()
+    reaction_data = _guestbook_entry_reaction_snapshot(
+        [x.get("id") for x in guestbook.get("entries") or []],
+        viewer=actor,
+    )
+    enriched = dict(guestbook)
+    enriched_entries = []
+    for item in guestbook.get("entries") or []:
+        copy_item = dict(item)
+        copy_item["entry_reactions"] = reaction_data.get(int(copy_item.get("id") or 0), {"total": 0, "counts": {}, "viewer_reaction": None})
+        enriched_entries.append(copy_item)
+    enriched["entries"] = enriched_entries
+
+    page = _V217_hunter_guestbook_page(username, enriched)
+    # Insert reaction buttons into each rendered card using entry id metadata already present in V21.7.
+    for item in enriched_entries:
+        entry_id = int(item.get("id") or 0)
+        data = item.get("entry_reactions") or {}
+        total = int(data.get("total") or 0)
+        viewer_reaction = str(data.get("viewer_reaction") or "")
+        buttons = []
+        for emoji, label in HUNTER_ENTRY_REACTIONS.items():
+            count = int((data.get("counts") or {}).get(emoji, 0))
+            active = " active" if viewer_reaction == emoji else ""
+            buttons.append('<button class="entry-react{}" type="button" data-entry="{}" data-reaction="{}" title="{}">{} {}</button>'.format(active, entry_id, html.escape(emoji), html.escape(label), html.escape(emoji), count))
+        bar = '<div class="entry-reactions" data-entry-reactions="{}"><span class="entry-reaction-total">{} REACTIONS</span>{}</div>'.format(entry_id, total, ''.join(buttons))
+        pattern = r'(<article class="entry guestbook-entry"[^>]*data-id="{}"[^>]*>.*?<div class="meta">.*?</div>)(</article>)'.format(entry_id)
+        page, _ = re.subn(pattern, lambda m: m.group(1) + bar + m.group(2), page, count=1, flags=re.S)
+
+    css = '.entry-reactions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:12px}.entry-react{border:1px solid #393d48;background:#08090d;color:#fff;border-radius:999px;padding:7px 9px;font-size:10px;cursor:pointer}.entry-react.active{border-color:#ff78d1;box-shadow:0 0 0 2px rgba(255,120,209,.11);color:#ffb8e6}.entry-reaction-total{font-size:9px;color:#9fa3b0;font-weight:900}.reaction-board-link{display:inline-block}'
+    page = page.replace('</style>', css + '</style>', 1)
+    leaderboard_link = '<a class="nav reaction-board-link" href="/hunter-guestbook-reactions">REACTION LEADERBOARD</a>'
+    page = page.replace('</section><section class="panel"><div class="gold">PUBLIC GUESTBOOK</div>', leaderboard_link + '</section><section class="panel"><div class="gold">PUBLIC GUESTBOOK</div>', 1)
+    js = """<script>(function(){document.querySelectorAll('.entry-react').forEach(btn=>{btn.addEventListener('click',async()=>{const entry=Number(btn.dataset.entry||0);const reaction=btn.dataset.reaction||'';if(!entry||!reaction)return;btn.disabled=true;try{const r=await fetch('/api/hunter/guestbook/react',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entry_id:entry,reaction})});const d=await r.json();if(r.ok&&d.success){const wrap=document.querySelector('[data-entry-reactions="'+entry+'"]');if(wrap){const rd=d.reaction_data||{};const counts=rd.counts||{};wrap.querySelectorAll('.entry-react').forEach(b=>{const em=b.dataset.reaction||'';b.classList.toggle('active',(rd.viewer_reaction||'')===em);b.textContent=em+' '+Number(counts[em]||0);});const total=wrap.querySelector('.entry-reaction-total');if(total)total.textContent=Number(rd.total||0)+' REACTIONS';}}else{alert(d.message||'Reaction failed.');}}catch(e){alert('Network error. Try again.');}finally{btn.disabled=false;}});});})();</script>"""
+    page = page.replace('</body>', js + '</body>', 1)
+    return page
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🪪 BL3 ARENA V21.7 // GUESTBOOK EDIT + REPLY BACK + EXPORT")
+    print("🪪 BL3 ARENA V21.8 // KUDOS REACTIONS + LEADERBOARD + MOST-LOVED")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("💖 Kudos Entry Reactions + Reaction Leaderboard + Most-Loved enabled")
     print("📚 Guestbook Pagination + Sort + Quick Replies enabled")
     print("🏷️ Guestbook Search + Filter + Owner Badges enabled")
     print("🪪 Hunter Profile 2.0 + Public Trophy Showcase enabled")
