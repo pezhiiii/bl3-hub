@@ -21743,16 +21743,270 @@ def _hunter_guestbook_page(username, guestbook):
     page = page.replace('</body>', js + '</body>', 1)
     return page
 
+
+
+# ===== V21.9 HUNTER SOCIAL FEED + TRENDING KUDOS + ACTIVITY STREAM =====
+def _hunter_social_feed_snapshot(viewer="", limit=40):
+    viewer = str(viewer or "").strip()
+    limit = max(8, min(int(limit or 40), 100))
+    conn = db()
+
+    follows = []
+    if viewer:
+        rows = conn.execute(
+            """SELECT target
+               FROM hunter_connections
+               WHERE owner = ? AND kind = 'follow'
+               ORDER BY created_at DESC
+               LIMIT 200""",
+            (viewer,)
+        ).fetchall()
+        follows = [str(r["target"] or "").strip() for r in rows if str(r["target"] or "").strip()]
+
+    entry_rows = conn.execute(
+        """SELECT e.id, e.recipient, e.author, e.reaction AS kudos_reaction,
+                  e.message, e.is_pinned, e.created_at,
+                  COUNT(r.username) AS reaction_total
+           FROM hunter_guestbook_entries e
+           LEFT JOIN hunter_guestbook_entry_reactions r ON r.entry_id = e.id
+           GROUP BY e.id
+           ORDER BY e.id DESC
+           LIMIT ?""",
+        (max(limit * 4, 120),)
+    ).fetchall()
+
+    reaction_rows = conn.execute(
+        """SELECT r.entry_id, r.username, r.reaction, r.created_at,
+                  e.recipient, e.author, e.message
+           FROM hunter_guestbook_entry_reactions r
+           JOIN hunter_guestbook_entries e ON e.id = r.entry_id
+           ORDER BY r.created_at DESC
+           LIMIT ?""",
+        (max(limit * 5, 160),)
+    ).fetchall()
+    conn.close()
+
+    now = datetime.utcnow()
+
+    def _age_hours(value):
+        raw = str(value or "").strip().replace("Z", "")
+        try:
+            dt = datetime.fromisoformat(raw)
+            return max(0.0, (now - dt).total_seconds() / 3600.0)
+        except Exception:
+            return 9999.0
+
+    entries = []
+    for row in entry_rows:
+        created_at = str(row["created_at"] or "")
+        reaction_total = int(row["reaction_total"] or 0)
+        age_hours = _age_hours(created_at)
+        freshness = max(0, int(48 - min(age_hours, 48)))
+        trend_score = min(999, reaction_total * 12 + freshness + (8 if int(row["is_pinned"] or 0) else 0))
+        item = {
+            "entry_id": int(row["id"] or 0),
+            "recipient": str(row["recipient"] or ""),
+            "author": str(row["author"] or ""),
+            "kudos_reaction": str(row["kudos_reaction"] or "🔥"),
+            "kudos_label": HUNTER_KUDOS_REACTIONS.get(str(row["kudos_reaction"] or "🔥"), "SIGNAL"),
+            "message": str(row["message"] or ""),
+            "is_pinned": int(row["is_pinned"] or 0),
+            "created_at": created_at,
+            "reaction_total": reaction_total,
+            "trend_score": trend_score,
+            "guestbook_url": "/u/{}/guestbook".format(urllib.parse.quote(str(row["recipient"] or ""), safe="")),
+            "author_url": "/u/{}".format(urllib.parse.quote(str(row["author"] or ""), safe="")),
+            "reply_url": "/u/{}/kudos".format(urllib.parse.quote(str(row["author"] or ""), safe="")),
+        }
+        entries.append(item)
+
+    following_set = {x.lower() for x in follows}
+    if viewer:
+        following_set.add(viewer.lower())
+
+    network_feed = []
+    if following_set:
+        network_feed = [
+            x for x in entries
+            if x.get("author", "").lower() in following_set
+            or x.get("recipient", "").lower() in following_set
+        ][:limit]
+
+    global_feed = entries[:limit]
+    trending = sorted(
+        entries,
+        key=lambda x: (int(x.get("trend_score") or 0), int(x.get("reaction_total") or 0), int(x.get("entry_id") or 0)),
+        reverse=True
+    )[:min(16, limit)]
+
+    activity = []
+    for item in entries[:max(limit, 50)]:
+        activity.append({
+            "type": "kudos",
+            "icon": str(item.get("kudos_reaction") or "🔥"),
+            "created_at": str(item.get("created_at") or ""),
+            "headline": "@{} sent {} to @{}".format(
+                item.get("author") or "hunter",
+                item.get("kudos_label") or "SIGNAL",
+                item.get("recipient") or "hunter"
+            ),
+            "detail": str(item.get("message") or ""),
+            "href": str(item.get("guestbook_url") or "#"),
+            "entry_id": int(item.get("entry_id") or 0),
+        })
+
+    for row in reaction_rows:
+        activity.append({
+            "type": "reaction",
+            "icon": str(row["reaction"] or "❤️"),
+            "created_at": str(row["created_at"] or ""),
+            "headline": "@{} reacted {} to @{}'s Kudos".format(
+                str(row["username"] or "hunter"),
+                str(row["reaction"] or "❤️"),
+                str(row["author"] or "hunter")
+            ),
+            "detail": str(row["message"] or ""),
+            "href": "/u/{}/guestbook".format(urllib.parse.quote(str(row["recipient"] or ""), safe="")),
+            "entry_id": int(row["entry_id"] or 0),
+        })
+
+    activity.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+    activity = activity[:limit]
+
+    payload = {
+        "viewer": viewer or None,
+        "mode": "network" if viewer and network_feed else "global",
+        "following_count": len(follows),
+        "network_feed": network_feed,
+        "global_feed": global_feed,
+        "trending": trending,
+        "activity": activity,
+        "counts": {
+            "entries_loaded": len(entries),
+            "network_items": len(network_feed),
+            "trending_items": len(trending),
+            "activity_items": len(activity),
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "BL3 Social Feed ranks recorded in-app Guestbook activity only. "
+            "Trending score is a local heuristic based on reaction count, recency and pin state; "
+            "it is not a prediction, monetary score, or off-platform popularity measure."
+        ),
+    }
+    payload["feed_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter/social-feed")
+def hunter_social_feed_api():
+    viewer = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    try:
+        limit = int(request.args.get("limit") or 40)
+    except Exception:
+        limit = 40
+    return jsonify({"success": True, **_hunter_social_feed_snapshot(viewer=viewer, limit=limit)})
+
+
+@app.route("/hunter-social-feed.json")
+def hunter_social_feed_json():
+    viewer = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    return jsonify(_hunter_social_feed_snapshot(viewer=viewer, limit=60))
+
+
+@app.route("/hunter-social-feed")
+def hunter_social_feed_page():
+    viewer = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    data = _hunter_social_feed_snapshot(viewer=viewer, limit=48)
+    esc = html.escape
+
+    feed_items = data.get("network_feed") or data.get("global_feed") or []
+    feed_label = "YOUR NETWORK" if data.get("network_feed") else "GLOBAL FEED"
+
+    feed_cards = []
+    for item in feed_items:
+        feed_cards.append(
+            '<article class="feed-card"><div class="feed-top"><span class="signal">{reaction} {label}</span><span class="score">{score} TREND</span></div>'
+            '<div class="route">@{author} → @{recipient}</div><div class="message">{message}</div>'
+            '<div class="meta">{created} · {reactions} REACTIONS · ENTRY #{entry_id}</div>'
+            '<div class="actions"><a href="{guestbook}">OPEN GUESTBOOK</a><a href="{author_url}">AUTHOR PROFILE</a><a href="{reply_url}">REPLY</a></div></article>'.format(
+                reaction=esc(str(item.get("kudos_reaction") or "🔥")),
+                label=esc(str(item.get("kudos_label") or "SIGNAL")),
+                score=int(item.get("trend_score") or 0),
+                author=esc(str(item.get("author") or "")),
+                recipient=esc(str(item.get("recipient") or "")),
+                message=esc(str(item.get("message") or "")),
+                created=esc(str(item.get("created_at") or "")),
+                reactions=int(item.get("reaction_total") or 0),
+                entry_id=int(item.get("entry_id") or 0),
+                guestbook=esc(str(item.get("guestbook_url") or "#")),
+                author_url=esc(str(item.get("author_url") or "#")),
+                reply_url=esc(str(item.get("reply_url") or "#")),
+            )
+        )
+
+    trending_cards = []
+    for rank, item in enumerate(data.get("trending") or [], 1):
+        trending_cards.append(
+            '<article class="trend-card"><div class="rank">#{rank}</div><div><b>{reaction} @{author}</b>'
+            '<div class="trend-message">{message}</div><div class="meta">{reactions} REACTIONS · TREND {score}</div></div>'
+            '<a href="{guestbook}">VIEW</a></article>'.format(
+                rank=rank,
+                reaction=esc(str(item.get("kudos_reaction") or "🔥")),
+                author=esc(str(item.get("author") or "")),
+                message=esc(str(item.get("message") or "")),
+                reactions=int(item.get("reaction_total") or 0),
+                score=int(item.get("trend_score") or 0),
+                guestbook=esc(str(item.get("guestbook_url") or "#")),
+            )
+        )
+
+    activity_cards = []
+    for item in data.get("activity") or []:
+        activity_cards.append(
+            '<a class="activity" href="{href}"><div class="activity-icon">{icon}</div><div><b>{headline}</b>'
+            '<div class="meta">{created}</div><div class="activity-detail">{detail}</div></div></a>'.format(
+                href=esc(str(item.get("href") or "#")),
+                icon=esc(str(item.get("icon") or "⚡")),
+                headline=esc(str(item.get("headline") or "")),
+                created=esc(str(item.get("created_at") or "")),
+                detail=esc(str(item.get("detail") or "")),
+            )
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hunter Social Feed</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#4e155f,transparent 30%),radial-gradient(circle at 88% 0,#70430f,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1200px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,90px);line-height:.88;margin:10px 0}}h2{{margin:4px 0 14px}}.meta{{color:#9ca0ad;font-size:10px;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9195a2}}.layout{{display:grid;grid-template-columns:1.35fr .8fr;gap:18px}}.feed{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.feed-card,.trend-card{{border:1px solid #30323b;border-radius:18px;background:#090a0f;padding:16px}}.feed-top{{display:flex;justify-content:space-between;gap:10px}}.signal,.score,.rank{{color:#ffd66b;font-size:10px;font-weight:900}}.route{{font-weight:900;margin-top:9px}}.message,.trend-message,.activity-detail{{margin-top:8px;line-height:1.5}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.actions a,a.nav,.trend-card>a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:8px 10px;font-size:9px;font-weight:900}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}.trend-stack,.activity-stack{{display:grid;gap:10px}}.trend-card{{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start}}.activity{{display:grid;grid-template-columns:38px 1fr;gap:10px;text-decoration:none;color:#fff;border:1px solid #2e3038;border-radius:15px;padding:12px;background:#090a0f}}.activity-icon{{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;border:1px solid #383b46;background:#0d0e14}}.digest{{margin-top:14px;color:#767986;font:9px ui-monospace,monospace;word-break:break-all}}.empty{{border:1px dashed #474a56;border-radius:16px;padding:18px;color:#9ca0ad}}@media(max-width:920px){{.layout,.feed{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:560px){{.stats{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V21.9 // HUNTER SOCIAL FEED</div><h1>THE ARENA IS TALKING.</h1><p class="meta">Live Guestbook signals, your Hunter network, trending Kudos and the newest reaction activity in one place.</p><div class="stats"><div class="stat"><b>{esc(str(data.get('mode') or 'global').upper())}</b><span>FEED MODE</span></div><div class="stat"><b>{int(data.get('following_count') or 0)}</b><span>FOLLOWING</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('trending_items') or 0)}</b><span>TRENDING SIGNALS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('activity_items') or 0)}</b><span>ACTIVITY EVENTS</span></div></div><a class="nav" href="/hunter-guestbook-studio">GUESTBOOK STUDIO</a><a class="nav" href="/hunter-guestbook-reactions">REACTION LEADERBOARD</a><a class="nav" href="/hunter-social-feed.json">JSON</a></section><div class="layout"><main><section class="panel"><div class="gold">{feed_label}</div><h2>LIVE KUDOS FEED</h2><div class="feed">{''.join(feed_cards) or '<div class="empty">No feed items yet.</div>'}</div></section></main><aside><section class="panel"><div class="gold">TRENDING KUDOS</div><div class="trend-stack">{''.join(trending_cards) or '<div class="empty">No trending signals yet.</div>'}</div></section><section class="panel"><div class="gold">ACTIVITY STREAM</div><div class="activity-stack">{''.join(activity_cards) or '<div class="empty">No activity yet.</div>'}</div></section></aside></div><div class="digest">SOCIAL FEED DIGEST // {esc(str(data.get('feed_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Layer a Social Feed link into the V21.8 Guestbook page.
+_V218_social_feed_guestbook_page = _hunter_guestbook_page
+
+
+def _hunter_guestbook_page(username, guestbook):
+    page = _V218_social_feed_guestbook_page(username, guestbook)
+    social_link = '<a class="nav" href="/hunter-social-feed">SOCIAL FEED</a>'
+    if social_link not in page:
+        page = page.replace(
+            '<a class="nav reaction-board-link" href="/hunter-guestbook-reactions">REACTION LEADERBOARD</a>',
+            '<a class="nav reaction-board-link" href="/hunter-guestbook-reactions">REACTION LEADERBOARD</a>' + social_link,
+            1
+        )
+    return page
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🪪 BL3 ARENA V21.8 // KUDOS REACTIONS + LEADERBOARD + MOST-LOVED")
+    print("🌐 BL3 ARENA V21.9 // HUNTER SOCIAL FEED + TRENDING KUDOS + ACTIVITY STREAM")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🌐 Hunter Social Feed + Trending Kudos + Activity Stream enabled")
     print("💖 Kudos Entry Reactions + Reaction Leaderboard + Most-Loved enabled")
     print("📚 Guestbook Pagination + Sort + Quick Replies enabled")
     print("🏷️ Guestbook Search + Filter + Owner Badges enabled")
