@@ -24524,16 +24524,495 @@ if 'hunter_circle_trophies_page' in app.view_functions:
 
     app.view_functions['hunter_circle_trophies_page'] = _V225_trophy_page_with_seasons
 
+
+
+# ===== V22.6 SEASON AWARDS + HALL OF SEASONS + ALL-TIME CIRCLE RANKINGS =====
+def _ensure_season_award_schema():
+    _ensure_circle_season_schema()
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_season_awards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id INTEGER NOT NULL,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            award_key TEXT NOT NULL,
+            award_icon TEXT NOT NULL DEFAULT '🏅',
+            award_title TEXT NOT NULL,
+            winner TEXT NOT NULL DEFAULT '',
+            metric_value INTEGER NOT NULL DEFAULT 0,
+            metric_label TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            awarded_at TEXT NOT NULL,
+            UNIQUE(season_id, award_key)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_season_awards_circle ON hunter_circle_season_awards(circle_id, season_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_season_awards_winner ON hunter_circle_season_awards(winner, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+def _rebuild_season_awards(circle_id, owner, season_id=None):
+    circle_id = int(circle_id or 0)
+    owner = str(owner or '').strip()
+    if circle_id <= 0 or not owner:
+        return 0
+
+    _ensure_season_award_schema()
+    conn = db()
+
+    params = [circle_id, owner]
+    where = "WHERE s.circle_id=? AND s.owner=? AND s.status='CLOSED'"
+    if season_id:
+        where += " AND s.id=?"
+        params.append(int(season_id))
+
+    seasons = conn.execute(
+        f"""SELECT s.id,s.name,s.emoji,s.closed_at
+            FROM hunter_circle_seasons s
+            {where}
+            ORDER BY s.id DESC""",
+        tuple(params)
+    ).fetchall()
+
+    total_awards = 0
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    for season in seasons:
+        sid = int(season["id"] or 0)
+
+        leaderboard = conn.execute(
+            """SELECT p.contributor,
+                      SUM(p.amount) AS total_amount,
+                      COUNT(*) AS updates,
+                      COUNT(DISTINCT p.challenge_id) AS challenges_helped
+               FROM hunter_circle_challenge_progress p
+               JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+               WHERE sc.season_id=? AND p.circle_id=? AND p.owner=?
+               GROUP BY p.contributor
+               ORDER BY total_amount DESC, challenges_helped DESC, contributor ASC""",
+            (sid, circle_id, owner)
+        ).fetchall()
+
+        if not leaderboard:
+            continue
+
+        by_total = sorted(
+            leaderboard,
+            key=lambda r: (-int(r["total_amount"] or 0), -int(r["challenges_helped"] or 0), str(r["contributor"] or "").lower())
+        )
+        by_updates = sorted(
+            leaderboard,
+            key=lambda r: (-int(r["updates"] or 0), -int(r["total_amount"] or 0), str(r["contributor"] or "").lower())
+        )
+        by_helped = sorted(
+            leaderboard,
+            key=lambda r: (-int(r["challenges_helped"] or 0), -int(r["total_amount"] or 0), str(r["contributor"] or "").lower())
+        )
+
+        awards = [
+            {
+                "key": "season_mvp",
+                "icon": "👑",
+                "title": "Season MVP",
+                "winner": str(by_total[0]["contributor"] or ""),
+                "value": int(by_total[0]["total_amount"] or 0),
+                "label": "TOTAL PROGRESS",
+                "detail": "Highest recorded progress contribution in this Circle Season.",
+            },
+            {
+                "key": "iron_hunter",
+                "icon": "⚒️",
+                "title": "Iron Hunter",
+                "winner": str(by_updates[0]["contributor"] or ""),
+                "value": int(by_updates[0]["updates"] or 0),
+                "label": "PROGRESS UPDATES",
+                "detail": "Most recorded progress updates during this Circle Season.",
+            },
+            {
+                "key": "multi_challenge",
+                "icon": "🌟",
+                "title": "All-Round Hunter",
+                "winner": str(by_helped[0]["contributor"] or ""),
+                "value": int(by_helped[0]["challenges_helped"] or 0),
+                "label": "CHALLENGES HELPED",
+                "detail": "Contributed to the widest set of recorded Season Challenges.",
+            },
+        ]
+
+        for award in awards:
+            conn.execute(
+                """INSERT INTO hunter_circle_season_awards
+                   (season_id,circle_id,owner,award_key,award_icon,award_title,winner,
+                    metric_value,metric_label,detail,awarded_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(season_id, award_key) DO UPDATE SET
+                     award_icon=excluded.award_icon,
+                     award_title=excluded.award_title,
+                     winner=excluded.winner,
+                     metric_value=excluded.metric_value,
+                     metric_label=excluded.metric_label,
+                     detail=excluded.detail,
+                     awarded_at=excluded.awarded_at""",
+                (
+                    sid, circle_id, owner,
+                    award["key"], award["icon"], award["title"], award["winner"],
+                    award["value"], award["label"], award["detail"], now
+                )
+            )
+            total_awards += 1
+
+    conn.commit()
+    conn.close()
+    return total_awards
+
+
+def _hall_of_seasons_snapshot(circle_id, viewer):
+    circle_id = int(circle_id or 0)
+    viewer = str(viewer or '').strip()
+    access = _circle_access_row(circle_id, viewer)
+    if not access:
+        return {"success": False, "message": "Circle not found or access denied."}
+
+    owner = str(access["owner"] or "")
+    _ensure_season_award_schema()
+    _rebuild_season_awards(circle_id, owner)
+
+    conn = db()
+
+    season_rows = conn.execute(
+        """SELECT id,name,emoji,status,starts_at,ends_at,created_at,closed_at
+           FROM hunter_circle_seasons
+           WHERE circle_id=? AND owner=?
+           ORDER BY id DESC""",
+        (circle_id, owner)
+    ).fetchall()
+
+    hall = []
+    for s in season_rows:
+        sid = int(s["id"] or 0)
+
+        awards = conn.execute(
+            """SELECT award_key,award_icon,award_title,winner,metric_value,metric_label,detail,awarded_at
+               FROM hunter_circle_season_awards
+               WHERE season_id=? AND circle_id=? AND owner=?
+               ORDER BY id ASC""",
+            (sid, circle_id, owner)
+        ).fetchall()
+
+        challenge_count_row = conn.execute(
+            """SELECT COUNT(*) AS c
+               FROM hunter_circle_season_challenges
+               WHERE season_id=? AND circle_id=? AND owner=?""",
+            (sid, circle_id, owner)
+        ).fetchone()
+
+        completed_count_row = conn.execute(
+            """SELECT COUNT(*) AS c
+               FROM hunter_circle_season_challenges sc
+               JOIN hunter_circle_challenges c ON c.id=sc.challenge_id
+               WHERE sc.season_id=? AND c.circle_id=? AND c.owner=? AND c.status='COMPLETED'""",
+            (sid, circle_id, owner)
+        ).fetchone()
+
+        trophy_count_row = conn.execute(
+            """SELECT COUNT(*) AS c
+               FROM hunter_circle_trophies t
+               JOIN hunter_circle_season_challenges sc ON sc.challenge_id=t.challenge_id
+               WHERE sc.season_id=? AND t.circle_id=? AND t.owner=?""",
+            (sid, circle_id, owner)
+        ).fetchone()
+
+        progress_row = conn.execute(
+            """SELECT COALESCE(SUM(p.amount),0) AS total
+               FROM hunter_circle_challenge_progress p
+               JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+               WHERE sc.season_id=? AND p.circle_id=? AND p.owner=?""",
+            (sid, circle_id, owner)
+        ).fetchone()
+
+        hall.append({
+            "id": sid,
+            "name": str(s["name"] or ""),
+            "emoji": str(s["emoji"] or "📅"),
+            "status": str(s["status"] or "ACTIVE"),
+            "starts_at": str(s["starts_at"] or ""),
+            "ends_at": str(s["ends_at"] or ""),
+            "closed_at": str(s["closed_at"] or ""),
+            "challenge_count": int((challenge_count_row["c"] if challenge_count_row else 0) or 0),
+            "completed_challenges": int((completed_count_row["c"] if completed_count_row else 0) or 0),
+            "trophies": int((trophy_count_row["c"] if trophy_count_row else 0) or 0),
+            "total_progress": int((progress_row["total"] if progress_row else 0) or 0),
+            "awards": [
+                {
+                    "key": str(a["award_key"] or ""),
+                    "icon": str(a["award_icon"] or "🏅"),
+                    "title": str(a["award_title"] or ""),
+                    "winner": str(a["winner"] or ""),
+                    "metric_value": int(a["metric_value"] or 0),
+                    "metric_label": str(a["metric_label"] or ""),
+                    "detail": str(a["detail"] or ""),
+                    "awarded_at": str(a["awarded_at"] or ""),
+                }
+                for a in awards
+            ],
+        })
+
+    all_time_rows = conn.execute(
+        """SELECT p.contributor,
+                  SUM(p.amount) AS total_amount,
+                  COUNT(*) AS updates,
+                  COUNT(DISTINCT p.challenge_id) AS challenges_helped,
+                  COUNT(DISTINCT sc.season_id) AS seasons_played
+           FROM hunter_circle_challenge_progress p
+           LEFT JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+           WHERE p.circle_id=? AND p.owner=?
+           GROUP BY p.contributor
+           ORDER BY total_amount DESC, challenges_helped DESC, contributor ASC""",
+        (circle_id, owner)
+    ).fetchall()
+
+    award_count_rows = conn.execute(
+        """SELECT winner, COUNT(*) AS awards
+           FROM hunter_circle_season_awards
+           WHERE circle_id=? AND owner=? AND winner<>''
+           GROUP BY winner""",
+        (circle_id, owner)
+    ).fetchall()
+    award_counts = {str(r["winner"] or "").lower(): int(r["awards"] or 0) for r in award_count_rows}
+
+    conn.close()
+
+    all_time = []
+    for i, r in enumerate(all_time_rows):
+        name = str(r["contributor"] or "")
+        all_time.append({
+            "rank": i + 1,
+            "username": name,
+            "total_amount": int(r["total_amount"] or 0),
+            "updates": int(r["updates"] or 0),
+            "challenges_helped": int(r["challenges_helped"] or 0),
+            "seasons_played": int(r["seasons_played"] or 0),
+            "season_awards": award_counts.get(name.lower(), 0),
+        })
+
+    payload = {
+        "success": True,
+        "viewer": viewer,
+        "access_role": str(access["access_role"] or ""),
+        "circle": {
+            "id": int(access["id"] or 0),
+            "owner": owner,
+            "name": str(access["name"] or ""),
+            "emoji": str(access["emoji"] or "🫂"),
+            "description": str(access["description"] or ""),
+        },
+        "hall_of_seasons": hall,
+        "all_time_rankings": all_time,
+        "counts": {
+            "seasons": len(hall),
+            "closed_seasons": sum(1 for s in hall if s.get("status") == "CLOSED"),
+            "season_awards": sum(len(s.get("awards") or []) for s in hall),
+            "ranked_hunters": len(all_time),
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Season Awards and All-Time Circle Rankings are derived only from recorded BL3 "
+            "challenge progress. They are in-app historical summaries, not financial, real-world, "
+            "or skill rankings."
+        ),
+    }
+    payload["hall_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.post("/api/hunter/circles/seasons/awards/rebuild")
+def hunter_circle_season_awards_rebuild():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        circle_id = int(payload.get("circle_id") or 0)
+        season_id = int(payload.get("season_id") or 0)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid IDs."}), 400
+
+    access = _circle_access_row(circle_id, username)
+    if not access or str(access["access_role"] or "") != "owner":
+        return jsonify({"success": False, "message": "Only the Circle owner can rebuild Season Awards."}), 403
+
+    count = _rebuild_season_awards(circle_id, str(access["owner"] or ""), season_id or None)
+    return jsonify({
+        "success": True,
+        "message": f"Rebuilt {count} Season Award records.",
+        "snapshot": _hall_of_seasons_snapshot(circle_id, username),
+    })
+
+
+@app.route("/api/hunter/circles/<int:circle_id>/hall-of-seasons")
+def hunter_hall_of_seasons_api(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _hall_of_seasons_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/hall-of-seasons.json")
+def hunter_hall_of_seasons_json(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _hall_of_seasons_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/hall-of-seasons")
+def hunter_hall_of_seasons_page(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>📜 Hall of Seasons</h1><p>Sign in to continue.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _hall_of_seasons_snapshot(circle_id, username)
+    if not data.get("success"):
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>""", 403
+
+    esc = html.escape
+    circle = data.get("circle") or {}
+
+    season_cards = []
+    for s in data.get("hall_of_seasons") or []:
+        awards_html = "".join(
+            '<div class="award"><span>{icon}</span><div><b>{title}</b><small>@{winner} · {value} {label}</small></div></div>'.format(
+                icon=esc(str(a.get("icon") or "🏅")),
+                title=esc(str(a.get("title") or "")),
+                winner=esc(str(a.get("winner") or "")),
+                value=int(a.get("metric_value") or 0),
+                label=esc(str(a.get("metric_label") or "")),
+            )
+            for a in (s.get("awards") or [])
+        ) or '<div class="empty">No Season Awards recorded.</div>'
+
+        season_cards.append(
+            '<article class="season"><div class="top"><div><span class="status">{status}</span>'
+            '<h2>{emoji} {name}</h2><div class="meta">{starts} → {closed}</div></div>'
+            '<div class="season-score">{progress}<small>TOTAL PROGRESS</small></div></div>'
+            '<div class="chips"><span>{challenges} CHALLENGES</span><span>{completed} COMPLETED</span>'
+            '<span>{trophies} TROPHIES</span><span>{awards} AWARDS</span></div>'
+            '<div class="awards">{awards_html}</div></article>'.format(
+                status=esc(str(s.get("status") or "")),
+                emoji=esc(str(s.get("emoji") or "📅")),
+                name=esc(str(s.get("name") or "")),
+                starts=esc(str(s.get("starts_at") or "")),
+                closed=esc(str(s.get("closed_at") or s.get("ends_at") or "OPEN")),
+                progress=int(s.get("total_progress") or 0),
+                challenges=int(s.get("challenge_count") or 0),
+                completed=int(s.get("completed_challenges") or 0),
+                trophies=int(s.get("trophies") or 0),
+                awards=len(s.get("awards") or []),
+                awards_html=awards_html,
+            )
+        )
+
+    ranking_rows = []
+    for row in data.get("all_time_rankings") or []:
+        medal = "👑" if int(row.get("rank") or 0) == 1 else ("🥈" if int(row.get("rank") or 0) == 2 else ("🥉" if int(row.get("rank") or 0) == 3 else "⚡"))
+        ranking_rows.append(
+            '<div class="rankrow"><div class="rank">{medal} #{rank}</div><div><b>@{name}</b>'
+            '<small>{progress} progress · {updates} updates · {helped} challenges · {seasons} seasons · {awards} awards</small></div></div>'.format(
+                medal=medal,
+                rank=int(row.get("rank") or 0),
+                name=esc(str(row.get("username") or "")),
+                progress=int(row.get("total_amount") or 0),
+                updates=int(row.get("updates") or 0),
+                helped=int(row.get("challenges_helped") or 0),
+                seasons=int(row.get("seasons_played") or 0),
+                awards=int(row.get("season_awards") or 0),
+            )
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hall of Seasons</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#50165f,transparent 30%),radial-gradient(circle at 88% 0,#70460d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel,.season{{border:1px solid #393741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,90px);line-height:.88;margin:10px 0}}h2{{font-size:28px;margin:7px 0}}.meta{{color:#9da1ad;font-size:10px}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;background:#090a0f;padding:14px}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.top{{display:flex;justify-content:space-between;gap:16px}}.status{{display:inline-block;border:1px solid #3b3e48;border-radius:999px;padding:5px 8px;font-size:8px;font-weight:900;color:#ffd66b}}.season-score{{font-size:34px;font-weight:950;color:#ffd66b;text-align:right}}.season-score small{{display:block;font-size:8px;color:#9296a4}}.chips{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.chips span{{border:1px solid #343741;border-radius:999px;padding:7px 9px;font-size:8px;font-weight:900}}.awards{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.award{{display:grid;grid-template-columns:42px 1fr;gap:10px;border:1px solid #332f28;border-radius:15px;padding:12px;background:rgba(255,214,107,.04)}}.award>span{{font-size:28px}}.award small{{display:block;color:#9da1ad;margin-top:4px}}.rankings{{display:grid;gap:9px}}.rankrow{{display:grid;grid-template-columns:90px 1fr;gap:12px;border:1px solid #2e3038;border-radius:15px;padding:13px;background:#090a0f}}.rank{{color:#ffd66b;font-weight:900}}.rankrow small{{display:block;color:#9498a6;font-size:10px;margin-top:4px}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:13px;color:#9da1ad;font-size:10px}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats,.awards{{grid-template-columns:1fr}}.top{{display:block}}.season-score{{text-align:left;margin-top:12px}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.6 // SEASON AWARDS + HALL OF SEASONS</div><h1>{esc(str(circle.get('emoji') or '🫂'))} HALL OF SEASONS.</h1><p class="meta">{esc(str(circle.get('name') or 'CIRCLE'))} · permanent Season history, end-of-season awards and all-time Circle rankings.</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('seasons') or 0)}</b><span>SEASONS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('closed_seasons') or 0)}</b><span>CLOSED SEASONS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('season_awards') or 0)}</b><span>SEASON AWARDS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('ranked_hunters') or 0)}</b><span>ALL-TIME HUNTERS</span></div></div><a class="nav" href="/hunter-circles/{circle_id}/seasons">SEASONS</a><a class="nav" href="/hunter-circles/{circle_id}/trophies">TROPHY CABINET</a><a class="nav" href="/hunter-circles/{circle_id}/challenges">CHALLENGES</a><a class="nav" href="/hunter-circles/{circle_id}/hall-of-seasons.json">JSON</a></section><section>{''.join(season_cards) or '<div class="panel empty">No Seasons recorded yet.</div>'}</section><section class="panel"><div class="gold">ALL-TIME CIRCLE RANKINGS</div><div class="rankings">{''.join(ranking_rows) or '<div class="empty">No recorded challenge progress yet.</div>'}</div></section><div class="digest">HALL DIGEST // {esc(str(data.get('hall_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add Hall of Seasons navigation to Seasons and Trophy pages.
+if 'hunter_circle_seasons_page' in app.view_functions:
+    _V225_seasons_page_view_hall = app.view_functions['hunter_circle_seasons_page']
+
+    def _V226_seasons_page_with_hall(circle_id):
+        response = _V225_seasons_page_view_hall(circle_id)
+        if isinstance(response, str):
+            hall_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-seasons">HALL OF SEASONS</a>'
+            if hall_link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/trophies">TROPHY CABINET</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/trophies">TROPHY CABINET</a>' + hall_link,
+                    1
+                )
+            response = response.replace(
+                'V22.5 // CIRCLE SEASONS + SEASONAL HISTORY',
+                'V22.6 // CIRCLE SEASONS + SEASON AWARDS',
+                1
+            )
+        return response
+
+    app.view_functions['hunter_circle_seasons_page'] = _V226_seasons_page_with_hall
+
+
+if 'hunter_circle_trophies_page' in app.view_functions:
+    _V225_trophy_page_view_hall = app.view_functions['hunter_circle_trophies_page']
+
+    def _V226_trophy_page_with_hall(circle_id):
+        response = _V225_trophy_page_view_hall(circle_id)
+        if isinstance(response, str):
+            hall_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-seasons">HALL OF SEASONS</a>'
+            if hall_link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/seasons">SEASONS</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/seasons">SEASONS</a>' + hall_link,
+                    1
+                )
+        return response
+
+    app.view_functions['hunter_circle_trophies_page'] = _V226_trophy_page_with_hall
+
+
+# Rebuild Awards after a Season is closed.
+if 'hunter_circle_season_status' in app.view_functions:
+    _V225_season_status_view_awards = app.view_functions['hunter_circle_season_status']
+
+    def _V226_season_status_with_awards():
+        response = _V225_season_status_view_awards()
+        try:
+            body = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+            if body and body.get("success"):
+                snapshot = body.get("snapshot") or {}
+                circle = snapshot.get("circle") or {}
+                if circle.get("id") and circle.get("owner"):
+                    _rebuild_season_awards(int(circle["id"]), str(circle["owner"]))
+        except Exception:
+            pass
+        return response
+
+    app.view_functions['hunter_circle_season_status'] = _V226_season_status_with_awards
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("📅 BL3 ARENA V22.5 // CIRCLE SEASONS + SEASONAL LEADERBOARD + TROPHY HISTORY")
+    print("📜 BL3 ARENA V22.6 // SEASON AWARDS + HALL OF SEASONS + ALL-TIME CIRCLE RANKINGS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("📜 Season Awards + Hall of Seasons + All-Time Circle Rankings enabled")
     print("📅 Circle Seasons + Seasonal Leaderboard + Trophy History enabled")
     print("💎 Challenge Rewards + Contribution MVP + Circle Trophy Cabinet enabled")
     print("🏆 Circle Challenges + Shared Goals + Group Progress enabled")
