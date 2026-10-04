@@ -832,7 +832,7 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_champ_titles_season ON championship_titles(season_key DESC, bracket_size DESC)")
 
-    # V21.2: public Hunter Guestbook + Kudos Wall
+    # V21.3: public Hunter Guestbook + Kudos Wall
     conn.execute("""
         CREATE TABLE IF NOT EXISTS hunter_guestbook_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20765,7 +20765,10 @@ h1{font-size:clamp(58px,9vw,106px);line-height:.86;margin:10px 0}.stats{display:
 
 
 
-# ===== V21.2 HUNTER GUESTBOOK + KUDOS WALL =====
+# ===== V21.3 INTERACTIVE KUDOS COMPOSER + LIVE GUESTBOOK =====
+# Public kudos now supports in-page composition, per-pair cooldowns and recipient notifications.
+
+# ===== V21.3 HUNTER GUESTBOOK + KUDOS WALL =====
 HUNTER_KUDOS_REACTIONS = {
     "🔥": "FIRE",
     "⚡": "CHARGED",
@@ -20878,20 +20881,66 @@ def hunter_guestbook_sign():
 
     get_user(actor)
     get_user(recipient)
-    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    now_dt = datetime.utcnow()
+    now = now_dt.isoformat(timespec="seconds") + "Z"
+    cutoff = (now_dt - timedelta(minutes=10)).isoformat(timespec="seconds") + "Z"
     conn = db()
-    conn.execute(
+    recent = conn.execute(
+        """SELECT COUNT(*) AS c FROM hunter_guestbook_entries
+           WHERE recipient = ? AND author = ? AND created_at >= ?""",
+        (recipient, actor, cutoff)
+    ).fetchone()
+    if int((recent["c"] if recent else 0) or 0) >= 3:
+        conn.close()
+        return jsonify({"success": False, "message": "Kudos cooldown: max 3 signals to the same Hunter every 10 minutes."}), 429
+
+    cur = conn.execute(
         """INSERT INTO hunter_guestbook_entries (recipient, author, reaction, message, is_pinned, created_at)
            VALUES (?, ?, ?, ?, 0, ?)""",
         (recipient, actor, reaction, message, now)
+    )
+    entry_id = int(cur.lastrowid or 0)
+    _notify(
+        conn,
+        recipient,
+        "kudos",
+        "{} {} from @{}".format(reaction, HUNTER_KUDOS_REACTIONS.get(reaction, "KUDOS"), actor),
+        message[:180],
+        "/u/{}/guestbook".format(urllib.parse.quote(recipient, safe=""))
     )
     conn.commit()
     conn.close()
     return jsonify({
         "success": True,
-        "message": "Guestbook signal sent.",
+        "message": "Kudos sent.",
+        "entry_id": entry_id,
         "guestbook": _hunter_guestbook_snapshot(recipient, limit=12),
     })
+
+
+
+@app.route("/u/<path:username>/kudos")
+def hunter_kudos_composer_page(username):
+    target = urllib.parse.unquote(username).strip()
+    actor = str(session.get("authenticated_username") or "").strip()
+    esc = html.escape
+    target_q = urllib.parse.quote(target, safe="")
+    reaction_buttons = "".join(
+        '<button type="button" class="reaction{}" data-reaction="{}" title="{}">{}</button>'.format(
+            " selected" if emoji == "🔥" else "", esc(emoji), esc(label), esc(emoji)
+        )
+        for emoji, label in HUNTER_KUDOS_REACTIONS.items()
+    )
+    auth_note = (
+        "Signed in as @{}".format(esc(actor))
+        if actor else
+        "Sign in to BL3 before sending Kudos."
+    )
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Send Kudos</title><style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0,#4b1766,transparent 30%),radial-gradient(circle at 86% 0,#68400f,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:820px;margin:auto}}.panel{{border:1px solid #353844;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px;box-shadow:0 30px 90px rgba(0,0,0,.3)}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(50px,9vw,92px);line-height:.88;margin:10px 0}}.meta{{color:#9da1ae;font-size:11px;line-height:1.6}}.reactions{{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}}.reaction{{width:54px;height:54px;border-radius:16px;border:1px solid #3a3d48;background:#090a0f;color:#fff;font-size:25px;cursor:pointer}}.reaction.selected{{border-color:#ffd66b;box-shadow:0 0 0 2px rgba(255,214,107,.12),0 0 35px rgba(255,214,107,.08)}}textarea{{width:100%;min-height:130px;border-radius:18px;border:1px solid #363944;background:#07080c;color:#fff;padding:16px;font:inherit;resize:vertical;outline:none}}.count{{text-align:right;color:#818593;font-size:10px;margin-top:6px}}button.send,a.nav{{display:inline-block;margin-top:14px;margin-right:8px;border-radius:12px;padding:12px 16px;font-weight:900;font-size:11px;text-decoration:none}}button.send{{border:0;background:#ffd66b;color:#160f03;cursor:pointer}}a.nav{{border:1px solid #3b3e48;color:#fff}}.status{{margin-top:14px;min-height:22px;color:#bfc3cf}}.rule{{margin-top:18px;border:1px solid #2d3039;border-radius:16px;padding:14px;color:#8e929f;font-size:10px}}
+</style></head><body><div class="wrap"><section class="panel"><div class="gold">V21.3 // INTERACTIVE KUDOS COMPOSER</div><h1>SEND A SIGNAL.</h1><p class="meta">Leave a public Kudos message for <b>@{esc(target)}</b>. Choose a reaction, write up to 180 characters, and it will appear on their Guestbook.</p><div class="meta">{auth_note}</div><div class="reactions" id="reactions">{reaction_buttons}</div><textarea id="message" maxlength="180" placeholder="Write something real — respect, hype, rivalry, or a legendary moment..."></textarea><div class="count"><span id="count">0</span>/180</div><button class="send" id="send">SEND KUDOS</button><a class="nav" href="/u/{target_q}/guestbook">OPEN GUESTBOOK</a><a class="nav" href="/u/{target_q}">BACK TO PROFILE</a><div class="status" id="status"></div><div class="rule">Anti-spam: maximum 3 Kudos signals to the same Hunter every 10 minutes. Messages are public and tied to the signed-in BL3 Hunter identity.</div></section></div><script>
+let reaction='🔥';const buttons=[...document.querySelectorAll('.reaction')];const message=document.getElementById('message');const status=document.getElementById('status');const count=document.getElementById('count');buttons.forEach(b=>b.onclick=()=>{{buttons.forEach(x=>x.classList.remove('selected'));b.classList.add('selected');reaction=b.dataset.reaction}});message.oninput=()=>count.textContent=message.value.length;document.getElementById('send').onclick=async()=>{{const value=message.value.trim();if(!value){{status.textContent='Write a message first.';return}};status.textContent='Sending…';try{{const r=await fetch('/api/hunter/guestbook/sign',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{recipient:{json.dumps(target, ensure_ascii=False)},reaction,message:value}})}});const d=await r.json();status.textContent=d.message||'Request complete.';if(r.ok&&d.success){{message.value='';count.textContent='0';setTimeout(()=>location.href='/u/{target_q}/guestbook',650)}}}}catch(e){{status.textContent='Network error. Try again.'}}}};
+</script></body></html>"""
 
 
 @app.post("/api/hunter/guestbook/pin")
@@ -20945,7 +20994,7 @@ def _hunter_guestbook_page(username, guestbook):
             )
         )
     card_html = "".join(cards) or '<div class="empty">No guestbook entries yet. Be the first to send a signal.</div>'
-    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hunter Guestbook</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 18% 0,#3f135f,transparent 30%),radial-gradient(circle at 84% 0,#704112,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1040px;margin:auto}}.panel{{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:24px}}.gold{{color:#ffd66b;font-weight:900}}.hero h1{{font-size:clamp(42px,8vw,82px);line-height:.9;margin:8px 0 10px}}.chips{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.chip{{border:1px solid #343741;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:900}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}}.entry{{border:1px solid #30323b;border-radius:20px;background:#090a0f;padding:16px}}.top{{display:flex;justify-content:space-between;gap:8px;align-items:center}}.pin{{font-size:9px;color:#111;background:#ffd66b;border-radius:999px;padding:6px 8px;font-weight:900}}.msg{{margin-top:10px;font-size:15px;line-height:1.5}}.meta{{margin-top:10px;color:#9fa3b0;font-size:10px}}.empty{{border:1px dashed #474a56;border-radius:18px;padding:18px;color:#9fa3b0}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 12px;font-size:10px;font-weight:900}}a.nav.hot{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}@media(max-width:720px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><section class="panel hero"><div class="gold">V21.2 // HUNTER GUESTBOOK + KUDOS WALL</div><h1>@{esc(username)}</h1><div>{esc(str(guestbook.get('headline') or ''))}</div><div class="chips"><span class="chip">💌 {int(guestbook.get('count') or 0)} TOTAL SIGNALS</span><span class="chip">{reaction_summary}</span></div><a class="nav hot" href="/u/{urllib.parse.quote(username, safe='')}">BACK TO PROFILE</a><a class="nav" href="/u/{urllib.parse.quote(username, safe='')}.json">JSON</a></section><section class="panel"><div class="gold">PUBLIC GUESTBOOK</div><div class="grid">{card_html}</div></section></div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hunter Guestbook</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 18% 0,#3f135f,transparent 30%),radial-gradient(circle at 84% 0,#704112,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1040px;margin:auto}}.panel{{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:24px}}.gold{{color:#ffd66b;font-weight:900}}.hero h1{{font-size:clamp(42px,8vw,82px);line-height:.9;margin:8px 0 10px}}.chips{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.chip{{border:1px solid #343741;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:900}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}}.entry{{border:1px solid #30323b;border-radius:20px;background:#090a0f;padding:16px}}.top{{display:flex;justify-content:space-between;gap:8px;align-items:center}}.pin{{font-size:9px;color:#111;background:#ffd66b;border-radius:999px;padding:6px 8px;font-weight:900}}.msg{{margin-top:10px;font-size:15px;line-height:1.5}}.meta{{margin-top:10px;color:#9fa3b0;font-size:10px}}.empty{{border:1px dashed #474a56;border-radius:18px;padding:18px;color:#9fa3b0}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 12px;font-size:10px;font-weight:900}}a.nav.hot{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}@media(max-width:720px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><section class="panel hero"><div class="gold">V21.3 // HUNTER GUESTBOOK + KUDOS WALL</div><h1>@{esc(username)}</h1><div>{esc(str(guestbook.get('headline') or ''))}</div><div class="chips"><span class="chip">💌 {int(guestbook.get('count') or 0)} TOTAL SIGNALS</span><span class="chip">{reaction_summary}</span></div><a class="nav hot" href="/u/{urllib.parse.quote(username, safe='')}/kudos">SEND KUDOS</a><a class="nav" href="/u/{urllib.parse.quote(username, safe='')}">BACK TO PROFILE</a><a class="nav" href="/u/{urllib.parse.quote(username, safe='')}.json">JSON</a></section><section class="panel"><div class="gold">PUBLIC GUESTBOOK</div><div class="grid">{card_html}</div></section></div></body></html>"""
 
 
 @app.route("/u/<path:username>/guestbook")
@@ -20954,7 +21003,7 @@ def hunter_guestbook_page(username):
     return _hunter_guestbook_page(target, _hunter_guestbook_snapshot(target, limit=24))
 
 
-# ===== V21.2 HUNTER IDENTITY SHOWCASE + EQUIPPED PUBLIC LOADOUT =====
+# ===== V21.3 HUNTER IDENTITY SHOWCASE + EQUIPPED PUBLIC LOADOUT =====
 def _hunter_public_profile_snapshot(username):
     username = str(username or "").strip()
     if not username:
@@ -21060,7 +21109,7 @@ def _hunter_identity_share_page(data):
     return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BL3 Hunter Identity Card</title><style>
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 18% 0,#4d1766,transparent 31%),radial-gradient(circle at 86% 8%,#6c420d,transparent 30%),#040406;color:#fff;font-family:Inter,system-ui;padding:22px}}.card{{width:min(920px,100%);border:1px solid #41444f;border-radius:34px;padding:34px;background:linear-gradient(145deg,#0d0e14,#07080c);box-shadow:0 35px 120px rgba(0,0,0,.48)}}.top{{display:flex;justify-content:space-between;gap:16px;align-items:center}}.brand{{font-weight:950;font-size:19px}}.gold{{color:#ffd66b}}.orb{{width:160px;height:160px;border-radius:50%;display:grid;place-items:center;font-size:68px;margin:34px auto 22px;border:1px solid #604a72;background:radial-gradient(circle,#7f33bd 0,#2e113f 48%,#0c0d11 72%);box-shadow:0 0 70px rgba(127,51,189,.24)}}h1{{font-size:clamp(54px,9vw,100px);line-height:.86;text-align:center;margin:10px 0}}.sub{{text-align:center;color:#a7a9b5;font-size:12px}}.chips{{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin:20px 0}}.chip{{border:1px solid #383a45;border-radius:999px;padding:8px 11px;font-size:9px;font-weight:900}}.feature{{border:1px solid #3a3c46;border-radius:20px;padding:18px;margin-top:18px;text-align:center;background:#090a0f}}.feature b{{display:block;font-size:24px;margin-top:6px}}.actions{{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:20px}}a{{color:#fff;text-decoration:none;border:1px solid #3b3d47;border-radius:11px;padding:10px 13px;font-size:9px;font-weight:900}}a.hot{{background:#ffd66b;color:#120e04;border-color:#ffd66b}}.digest{{margin-top:20px;color:#6f727f;font:8px ui-monospace,monospace;word-break:break-all;text-align:center}}@media(max-width:600px){{.card{{padding:22px}}.top{{align-items:flex-start}}.orb{{width:118px;height:118px;font-size:50px}}}}
-</style></head><body><main class="card"><div class="top"><div class="brand">BL3<span class="gold">●</span> HUNTER IDENTITY</div><div class="chip">V21.2</div></div><div class="orb">{esc(str(title.get("icon") or "👾"))}</div><h1>@{username}</h1><div class="sub">{esc(str(title.get("title") or "HUNTER"))} · {tier}</div><div class="chips"><span class="chip">{esc(str(aura.get("icon") or "📡"))} {esc(str(aura.get("label") or "SIGNAL"))} AURA</span><span class="chip">{esc(str(skin.get("icon") or "⚡"))} {esc(str(skin.get("name") or "NEON"))} SKIN</span><span class="chip">🏆 SCORE {score}</span></div><section class="feature"><div class="gold">FEATURED TROPHY</div><b>{esc(str(featured.get("icon") or "🏆"))} {esc(str(featured.get("title") or "NO TROPHY PINNED"))}</b><div class="sub">{esc(str(featured.get("detail") or "Equip a Trophy from your BL3 profile to feature it here."))}</div></section><div class="actions"><a class="hot" href="/u/{user_q}">OPEN PROFILE</a><a href="https://twitter.com/intent/tweet?text={share_q}">SHARE IDENTITY</a><a href="/u/{user_q}.json">JSON</a></div><div class="digest">IDENTITY DIGEST // {digest}</div></main></body></html>"""
+</style></head><body><main class="card"><div class="top"><div class="brand">BL3<span class="gold">●</span> HUNTER IDENTITY</div><div class="chip">V21.3</div></div><div class="orb">{esc(str(title.get("icon") or "👾"))}</div><h1>@{username}</h1><div class="sub">{esc(str(title.get("title") or "HUNTER"))} · {tier}</div><div class="chips"><span class="chip">{esc(str(aura.get("icon") or "📡"))} {esc(str(aura.get("label") or "SIGNAL"))} AURA</span><span class="chip">{esc(str(skin.get("icon") or "⚡"))} {esc(str(skin.get("name") or "NEON"))} SKIN</span><span class="chip">🏆 SCORE {score}</span></div><section class="feature"><div class="gold">FEATURED TROPHY</div><b>{esc(str(featured.get("icon") or "🏆"))} {esc(str(featured.get("title") or "NO TROPHY PINNED"))}</b><div class="sub">{esc(str(featured.get("detail") or "Equip a Trophy from your BL3 profile to feature it here."))}</div></section><div class="actions"><a class="hot" href="/u/{user_q}">OPEN PROFILE</a><a href="https://twitter.com/intent/tweet?text={share_q}">SHARE IDENTITY</a><a href="/u/{user_q}.json">JSON</a></div><div class="digest">IDENTITY DIGEST // {digest}</div></main></body></html>"""
 
 
 @app.route("/u/<path:username>/card")
@@ -21119,7 +21168,7 @@ def hunter_public_profile_page(username):
     page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BL3 Hunter Identity</title><style>
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 16% 0,#3a1554,transparent 30%),radial-gradient(circle at 84% 0,#60370d,transparent 28%),#040406;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1160px;margin:auto}.hero,.panel{border:1px solid #343741;border-radius:30px;background:#0b0c11;padding:26px;margin-top:18px}.gold{color:#ffd66b;font-weight:900}.purple{color:#b57cff}.meta{color:#999cab;font-size:10px;line-height:1.6}h1{font-size:clamp(62px,10vw,112px);line-height:.84;margin:10px 0}.profile{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}.avatar{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;font-size:58px;font-weight:900;border:1px solid #6a4d85;background:radial-gradient(circle,#8d25e2 0,#321046 45%,#0b0c11 72%);box-shadow:0 0 60px rgba(141,37,226,.2)}.identity-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.chip{border:1px solid #353843;border-radius:999px;padding:8px 11px;font-size:8px;font-weight:900}.featured{margin-top:15px;border:1px solid #5b4b2b;border-radius:18px;padding:15px;background:linear-gradient(135deg,rgba(255,214,107,.07),rgba(181,124,255,.06))}.featured b{display:block;font-size:22px;margin-top:5px}.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:16px}.stat{border:1px solid #30323b;border-radius:14px;padding:13px}.stat b{display:block;font-size:22px}.stat span{font-size:8px;color:#989ba8}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.badge,.card{border:1px solid #30323b;border-radius:18px;padding:16px;background:#090a0f;text-decoration:none;color:#fff}.badge{text-align:center;min-height:145px;display:flex;flex-direction:column;justify-content:center}.icon{font-size:38px}.badge b,.card b{display:block;font-size:14px;margin-top:6px}.badge span,.card span{display:block;color:#9296a4;font-size:8px;margin-top:4px}.eyebrow{font-size:8px;color:#ffd66b;font-weight:900;letter-spacing:1px}.digest{margin-top:16px;color:#777;font:9px ui-monospace,monospace;word-break:break-all}a.nav{display:inline-block;margin-top:13px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:9px;padding:8px 10px;font-size:8px;font-weight:900}a.nav.hot{background:#ffd66b;color:#160f03;border-color:#ffd66b}@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:600px){.profile,.grid,.stats{grid-template-columns:1fr}.avatar{width:110px;height:110px}}
-</style></head><body><div class="wrap"><section class="hero"><div class="gold">V21.2 // HUNTER IDENTITY SHOWCASE</div><div class="profile"><div><h1>{username}</h1><p class="meta"><span class="purple">{title_icon} {title}</span> // {tier}</p><div class="identity-row"><span class="chip">{aura_icon} {aura} AURA</span><span class="chip">{skin_icon} {skin} SKIN</span><span class="chip">🏆 TROPHY SCORE {score}</span></div><div class="featured"><div class="gold">FEATURED TROPHY</div><b>{featured_icon} {featured_title}</b><div class="meta">{featured_detail}</div></div><a class="nav hot" href="/u/{url_username}/card">IDENTITY CARD</a> <a class="nav" href="/u/{url_username}/guestbook">GUESTBOOK</a> <a class="nav" href="/hunter-trophy-room">MY TROPHY ROOM</a> <a class="nav" href="/hunter-loot-history">LOOT HISTORY</a> <a class="nav" href="https://twitter.com/intent/tweet?text={share_text}">SHARE PROFILE</a></div><div class="avatar">{title_icon}</div></div><div class="stats"><div class="stat"><b>{score}</b><span>TROPHY SCORE</span></div><div class="stat"><b>{badges}</b><span>BADGES</span></div><div class="stat"><b>{relics}</b><span>RELICS</span></div><div class="stat"><b>{streak}</b><span>BEST STREAK</span></div><div class="stat"><b>{legacy}</b><span>LEGACY SCORE</span></div><div class="stat"><b>{integrity}%</b><span>INTEGRITY</span></div><div class="stat"><b>{kudos}</b><span>KUDOS</span></div></div></section><section class="panel"><div class="gold">EQUIPPED BADGE SHOWCASE</div><div class="grid">{badges_html}</div></section><section class="panel"><div class="gold">CROWN RELICS</div><div class="grid">{relics_html}</div></section><section class="panel"><div class="gold">CHEST SHELF</div><div class="grid">{chests_html}</div></section><section class="panel"><div class="gold">KUDOS WALL</div><div class="grid">{guestbook_html}</div></section><div class="digest">PUBLIC IDENTITY DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>"""
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V21.3 // HUNTER IDENTITY SHOWCASE</div><div class="profile"><div><h1>{username}</h1><p class="meta"><span class="purple">{title_icon} {title}</span> // {tier}</p><div class="identity-row"><span class="chip">{aura_icon} {aura} AURA</span><span class="chip">{skin_icon} {skin} SKIN</span><span class="chip">🏆 TROPHY SCORE {score}</span></div><div class="featured"><div class="gold">FEATURED TROPHY</div><b>{featured_icon} {featured_title}</b><div class="meta">{featured_detail}</div></div><a class="nav hot" href="/u/{url_username}/card">IDENTITY CARD</a> <a class="nav" href="/u/{url_username}/kudos">SEND KUDOS</a> <a class="nav" href="/u/{url_username}/guestbook">GUESTBOOK</a> <a class="nav" href="/hunter-trophy-room">MY TROPHY ROOM</a> <a class="nav" href="/hunter-loot-history">LOOT HISTORY</a> <a class="nav" href="https://twitter.com/intent/tweet?text={share_text}">SHARE PROFILE</a></div><div class="avatar">{title_icon}</div></div><div class="stats"><div class="stat"><b>{score}</b><span>TROPHY SCORE</span></div><div class="stat"><b>{badges}</b><span>BADGES</span></div><div class="stat"><b>{relics}</b><span>RELICS</span></div><div class="stat"><b>{streak}</b><span>BEST STREAK</span></div><div class="stat"><b>{legacy}</b><span>LEGACY SCORE</span></div><div class="stat"><b>{integrity}%</b><span>INTEGRITY</span></div><div class="stat"><b>{kudos}</b><span>KUDOS</span></div></div></section><section class="panel"><div class="gold">EQUIPPED BADGE SHOWCASE</div><div class="grid">{badges_html}</div></section><section class="panel"><div class="gold">CROWN RELICS</div><div class="grid">{relics_html}</div></section><section class="panel"><div class="gold">CHEST SHELF</div><div class="grid">{chests_html}</div></section><section class="panel"><div class="gold">KUDOS WALL</div><div class="grid">{guestbook_html}</div></section><div class="digest">PUBLIC IDENTITY DIGEST // {digest}</div><p class="meta">{policy}</p></div></body></html>"""
 
     return page.format(
         username=esc(str(data.get("username") or "")), url_username=urllib.parse.quote(data.get("username") or "", safe=""),
@@ -21136,9 +21185,10 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🪪 BL3 ARENA V21.2 // HUNTER IDENTITY SHOWCASE + EQUIPPED PUBLIC LOADOUT")
+    print("🪪 BL3 ARENA V21.3 // HUNTER IDENTITY SHOWCASE + EQUIPPED PUBLIC LOADOUT")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
+    print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("🪪 Hunter Profile 2.0 + Public Trophy Showcase enabled")
     print("🏆 Hunter Trophy Room enabled")
     print("🏅 Chest Loot History + Streak Milestones enabled")
