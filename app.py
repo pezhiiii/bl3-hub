@@ -22466,16 +22466,457 @@ def hunter_social_feed_page():
         page=page.replace('<a class="nav" href="/hunter-social-graph">SOCIAL GRAPH</a>','<a class="nav" href="/hunter-social-graph">SOCIAL GRAPH</a><a class="nav" href="/hunter-circles">HUNTER CIRCLES</a>',1)
     return page
 
+
+
+# ===== V22.2 CIRCLE FEED + GROUP ACTIVITY + CIRCLE-SPECIFIC KUDOS =====
+def _ensure_circle_feed_schema():
+    _ensure_hunter_circle_schema()
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_kudos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            author TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            reaction TEXT NOT NULL DEFAULT '🔥',
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            subject TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_kudos_circle_time ON hunter_circle_kudos(circle_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_kudos_owner_time ON hunter_circle_kudos(owner, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_activity_circle_time ON hunter_circle_activity(circle_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_activity_owner_time ON hunter_circle_activity(owner, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+def _circle_owner_row(circle_id, username):
+    _ensure_circle_feed_schema()
+    conn = db()
+    row = conn.execute(
+        "SELECT id, owner, name, emoji, description, created_at FROM hunter_social_circles WHERE id=? AND owner=?",
+        (int(circle_id or 0), str(username or '').strip())
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _record_circle_activity(circle_id, owner, actor, event_type, subject="", detail=""):
+    circle_id = int(circle_id or 0)
+    owner = str(owner or '').strip()
+    actor = str(actor or '').strip()
+    if circle_id <= 0 or not owner or not actor:
+        return
+    _ensure_circle_feed_schema()
+    conn = db()
+    conn.execute(
+        """INSERT INTO hunter_circle_activity(circle_id,owner,actor,event_type,subject,detail,created_at)
+           VALUES(?,?,?,?,?,?,?)""",
+        (
+            circle_id,
+            owner,
+            actor,
+            str(event_type or 'event')[:40],
+            str(subject or '')[:120],
+            str(detail or '')[:300],
+            datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        )
+    )
+    conn.commit()
+    conn.close()
+
+
+def _circle_feed_snapshot(username, circle_id):
+    username = str(username or '').strip()
+    circle_id = int(circle_id or 0)
+    _ensure_circle_feed_schema()
+
+    if not username or circle_id <= 0:
+        return {"success": False, "message": "Valid Hunter and circle required."}
+
+    conn = db()
+    circle = conn.execute(
+        "SELECT id,owner,name,emoji,description,created_at FROM hunter_social_circles WHERE id=? AND owner=?",
+        (circle_id, username)
+    ).fetchone()
+    if not circle:
+        conn.close()
+        return {"success": False, "message": "Circle not found."}
+
+    member_rows = conn.execute(
+        """SELECT member,added_at
+           FROM hunter_social_circle_members
+           WHERE circle_id=? AND owner=?
+           ORDER BY added_at DESC, member ASC""",
+        (circle_id, username)
+    ).fetchall()
+
+    members = [str(r["member"] or "").strip() for r in member_rows if str(r["member"] or "").strip()]
+    circle_people = {username.lower()} | {x.lower() for x in members}
+
+    kudos_rows = conn.execute(
+        """SELECT id,circle_id,owner,author,recipient,reaction,message,created_at
+           FROM hunter_circle_kudos
+           WHERE circle_id=? AND owner=?
+           ORDER BY id DESC
+           LIMIT 100""",
+        (circle_id, username)
+    ).fetchall()
+
+    activity_rows = conn.execute(
+        """SELECT id,actor,event_type,subject,detail,created_at
+           FROM hunter_circle_activity
+           WHERE circle_id=? AND owner=?
+           ORDER BY id DESC
+           LIMIT 120""",
+        (circle_id, username)
+    ).fetchall()
+
+    # Pull ordinary Guestbook activity involving this Circle's Hunters.
+    regular_rows = []
+    if circle_people:
+        placeholders = ",".join(["?"] * len(circle_people))
+        people = list(circle_people)
+        regular_rows = conn.execute(
+            f"""SELECT id,recipient,author,reaction,message,is_pinned,created_at
+                FROM hunter_guestbook_entries
+                WHERE lower(author) IN ({placeholders})
+                   OR lower(recipient) IN ({placeholders})
+                ORDER BY id DESC
+                LIMIT 80""",
+            (*people, *people)
+        ).fetchall()
+    conn.close()
+
+    circle_kudos = [
+        {
+            "id": int(r["id"] or 0),
+            "author": str(r["author"] or ""),
+            "recipient": str(r["recipient"] or ""),
+            "reaction": str(r["reaction"] or "🔥"),
+            "label": HUNTER_KUDOS_REACTIONS.get(str(r["reaction"] or "🔥"), "SIGNAL"),
+            "message": str(r["message"] or ""),
+            "created_at": str(r["created_at"] or ""),
+        }
+        for r in kudos_rows
+    ]
+
+    group_activity = [
+        {
+            "id": int(r["id"] or 0),
+            "actor": str(r["actor"] or ""),
+            "event_type": str(r["event_type"] or ""),
+            "subject": str(r["subject"] or ""),
+            "detail": str(r["detail"] or ""),
+            "created_at": str(r["created_at"] or ""),
+        }
+        for r in activity_rows
+    ]
+
+    public_signals = []
+    for r in regular_rows:
+        author = str(r["author"] or "")
+        recipient = str(r["recipient"] or "")
+        # Only surface public activity where at least one Circle person is involved.
+        public_signals.append({
+            "entry_id": int(r["id"] or 0),
+            "author": author,
+            "recipient": recipient,
+            "reaction": str(r["reaction"] or "🔥"),
+            "label": HUNTER_KUDOS_REACTIONS.get(str(r["reaction"] or "🔥"), "SIGNAL"),
+            "message": str(r["message"] or ""),
+            "is_pinned": int(r["is_pinned"] or 0),
+            "created_at": str(r["created_at"] or ""),
+            "guestbook_url": "/u/{}/guestbook".format(urllib.parse.quote(recipient, safe="")),
+        })
+
+    payload = {
+        "success": True,
+        "owner": username,
+        "circle": {
+            "id": int(circle["id"]),
+            "name": str(circle["name"] or ""),
+            "emoji": str(circle["emoji"] or "🫂"),
+            "description": str(circle["description"] or ""),
+            "created_at": str(circle["created_at"] or ""),
+        },
+        "members": [
+            {
+                "username": str(r["member"] or ""),
+                "added_at": str(r["added_at"] or ""),
+                "profile_url": "/u/{}".format(urllib.parse.quote(str(r["member"] or ""), safe="")),
+            }
+            for r in member_rows
+        ],
+        "circle_kudos": circle_kudos,
+        "group_activity": group_activity,
+        "public_signals": public_signals,
+        "counts": {
+            "members": len(members),
+            "circle_kudos": len(circle_kudos),
+            "activity": len(group_activity),
+            "public_signals": len(public_signals),
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        "policy": (
+            "Circle Feeds are private organization views owned by the signed-in Hunter. "
+            "Circle-specific Kudos are in-app social messages with no monetary value. "
+            "Public Guestbook signals are shown only as recorded BL3 activity involving Circle members."
+        ),
+    }
+    payload["circle_feed_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.post('/api/hunter/circles/kudos')
+def hunter_circle_kudos_post():
+    username = str(session.get('authenticated_username') or '').strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        circle_id = int(payload.get('circle_id') or 0)
+    except Exception:
+        circle_id = 0
+
+    recipient = str(payload.get('recipient') or '').strip()[:80]
+    reaction = str(payload.get('reaction') or '🔥').strip() or '🔥'
+    message = ' '.join(str(payload.get('message') or '').replace('\n', ' ').split()).strip()
+
+    if circle_id <= 0 or not recipient:
+        return jsonify({"success": False, "message": "circle_id and recipient required."}), 400
+    if reaction not in HUNTER_KUDOS_REACTIONS:
+        return jsonify({"success": False, "message": "Unsupported reaction."}), 400
+    if not message:
+        return jsonify({"success": False, "message": "Message required."}), 400
+    if len(message) > 180:
+        return jsonify({"success": False, "message": "Message too long (max 180 chars)."}), 400
+
+    _ensure_circle_feed_schema()
+    conn = db()
+    circle = conn.execute(
+        "SELECT id,name FROM hunter_social_circles WHERE id=? AND owner=?",
+        (circle_id, username)
+    ).fetchone()
+    if not circle:
+        conn.close()
+        return jsonify({"success": False, "message": "Circle not found."}), 404
+
+    member = conn.execute(
+        "SELECT 1 FROM hunter_social_circle_members WHERE circle_id=? AND owner=? AND lower(member)=lower(?)",
+        (circle_id, username, recipient)
+    ).fetchone()
+    if not member:
+        conn.close()
+        return jsonify({"success": False, "message": "Recipient is not in this Circle."}), 400
+
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    cur = conn.execute(
+        """INSERT INTO hunter_circle_kudos(circle_id,owner,author,recipient,reaction,message,created_at)
+           VALUES(?,?,?,?,?,?,?)""",
+        (circle_id, username, username, recipient, reaction, message, now)
+    )
+    entry_id = int(cur.lastrowid or 0)
+    _notify(
+        conn,
+        recipient,
+        "circle_kudos",
+        "{} Circle Kudos from @{}".format(reaction, username),
+        message[:180],
+        "/hunter-circles"
+    )
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(
+        circle_id,
+        username,
+        username,
+        "circle_kudos",
+        recipient,
+        "{} {}".format(reaction, message[:240])
+    )
+
+    return jsonify({
+        "success": True,
+        "message": "Circle Kudos sent.",
+        "entry_id": entry_id,
+        "snapshot": _circle_feed_snapshot(username, circle_id),
+    })
+
+
+@app.route('/api/hunter/circles/<int:circle_id>/feed')
+def hunter_circle_feed_api(circle_id):
+    username = str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_feed_snapshot(username, circle_id)
+    status = 200 if data.get("success") else 404
+    return jsonify(data), status
+
+
+@app.route('/hunter-circles/<int:circle_id>.json')
+def hunter_circle_feed_json(circle_id):
+    username = str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_feed_snapshot(username, circle_id)
+    status = 200 if data.get("success") else 404
+    return jsonify(data), status
+
+
+@app.route('/hunter-circles/<int:circle_id>/feed')
+def hunter_circle_feed_page(circle_id):
+    username = str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>🫂 Circle Feed</h1><p>Sign in to open a private Circle Feed.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _circle_feed_snapshot(username, circle_id)
+    if not data.get("success"):
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Circle not found.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>""", 404
+
+    esc = html.escape
+    circle = data.get('circle') or {}
+    members = data.get('members') or []
+
+    member_options = ''.join(
+        '<option value="{name}">@{name}</option>'.format(name=esc(str(m.get('username') or '')))
+        for m in members
+    )
+    reaction_options = ''.join(
+        '<option value="{emoji}">{emoji} {label}</option>'.format(
+            emoji=esc(str(emoji)), label=esc(str(label))
+        )
+        for emoji, label in HUNTER_KUDOS_REACTIONS.items()
+    )
+
+    kudos_cards = []
+    for item in data.get('circle_kudos') or []:
+        kudos_cards.append(
+            '<article class="card"><div class="top"><b>{reaction} {label}</b><span class="meta">{created}</span></div>'
+            '<div class="route">@{author} → @{recipient}</div><div class="message">{message}</div></article>'.format(
+                reaction=esc(str(item.get('reaction') or '🔥')),
+                label=esc(str(item.get('label') or 'SIGNAL')),
+                created=esc(str(item.get('created_at') or '')),
+                author=esc(str(item.get('author') or '')),
+                recipient=esc(str(item.get('recipient') or '')),
+                message=esc(str(item.get('message') or '')),
+            )
+        )
+
+    activity_cards = []
+    for item in data.get('group_activity') or []:
+        activity_cards.append(
+            '<article class="activity"><div class="badge">{kind}</div><div><b>@{actor}</b>'
+            '<div class="message">{detail}</div><div class="meta">{created}</div></div></article>'.format(
+                kind=esc(str(item.get('event_type') or 'EVENT').upper()),
+                actor=esc(str(item.get('actor') or '')),
+                detail=esc(str(item.get('detail') or '')),
+                created=esc(str(item.get('created_at') or '')),
+            )
+        )
+
+    public_cards = []
+    for item in data.get('public_signals') or []:
+        public_cards.append(
+            '<article class="card"><div class="top"><b>{reaction} {label}</b><span class="meta">{created}</span></div>'
+            '<div class="route">@{author} → @{recipient}</div><div class="message">{message}</div>'
+            '<a class="mini" href="{href}">OPEN GUESTBOOK</a></article>'.format(
+                reaction=esc(str(item.get('reaction') or '🔥')),
+                label=esc(str(item.get('label') or 'SIGNAL')),
+                created=esc(str(item.get('created_at') or '')),
+                author=esc(str(item.get('author') or '')),
+                recipient=esc(str(item.get('recipient') or '')),
+                message=esc(str(item.get('message') or '')),
+                href=esc(str(item.get('guestbook_url') or '#')),
+            )
+        )
+
+    member_cards = ''.join(
+        '<a class="member" href="{profile}">@{name}</a>'.format(
+            profile=esc(str(m.get('profile_url') or '#')),
+            name=esc(str(m.get('username') or ''))
+        )
+        for m in members
+    ) or '<div class="empty">No members in this Circle yet.</div>'
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Circle Feed</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#4e175f,transparent 30%),radial-gradient(circle at 88% 0,#6d4214,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(44px,8vw,84px);line-height:.9;margin:10px 0}}h2{{margin:5px 0 15px}}.meta{{color:#9da1ad;font-size:10px;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;background:#090a0f;padding:14px}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}.layout{{display:grid;grid-template-columns:1.25fr .75fr;gap:18px}}.card,.activity{{border:1px solid #2e3038;border-radius:17px;background:#090a0f;padding:15px;margin-top:10px}}.top{{display:flex;justify-content:space-between;gap:10px}}.route{{font-weight:900;margin-top:8px}}.message{{margin-top:8px;line-height:1.5}}.activity{{display:grid;grid-template-columns:auto 1fr;gap:12px}}.badge{{color:#ffd66b;font-size:9px;font-weight:900}}.member{{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:999px;padding:8px 10px;margin:5px 5px 0 0;font-size:9px;font-weight:900}}.composer{{display:grid;grid-template-columns:1fr 160px;gap:10px;margin-top:14px}}select,textarea{{width:100%;border-radius:12px;border:1px solid #353844;background:#07080c;color:#fff;padding:12px;font:inherit}}textarea{{min-height:100px;resize:vertical;grid-column:1/-1}}button,a.nav,a.mini{{appearance:none;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900;background:transparent;cursor:pointer}}button.send{{background:#ffd66b;color:#160f03;border-color:#ffd66b;grid-column:1/-1}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px}}a.mini{{display:inline-block;margin-top:10px}}.status{{min-height:22px;margin-top:10px;color:#ffd66b;font-size:11px}}.empty{{border:1px dashed #474a56;border-radius:15px;padding:14px;color:#9da1ad}}.digest{{margin-top:14px;color:#767986;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:900px){{.layout,.stats{{grid-template-columns:1fr}}.composer{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.2 // CIRCLE FEED + GROUP ACTIVITY</div><h1>{esc(str(circle.get('emoji') or '🫂'))} {esc(str(circle.get('name') or 'CIRCLE'))}</h1><p class="meta">{esc(str(circle.get('description') or ''))}</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('members') or 0)}</b><span>MEMBERS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('circle_kudos') or 0)}</b><span>CIRCLE KUDOS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('activity') or 0)}</b><span>GROUP EVENTS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('public_signals') or 0)}</b><span>PUBLIC SIGNALS</span></div></div><a class="nav" href="/hunter-circles">ALL CIRCLES</a><a class="nav" href="/hunter-social-feed">SOCIAL FEED</a><a class="nav" href="/hunter-circles/{int(circle.get('id') or 0)}.json">JSON</a><div class="status" id="status"></div></section><div class="layout"><main><section class="panel"><div class="gold">CIRCLE-SPECIFIC KUDOS</div><h2>PRIVATE GROUP SIGNALS</h2><div class="composer"><select id="recipient">{member_options}</select><select id="reaction">{reaction_options}</select><textarea id="message" maxlength="180" placeholder="Send a Circle-specific Kudos to a member…"></textarea><button class="send" onclick="sendCircleKudos()">SEND CIRCLE KUDOS</button></div>{''.join(kudos_cards) or '<div class="empty">No Circle Kudos yet.</div>'}</section><section class="panel"><div class="gold">MEMBER PUBLIC SIGNALS</div>{''.join(public_cards) or '<div class="empty">No recent public Guestbook signals involving Circle members.</div>'}</section></main><aside><section class="panel"><div class="gold">MEMBERS</div>{member_cards}</section><section class="panel"><div class="gold">GROUP ACTIVITY</div>{''.join(activity_cards) or '<div class="empty">No group activity logged yet.</div>'}</section></aside></div><div class="digest">CIRCLE FEED DIGEST // {esc(str(data.get('circle_feed_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div><script>const statusEl=document.getElementById('status');async function sendCircleKudos(){{const recipient=document.getElementById('recipient').value.trim();const reaction=document.getElementById('reaction').value.trim();const message=document.getElementById('message').value.trim();if(!recipient||!message){{statusEl.textContent='Choose a member and write a message.';return}}const r=await fetch('/api/hunter/circles/kudos',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{circle_id:{int(circle.get('id') or 0)},recipient,reaction,message}})}});const d=await r.json();statusEl.textContent=d.message||'Done';if(r.ok&&d.success)setTimeout(()=>location.reload(),350);}}</script></body></html>"""
+
+
+# Add "OPEN FEED" buttons to the V22.1 circles page.
+_V221_circles_page = hunter_circles_page
+def hunter_circles_page():
+    page = _V221_circles_page()
+    if isinstance(page, str):
+        page = page.replace(
+            '<button onclick="openAddTo({cid})">ADD HUNTER</button>',
+            '<button onclick="openAddTo({cid})">ADD HUNTER</button><a href="/hunter-circles/{cid}/feed">OPEN FEED</a>',
+        )
+        page = page.replace(
+            'V22.1 // HUNTER CIRCLES + CLOSE ALLIES',
+            'V22.2 // HUNTER CIRCLES + CIRCLE FEEDS',
+            1
+        )
+    return page
+
+
+# Record membership changes into the new Circle activity stream.
+_V221_circles_member = hunter_circles_member
+def hunter_circles_member():
+    username = str(session.get('authenticated_username') or '').strip()
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        circle_id = int(payload.get('circle_id') or 0)
+    except Exception:
+        circle_id = 0
+    member = str(payload.get('member') or '').strip()[:80]
+    enabled = payload.get('enabled', True) not in (False, 0, '0', 'false', 'False', 'off')
+    response = _V221_circles_member()
+    try:
+        body = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+        if body and body.get('success') and username and circle_id > 0 and member:
+            _record_circle_activity(
+                circle_id,
+                username,
+                username,
+                'member_added' if enabled else 'member_removed',
+                member,
+                ('Added @{} to the Circle.'.format(member) if enabled else 'Removed @{} from the Circle.'.format(member))
+            )
+    except Exception:
+        pass
+    return response
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🌐 BL3 ARENA V22.0 // HUNTER SOCIAL GRAPH + FOLLOW SUGGESTIONS + MUTUAL HUNTERS")
+    print("🫂 BL3 ARENA V22.2 // CIRCLE FEED + GROUP ACTIVITY + CIRCLE-SPECIFIC KUDOS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("💌 Circle Feed + Group Activity + Circle-specific Kudos enabled")
     print("🫂 Hunter Circles + Close Allies + Social Network Groups enabled")
     print("🕸️ Hunter Social Graph + Follow Suggestions + Mutual Hunters enabled")
     print("🌐 Hunter Social Feed + Trending Kudos + Activity Stream enabled")
