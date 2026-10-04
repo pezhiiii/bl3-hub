@@ -23411,16 +23411,525 @@ if 'hunter_circle_feed_page' in app.view_functions:
 
     app.view_functions['hunter_circle_feed_page'] = _V223_circle_feed_with_challenges
 
+
+
+# ===== V22.4 CHALLENGE REWARDS + CONTRIBUTION MVP + CIRCLE TROPHY CABINET =====
+def _ensure_circle_reward_schema():
+    _ensure_circle_challenge_schema()
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_challenge_rewards (
+            challenge_id INTEGER PRIMARY KEY,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            reward_icon TEXT NOT NULL DEFAULT '🏆',
+            reward_title TEXT NOT NULL DEFAULT 'Circle Victory',
+            reward_description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_circle_trophies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            circle_id INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            challenge_id INTEGER NOT NULL UNIQUE,
+            trophy_icon TEXT NOT NULL DEFAULT '🏆',
+            trophy_title TEXT NOT NULL,
+            trophy_description TEXT NOT NULL DEFAULT '',
+            mvp_username TEXT NOT NULL DEFAULT '',
+            mvp_amount INTEGER NOT NULL DEFAULT 0,
+            total_progress INTEGER NOT NULL DEFAULT 0,
+            awarded_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_rewards_circle ON hunter_circle_challenge_rewards(circle_id, challenge_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_trophies_circle ON hunter_circle_trophies(circle_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_circle_trophies_owner ON hunter_circle_trophies(owner, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+def _circle_reward_for_challenge(challenge_id, circle_id, owner):
+    _ensure_circle_reward_schema()
+    conn = db()
+    row = conn.execute(
+        """SELECT challenge_id,circle_id,owner,reward_icon,reward_title,reward_description,created_at,updated_at
+           FROM hunter_circle_challenge_rewards
+           WHERE challenge_id=? AND circle_id=? AND owner=?""",
+        (int(challenge_id or 0), int(circle_id or 0), str(owner or '').strip())
+    ).fetchone()
+    conn.close()
+    if row:
+        return {
+            "challenge_id": int(row["challenge_id"] or 0),
+            "reward_icon": str(row["reward_icon"] or "🏆"),
+            "reward_title": str(row["reward_title"] or "Circle Victory"),
+            "reward_description": str(row["reward_description"] or ""),
+            "created_at": str(row["created_at"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
+        }
+    return {
+        "challenge_id": int(challenge_id or 0),
+        "reward_icon": "🏆",
+        "reward_title": "Circle Victory",
+        "reward_description": "Cosmetic BL3 Circle trophy for completing this shared goal.",
+        "created_at": "",
+        "updated_at": "",
+    }
+
+
+def _award_completed_circle_trophies(circle_id, owner):
+    circle_id = int(circle_id or 0)
+    owner = str(owner or '').strip()
+    if circle_id <= 0 or not owner:
+        return 0
+
+    _ensure_circle_reward_schema()
+    conn = db()
+    completed = conn.execute(
+        """SELECT id,title,description,goal_target,unit_label,completed_at
+           FROM hunter_circle_challenges
+           WHERE circle_id=? AND owner=? AND status='COMPLETED'
+           ORDER BY id ASC""",
+        (circle_id, owner)
+    ).fetchall()
+
+    awarded = 0
+    for ch in completed:
+        challenge_id = int(ch["id"] or 0)
+        exists = conn.execute(
+            "SELECT 1 FROM hunter_circle_trophies WHERE challenge_id=?",
+            (challenge_id,)
+        ).fetchone()
+        if exists:
+            continue
+
+        reward = conn.execute(
+            """SELECT reward_icon,reward_title,reward_description
+               FROM hunter_circle_challenge_rewards
+               WHERE challenge_id=? AND circle_id=? AND owner=?""",
+            (challenge_id, circle_id, owner)
+        ).fetchone()
+
+        progress_rows = conn.execute(
+            """SELECT contributor, SUM(amount) AS total
+               FROM hunter_circle_challenge_progress
+               WHERE challenge_id=? AND circle_id=? AND owner=?
+               GROUP BY contributor
+               ORDER BY total DESC, contributor ASC""",
+            (challenge_id, circle_id, owner)
+        ).fetchall()
+
+        total_progress = sum(int(r["total"] or 0) for r in progress_rows)
+        mvp_username = str(progress_rows[0]["contributor"] or "") if progress_rows else ""
+        mvp_amount = int(progress_rows[0]["total"] or 0) if progress_rows else 0
+
+        trophy_icon = str(reward["reward_icon"] or "🏆") if reward else "🏆"
+        trophy_title = str(reward["reward_title"] or "Circle Victory") if reward else "Circle Victory"
+        trophy_description = (
+            str(reward["reward_description"] or "")
+            if reward else
+            "Completed shared goal: {}".format(str(ch["title"] or "Challenge"))
+        )
+        awarded_at = str(ch["completed_at"] or "") or (datetime.utcnow().isoformat(timespec="seconds") + "Z")
+
+        conn.execute(
+            """INSERT OR IGNORE INTO hunter_circle_trophies
+               (circle_id,owner,challenge_id,trophy_icon,trophy_title,trophy_description,
+                mvp_username,mvp_amount,total_progress,awarded_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                circle_id, owner, challenge_id, trophy_icon, trophy_title, trophy_description,
+                mvp_username, mvp_amount, total_progress, awarded_at
+            )
+        )
+        awarded += 1
+
+    conn.commit()
+    conn.close()
+    return awarded
+
+
+def _circle_trophy_snapshot(circle_id, viewer):
+    circle_id = int(circle_id or 0)
+    viewer = str(viewer or '').strip()
+    access = _circle_access_row(circle_id, viewer)
+    if not access:
+        return {"success": False, "message": "Circle not found or access denied."}
+
+    owner = str(access["owner"] or "")
+    _award_completed_circle_trophies(circle_id, owner)
+
+    conn = db()
+    trophy_rows = conn.execute(
+        """SELECT t.id,t.challenge_id,t.trophy_icon,t.trophy_title,t.trophy_description,
+                  t.mvp_username,t.mvp_amount,t.total_progress,t.awarded_at,
+                  c.title AS challenge_title,c.goal_target,c.unit_label
+           FROM hunter_circle_trophies t
+           LEFT JOIN hunter_circle_challenges c ON c.id=t.challenge_id
+           WHERE t.circle_id=? AND t.owner=?
+           ORDER BY t.id DESC""",
+        (circle_id, owner)
+    ).fetchall()
+
+    mvp_rows = conn.execute(
+        """SELECT p.contributor,
+                  SUM(p.amount) AS total_amount,
+                  COUNT(DISTINCT p.challenge_id) AS challenges_helped,
+                  COUNT(*) AS updates
+           FROM hunter_circle_challenge_progress p
+           WHERE p.circle_id=? AND p.owner=?
+           GROUP BY p.contributor
+           ORDER BY total_amount DESC, challenges_helped DESC, contributor ASC
+           LIMIT 50""",
+        (circle_id, owner)
+    ).fetchall()
+
+    completed_row = conn.execute(
+        """SELECT COUNT(*) AS c
+           FROM hunter_circle_challenges
+           WHERE circle_id=? AND owner=? AND status='COMPLETED'""",
+        (circle_id, owner)
+    ).fetchone()
+    conn.close()
+
+    trophies = [
+        {
+            "id": int(r["id"] or 0),
+            "challenge_id": int(r["challenge_id"] or 0),
+            "challenge_title": str(r["challenge_title"] or ""),
+            "icon": str(r["trophy_icon"] or "🏆"),
+            "title": str(r["trophy_title"] or "Circle Victory"),
+            "description": str(r["trophy_description"] or ""),
+            "mvp_username": str(r["mvp_username"] or ""),
+            "mvp_amount": int(r["mvp_amount"] or 0),
+            "total_progress": int(r["total_progress"] or 0),
+            "goal_target": int(r["goal_target"] or 0),
+            "unit_label": str(r["unit_label"] or "POINTS"),
+            "awarded_at": str(r["awarded_at"] or ""),
+        }
+        for r in trophy_rows
+    ]
+
+    leaderboard = [
+        {
+            "rank": i + 1,
+            "username": str(r["contributor"] or ""),
+            "total_amount": int(r["total_amount"] or 0),
+            "challenges_helped": int(r["challenges_helped"] or 0),
+            "updates": int(r["updates"] or 0),
+        }
+        for i, r in enumerate(mvp_rows)
+    ]
+
+    payload = {
+        "success": True,
+        "viewer": viewer,
+        "access_role": str(access["access_role"] or ""),
+        "circle": {
+            "id": int(access["id"] or 0),
+            "owner": owner,
+            "name": str(access["name"] or ""),
+            "emoji": str(access["emoji"] or "🫂"),
+            "description": str(access["description"] or ""),
+        },
+        "trophies": trophies,
+        "contribution_leaderboard": leaderboard,
+        "mvp": leaderboard[0] if leaderboard else None,
+        "counts": {
+            "trophies": len(trophies),
+            "completed_challenges": int((completed_row["c"] if completed_row else 0) or 0),
+            "contributors": len(leaderboard),
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Challenge rewards and trophies are cosmetic BL3 records only. "
+            "Contribution MVP is based solely on user-entered in-app challenge progress amounts "
+            "and is not a monetary, skill, or real-world performance ranking."
+        ),
+    }
+    payload["trophy_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.post("/api/hunter/circles/challenges/reward")
+def hunter_circle_challenge_reward():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        challenge_id = int(payload.get("challenge_id") or 0)
+    except Exception:
+        challenge_id = 0
+
+    icon = str(payload.get("reward_icon") or "🏆").strip()[:8] or "🏆"
+    title = " ".join(str(payload.get("reward_title") or "Circle Victory").split()).strip()[:80] or "Circle Victory"
+    description = " ".join(str(payload.get("reward_description") or "").replace("\n", " ").split()).strip()[:240]
+
+    if challenge_id <= 0:
+        return jsonify({"success": False, "message": "Valid challenge_id required."}), 400
+
+    _ensure_circle_reward_schema()
+    conn = db()
+    ch = conn.execute(
+        """SELECT id,circle_id,owner,status,title
+           FROM hunter_circle_challenges
+           WHERE id=?""",
+        (challenge_id,)
+    ).fetchone()
+    if not ch:
+        conn.close()
+        return jsonify({"success": False, "message": "Challenge not found."}), 404
+    if str(ch["owner"] or "").lower() != username.lower():
+        conn.close()
+        return jsonify({"success": False, "message": "Only the Circle owner can configure rewards."}), 403
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn.execute(
+        """INSERT INTO hunter_circle_challenge_rewards
+           (challenge_id,circle_id,owner,reward_icon,reward_title,reward_description,created_at,updated_at)
+           VALUES(?,?,?,?,?,?,?,?)
+           ON CONFLICT(challenge_id) DO UPDATE SET
+             reward_icon=excluded.reward_icon,
+             reward_title=excluded.reward_title,
+             reward_description=excluded.reward_description,
+             updated_at=excluded.updated_at""",
+        (
+            challenge_id,
+            int(ch["circle_id"] or 0),
+            username,
+            icon,
+            title,
+            description,
+            now,
+            now,
+        )
+    )
+    conn.commit()
+    conn.close()
+
+    _record_circle_activity(
+        int(ch["circle_id"] or 0),
+        username,
+        username,
+        "challenge_reward",
+        str(ch["title"] or ""),
+        "{} {} configured.".format(icon, title),
+    )
+
+    return jsonify({
+        "success": True,
+        "message": "Cosmetic challenge reward saved.",
+        "reward": _circle_reward_for_challenge(challenge_id, int(ch["circle_id"] or 0), username),
+    })
+
+
+@app.route("/api/hunter/circles/<int:circle_id>/trophies")
+def hunter_circle_trophies_api(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_trophy_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/trophies.json")
+def hunter_circle_trophies_json(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "message": "Login required."}), 401
+    data = _circle_trophy_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get("success") else 403)
+
+
+@app.route("/hunter-circles/<int:circle_id>/trophies")
+def hunter_circle_trophies_page(circle_id):
+    username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>🏆 Circle Trophy Cabinet</h1><p>Sign in to continue.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _circle_trophy_snapshot(circle_id, username)
+    if not data.get("success"):
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>""", 403
+
+    esc = html.escape
+    circle = data.get("circle") or {}
+
+    trophy_cards = []
+    for item in data.get("trophies") or []:
+        mvp_line = (
+            "MVP @{} · {} {}".format(
+                item.get("mvp_username") or "—",
+                int(item.get("mvp_amount") or 0),
+                item.get("unit_label") or "POINTS",
+            )
+            if item.get("mvp_username") else
+            "No contributor MVP recorded"
+        )
+        trophy_cards.append(
+            '<article class="trophy"><div class="icon">{icon}</div><div><span class="eyebrow">CHALLENGE TROPHY #{id}</span>'
+            '<h3>{title}</h3><div class="challenge">{challenge}</div><p>{description}</p>'
+            '<div class="mvp">{mvp}</div><div class="meta">GROUP TOTAL {total} · AWARDED {awarded}</div></div></article>'.format(
+                icon=esc(str(item.get("icon") or "🏆")),
+                id=int(item.get("id") or 0),
+                title=esc(str(item.get("title") or "Circle Victory")),
+                challenge=esc(str(item.get("challenge_title") or "")),
+                description=esc(str(item.get("description") or "")),
+                mvp=esc(mvp_line),
+                total=int(item.get("total_progress") or 0),
+                awarded=esc(str(item.get("awarded_at") or "")),
+            )
+        )
+
+    leaderboard_cards = []
+    for row in data.get("contribution_leaderboard") or []:
+        badge = "👑" if int(row.get("rank") or 0) == 1 else ("🥈" if int(row.get("rank") or 0) == 2 else ("🥉" if int(row.get("rank") or 0) == 3 else "⚡"))
+        leaderboard_cards.append(
+            '<div class="leader"><div class="rank">{badge} #{rank}</div><div><b>@{name}</b>'
+            '<span>{amount} total progress · {challenges} challenges · {updates} updates</span></div></div>'.format(
+                badge=badge,
+                rank=int(row.get("rank") or 0),
+                name=esc(str(row.get("username") or "")),
+                amount=int(row.get("total_amount") or 0),
+                challenges=int(row.get("challenges_helped") or 0),
+                updates=int(row.get("updates") or 0),
+            )
+        )
+
+    mvp = data.get("mvp") or {}
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Circle Trophy Cabinet</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 15% 0,#53145f,transparent 30%),radial-gradient(circle at 88% 0,#72500d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1120px;margin:auto}}.hero,.panel{{border:1px solid #39352c;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.eyebrow,.mvp,.rank{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(46px,8vw,88px);line-height:.88;margin:10px 0}}h3{{font-size:24px;margin:5px 0}}p,.meta{{color:#9da1ad;line-height:1.5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.trophy{{display:grid;grid-template-columns:74px 1fr;gap:16px;border:1px solid #3a3427;border-radius:20px;background:linear-gradient(145deg,rgba(255,214,107,.06),rgba(139,92,255,.03));padding:18px}}.icon{{width:74px;height:74px;border-radius:22px;display:grid;place-items:center;font-size:36px;background:#111218;border:1px solid #4a4130}}.eyebrow{{font-size:9px}}.challenge{{font-size:11px;font-weight:900;color:#d4d6df}}.mvp{{margin-top:9px;font-size:11px}}.leaders{{display:grid;gap:9px}}.leader{{display:grid;grid-template-columns:90px 1fr;gap:12px;border:1px solid #2e3038;border-radius:15px;padding:13px;background:#090a0f}}.leader b{{display:block}}.leader span{{display:block;color:#9498a6;font-size:10px;margin-top:4px}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}.empty{{border:1px dashed #474a56;border-radius:16px;padding:18px;color:#9da1ad}}@media(max-width:820px){{.stats,.grid{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.4 // CHALLENGE REWARDS + MVP + TROPHY CABINET</div><h1>{esc(str(circle.get('emoji') or '🫂'))} TROPHY CABINET.</h1><p>{esc(str(circle.get('name') or 'CIRCLE'))} · completed shared goals become permanent cosmetic Circle trophies.</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('trophies') or 0)}</b><span>TROPHIES</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('completed_challenges') or 0)}</b><span>COMPLETED GOALS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('contributors') or 0)}</b><span>CONTRIBUTORS</span></div><div class="stat"><b>{esc(str(mvp.get('username') or '—'))}</b><span>CURRENT CONTRIBUTION MVP</span></div></div><a class="nav" href="/hunter-circles/{circle_id}/challenges">CHALLENGES</a><a class="nav" href="/hunter-circles/{circle_id}/feed">CIRCLE FEED</a><a class="nav" href="/hunter-circles/{circle_id}/trophies.json">JSON</a></section><section class="panel"><div class="gold">CIRCLE TROPHIES</div><div class="grid">{''.join(trophy_cards) or '<div class="empty">Complete a Circle Challenge to unlock the first trophy.</div>'}</div></section><section class="panel"><div class="gold">CONTRIBUTION MVP BOARD</div><div class="leaders">{''.join(leaderboard_cards) or '<div class="empty">No challenge contributions yet.</div>'}</div></section><div class="digest">TROPHY DIGEST // {esc(str(data.get('trophy_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add reward configuration and Trophy Cabinet links to the existing V22.3 challenge page.
+if 'hunter_circle_challenges_page' in app.view_functions:
+    _V223_challenge_page_view = app.view_functions['hunter_circle_challenges_page']
+
+    def _V224_challenge_page_with_rewards(circle_id):
+        response = _V223_challenge_page_view(circle_id)
+        if not isinstance(response, str):
+            return response
+
+        username = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+        data = _circle_challenges_snapshot(circle_id, username) if username else {}
+        is_owner = bool(data.get("success")) and str(data.get("access_role") or "") == "owner"
+
+        response = response.replace(
+            'V22.3 // CIRCLE CHALLENGES + SHARED GOALS',
+            'V22.4 // CIRCLE CHALLENGES + COSMETIC REWARDS',
+            1
+        )
+
+        trophy_link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/trophies">TROPHY CABINET</a>'
+        if trophy_link not in response:
+            response = response.replace(
+                f'<a class="nav" href="/hunter-circles/{int(circle_id)}/feed">CIRCLE FEED</a>',
+                f'<a class="nav" href="/hunter-circles/{int(circle_id)}/feed">CIRCLE FEED</a>' + trophy_link,
+                1
+            )
+
+        if is_owner:
+            reward_panels = []
+            circle_owner = str((data.get("circle") or {}).get("owner") or username)
+            for ch in data.get("challenges") or []:
+                reward = _circle_reward_for_challenge(int(ch.get("id") or 0), int(circle_id), circle_owner)
+                reward_panels.append(
+                    '<div class="challenge reward-config"><div class="gold">COSMETIC REWARD · {challenge}</div>'
+                    '<div class="add-progress"><input id="rewardIcon-{id}" maxlength="8" value="{icon}" placeholder="🏆">'
+                    '<input id="rewardTitle-{id}" maxlength="80" value="{title}" placeholder="Reward title">'
+                    '<input id="rewardDesc-{id}" maxlength="240" value="{desc}" placeholder="Reward description">'
+                    '<button onclick="saveReward({id})">SAVE REWARD</button></div></div>'.format(
+                        challenge=html.escape(str(ch.get("title") or "")),
+                        id=int(ch.get("id") or 0),
+                        icon=html.escape(str(reward.get("reward_icon") or "🏆")),
+                        title=html.escape(str(reward.get("reward_title") or "Circle Victory")),
+                        desc=html.escape(str(reward.get("reward_description") or "")),
+                    )
+                )
+            if reward_panels:
+                response = response.replace(
+                    '</section><div class="digest">CHALLENGE DIGEST',
+                    '</section><section class="panel"><div class="gold">CHALLENGE REWARD CONFIG</div>' + ''.join(reward_panels) + '</section><div class="digest">CHALLENGE DIGEST',
+                    1
+                )
+
+            reward_script = """
+async function saveReward(id){
+  const reward_icon=document.getElementById('rewardIcon-'+id).value.trim()||'🏆';
+  const reward_title=document.getElementById('rewardTitle-'+id).value.trim()||'Circle Victory';
+  const reward_description=document.getElementById('rewardDesc-'+id).value.trim();
+  const r=await fetch('/api/hunter/circles/challenges/reward',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({challenge_id:id,reward_icon,reward_title,reward_description})
+  });
+  const d=await r.json();
+  statusLine.textContent=d.message||'Done';
+}
+"""
+            response = response.replace('</script></body></html>', reward_script + '</script></body></html>', 1)
+
+        return response
+
+    app.view_functions['hunter_circle_challenges_page'] = _V224_challenge_page_with_rewards
+
+
+# Ensure newly completed challenges produce trophies after progress/status updates.
+if 'hunter_circle_challenge_progress' in app.view_functions:
+    _V223_progress_view = app.view_functions['hunter_circle_challenge_progress']
+
+    def _V224_progress_with_trophy():
+        response = _V223_progress_view()
+        try:
+            body = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+            if body and body.get("success"):
+                snapshot = body.get("snapshot") or {}
+                circle = snapshot.get("circle") or {}
+                if circle.get("id") and circle.get("owner"):
+                    _award_completed_circle_trophies(int(circle["id"]), str(circle["owner"]))
+        except Exception:
+            pass
+        return response
+
+    app.view_functions['hunter_circle_challenge_progress'] = _V224_progress_with_trophy
+
+
+if 'hunter_circle_challenge_status' in app.view_functions:
+    _V223_status_view = app.view_functions['hunter_circle_challenge_status']
+
+    def _V224_status_with_trophy():
+        response = _V223_status_view()
+        try:
+            body = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+            if body and body.get("success"):
+                snapshot = body.get("snapshot") or {}
+                circle = snapshot.get("circle") or {}
+                if circle.get("id") and circle.get("owner"):
+                    _award_completed_circle_trophies(int(circle["id"]), str(circle["owner"]))
+        except Exception:
+            pass
+        return response
+
+    app.view_functions['hunter_circle_challenge_status'] = _V224_status_with_trophy
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏆 BL3 ARENA V22.3 // CIRCLE CHALLENGES + SHARED GOALS + GROUP PROGRESS")
+    print("💎 BL3 ARENA V22.4 // CHALLENGE REWARDS + CONTRIBUTION MVP + TROPHY CABINET")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("💎 Challenge Rewards + Contribution MVP + Circle Trophy Cabinet enabled")
     print("🏆 Circle Challenges + Shared Goals + Group Progress enabled")
     print("💌 Circle Feed + Group Activity + Circle-specific Kudos enabled")
     print("🫂 Hunter Circles + Close Allies + Social Network Groups enabled")
