@@ -21180,6 +21180,181 @@ def hunter_public_profile_page(username):
     )
 
 
+
+
+# ===== V21.4 GUESTBOOK CONTROL CENTER + MODERATION =====
+def _hunter_guestbook_owner_snapshot(username, received_limit=40, sent_limit=24):
+    username = str(username or "").strip()
+    received_limit = max(1, min(int(received_limit or 40), 80))
+    sent_limit = max(1, min(int(sent_limit or 24), 80))
+    if not username:
+        return {
+            "username": "",
+            "received_total": 0,
+            "sent_total": 0,
+            "pinned_entry_id": None,
+            "received_entries": [],
+            "sent_entries": [],
+            "reaction_breakdown": [],
+        }
+
+    conn = db()
+    recv_total_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM hunter_guestbook_entries WHERE recipient = ?",
+        (username,)
+    ).fetchone()
+    sent_total_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM hunter_guestbook_entries WHERE author = ?",
+        (username,)
+    ).fetchone()
+    recv_rows = conn.execute(
+        """SELECT id, recipient, author, reaction, message, is_pinned, created_at
+           FROM hunter_guestbook_entries
+           WHERE recipient = ?
+           ORDER BY is_pinned DESC, id DESC
+           LIMIT ?""",
+        (username, received_limit)
+    ).fetchall()
+    sent_rows = conn.execute(
+        """SELECT id, recipient, author, reaction, message, is_pinned, created_at
+           FROM hunter_guestbook_entries
+           WHERE author = ?
+           ORDER BY id DESC
+           LIMIT ?""",
+        (username, sent_limit)
+    ).fetchall()
+    reaction_rows = conn.execute(
+        """SELECT reaction, COUNT(*) AS c
+           FROM hunter_guestbook_entries
+           WHERE recipient = ?
+           GROUP BY reaction
+           ORDER BY c DESC, reaction ASC""",
+        (username,)
+    ).fetchall()
+    conn.close()
+
+    def _normalize(row):
+        return {
+            "id": int(row["id"] or 0),
+            "recipient": str(row["recipient"] or ""),
+            "author": str(row["author"] or ""),
+            "reaction": str(row["reaction"] or "🔥"),
+            "reaction_label": HUNTER_KUDOS_REACTIONS.get(str(row["reaction"] or "🔥"), "SIGNAL"),
+            "message": str(row["message"] or ""),
+            "is_pinned": int(row["is_pinned"] or 0),
+            "created_at": str(row["created_at"] or ""),
+        }
+
+    received_entries = [_normalize(r) for r in recv_rows]
+    sent_entries = [_normalize(r) for r in sent_rows]
+    pinned = next((x for x in received_entries if int(x.get("is_pinned") or 0)), None)
+    breakdown = [
+        {
+            "reaction": str(r["reaction"] or "🔥"),
+            "label": HUNTER_KUDOS_REACTIONS.get(str(r["reaction"] or "🔥"), "SIGNAL"),
+            "count": int(r["c"] or 0),
+        }
+        for r in reaction_rows
+    ]
+    return {
+        "username": username,
+        "received_total": int((recv_total_row[0] if recv_total_row else 0) or 0),
+        "sent_total": int((sent_total_row[0] if sent_total_row else 0) or 0),
+        "pinned_entry_id": int(pinned.get("id") or 0) if pinned else None,
+        "received_entries": received_entries,
+        "sent_entries": sent_entries,
+        "reaction_breakdown": breakdown,
+        "public_guestbook_url": "/u/{}/guestbook".format(urllib.parse.quote(username, safe="")),
+        "composer_url": "/u/{}/kudos".format(urllib.parse.quote(username, safe="")),
+    }
+
+
+@app.post("/api/hunter/guestbook/delete")
+def hunter_guestbook_delete():
+    actor = str(session.get("authenticated_username") or "").strip()
+    if not actor:
+        return jsonify({"success": False, "message": "Login required."}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    try:
+        entry_id = int(payload.get("entry_id") or 0)
+    except Exception:
+        entry_id = 0
+    if entry_id <= 0:
+        return jsonify({"success": False, "message": "Valid entry_id required."}), 400
+
+    conn = db()
+    row = conn.execute(
+        "SELECT id, recipient, author, is_pinned FROM hunter_guestbook_entries WHERE id = ?",
+        (entry_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "message": "Entry not found."}), 404
+
+    recipient = str(row["recipient"] or "")
+    author = str(row["author"] or "")
+    if actor.lower() not in {recipient.lower(), author.lower()}:
+        conn.close()
+        return jsonify({"success": False, "message": "You can only delete your own sent Kudos or entries on your guestbook."}), 403
+
+    conn.execute("DELETE FROM hunter_guestbook_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+
+    message = "Guestbook entry deleted."
+    if actor.lower() == recipient.lower() and actor.lower() != author.lower():
+        message = "Guestbook entry removed from your wall."
+    elif actor.lower() == author.lower() and actor.lower() != recipient.lower():
+        message = "Your sent Kudos was deleted."
+
+    return jsonify({
+        "success": True,
+        "message": message,
+        "guestbook": _hunter_guestbook_snapshot(recipient, limit=12),
+        "studio": _hunter_guestbook_owner_snapshot(actor, received_limit=40, sent_limit=24),
+    })
+
+
+@app.route("/hunter-guestbook-studio")
+def hunter_guestbook_studio_page():
+    actor = str(session.get("authenticated_username") or request.args.get("username") or "").strip()
+    if not actor:
+        return """<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:white;font-family:system-ui;padding:40px"><h1>💌 Guestbook Control Center</h1><p>Sign in to manage your Hunter Guestbook.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>"""
+
+    data = _hunter_guestbook_owner_snapshot(actor, received_limit=48, sent_limit=32)
+    esc = html.escape
+    received_cards = []
+    for item in data.get("received_entries") or []:
+        pin_label = "PINNED" if int(item.get("is_pinned") or 0) else "PIN"
+        pin_class = "action gold" if int(item.get("is_pinned") or 0) else "action"
+        received_cards.append(
+            '<article class="card"><div class="top"><b>{reaction} {label}</b><span class="meta">FROM @{author}</span></div><div class="msg">{message}</div><div class="meta">{created}</div><div class="actions"><button class="{pin_class}" onclick="pinEntry({id})">{pin_label}</button><button class="action danger" onclick="deleteEntry({id})">DELETE</button></div></article>'.format(
+                reaction=esc(str(item.get("reaction") or "🔥")),
+                label=esc(str(item.get("reaction_label") or "SIGNAL")),
+                author=esc(str(item.get("author") or "guest")),
+                message=esc(str(item.get("message") or "")),
+                created=esc(str(item.get("created_at") or "")),
+                pin_class=pin_class,
+                pin_label=pin_label,
+                id=int(item.get("id") or 0),
+            )
+        )
+    sent_cards = []
+    for item in data.get("sent_entries") or []:
+        sent_cards.append(
+            '<article class="card"><div class="top"><b>{reaction} {label}</b><span class="meta">TO @{recipient}</span></div><div class="msg">{message}</div><div class="meta">{created}</div><div class="actions"><button class="action danger" onclick="deleteEntry({id})">DELETE</button></div></article>'.format(
+                reaction=esc(str(item.get("reaction") or "🔥")),
+                label=esc(str(item.get("reaction_label") or "SIGNAL")),
+                recipient=esc(str(item.get("recipient") or "guest")),
+                message=esc(str(item.get("message") or "")),
+                created=esc(str(item.get("created_at") or "")),
+                id=int(item.get("id") or 0),
+            )
+        )
+    reaction_summary = " · ".join(["{} {}".format(esc(str(x.get("reaction") or "🔥")), int(x.get("count") or 0)) for x in data.get("reaction_breakdown") or []]) or "No reaction history yet"
+    public_q = urllib.parse.quote(actor, safe="")
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Guestbook Control Center</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 20% 0,#3d155a,transparent 28%),radial-gradient(circle at 86% 0,#6d3b0f,transparent 26%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #343741;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(38px,7vw,74px);line-height:.92;margin:10px 0}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #2d3039;border-radius:16px;background:#090a0f;padding:14px}}.stat b{{display:block;font-size:24px}}.stat span,.meta{{color:#9ea2af;font-size:10px}}.grid{{display:grid;grid-template-columns:1fr 1fr;gap:14px}}.card{{border:1px solid #2d3039;border-radius:18px;background:#090a0f;padding:16px}}.top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.msg{{margin-top:10px;font-size:15px;line-height:1.5}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}}button.action,a.nav{{appearance:none;background:transparent;color:#fff;border:1px solid #393b44;border-radius:10px;padding:10px 12px;font-size:10px;font-weight:900;text-decoration:none;cursor:pointer}}button.action.gold,a.nav.hot{{background:#ffd66b;color:#160f03;border-color:#ffd66b}}button.action.danger{{border-color:#7d3240;color:#ffb5c0}}.section-head{{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:14px}}.status{{min-height:22px;margin-top:14px;color:#ffd66b;font-size:12px}}.empty{{border:1px dashed #474a56;border-radius:16px;padding:18px;color:#9ea2af}}@media(max-width:900px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:560px){{.stats{{grid-template-columns:1fr}}}}</style></head><body><div class="wrap"><section class="hero"><div class="gold">V21.4 // GUESTBOOK CONTROL CENTER</div><h1>MANAGE YOUR KUDOS WALL.</h1><div class="meta">Signed in as @{esc(actor)} · Pin favorite signals, remove noise, and clean up sent messages from one place.</div><div class="stats"><div class="stat"><b>{int(data.get('received_total') or 0)}</b><span>RECEIVED SIGNALS</span></div><div class="stat"><b>{int(data.get('sent_total') or 0)}</b><span>SENT SIGNALS</span></div><div class="stat"><b>{int(data.get('pinned_entry_id') or 0) or '—'}</b><span>PINNED ENTRY ID</span></div><div class="stat"><b>{reaction_summary}</b><span>REACTION BREAKDOWN</span></div></div><div class="actions"><a class="nav hot" href="/u/{public_q}/guestbook">PUBLIC GUESTBOOK</a><a class="nav" href="/u/{public_q}">PUBLIC PROFILE</a><a class="nav" href="/u/{public_q}/kudos">SEND KUDOS</a></div><div class="status" id="status"></div></section><div class="grid"><section class="panel"><div class="section-head"><div class="gold">RECEIVED KUDOS</div><div class="meta">PIN OR DELETE ENTRIES ON YOUR WALL</div></div>{''.join(received_cards) or '<div class="empty">No one has signed your guestbook yet.</div>'}</section><section class="panel"><div class="section-head"><div class="gold">SENT KUDOS</div><div class="meta">DELETE MESSAGES YOU SENT</div></div>{''.join(sent_cards) or '<div class="empty">You have not sent any Kudos yet.</div>'}</section></div></div><script>async function pinEntry(id){{const status=document.getElementById('status');status.textContent='Updating pin…';try{{const r=await fetch('/api/hunter/guestbook/pin',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entry_id:id}})}});const d=await r.json();status.textContent=d.message||'Done';if(r.ok&&d.success){{setTimeout(()=>location.reload(),350)}}}}catch(e){{status.textContent='Network error. Try again.'}}}}async function deleteEntry(id){{const status=document.getElementById('status');status.textContent='Deleting…';try{{const r=await fetch('/api/hunter/guestbook/delete',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entry_id:id}})}});const d=await r.json();status.textContent=d.message||'Done';if(r.ok&&d.success){{setTimeout(()=>location.reload(),350)}}}}catch(e){{status.textContent='Network error. Try again.'}}}}</script></body></html>"""
 if __name__ == "__main__":
 
     init_db()
@@ -21253,6 +21428,7 @@ if __name__ == "__main__":
     print("🏆 Leaderboard enabled")
     print("👛 Wallet profile enabled")
     print("")
+    print("💌 Guestbook Control Center enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
