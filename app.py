@@ -25315,16 +25315,196 @@ if 'hunter_circle_seasons_page' in app.view_functions:
 
     app.view_functions['hunter_circle_seasons_page'] = _V227_seasons_with_legacy
 
+
+# ===== V22.8 LEGACY MILESTONES + DYNASTY BADGES + HUNTER HALL OF LEGENDS =====
+LEGACY_MILESTONES = [
+    (100, '🌱', 'FOUNDING SPARK'),
+    (200, '🔥', 'RISING DYNASTY'),
+    (400, '🏛️', 'ESTABLISHED DYNASTY'),
+    (600, '👑', 'LEGENDARY DYNASTY'),
+    (800, '🌌', 'MYTHIC DYNASTY'),
+    (1000, '💎', 'ETERNAL LEGACY'),
+]
+
+
+def _legacy_badge_pack(legacy):
+    score = int((legacy or {}).get('score') or 0)
+    closed = int((legacy or {}).get('closed_seasons') or 0)
+    completed = int((legacy or {}).get('completed_challenges') or 0)
+    trophies = int((legacy or {}).get('trophies') or 0)
+    awards = int((legacy or {}).get('season_awards') or 0)
+    progress = int((legacy or {}).get('total_progress') or 0)
+    badges = []
+    if closed >= 1:
+        badges.append({'icon':'📜','name':'SEASON ARCHIVIST','detail':f'{closed} closed Season(s)'})
+    if completed >= 5:
+        badges.append({'icon':'⚔️','name':'CHALLENGE FORGE','detail':f'{completed} completed Challenges'})
+    if trophies >= 3:
+        badges.append({'icon':'🏆','name':'TROPHY HOUSE','detail':f'{trophies} trophies recorded'})
+    if awards >= 3:
+        badges.append({'icon':'🏅','name':'AWARD DYNASTY','detail':f'{awards} Season Awards'})
+    if progress >= 500:
+        badges.append({'icon':'⚡','name':'PROGRESS ENGINE','detail':f'{progress} total progress'})
+    if score >= 800:
+        badges.append({'icon':'🌌','name':'MYTHIC DYNASTY','detail':'Legacy score reached 800+'})
+    return badges
+
+
+def _legacy_milestones_snapshot(circle_id, viewer):
+    base = _circle_legacy_snapshot(circle_id, viewer)
+    if not base.get('success'):
+        return base
+    legacy = base.get('legacy') or {}
+    score = int(legacy.get('score') or 0)
+    milestones = []
+    next_milestone = None
+    for threshold, icon, title in LEGACY_MILESTONES:
+        unlocked = score >= threshold
+        row = {
+            'threshold': threshold,
+            'icon': icon,
+            'title': title,
+            'unlocked': unlocked,
+            'remaining': max(0, threshold - score),
+        }
+        milestones.append(row)
+        if not unlocked and next_milestone is None:
+            next_milestone = row
+
+    legendary = []
+    for hunter in base.get('legendary_hunters') or []:
+        h = dict(hunter)
+        hscore = int(h.get('legend_score') or 0)
+        h['hall_class'] = 'IMMORTAL' if hscore >= 800 else ('LEGEND' if hscore >= 600 else ('ELITE' if hscore >= 400 else 'VETERAN'))
+        h['inducted'] = hscore >= 400
+        legendary.append(h)
+
+    payload = {
+        **base,
+        'milestones': milestones,
+        'next_milestone': next_milestone,
+        'dynasty_badges': _legacy_badge_pack(legacy),
+        'hall_of_legends': [h for h in legendary if h.get('inducted')],
+        'hall_count': sum(1 for h in legendary if h.get('inducted')),
+        'policy': (
+            'Legacy milestones, Dynasty badges and Hall of Legends are deterministic BL3 historical summaries '
+            'derived from recorded in-app Seasons, Challenges, trophies, awards and progress. They are not '
+            'financial, predictive, or real-world skill judgments.'
+        ),
+    }
+    payload['legacy_milestone_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/circles/<int:circle_id>/legacy-milestones')
+def hunter_circle_legacy_milestones_api(circle_id):
+    username = str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({'success': False, 'message': 'Login required.'}), 401
+    data = _legacy_milestones_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get('success') else 403)
+
+
+@app.route('/hunter-circles/<int:circle_id>/legacy-milestones.json')
+def hunter_circle_legacy_milestones_json(circle_id):
+    username = str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({'success': False, 'message': 'Login required.'}), 401
+    data = _legacy_milestones_snapshot(circle_id, username)
+    return jsonify(data), (200 if data.get('success') else 403)
+
+
+@app.route('/hunter-circles/<int:circle_id>/hall-of-legends')
+def hunter_circle_hall_of_legends_page(circle_id):
+    username = str(session.get('authenticated_username') or request.args.get('username') or '').strip()
+    if not username:
+        return '<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>🏛️ Hall of Legends</h1><p>Sign in to continue.</p><a style="color:#ffd66b" href="/">Back to BL3</a></body>'
+    data = _legacy_milestones_snapshot(circle_id, username)
+    if not data.get('success'):
+        return '<!doctype html><meta charset="utf-8"><body style="margin:0;background:#050507;color:#fff;font-family:system-ui;padding:40px"><h1>Access denied.</h1><a style="color:#ffd66b" href="/hunter-circles">Back to Circles</a></body>', 403
+
+    esc = html.escape
+    circle = data.get('circle') or {}
+    legacy = data.get('legacy') or {}
+    next_m = data.get('next_milestone') or {}
+
+    milestone_html = ''.join(
+        '<div class="milestone {state}"><div class="micon">{icon}</div><div><b>{title}</b><span>{threshold} LEGACY</span><small>{detail}</small></div></div>'.format(
+            state='unlocked' if m.get('unlocked') else 'locked',
+            icon=esc(str(m.get('icon') or '🏁')),
+            title=esc(str(m.get('title') or '')),
+            threshold=int(m.get('threshold') or 0),
+            detail='UNLOCKED' if m.get('unlocked') else f"{int(m.get('remaining') or 0)} TO GO",
+        ) for m in data.get('milestones') or []
+    )
+
+    badge_html = ''.join(
+        '<div class="badge"><span>{icon}</span><div><b>{name}</b><small>{detail}</small></div></div>'.format(
+            icon=esc(str(b.get('icon') or '🎖️')),
+            name=esc(str(b.get('name') or 'BADGE')),
+            detail=esc(str(b.get('detail') or '')),
+        ) for b in data.get('dynasty_badges') or []
+    ) or '<div class="empty">No Dynasty badges unlocked yet.</div>'
+
+    hall_html = []
+    for h in data.get('hall_of_legends') or []:
+        rank = int(h.get('legacy_rank') or 0)
+        medal = '👑' if rank == 1 else ('🥈' if rank == 2 else ('🥉' if rank == 3 else '🌟'))
+        hall_html.append(
+            '<article class="legend"><div class="rank">{medal} #{rank}</div><div><b>@{name}</b><span class="class">{klass}</span><div class="meta">{score} LEGEND SCORE · {progress} PROGRESS · {awards} AWARDS · {seasons} SEASONS</div></div><a href="{href}">PROFILE</a></article>'.format(
+                medal=medal,
+                rank=rank,
+                name=esc(str(h.get('username') or '')),
+                klass=esc(str(h.get('hall_class') or 'LEGEND')),
+                score=int(h.get('legend_score') or 0),
+                progress=int(h.get('total_amount') or 0),
+                awards=int(h.get('season_awards') or 0),
+                seasons=int(h.get('seasons_played') or 0),
+                href=esc(str(h.get('profile_url') or '#')),
+            )
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Hall of Legends</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#52135f,transparent 30%),radial-gradient(circle at 88% 0,#76540d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #3c3944;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(50px,8vw,94px);line-height:.87;margin:10px 0}}.meta{{color:#9da1ad;font-size:10px;line-height:1.5}}.score{{font-size:58px;font-weight:950;color:#ffd66b}}.sub{{display:flex;gap:8px;flex-wrap:wrap}}.sub span{{border:1px solid #3a3d48;border-radius:999px;padding:7px 9px;font-size:8px;font-weight:900}}a.nav,.legend>a{{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}a.nav{{margin-top:12px;margin-right:8px}}.milestones{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.milestone{{display:grid;grid-template-columns:52px 1fr;gap:10px;border:1px solid #31333d;border-radius:16px;padding:13px;background:#090a0f}}.milestone.unlocked{{border-color:#66572f;background:rgba(255,214,107,.05)}}.milestone.locked{{opacity:.45}}.micon{{font-size:30px}}.milestone span,.milestone small,.badge small{{display:block;color:#969aa6;font-size:9px;margin-top:3px}}.badges{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.badge{{display:grid;grid-template-columns:42px 1fr;gap:10px;border:1px solid #353842;border-radius:15px;padding:12px;background:#090a0f}}.badge>span{{font-size:28px}}.legend{{display:grid;grid-template-columns:90px 1fr auto;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}.rank,.class{{color:#ffd66b;font-weight:900}}.class{{display:inline-block;margin-left:8px;border:1px solid #4b4330;border-radius:999px;padding:4px 7px;font-size:8px}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:13px;color:#9da1ad}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.milestones,.badges{{grid-template-columns:1fr}}.legend{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V22.8 // LEGACY MILESTONES + HALL OF LEGENDS</div><h1>{esc(str(circle.get('emoji') or '🫂'))} HALL OF LEGENDS.</h1><div class="score">{int(legacy.get('score') or 0)}</div><div class="sub"><span>{esc(str(legacy.get('tier') or 'FOUNDING ERA'))}</span><span>DYNASTY RANK #{esc(str(legacy.get('dynasty_rank') or '—'))}</span><span>{int(data.get('hall_count') or 0)} INDUCTED HUNTERS</span><span>NEXT: {esc(str(next_m.get('title') or 'ALL MILESTONES UNLOCKED'))}</span></div><a class="nav" href="/hunter-circles/{circle_id}/legacy">CIRCLE LEGACY</a><a class="nav" href="/hunter-circles/{circle_id}/hall-of-seasons">HALL OF SEASONS</a><a class="nav" href="/hunter-circles/{circle_id}/legacy-milestones.json">JSON</a></section><section class="panel"><div class="gold">LEGACY MILESTONES</div><div class="milestones">{milestone_html}</div></section><section class="panel"><div class="gold">DYNASTY BADGES</div><div class="badges">{badge_html}</div></section><section class="panel"><div class="gold">HUNTER HALL OF LEGENDS</div>{''.join(hall_html) or '<div class="empty">No Hunter has reached Hall induction yet.</div>'}</section><div class="digest">MILESTONE DIGEST // {esc(str(data.get('legacy_milestone_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+if 'hunter_circle_legacy_page' in app.view_functions:
+    _V227_legacy_view_legends = app.view_functions['hunter_circle_legacy_page']
+
+    def _V228_legacy_with_hall(circle_id):
+        response = _V227_legacy_view_legends(circle_id)
+        if isinstance(response, str):
+            link = f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-legends">HALL OF LEGENDS</a>'
+            if link not in response:
+                response = response.replace(
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-seasons">HALL OF SEASONS</a>',
+                    f'<a class="nav" href="/hunter-circles/{int(circle_id)}/hall-of-seasons">HALL OF SEASONS</a>' + link,
+                    1
+                )
+            response = response.replace(
+                'V22.7 // CIRCLE LEGACY + DYNASTY RANKINGS',
+                'V22.8 // CIRCLE LEGACY + MILESTONES + DYNASTY BADGES',
+                1
+            )
+        return response
+
+    app.view_functions['hunter_circle_legacy_page'] = _V228_legacy_with_hall
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("👑 BL3 ARENA V22.7 // CIRCLE LEGACY SCORE + DYNASTY RANKINGS + LEGENDARY HUNTERS")
+    print("🏛️ BL3 ARENA V22.8 // LEGACY MILESTONES + DYNASTY BADGES + HUNTER HALL OF LEGENDS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏛️ Legacy Milestones + Dynasty Badges + Hunter Hall of Legends enabled")
     print("👑 Circle Legacy Score + Dynasty Rankings + Legendary Hunters enabled")
     print("📜 Season Awards + Hall of Seasons + All-Time Circle Rankings enabled")
     print("📅 Circle Seasons + Seasonal Leaderboard + Trophy History enabled")
