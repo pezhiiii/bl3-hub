@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V26.2"
+V247_SECURITY_VERSION = "V26.3"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V26.2"
+V248_SECURITY_VERSION = "V26.3"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Build Attestation</title><style>
+    <title>BL3 V26.3 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V26.2 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V26.3 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V26.2"
+V250_VERSION = "V26.3"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Release Sentinel</title><style>
+    <title>BL3 V26.3 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V26.2 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V26.3 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V26.2"
+V253_VERSION = "V26.3"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Integrity Watch</title>
+    <title>BL3 V26.3 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V26.2 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V26.3 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V26.2"
+V254_VERSION = "V26.3"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V26.2"
+V255_VERSION = "V26.3"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V26.2"
+V256_VERSION = "V26.3"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V26.2"
+V257_VERSION = "V26.3"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V26.2"
+V258_VERSION = "V26.3"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Hunter Command Deck</title>
+    <title>BL3 V26.3 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -32952,7 +32952,7 @@ def v258_hunter_command_page():
     .empty{{color:#9f95a8;padding:14px 0}}@media(max-width:760px){{.cols{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'>
       <section class='hero'>
-        <div class='eyebrow'>BL3 V26.2 // HUNTER HOME</div>
+        <div class='eyebrow'>BL3 V26.3 // HUNTER HOME</div>
         <div class='identity'>
           <div class='avatar'>{title_icon}</div>
           <div><div class='name'>{username}</div>
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V26.2"
+V259_VERSION = "V26.3"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33184,7 +33184,7 @@ def v259_hunter_next_move_page():
         action_html.append("<div class='empty'>No priority actions right now. Your board is clear.</div>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Hunter Next Move</title>
+    <title>BL3 V26.3 Hunter Next Move</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#331d12 0,#09070c 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1040px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0a0aed;border:1px solid #65412c;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
@@ -33197,7 +33197,7 @@ def v259_hunter_next_move_page():
     .btn{{display:inline-block;text-decoration:none;color:#fff;background:#14100e;border:1px solid #65412c;border-radius:11px;padding:10px 13px;margin:5px 5px 0 0}}.empty{{color:#a99b94;padding:18px}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.2 // PERSONAL ACTION ENGINE</div>
+        <div class='eyebrow'>BL3 V26.3 // PERSONAL ACTION ENGINE</div>
         <h1>⚡ HUNTER NEXT MOVE</h1>
         <p class='sub'>{username}, this is your ranked action queue from current BL3 signals.</p>
         <div class='grid'>
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V26.2"
+V260_VERSION = "V26.3"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33534,7 +33534,7 @@ def v260_hunter_focus_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Hunter Focus Runs</title>
+    <title>BL3 V26.3 Hunter Focus Runs</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#35120f 0,#09070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0909ed;border:1px solid #6c342d;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -33545,7 +33545,7 @@ def v260_hunter_focus_page():
     table{{width:100%;border-collapse:collapse}}th,td{{padding:11px 8px;border-bottom:1px solid #2f1b19;text-align:left;font-size:13px}}th{{color:#d2aaa5}}.ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}.empty{{color:#aa9896;padding:12px 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.2 // EXECUTION LOOP</div>
+        <div class='eyebrow'>BL3 V26.3 // EXECUTION LOOP</div>
         <h1>🔥 HUNTER FOCUS RUNS</h1>
         <p class='muted'>{username}, pick one move, focus on it, complete it, build your streak.</p>
         <div class='grid'>
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V26.2"
+V261_VERSION = "V26.3"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -33923,7 +33923,7 @@ def v261_focus_queue_page():
     active_label = esc(active.get("action_title") if active else "NONE")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.2 Hunter Focus Queue</title>
+    <title>BL3 V26.3 Hunter Focus Queue</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#112d38 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#091014ed;border:1px solid #315d69;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -33933,7 +33933,7 @@ def v261_focus_queue_page():
     .qbody{{flex:1}}.qactions{{display:flex;gap:6px;flex-wrap:wrap}}.srow>div{{flex:1}}.muted{{color:#9dafb4;font-size:13px;margin-top:5px}}button,.btn{{border:1px solid #3f7d8d;background:#0f1c21;color:#fff;padding:9px 12px;border-radius:10px;cursor:pointer;text-decoration:none;font-weight:800}}button.remove{{border-color:#7c3f4c}}.empty{{color:#91a4a9;padding:12px 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.2 // EXECUTION PLANNER</div>
+        <div class='eyebrow'>BL3 V26.3 // EXECUTION PLANNER</div>
         <h1>📋 HUNTER FOCUS QUEUE</h1>
         <p class='muted'>{username}, line up your next moves and promote them into Focus Runs one by one.</p>
         <div class='grid'>
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V26.2"
+V262_VERSION = "V26.3"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34221,6 +34221,296 @@ try:
             )
             return response
         app.view_functions["v260_hunter_focus_page"] = _v262_focus_page_chain_aware
+except Exception:
+    pass
+
+
+# ===== V26.3 FOCUS INSIGHTS + WEEKLY REVIEW =====
+# Product-facing retrospective built from Hunter Focus Runs.
+# Measures only in-app activity and completion behavior.
+
+V263_VERSION = "V26.3"
+
+def _v263_parse_iso(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _v263_focus_insights_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V263_VERSION}
+
+    rows = _v260_focus_history(username, 100)
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=7)
+
+    weekly = []
+    for row in rows:
+        started = _v263_parse_iso(row.get("started_at"))
+        if started:
+            try:
+                started_cmp = started.replace(tzinfo=None)
+            except Exception:
+                started_cmp = started
+            if started_cmp >= cutoff:
+                weekly.append(row)
+
+    completed_week = [r for r in weekly if str(r.get("status") or "") == "COMPLETED"]
+    cancelled_week = [r for r in weekly if str(r.get("status") or "") == "CANCELLED"]
+    active_week = [r for r in weekly if str(r.get("status") or "") == "ACTIVE"]
+    finished_count = len(completed_week) + len(cancelled_week)
+    completion_rate = round((len(completed_week) / max(1, finished_count)) * 100, 1) if finished_count else 0.0
+
+    by_day = {}
+    for i in range(6, -1, -1):
+        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        by_day[day] = {"day": day, "started": 0, "completed": 0, "cancelled": 0}
+
+    for row in weekly:
+        dt = _v263_parse_iso(row.get("started_at"))
+        if not dt:
+            continue
+        day = dt.strftime("%Y-%m-%d")
+        if day not in by_day:
+            continue
+        by_day[day]["started"] += 1
+        status = str(row.get("status") or "")
+        if status == "COMPLETED":
+            by_day[day]["completed"] += 1
+        elif status == "CANCELLED":
+            by_day[day]["cancelled"] += 1
+
+    priority_counts = {}
+    kind_counts = {}
+    score_total = 0
+    score_count = 0
+    for row in weekly:
+        priority = str(row.get("priority") or "NORMAL").upper()
+        kind = str(row.get("action_kind") or "ACTION").upper()
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        try:
+            score_total += int(row.get("score") or 0)
+            score_count += 1
+        except Exception:
+            pass
+
+    top_priority = max(priority_counts.items(), key=lambda x: x[1])[0] if priority_counts else "NONE"
+    top_kind = max(kind_counts.items(), key=lambda x: x[1])[0] if kind_counts else "NONE"
+    avg_score = round(score_total / max(1, score_count), 1) if score_count else 0.0
+
+    streaks = _v260_streak_stats(username)
+
+    if len(weekly) == 0:
+        weekly_state = "NO DATA"
+        review = "Start a Focus Run to build your first weekly review."
+    elif completion_rate >= 80 and len(completed_week) >= 3:
+        weekly_state = "STRONG"
+        review = "High completion rate this week. Keep the queue short and preserve quality."
+    elif completion_rate >= 60:
+        weekly_state = "STEADY"
+        review = "You are completing most finished runs. Tighten priorities before adding more."
+    elif len(cancelled_week) > len(completed_week):
+        weekly_state = "RESET"
+        review = "More runs were cancelled than completed. Reduce queue size and choose smaller next moves."
+    else:
+        weekly_state = "BUILDING"
+        review = "Your execution loop is active. Aim for one clean completion at a time."
+
+    payload = {
+        "success": True,
+        "version": V263_VERSION,
+        "username": username,
+        "window_days": 7,
+        "weekly_state": weekly_state,
+        "review": review,
+        "runs_started": len(weekly),
+        "runs_completed": len(completed_week),
+        "runs_cancelled": len(cancelled_week),
+        "runs_active": len(active_week),
+        "completion_rate": completion_rate,
+        "average_priority_score": avg_score,
+        "top_priority": top_priority,
+        "top_action_kind": top_kind,
+        "streaks": streaks,
+        "daily": list(by_day.values()),
+        "priority_counts": priority_counts,
+        "kind_counts": kind_counts,
+        "recent": weekly[:12],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Focus Insights summarizes BL3 in-app Focus Run activity only. "
+            "It is not a productivity guarantee and does not represent monetary or external value."
+        ),
+    }
+    payload["insights_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-focus-insights")
+def v263_focus_insights_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v263_focus_insights_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-focus-insights")
+def v263_focus_insights_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Focus Insights</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📈 Focus Insights</h1><p>Sign in to open your weekly review.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v263_focus_insights_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    state = str(data.get("weekly_state") or "NO DATA")
+    state_cls = "ok" if state == "STRONG" else ("warn" if state in ("STEADY", "BUILDING") else ("bad" if state == "RESET" else "muted"))
+
+    day_rows = []
+    max_started = max([int(x.get("started") or 0) for x in (data.get("daily") or [])] + [1])
+    for item in data.get("daily") or []:
+        started = int(item.get("started") or 0)
+        completed = int(item.get("completed") or 0)
+        width = max(4, int(round((started / max_started) * 100))) if started else 0
+        label = str(item.get("day") or "")[-5:]
+        day_rows.append(
+            "<div class='day'><div class='dlabel'>{}</div><div class='track'><div class='bar' style='width:{}%'></div></div><div class='dmeta'>{} started · {} done</div></div>".format(
+                esc(label), width, started, completed
+            )
+        )
+
+    recent_rows = []
+    for row in data.get("recent") or []:
+        status = str(row.get("status") or "")
+        cls = "ok" if status == "COMPLETED" else ("warn" if status == "ACTIVE" else "bad")
+        recent_rows.append(
+            "<tr><td>{}</td><td>{}</td><td class='{}'>{}</td><td>{}</td><td>{}</td></tr>".format(
+                esc(row.get("started_at")),
+                esc(row.get("action_title")),
+                cls,
+                esc(status),
+                esc(row.get("priority")),
+                esc(row.get("score")),
+            )
+        )
+    if not recent_rows:
+        recent_rows.append("<tr><td colspan='5'>No Focus Runs in the last 7 days.</td></tr>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V26.3 Focus Insights</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#152c22 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1120px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0a0d0bed;border:1px solid #355b46;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#8fe1b4;font-size:13px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:12px 0 8px}}.muted{{color:#a9b9af}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}}.card{{background:#07100a;border:1px solid #2b4a38;border-radius:17px;padding:17px}}
+    .k{{color:#a5c6b2;font-size:12px;font-weight:900;letter-spacing:1px}}.v{{font-size:27px;font-weight:900;margin-top:8px}}.ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}
+    .review{{font-size:17px;line-height:1.6;background:#0b160f;border:1px solid #335a43;border-radius:16px;padding:16px}}.day{{display:grid;grid-template-columns:58px 1fr 150px;gap:10px;align-items:center;margin:11px 0}}
+    .track{{height:11px;background:#142219;border-radius:999px;overflow:hidden}}.bar{{height:100%;background:#64d99a;border-radius:999px}}.dlabel{{font-weight:900;color:#b6d6c2}}.dmeta{{font-size:12px;color:#9fb1a5}}
+    table{{width:100%;border-collapse:collapse}}th,td{{padding:11px 8px;border-bottom:1px solid #20342a;text-align:left;font-size:13px}}th{{color:#b1cdbb}}.btn{{display:inline-block;text-decoration:none;color:#fff;background:#0e1a13;border:1px solid #3f7455;border-radius:10px;padding:10px 13px;margin:5px 5px 0 0}}
+    @media(max-width:700px){{.day{{grid-template-columns:48px 1fr}}.dmeta{{grid-column:2}}}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V26.3 // WEEKLY EXECUTION REVIEW</div>
+        <h1>📈 FOCUS INSIGHTS</h1>
+        <p class='muted'>{username}, this review summarizes your last 7 days of Focus Runs.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>WEEKLY STATE</div><div class='v {state_cls}'>{state}</div></div>
+          <div class='card'><div class='k'>COMPLETION RATE</div><div class='v'>{rate}%</div></div>
+          <div class='card'><div class='k'>COMPLETED</div><div class='v'>{completed}</div></div>
+          <div class='card'><div class='k'>CANCELLED</div><div class='v'>{cancelled}</div></div>
+          <div class='card'><div class='k'>CURRENT STREAK</div><div class='v'>{current_streak}</div></div>
+          <div class='card'><div class='k'>BEST STREAK</div><div class='v'>{best_streak}</div></div>
+        </div>
+        <p><a class='btn' href='/hunter-focus'>🔥 FOCUS RUNS</a><a class='btn' href='/hunter-focus-queue'>📋 FOCUS QUEUE</a><a class='btn' href='/hunter-next-move'>⚡ NEXT MOVE</a></p>
+      </section>
+
+      <section class='panel'><h2>WEEKLY REVIEW</h2><div class='review'>{review}</div></section>
+      <section class='panel'><h2>7-DAY ACTIVITY</h2>{days}</section>
+      <section class='panel'>
+        <div class='grid'>
+          <div class='card'><div class='k'>TOP PRIORITY</div><div class='v'>{top_priority}</div></div>
+          <div class='card'><div class='k'>TOP ACTION KIND</div><div class='v'>{top_kind}</div></div>
+          <div class='card'><div class='k'>AVG PRIORITY SCORE</div><div class='v'>{avg_score}</div></div>
+          <div class='card'><div class='k'>RUNS STARTED</div><div class='v'>{started}</div></div>
+        </div>
+      </section>
+      <section class='panel'><h2>RECENT RUNS</h2><div style='overflow:auto'><table><thead><tr><th>Started</th><th>Action</th><th>Status</th><th>Priority</th><th>Score</th></tr></thead><tbody>{recent}</tbody></table></div></section>
+    </div></body></html>""".format(
+        username=esc(username),
+        state_cls=state_cls,
+        state=esc(state),
+        rate=esc(data.get("completion_rate")),
+        completed=esc(data.get("runs_completed")),
+        cancelled=esc(data.get("runs_cancelled")),
+        current_streak=esc((data.get("streaks") or {}).get("current_streak")),
+        best_streak=esc((data.get("streaks") or {}).get("best_streak")),
+        review=esc(data.get("review")),
+        days="".join(day_rows),
+        top_priority=esc(data.get("top_priority")),
+        top_kind=esc(data.get("top_action_kind")),
+        avg_score=esc(data.get("average_priority_score")),
+        started=esc(data.get("runs_started")),
+        recent="".join(recent_rows),
+    )
+
+
+# Surface Insights from Focus Runs, Queue and Hunter Home.
+try:
+    _v263_prev_focus = app.view_functions.get("v260_hunter_focus_page")
+    if _v263_prev_focus:
+        def _v263_focus_with_insights(*args, **kwargs):
+            response = _v263_prev_focus(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-insights" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1080px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-focus-insights' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #3f7455;border-radius:12px;padding:11px 15px;background:#0e1a13'>📈 FOCUS INSIGHTS</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v260_hunter_focus_page"] = _v263_focus_with_insights
+except Exception:
+    pass
+
+try:
+    _v263_prev_queue = app.view_functions.get("v261_focus_queue_page")
+    if _v263_prev_queue:
+        def _v263_queue_with_insights(*args, **kwargs):
+            response = _v263_prev_queue(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-insights" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1080px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-focus-insights' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #3f7455;border-radius:12px;padding:11px 15px;background:#0e1a13'>📈 WEEKLY REVIEW</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v261_focus_queue_page"] = _v263_queue_with_insights
+except Exception:
+    pass
+
+try:
+    _v263_prev_home = app.view_functions.get("v258_hunter_command_page")
+    if _v263_prev_home:
+        def _v263_home_with_insights(*args, **kwargs):
+            response = _v263_prev_home(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-insights" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1180px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-focus-insights' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #3f7455;border-radius:12px;padding:11px 15px;background:#0e1a13'>📈 FOCUS INSIGHTS</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v258_hunter_command_page"] = _v263_home_with_insights
 except Exception:
     pass
 
