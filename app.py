@@ -30371,16 +30371,289 @@ if _v245_original_mission_page:
     app.view_functions["hunter_rivalry_missions_page"] = _v245_mission_page_with_progression
 
 
+
+# ===== V24.6 HUNTER PROFILE + ACHIEVEMENTS + TROPHY CABINET =====
+
+V246_ACHIEVEMENTS = [
+    {"key":"FIRST_MISSION","icon":"⚔️","title":"FIRST BLOOD","detail":"Complete your first Rivalry mission.","grade":"BRONZE","metric":"missions","target":1},
+    {"key":"MISSIONS_10","icon":"🎯","title":"MISSION HUNTER","detail":"Complete 10 Rivalry missions.","grade":"SILVER","metric":"missions","target":10},
+    {"key":"MISSIONS_50","icon":"🏹","title":"RELENTLESS","detail":"Complete 50 Rivalry missions.","grade":"GOLD","metric":"missions","target":50},
+    {"key":"XP_250","icon":"⚡","title":"POWER ONLINE","detail":"Earn 250 Hunter XP.","grade":"BRONZE","metric":"xp","target":250},
+    {"key":"XP_1000","icon":"🌩️","title":"CHARGED","detail":"Earn 1,000 Hunter XP.","grade":"SILVER","metric":"xp","target":1000},
+    {"key":"XP_2500","icon":"🔥","title":"OVERDRIVE","detail":"Earn 2,500 Hunter XP.","grade":"GOLD","metric":"xp","target":2500},
+    {"key":"CHEST_1","icon":"📦","title":"FIRST CHEST","detail":"Open your first Daily Reward Chest.","grade":"BRONZE","metric":"chests","target":1},
+    {"key":"CHESTS_7","icon":"💎","title":"TREASURE ROUTINE","detail":"Open 7 Daily Reward Chests.","grade":"SILVER","metric":"chests","target":7},
+    {"key":"STREAK_3","icon":"🔥","title":"THREE DAY HUNT","detail":"Reach a 3-day Rivalry mission streak.","grade":"BRONZE","metric":"streak","target":3},
+    {"key":"STREAK_7","icon":"👑","title":"SEVEN DAY DOMINANCE","detail":"Reach a 7-day Rivalry mission streak.","grade":"GOLD","metric":"streak","target":7},
+    {"key":"RANK_5","icon":"🛡️","title":"ELITE HUNTER","detail":"Reach Hunter Rank Level 5.","grade":"GOLD","metric":"rank","target":5},
+    {"key":"RANK_10","icon":"🌌","title":"LEGEND STATUS","detail":"Reach Hunter Rank Level 10.","grade":"MYTHIC","metric":"rank","target":10},
+]
+
+
+def _ensure_v246_achievement_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_achievement_unlocks (
+            username TEXT NOT NULL,
+            achievement_key TEXT NOT NULL,
+            grade TEXT NOT NULL DEFAULT 'BRONZE',
+            metric_value INTEGER NOT NULL DEFAULT 0,
+            unlocked_at TEXT NOT NULL,
+            PRIMARY KEY (username, achievement_key)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+_ensure_v246_achievement_schema()
+
+
+def _v246_metric_values(username, progression=None):
+    p = progression or _v245_progression_snapshot(username)
+    rank = p.get("rank") or {}
+    board = p.get("mission_board") or {}
+    streak = board.get("streak") or {}
+    return {
+        "missions": int(p.get("missions_completed_lifetime") or 0),
+        "xp": int(p.get("total_xp") or 0),
+        "chests": int(p.get("chests_opened") or 0),
+        "streak": int(streak.get("best_streak") or streak.get("current_streak") or 0),
+        "rank": int(rank.get("rank_level") or 1),
+    }
+
+
+def _v246_sync_achievements(username, progression=None):
+    username = str(username or "").strip()
+    if not username:
+        return []
+
+    p = progression or _v245_progression_snapshot(username)
+    metrics = _v246_metric_values(username, p)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    conn = db()
+    for ach in V246_ACHIEVEMENTS:
+        current = int(metrics.get(ach["metric"]) or 0)
+        if current >= int(ach["target"]):
+            conn.execute(
+                """INSERT OR IGNORE INTO hunter_achievement_unlocks
+                   (username, achievement_key, grade, metric_value, unlocked_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (username, ach["key"], ach["grade"], current, now)
+            )
+    conn.commit()
+
+    rows = conn.execute(
+        """SELECT achievement_key, grade, metric_value, unlocked_at
+           FROM hunter_achievement_unlocks
+           WHERE username = ?
+           ORDER BY unlocked_at ASC, achievement_key ASC""",
+        (username,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _v246_hunter_profile_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "authentication_required"}
+
+    progression = _v245_progression_snapshot(username)
+    unlocked_rows = _v246_sync_achievements(username, progression)
+    unlocked_by_key = {str(r.get("achievement_key") or ""): r for r in unlocked_rows}
+    metrics = _v246_metric_values(username, progression)
+
+    achievements = []
+    for ach in V246_ACHIEVEMENTS:
+        current = int(metrics.get(ach["metric"]) or 0)
+        target = int(ach["target"] or 1)
+        unlocked = ach["key"] in unlocked_by_key
+        pct = min(100, int(round((current / max(1, target)) * 100)))
+        row = unlocked_by_key.get(ach["key"]) or {}
+        achievements.append({
+            "key": ach["key"],
+            "icon": ach["icon"],
+            "title": ach["title"],
+            "detail": ach["detail"],
+            "grade": ach["grade"],
+            "metric": ach["metric"],
+            "current": current,
+            "target": target,
+            "progress_pct": pct,
+            "unlocked": unlocked,
+            "unlocked_at": str(row.get("unlocked_at") or ""),
+        })
+
+    grade_weight = {"BRONZE":1, "SILVER":2, "GOLD":4, "MYTHIC":7}
+    trophy_score = sum(grade_weight.get(a["grade"], 1) for a in achievements if a["unlocked"])
+    unlocked_count = sum(1 for a in achievements if a["unlocked"])
+    completion_pct = int(round((unlocked_count / max(1, len(achievements))) * 100))
+
+    rank = progression.get("rank") or {}
+    identity_state = (
+        "LEGEND" if int(rank.get("rank_level") or 1) >= 10 else
+        "ELITE" if int(rank.get("rank_level") or 1) >= 5 else
+        "RISING" if int(progression.get("total_xp") or 0) >= 250 else
+        "ROOKIE"
+    )
+
+    payload = {
+        "success": True,
+        "version": "V24.6",
+        "username": username,
+        "identity_state": identity_state,
+        "rank": rank,
+        "total_xp": int(progression.get("total_xp") or 0),
+        "missions_completed_lifetime": int(progression.get("missions_completed_lifetime") or 0),
+        "chests_opened": int(progression.get("chests_opened") or 0),
+        "current_streak": int(((progression.get("mission_board") or {}).get("streak") or {}).get("current_streak") or 0),
+        "best_streak": int(((progression.get("mission_board") or {}).get("streak") or {}).get("best_streak") or 0),
+        "achievement_count": len(achievements),
+        "unlocked_count": unlocked_count,
+        "achievement_completion_pct": completion_pct,
+        "trophy_score": trophy_score,
+        "achievements": achievements,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V24.6 achievements and Trophy Cabinet are cosmetic BL3 progression records derived from local mission activity. "
+            "They do not represent money, tokens, transferable assets, or guaranteed monetary value."
+        ),
+    }
+    digest_input = dict(payload)
+    digest_input.pop("generated_at", None)
+    payload["profile_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter/profile")
+def hunter_profile_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "authentication_required"}), 401
+    return jsonify(_v246_hunter_profile_snapshot(username))
+
+
+@app.route("/hunter-profile.json")
+def hunter_profile_json():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "authentication_required"}), 401
+    data = _v246_hunter_profile_snapshot(username)
+    return Response(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": 'attachment; filename="bl3-hunter-profile-v24-6.json"'}
+    )
+
+
+@app.route("/hunter-profile")
+def hunter_profile_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Hunter Profile</title>
+        <body style='margin:0;background:#050507;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🏆 Hunter Profile</h1><p>Sign in to open your Trophy Cabinet.</p>
+        <a style='color:#c68cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v246_hunter_profile_snapshot(username)
+    esc = lambda v: html.escape(str(v or ""))
+    rank = data.get("rank") or {}
+
+    cards = []
+    for a in data.get("achievements") or []:
+        unlocked = bool(a.get("unlocked"))
+        cls = "unlocked" if unlocked else "locked"
+        status = "UNLOCKED" if unlocked else "{} / {}".format(int(a.get("current") or 0), int(a.get("target") or 0))
+        cards.append(
+            """<article class='trophy {cls}'>
+            <div class='icon'>{icon}</div>
+            <div><div class='grade'>{grade}</div><h3>{title}</h3><p>{detail}</p>
+            <div class='mini'><i style='width:{pct}%'></i></div><span>{status}</span></div>
+            </article>""".format(
+                cls=cls, icon=esc(a.get("icon")), grade=esc(a.get("grade")),
+                title=esc(a.get("title")), detail=esc(a.get("detail")),
+                pct=int(a.get("progress_pct") or 0), status=esc(status)
+            )
+        )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>BL3 V24.6 Hunter Profile</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#46156c,transparent 34%),radial-gradient(circle at 88% 0,#59340d,transparent 28%),#050507;color:#fff;font-family:Inter,Arial,sans-serif;padding:22px}}.wrap{{max-width:1160px;margin:auto}}.hero,.panel{{background:#0b0c11;border:1px solid #292b34;border-radius:28px;padding:24px;margin:16px 0}}.k{{color:#c68cff;font-size:10px;letter-spacing:2px;font-weight:900}}h1{{font-size:clamp(52px,8vw,94px);line-height:.9;margin:10px 0}}.identity{{display:flex;gap:10px;flex-wrap:wrap;align-items:center}}.pill{{border:1px solid #3b3e48;border-radius:999px;padding:8px 12px;font-weight:900}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}.stat{{background:#11131a;border:1px solid #292c35;border-radius:18px;padding:16px}}.stat b{{display:block;font-size:25px}}.stat span{{color:#8d92a1;font-size:10px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.trophy{{display:grid;grid-template-columns:58px 1fr;gap:14px;background:#11131a;border:1px solid #292c35;border-radius:20px;padding:18px;opacity:.46}}.trophy.unlocked{{opacity:1;border-color:#65408c;box-shadow:0 0 30px #6d29a422}}.icon{{font-size:36px}}.grade{{font-size:9px;font-weight:900;color:#ffd66b;letter-spacing:1.5px}}h3{{margin:4px 0;font-size:16px}}.trophy p{{color:#8f94a3;font-size:10px;line-height:1.5;min-height:30px}}.trophy span{{color:#aeb3c0;font-size:9px}}.mini{{height:6px;background:#1b1d25;border-radius:99px;overflow:hidden;margin:10px 0 7px}}.mini i{{display:block;height:100%;background:linear-gradient(90deg,#8b3dff,#ffd66b)}}.links{{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}}.links a{{color:#ffd66b;text-decoration:none;font-weight:900;font-size:11px}}.digest{{font:9px ui-monospace,monospace;color:#6f7482;word-break:break-all}}.meta{{color:#8f94a3;font-size:11px;line-height:1.6}}@media(max-width:850px){{.grid{{grid-template-columns:1fr 1fr}}.stats{{grid-template-columns:1fr 1fr}}}}@media(max-width:560px){{.grid{{grid-template-columns:1fr}}}}
+</style></head><body><div class='wrap'>
+<section class='hero'><div class='k'>V24.6 // HUNTER PROFILE + TROPHY CABINET</div><h1>BUILD THE LEGEND.</h1>
+<div class='identity'><span class='pill'>{username}</span><span class='pill'>{identity}</span><span class='pill'>{rank_title} · LV {rank_level}</span><span class='pill'>{xp} XP</span></div>
+<div class='stats'>
+<div class='stat'><b>{unlocked}/{ach_count}</b><span>ACHIEVEMENTS</span></div>
+<div class='stat'><b>{completion}%</b><span>CABINET COMPLETE</span></div>
+<div class='stat'><b>{trophy_score}</b><span>TROPHY SCORE</span></div>
+<div class='stat'><b>{missions}</b><span>MISSIONS</span></div>
+<div class='stat'><b>{best_streak}</b><span>BEST STREAK</span></div>
+</div>
+<div class='links'><a href='/hunter-rivalry-progression'>XP + RANK</a><a href='/hunter-rivalry-missions'>MISSION CONTROL</a><a href='/hunter-rivalry-briefing'>COMMAND BRIEF</a><a href='/hunter-profile.json'>EXPORT PROFILE</a></div>
+</section>
+<section class='panel'><div class='k'>TROPHY CABINET</div><div class='grid'>{cards}</div></section>
+<div class='digest'>PROFILE DIGEST // {digest}</div><p class='meta'>{policy}</p>
+</div></body></html>""".format(
+        username=esc(data.get("username")),
+        identity=esc(data.get("identity_state")),
+        rank_title=esc(rank.get("rank_title") or "SCOUT"),
+        rank_level=int(rank.get("rank_level") or 1),
+        xp=int(data.get("total_xp") or 0),
+        unlocked=int(data.get("unlocked_count") or 0),
+        ach_count=int(data.get("achievement_count") or 0),
+        completion=int(data.get("achievement_completion_pct") or 0),
+        trophy_score=int(data.get("trophy_score") or 0),
+        missions=int(data.get("missions_completed_lifetime") or 0),
+        best_streak=int(data.get("best_streak") or 0),
+        cards="".join(cards),
+        digest=esc(data.get("profile_digest") or ""),
+        policy=esc(data.get("policy") or ""),
+    )
+
+
+# Add Trophy Cabinet shortcut to the V24.5 progression page.
+_v246_original_progression_page = app.view_functions.get("hunter_rivalry_progression_page")
+if _v246_original_progression_page:
+    def _v246_progression_page_with_profile():
+        response = _v246_original_progression_page()
+        status = None
+        headers = None
+        body = response
+        if isinstance(response, tuple):
+            body = response[0]
+            if len(response) > 1:
+                status = response[1]
+            if len(response) > 2:
+                headers = response[2]
+        if isinstance(body, str) and "</body>" in body:
+            link = """<div style="position:fixed;left:18px;bottom:18px;z-index:9999">
+            <a href="/hunter-profile" style="display:inline-block;background:#151019;border:1px solid #71469a;color:#fff;text-decoration:none;padding:12px 16px;border-radius:999px;font:900 11px Arial;box-shadow:0 10px 30px #0008">🏆 TROPHY CABINET</a></div>"""
+            body = body.replace("</body>", link + "</body>", 1)
+        if status is None:
+            return body
+        if headers is None:
+            return body, status
+        return body, status, headers
+
+    app.view_functions["hunter_rivalry_progression_page"] = _v246_progression_page_with_profile
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V24.5 // MISSION XP + HUNTER RANK + DAILY REWARD CHEST")
+    print("🏆 BL3 ARENA V24.6 // HUNTER PROFILE + ACHIEVEMENTS + TROPHY CABINET")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏆 Hunter Profile + Achievements + Trophy Cabinet enabled")
     print("⚡ Mission XP + Hunter Rank + Daily Reward Chest enabled")
     print("🎯 Rivalry Mission Control + Personal Objectives + Progress Streaks enabled")
     print("🧭 Rivalry Command Brief + Daily Digest + Alert Rules enabled")
