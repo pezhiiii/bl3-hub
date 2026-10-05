@@ -30671,8 +30671,8 @@ if _v246_original_progression_page:
 #   generated alongside this build. The app validates only its SHA-256 seal embedded below.
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
-V247_DEPLOYMENT_SEAL_SHA256 = "7b568e05a33b880a8051b1d7f63a9ebdcf55eb43efd3cfd6051e017a15401499"
-V247_SECURITY_VERSION = "V24.7"
+V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
+V247_SECURITY_VERSION = "V25.2"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.1"
+V248_SECURITY_VERSION = "V25.2"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.1 Build Attestation</title><style>
+    <title>BL3 V25.2 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.1 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.2 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31127,12 +31127,12 @@ except Exception:
 # authenticated notifications/rival endpoints. Server-side authorization remains unchanged.
 
 
-# ===== V25.1 RELEASE SENTINEL + PRODUCTION POSTURE FIX =====
+# ===== V25.2 KEY ROTATION + PRODUCTION SECURITY GATE =====
 # A production-facing release gate that combines health, secret posture,
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.1"
+V250_VERSION = "V25.2"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31192,10 +31192,18 @@ def _v250_readiness_snapshot():
         },
         {
             "key": "deployment_lock",
-            "label": "Deployment Lock valid",
-            "ok": bool(_v247_lock_valid()),
-            "critical": bool(V247_LOCK_ENABLED),
-            "detail": "Current deployment key validates against the build seal" if V247_LOCK_ENABLED else "Deployment Lock is not enabled",
+            "label": "Deployment Lock enforced",
+            "ok": bool(_v247_lock_valid()) and (bool(V247_LOCK_ENABLED) if production else True),
+            "critical": bool(production),
+            "detail": (
+                "Deployment Lock enabled and key matches build seal"
+                if V247_LOCK_ENABLED and _v247_lock_valid()
+                else ("Production requires BL3_DEPLOYMENT_LOCK=1"
+                      if production and not V247_LOCK_ENABLED
+                      else ("Deployment key does not match build seal"
+                            if V247_LOCK_ENABLED and not _v247_lock_valid()
+                            else "Deployment Lock is optional outside production"))
+            ),
         },
         {
             "key": "secret_key",
@@ -31318,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.1 Release Sentinel</title><style>
+    <title>BL3 V25.2 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31326,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.1 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.2 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31391,7 +31399,7 @@ if __name__ == "__main__":
     init_db()
 
     print("")
-    print("🛰️ BL3 ARENA V25.1 // RELEASE SENTINEL + PRODUCTION POSTURE FIX")
+    print("🛰️ BL3 ARENA V25.2 // KEY ROTATION + PRODUCTION SECURITY GATE")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
