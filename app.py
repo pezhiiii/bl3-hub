@@ -26925,16 +26925,117 @@ if 'hunter_global_legend_profile_page' in app.view_functions:
 
     app.view_functions['hunter_global_legend_profile_page'] = _V233_global_profile_with_nemesis
 
+
+
+# ===== V23.4 RIVALRY STREAKS + NEMESIS EVOLUTION + HISTORIC RIVALRY TIMELINE =====
+def _v234_rivalry_streaks_snapshot(username="", limit=1000):
+    username=str(username or "").strip()
+    _ensure_global_rivalry_history_schema()
+    conn=db()
+    if username:
+        rows=conn.execute("SELECT id,pair_key,hunter_a,hunter_b,intensity,rivalry_state,wins_a,wins_b,ties,leader,shared_circles,recorded_at FROM hunter_global_rivalry_history WHERE lower(hunter_a)=lower(?) OR lower(hunter_b)=lower(?) ORDER BY pair_key,id",(username,username)).fetchall()
+    else:
+        rows=conn.execute("SELECT id,pair_key,hunter_a,hunter_b,intensity,rivalry_state,wins_a,wins_b,ties,leader,shared_circles,recorded_at FROM hunter_global_rivalry_history ORDER BY pair_key,id LIMIT ?",(max(1,min(int(limit or 1000),3000)),)).fetchall()
+    conn.close()
+    groups={}
+    for r in rows: groups.setdefault(str(r['pair_key'] or ''),[]).append(r)
+    items=[]
+    for pair_key,seq in groups.items():
+        longest=0; current=0; current_leader='EVEN'; longest_holder='EVEN'; classic_run=0; longest_classic=0; changes=0; prev_state=None; timeline=[]
+        for r in seq:
+            leader=str(r['leader'] or 'EVEN'); state=str(r['rivalry_state'] or 'DISTANT')
+            if prev_state is not None and state!=prev_state: changes+=1
+            prev_state=state
+            if leader!='EVEN' and leader==current_leader: current+=1
+            elif leader!='EVEN': current_leader=leader; current=1
+            else: current_leader='EVEN'; current=0
+            if current>longest: longest=current; longest_holder=current_leader
+            classic_run=classic_run+1 if state=='CLASSIC' else 0; longest_classic=max(longest_classic,classic_run)
+            timeline.append({'id':int(r['id'] or 0),'state':state,'intensity':int(r['intensity'] or 0),'leader':leader,'wins_a':int(r['wins_a'] or 0),'wins_b':int(r['wins_b'] or 0),'ties':int(r['ties'] or 0),'recorded_at':str(r['recorded_at'] or '')})
+        if not seq: continue
+        last=seq[-1]; a=str(last['hunter_a'] or ''); b=str(last['hunter_b'] or '')
+        items.append({'pair_key':pair_key,'hunter_a':a,'hunter_b':b,'records':len(seq),'current_state':str(last['rivalry_state'] or 'DISTANT'),'current_intensity':int(last['intensity'] or 0),'current_leader':str(last['leader'] or 'EVEN'),'current_leader_streak':current,'longest_leader_streak':longest,'longest_streak_holder':longest_holder,'longest_classic_streak':longest_classic,'state_changes':changes,'timeline':timeline,'compare_url':'/hunter-global-legend-compare?a={}&b={}'.format(urllib.parse.quote(a,safe=''),urllib.parse.quote(b,safe=''))})
+    items.sort(key=lambda x:(int(x['longest_leader_streak']),int(x['longest_classic_streak']),int(x['current_intensity']),int(x['records'])),reverse=True)
+    payload={'success':True,'username_filter':username,'rivalries':items,'counts':{'pairs':len(items),'records':sum(int(x['records']) for x in items),'state_changes':sum(int(x['state_changes']) for x in items)},'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','policy':'Streaks and timelines use only stored BL3 rivalry-history snapshots. Missing history is not inferred.'}
+    payload['streak_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+def _v234_nemesis_evolution_snapshot(username):
+    username=str(username or '').strip()
+    if not username: return {'success':False,'message':'Hunter username required.'}
+    base=_v234_rivalry_streaks_snapshot(username,3000)
+    opponents=[]
+    for r in base.get('rivalries') or []:
+        opp=r['hunter_b'] if str(r['hunter_a']).lower()==username.lower() else r['hunter_a']
+        tl=r.get('timeline') or []
+        if not opp or not tl: continue
+        first,last=tl[0],tl[-1]; peak=max(int(x.get('intensity') or 0) for x in tl)
+        score=min(100,peak+min(20,max(0,len(tl)-1)*5)+min(10,int(r.get('longest_classic_streak') or 0)*2))
+        opponents.append({'username':opp,'records':len(tl),'first_state':first.get('state'),'latest_state':last.get('state'),'first_intensity':int(first.get('intensity') or 0),'latest_intensity':int(last.get('intensity') or 0),'peak_intensity':peak,'state_changes':int(r.get('state_changes') or 0),'longest_leader_streak':int(r.get('longest_leader_streak') or 0),'longest_classic_streak':int(r.get('longest_classic_streak') or 0),'evolution_score':score,'tier':'ARCHNEMESIS' if score>=90 else 'NEMESIS' if score>=75 else 'RIVAL','timeline':tl,'compare_url':r.get('compare_url')})
+    opponents.sort(key=lambda x:(int(x['evolution_score']),int(x['peak_intensity']),int(x['records'])),reverse=True)
+    payload={'success':True,'username':username,'nemesis':opponents[0] if opponents else None,'opponents':opponents,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','policy':'Nemesis evolution is based only on recorded BL3 rivalry-history states and is not a prediction.'}
+    payload['evolution_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+@app.route('/api/hunter/global-rivalry-streaks')
+def hunter_global_rivalry_streaks_api():
+    return jsonify(_v234_rivalry_streaks_snapshot(request.args.get('username') or '',request.args.get('limit') or 1000))
+
+@app.route('/hunter-global-rivalry-streaks.json')
+def hunter_global_rivalry_streaks_json():
+    return jsonify(_v234_rivalry_streaks_snapshot(request.args.get('username') or '',3000))
+
+@app.route('/api/hunter/global-nemesis-evolution/<username>')
+def hunter_global_nemesis_evolution_api(username):
+    return jsonify(_v234_nemesis_evolution_snapshot(username))
+
+@app.route('/hunter-global-nemesis-evolution/<username>.json')
+def hunter_global_nemesis_evolution_json(username):
+    return jsonify(_v234_nemesis_evolution_snapshot(username))
+
+@app.route('/hunter-global-rivalry-streaks')
+def hunter_global_rivalry_streaks_page():
+    username=str(request.args.get('username') or '').strip(); data=_v234_rivalry_streaks_snapshot(username,1500); esc=html.escape
+    cards=''.join('<article style="border:1px solid #30323b;border-radius:16px;padding:14px;margin:10px 0;background:#090a0f"><b style="color:#ffd66b">@{a} VS @{b}</b><p>{records} records · current {state}/{intensity} · longest leader streak {streak} ({holder}) · classic streak {classic} · {changes} state changes</p><a href="{href}">HEAD-TO-HEAD</a></article>'.format(a=esc(str(r.get('hunter_a') or '')),b=esc(str(r.get('hunter_b') or '')),records=int(r.get('records') or 0),state=esc(str(r.get('current_state') or '')),intensity=int(r.get('current_intensity') or 0),streak=int(r.get('longest_leader_streak') or 0),holder=esc(str(r.get('longest_streak_holder') or 'EVEN')),classic=int(r.get('longest_classic_streak') or 0),changes=int(r.get('state_changes') or 0),href=esc(str(r.get('compare_url') or '#'))) for r in data.get('rivalries') or []) or '<p>No recorded rivalry streaks yet.</p>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Rivalry Streaks</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1100px;margin:auto"><h4 style="color:#ffd66b">V23.4 // RIVALRY STREAKS + HISTORIC TIMELINE</h4><h1 style="font-size:64px;margin:8px 0">RIVALRY STREAKS.</h1><form><input name="username" value="{}" placeholder="Hunter username" style="padding:10px;background:#090a0f;color:#fff;border:1px solid #333;border-radius:10px"><button style="padding:10px;margin-left:8px">FILTER</button></form><p><a style="color:#ffd66b" href="/hunter-global-rivalry-history">RIVALRY HISTORY</a></p>{}<p style="color:#777;font:10px monospace">STREAK DIGEST // {}</p></main></body>'.format(esc(username),cards,esc(str(data.get('streak_digest') or '')))
+
+@app.route('/hunter-global-nemesis-evolution/<username>')
+def hunter_global_nemesis_evolution_page(username):
+    data=_v234_nemesis_evolution_snapshot(username); esc=html.escape; n=data.get('nemesis') or {}
+    cards=''.join('<article style="border:1px solid #30323b;border-radius:16px;padding:14px;margin:10px 0;background:#090a0f"><b style="color:#ffd66b">@{opp} · {tier} · {score}</b><p>{first}/{fi} → {latest}/{li} · peak {peak} · {records} records · {changes} state changes · longest streak {streak}</p><a href="{href}">HEAD-TO-HEAD</a></article>'.format(opp=esc(str(o.get('username') or '')),tier=esc(str(o.get('tier') or '')),score=int(o.get('evolution_score') or 0),first=esc(str(o.get('first_state') or '')),fi=int(o.get('first_intensity') or 0),latest=esc(str(o.get('latest_state') or '')),li=int(o.get('latest_intensity') or 0),peak=int(o.get('peak_intensity') or 0),records=int(o.get('records') or 0),changes=int(o.get('state_changes') or 0),streak=int(o.get('longest_leader_streak') or 0),href=esc(str(o.get('compare_url') or '#'))) for o in data.get('opponents') or []) or '<p>No recorded nemesis evolution yet.</p>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Nemesis Evolution</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1100px;margin:auto"><h4 style="color:#ffd66b">V23.4 // NEMESIS EVOLUTION</h4><h1 style="font-size:64px;margin:8px 0">@{}</h1><p>Top nemesis: <b style="color:#ffd66b">@{} · {} · evolution {}</b></p><p><a style="color:#ffd66b" href="/hunter-global-rivalry-streaks?username={}">RIVALRY STREAKS</a></p>{}<p style="color:#777;font:10px monospace">EVOLUTION DIGEST // {}</p></main></body>'.format(esc(username),esc(str(n.get('username') or '—')),esc(str(n.get('tier') or '')),int(n.get('evolution_score') or 0),urllib.parse.quote(str(username),safe=''),cards,esc(str(data.get('evolution_digest') or '')))
+
+if 'hunter_global_rivalry_history_page' in app.view_functions:
+    _V233_history_view_v234=app.view_functions['hunter_global_rivalry_history_page']
+    def _V234_history_with_streaks():
+        response=_V233_history_view_v234()
+        if isinstance(response,str):
+            link='<a href="/hunter-global-rivalry-streaks">RIVALRY STREAKS</a>'
+            if link not in response: response=response.replace('</section>',link+'</section>',1)
+        return response
+    app.view_functions['hunter_global_rivalry_history_page']=_V234_history_with_streaks
+
+if 'hunter_global_nemesis_page' in app.view_functions:
+    _V233_nemesis_view_v234=app.view_functions['hunter_global_nemesis_page']
+    def _V234_nemesis_with_evolution(username):
+        response=_V233_nemesis_view_v234(username)
+        if isinstance(response,str):
+            link='<a href="/hunter-global-nemesis-evolution/{}">NEMESIS EVOLUTION</a>'.format(urllib.parse.quote(str(username),safe=''))
+            if link not in response: response=response.replace('</section>',link+'</section>',1)
+        return response
+    app.view_functions['hunter_global_nemesis_page']=_V234_nemesis_with_evolution
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("😈 BL3 ARENA V23.3 // RIVALRY HISTORY + NEMESIS SYSTEM + LEGENDARY MATCHUPS")
+    print("📜 BL3 ARENA V23.4 // RIVALRY STREAKS + NEMESIS EVOLUTION + HISTORIC RIVALRY TIMELINE")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("📜 Rivalry Streaks + Nemesis Evolution + Historic Rivalry Timeline enabled")
     print("😈 Rivalry History + Nemesis System + Legendary Matchups enabled")
     print("⚔️ Global Rivalries + Legend Compare + Eternal Head-to-Head enabled")
     print("🔎 Global Legend Profiles + Record Holders + Hall Search enabled")
