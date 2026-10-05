@@ -31039,16 +31039,16 @@ def v248_build_attestation_page():
         <h1>🧬 Build Attestation</h1><p>Admin authentication is required.</p>
         <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
     data = _v248_attestation_snapshot(); esc=lambda v: html.escape(str(v if v is not None else ""))
-    manifest=data.get("manifest") or {}; latest=data.get("latest_attestation") or {}; sig=data.get("current_signature") or {}
+    manifest=data.get("manifest") or {{}}; latest=data.get("latest_attestation") or {{}}; sig=data.get("current_signature") or {{}}
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
     <title>BL3 V24.8 Build Attestation</title><style>
-    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}
-    .wrap{max-width:1050px;margin:auto;padding:34px 18px 72px}.hero,.panel{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}
-    .eyebrow{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}.title{font-size:42px;font-weight:1000;margin:7px 0}.sub{color:#bbb;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}
-    .card{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}.label{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}.value{font-size:23px;font-weight:1000;margin-top:7px}.ok{color:#63e6a2}.bad{color:#ff6685}.warn{color:#ffd166}
-    code{word-break:break-all;color:#d8b7ff}.row{padding:10px 0;border-bottom:1px solid #251a2e}.row:last-child{border:0}.btn{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
+    .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
+    .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
+    code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
     <div class='eyebrow'>BL3 V24.8 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
@@ -31060,7 +31060,7 @@ def v248_build_attestation_page():
     <section class='panel'><div class='label'>LATEST TRUSTED ATTESTATION</div><div class='row'>Recorded: {recorded}</div><div class='row'>Version: {lv}</div><div class='row'>Fingerprint<br><code>{lfp}</code></div></section>
     <section class='panel'><button class='btn' onclick='recordBuild()'>✅ RECORD CURRENT BUILD AS TRUSTED</button><a class='btn' href='/admin/project-vault'>🔐 PROJECT VAULT</a><a class='btn' href='/api/admin/build-attestation'>JSON</a><p id='msg' class='sub'></p></section>
     <section class='panel'><div class='label'>SECURITY NOTE</div><p class='sub'>{policy}</p></section>
-    </div><script>async function recordBuild(){const m=document.getElementById('msg');m.textContent='Recording…';try{const r=await fetch('/api/admin/build-attestation/record',{method:'POST'});const j=await r.json();m.textContent=j.success?'Trusted attestation recorded. Reloading…':('Failed: '+(j.error||'unknown'));if(j.success)setTimeout(()=>location.reload(),650)}catch(e){m.textContent='Request failed.'}}</script></body></html>""".format(
+    </div><script>async function recordBuild(){{const m=document.getElementById('msg');m.textContent='Recording…';try{{const r=await fetch('/api/admin/build-attestation/record',{{method:'POST'}});const j=await r.json();m.textContent=j.success?'Trusted attestation recorded. Reloading…':('Failed: '+(j.error||'unknown'));if(j.success)setTimeout(()=>location.reload(),650)}}catch(e){{m.textContent='Request failed.'}}}}</script></body></html>""".format(
         cls=cls,state=esc(state),project=esc(manifest.get("project_id")),owner=esc(manifest.get("owner_id")),signed=esc("HMAC-SHA256" if sig.get("signed") else "UNSIGNED"),
         fp=esc(manifest.get("build_fingerprint")),sha=esc(manifest.get("source_sha256")),bytes=esc(manifest.get("source_bytes")),recorded=esc(latest.get("recorded_at") or "None yet"),lv=esc(latest.get("app_version") or "—"),lfp=esc(latest.get("build_fingerprint") or "—"),policy=esc(data.get("policy"))
     )
