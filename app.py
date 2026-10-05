@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V25.6"
+V247_SECURITY_VERSION = "V25.7"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.6"
+V248_SECURITY_VERSION = "V25.7"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.6 Build Attestation</title><style>
+    <title>BL3 V25.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.6 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.7 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.6"
+V250_VERSION = "V25.7"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.6 Release Sentinel</title><style>
+    <title>BL3 V25.7 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.6 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.7 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V25.6"
+V253_VERSION = "V25.7"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.6 Integrity Watch</title>
+    <title>BL3 V25.7 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.6 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V25.7 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V25.6"
+V254_VERSION = "V25.7"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31798,7 +31798,7 @@ def v254_integrity_incidents_page():
         rows.append("<tr><td colspan='6'>No integrity incidents recorded.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.6 Integrity Incident Journal</title>
+    <title>BL3 V25.7 Integrity Incident Journal</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1020 0,#09070b 52%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0a10ea;border:1px solid #56304c;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31808,7 +31808,7 @@ def v254_integrity_incidents_page():
     th{{color:#d9aec8}}button,a.btn{{background:#1b1018;color:#fff;border:1px solid #76405f;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.6 // SECURITY OPERATIONS</div>
+        <div class='eyebrow'>BL3 V25.7 // SECURITY OPERATIONS</div>
         <h1>🚨 INTEGRITY INCIDENT JOURNAL</h1>
         <p>Record and acknowledge runtime integrity findings without exposing secret values.</p>
         <div class='grid'>
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V25.6"
+V255_VERSION = "V25.7"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32097,7 +32097,7 @@ def v255_security_timeline_page():
     latest_cls = "ok" if latest_state == "SECURE" else ("warn" if latest_state == "REVIEW" else "bad")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.6 Security Event Timeline</title>
+    <title>BL3 V25.7 Security Event Timeline</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13203d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1220px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11eb;border:1px solid #334b76;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32107,7 +32107,7 @@ def v255_security_timeline_page():
     th{{color:#b4c9e9}}button,a.btn{{background:#101827;color:#fff;border:1px solid #48689a;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.6 // SECURITY OBSERVABILITY</div>
+        <div class='eyebrow'>BL3 V25.7 // SECURITY OBSERVABILITY</div>
         <h1>🕓 SECURITY EVENT TIMELINE</h1>
         <p>Automatic snapshots are written only when integrity posture changes.</p>
         <div class='grid'>
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V25.6"
+V256_VERSION = "V25.7"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32356,7 +32356,7 @@ def v256_security_diff_page():
         next_hint = "<a class='btn' href='/admin/security-diff?snapshot_id={}'>← COMPARE PREVIOUS SNAPSHOT</a>".format(int(prev_id))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.6 Change Diff Viewer</title>
+    <title>BL3 V25.7 Change Diff Viewer</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1a183a 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11ec;border:1px solid #454377;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32367,7 +32367,7 @@ def v256_security_diff_page():
     .pill.changed{{background:#5a1e41;color:#ffb2d6}}.pill.same{{background:#143b31;color:#8cf5cf}}a.btn{{display:inline-block;background:#111226;color:#fff;border:1px solid #555398;border-radius:10px;padding:9px 12px;text-decoration:none;margin:4px 5px 0 0}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.6 // SNAPSHOT INTELLIGENCE</div>
+        <div class='eyebrow'>BL3 V25.7 // SNAPSHOT INTELLIGENCE</div>
         <h1>🔬 CHANGE DIFF VIEWER</h1>
         <p>Compare one security snapshot against the immediately previous snapshot.</p>
         <div class='grid'>
@@ -32435,6 +32435,321 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["admin_control_center_page"] = _v256_control_with_diff
+except Exception:
+    pass
+
+
+# ===== V25.7 TRUSTED SECURITY BASELINE + PINNED SNAPSHOT =====
+# Lets an authenticated admin pin one SECURITY TIMELINE snapshot as the trusted
+# baseline and compare the current runtime posture against it.
+# No secret values are stored or exposed.
+
+V257_VERSION = "V25.7"
+
+def _v257_ensure_schema():
+    _v255_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trusted_security_baseline (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                snapshot_id INTEGER NOT NULL,
+                snapshot_digest TEXT NOT NULL,
+                build_fingerprint TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                app_version TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                pinned_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v257_get_baseline():
+    _v257_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM trusted_security_baseline WHERE id=1").fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v257_pin_snapshot(snapshot_id=None):
+    _v257_ensure_schema()
+    snap = _v256_snapshot_by_id(snapshot_id) if snapshot_id else _v256_latest_snapshot()
+    if not snap:
+        return {"success": False, "error": "snapshot_not_found"}
+
+    # Only a secure, matching, sealed snapshot may become the baseline.
+    secure = str(snap.get("integrity_state") or "") == "SECURE"
+    match = str(snap.get("attestation_state") or "") == "MATCH"
+    sealed = bool(int(snap.get("deployment_lock_enabled") or 0)) and bool(int(snap.get("deployment_lock_valid") or 0))
+    if not (secure and match and sealed):
+        return {
+            "success": False,
+            "error": "snapshot_not_trusted",
+            "requirements": {
+                "integrity_state": "SECURE",
+                "attestation_state": "MATCH",
+                "deployment_lock": "SEALED",
+            },
+        }
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO trusted_security_baseline
+               (id, snapshot_id, snapshot_digest, build_fingerprint, source_sha256, app_version, owner_id, pinned_at)
+               VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 snapshot_id=excluded.snapshot_id,
+                 snapshot_digest=excluded.snapshot_digest,
+                 build_fingerprint=excluded.build_fingerprint,
+                 source_sha256=excluded.source_sha256,
+                 app_version=excluded.app_version,
+                 owner_id=excluded.owner_id,
+                 pinned_at=excluded.pinned_at
+            """,
+            (
+                int(snap.get("id")),
+                str(snap.get("snapshot_digest") or ""),
+                str(snap.get("build_fingerprint") or ""),
+                str(snap.get("source_sha256") or ""),
+                str(snap.get("app_version") or ""),
+                str(snap.get("owner_id") or ""),
+                now,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"success": True, "snapshot_id": int(snap.get("id")), "pinned_at": now}
+
+
+def _v257_baseline_snapshot():
+    baseline = _v257_get_baseline()
+    latest = _v256_latest_snapshot()
+
+    if not baseline:
+        return {
+            "success": True,
+            "version": V257_VERSION,
+            "state": "UNPINNED",
+            "baseline": None,
+            "current": latest,
+            "changes": [],
+            "change_count": 0,
+        }
+
+    baseline_snap = _v256_snapshot_by_id(baseline.get("snapshot_id"))
+    if not baseline_snap:
+        return {
+            "success": True,
+            "version": V257_VERSION,
+            "state": "BASELINE_MISSING",
+            "baseline": baseline,
+            "current": latest,
+            "changes": [],
+            "change_count": 0,
+        }
+
+    fields = [
+        ("integrity_state", "Integrity state"),
+        ("attestation_state", "Attestation"),
+        ("owner_id", "Owner ID"),
+        ("app_version", "Version"),
+        ("build_fingerprint", "Build fingerprint"),
+        ("source_sha256", "Source SHA-256"),
+        ("signature_alg", "Signature"),
+        ("deployment_lock_enabled", "Deployment lock enabled"),
+        ("deployment_lock_valid", "Deployment lock valid"),
+        ("environment", "Environment"),
+    ]
+    changes = []
+    for field, label in fields:
+        before = _v256_normalize_value(field, baseline_snap.get(field))
+        after = _v256_normalize_value(field, (latest or {}).get(field))
+        if before != after:
+            changes.append({
+                "field": field,
+                "label": label,
+                "baseline": before,
+                "current": after,
+            })
+
+    state = "BASELINE_MATCH" if not changes else "BASELINE_DRIFT"
+    return {
+        "success": True,
+        "version": V257_VERSION,
+        "state": state,
+        "baseline": baseline,
+        "baseline_snapshot": baseline_snap,
+        "current": latest,
+        "changes": changes,
+        "change_count": len(changes),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "A baseline is a pinned secure snapshot used for comparison. "
+            "It does not replace Build Attestation, Deployment Lock, or provider account security."
+        ),
+    }
+
+
+@app.route("/api/admin/security-baseline")
+def v257_security_baseline_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v257_baseline_snapshot())
+
+
+@app.route("/api/admin/security-baseline/pin", methods=["POST"])
+def v257_security_baseline_pin_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    raw_id = payload.get("snapshot_id")
+    snapshot_id = None
+    try:
+        if raw_id is not None:
+            snapshot_id = int(raw_id)
+    except Exception:
+        return jsonify({"success": False, "error": "invalid_snapshot_id"}), 400
+
+    result = _v257_pin_snapshot(snapshot_id)
+    code = 200 if result.get("success") else 400
+    return jsonify(result), code
+
+
+@app.route("/admin/security-baseline")
+def v257_security_baseline_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Security Baseline</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📌 Trusted Security Baseline</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+
+    data = _v257_baseline_snapshot()
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    state = str(data.get("state") or "UNPINNED")
+    baseline = data.get("baseline_snapshot") or {}
+    current = data.get("current") or {}
+    changes = data.get("changes") or []
+
+    state_cls = "ok" if state == "BASELINE_MATCH" else ("warn" if state == "UNPINNED" else "bad")
+
+    rows = []
+    for ch in changes:
+        rows.append(
+            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td></tr>".format(
+                esc(ch.get("label")),
+                esc(ch.get("baseline")),
+                esc(ch.get("current")),
+            )
+        )
+    if not rows:
+        rows.append("<tr><td colspan='3'>No baseline drift detected.</td></tr>")
+
+    pin_label = "📌 PIN CURRENT SECURE SNAPSHOT AS BASELINE"
+    if state == "BASELINE_MATCH":
+        pin_label = "📌 RE-PIN CURRENT SNAPSHOT"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.7 Trusted Security Baseline</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#133221 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0a0d0beb;border:1px solid #2d6046;border-radius:22px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#88e1b1;font-weight:800;letter-spacing:2px;font-size:13px}}h1{{font-size:42px;margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}}
+    .card{{background:#070b08;border:1px solid #244936;border-radius:18px;padding:18px}}.k{{color:#a5cbb6;font-size:12px;font-weight:800;letter-spacing:1px}}.v{{font-size:25px;font-weight:900;margin-top:8px;word-break:break-word}}
+    .ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}code{{color:#a6f0c8;word-break:break-all}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:12px 10px;border-bottom:1px solid #20372b;text-align:left;font-size:13px}}
+    th{{color:#abd2bb}}button,a.btn{{display:inline-block;background:#0e1c14;color:#fff;border:1px solid #3e7c5c;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer;margin:4px 5px 0 0}}
+    </style></head><body><div class='wrap'>
+      <div class='panel'>
+        <div class='eyebrow'>BL3 V25.7 // TRUST ANCHOR</div>
+        <h1>📌 TRUSTED SECURITY BASELINE</h1>
+        <p>Pin one known-good secure snapshot and compare later runtime posture against it.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>STATE</div><div class='v {state_cls}'>{state}</div></div>
+          <div class='card'><div class='k'>BASELINE SNAPSHOT</div><div class='v'>{baseline_id}</div></div>
+          <div class='card'><div class='k'>CURRENT SNAPSHOT</div><div class='v'>{current_id}</div></div>
+          <div class='card'><div class='k'>DRIFT FIELDS</div><div class='v'>{change_count}</div></div>
+        </div>
+        <p>
+          <button onclick='pinCurrent()'>{pin_label}</button>
+          <a class='btn' href='/admin/security-timeline'>🕓 SECURITY TIMELINE</a>
+          <a class='btn' href='/admin/security-diff'>🔬 CHANGE DIFF</a>
+          <a class='btn' href='/admin/integrity-watch'>🛡️ INTEGRITY WATCH</a>
+        </p>
+        <div id='msg'></div>
+      </div>
+
+      <div class='panel'>
+        <h2>Baseline identity</h2>
+        <p><b>Version:</b> {baseline_version}<br>
+        <b>Owner:</b> {baseline_owner}<br>
+        <b>Fingerprint:</b><br><code>{baseline_fp}</code><br><br>
+        <b>Source SHA-256:</b><br><code>{baseline_sha}</code></p>
+      </div>
+
+      <div class='panel'>
+        <h2>Current vs baseline</h2>
+        <div style='overflow:auto'><table><thead><tr><th>Field</th><th>Baseline</th><th>Current</th></tr></thead><tbody>{rows}</tbody></table></div>
+      </div>
+    </div>
+    <script>
+    async function pinCurrent(){{
+      const r=await fetch('/api/admin/security-baseline/pin',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:'{{}}'}});
+      const j=await r.json();
+      document.getElementById('msg').textContent=j.success?'Baseline pinned to snapshot #'+j.snapshot_id:'Failed: '+(j.error||'unknown');
+      if(j.success)setTimeout(()=>location.reload(),650);
+    }}
+    </script></body></html>""".format(
+        state_cls=state_cls,
+        state=esc(state),
+        baseline_id=esc(baseline.get("id") if baseline else "NONE"),
+        current_id=esc(current.get("id") if current else "NONE"),
+        change_count=esc(data.get("change_count")),
+        pin_label=esc(pin_label),
+        baseline_version=esc(baseline.get("app_version") if baseline else "NONE"),
+        baseline_owner=esc(baseline.get("owner_id") if baseline else "NONE"),
+        baseline_fp=esc(baseline.get("build_fingerprint") if baseline else "NONE"),
+        baseline_sha=esc(baseline.get("source_sha256") if baseline else "NONE"),
+        rows="".join(rows),
+    )
+
+
+# Add Trusted Baseline links to Timeline and Control Center.
+try:
+    _v257_prev_timeline = app.view_functions.get("v255_security_timeline_page")
+    if _v257_prev_timeline:
+        def _v257_timeline_with_baseline(*args, **kwargs):
+            response = _v257_prev_timeline(*args, **kwargs)
+            if isinstance(response, str) and "/admin/security-baseline" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1220px;margin:0 auto 30px;padding:0 18px'><a href='/admin/security-baseline' style='color:#fff;text-decoration:none;border:1px solid #3e7c5c;border-radius:12px;padding:10px 14px'>📌 TRUSTED BASELINE</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v255_security_timeline_page"] = _v257_timeline_with_baseline
+except Exception:
+    pass
+
+try:
+    _v257_prev_control = app.view_functions.get("admin_control_center_page")
+    if _v257_prev_control:
+        def _v257_control_with_baseline(*args, **kwargs):
+            response = _v257_prev_control(*args, **kwargs)
+            if isinstance(response, str) and "/admin/security-baseline" not in response:
+                link = "<a href='/admin/security-baseline' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #3e7c5c;border-radius:10px;color:#fff;text-decoration:none'>📌 TRUSTED BASELINE</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["admin_control_center_page"] = _v257_control_with_baseline
 except Exception:
     pass
 
