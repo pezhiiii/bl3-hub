@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V26.3"
+V247_SECURITY_VERSION = "V26.4"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V26.3"
+V248_SECURITY_VERSION = "V26.4"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.3 Build Attestation</title><style>
+    <title>BL3 V26.4 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V26.3"
+V250_VERSION = "V26.4"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V26.3"
+V253_VERSION = "V26.4"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V26.3"
+V254_VERSION = "V26.4"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V26.3"
+V255_VERSION = "V26.4"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V26.3"
+V256_VERSION = "V26.4"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V26.3"
+V257_VERSION = "V26.4"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V26.3"
+V258_VERSION = "V26.4"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.3 Hunter Command Deck</title>
+    <title>BL3 V26.4 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V26.3"
+V259_VERSION = "V26.4"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33184,7 +33184,7 @@ def v259_hunter_next_move_page():
         action_html.append("<div class='empty'>No priority actions right now. Your board is clear.</div>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.3 Hunter Next Move</title>
+    <title>BL3 V26.4 Hunter Next Move</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#331d12 0,#09070c 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1040px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0a0aed;border:1px solid #65412c;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V26.3"
+V260_VERSION = "V26.4"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33534,7 +33534,7 @@ def v260_hunter_focus_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.3 Hunter Focus Runs</title>
+    <title>BL3 V26.4 Hunter Focus Runs</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#35120f 0,#09070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0909ed;border:1px solid #6c342d;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V26.3"
+V261_VERSION = "V26.4"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -33923,7 +33923,7 @@ def v261_focus_queue_page():
     active_label = esc(active.get("action_title") if active else "NONE")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.3 Hunter Focus Queue</title>
+    <title>BL3 V26.4 Hunter Focus Queue</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#112d38 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#091014ed;border:1px solid #315d69;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V26.3"
+V262_VERSION = "V26.4"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V26.3"
+V263_VERSION = "V26.4"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34408,7 +34408,7 @@ def v263_focus_insights_page():
         recent_rows.append("<tr><td colspan='5'>No Focus Runs in the last 7 days.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.3 Focus Insights</title>
+    <title>BL3 V26.4 Focus Insights</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#152c22 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1120px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0a0d0bed;border:1px solid #355b46;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -34421,7 +34421,7 @@ def v263_focus_insights_page():
     @media(max-width:700px){{.day{{grid-template-columns:48px 1fr}}.dmeta{{grid-column:2}}}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.3 // WEEKLY EXECUTION REVIEW</div>
+        <div class='eyebrow'>BL3 V26.4 // WEEKLY EXECUTION REVIEW</div>
         <h1>📈 FOCUS INSIGHTS</h1>
         <p class='muted'>{username}, this review summarizes your last 7 days of Focus Runs.</p>
         <div class='grid'>
@@ -34511,6 +34511,194 @@ try:
                 )
             return response
         app.view_functions["v258_hunter_command_page"] = _v263_home_with_insights
+except Exception:
+    pass
+
+
+# ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
+# Adds one simple completion target for the current 7-day window.
+
+V264_VERSION = "V26.4"
+
+def _v264_ensure_schema():
+    _v263_focus_insights_snapshot  # keep dependency explicit
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_weekly_focus_goal (
+                username TEXT PRIMARY KEY,
+                target_completed INTEGER NOT NULL DEFAULT 5,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v264_goal(username):
+    _v264_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        row = conn.execute(
+            "SELECT target_completed, updated_at FROM hunter_weekly_focus_goal WHERE username=?",
+            (username,)
+        ).fetchone()
+        if not row:
+            return {"target_completed": 5, "updated_at": ""}
+        return {"target_completed": max(1, min(50, int(row[0] or 5))), "updated_at": str(row[1] or "")}
+    finally:
+        conn.close()
+
+
+def _v264_set_goal(username, target_completed):
+    target = max(1, min(50, int(target_completed or 1)))
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v264_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_weekly_focus_goal(username, target_completed, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(username) DO UPDATE SET
+                 target_completed=excluded.target_completed,
+                 updated_at=excluded.updated_at""",
+            (username, target, now)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"target_completed": target, "updated_at": now}
+
+
+def _v264_goal_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V264_VERSION}
+
+    insights = _v263_focus_insights_snapshot(username)
+    goal = _v264_goal(username)
+    target = int(goal.get("target_completed") or 5)
+    completed = int(insights.get("runs_completed") or 0)
+    remaining = max(0, target - completed)
+    progress = min(100.0, round((completed / max(1, target)) * 100, 1))
+
+    state = "COMPLETE" if completed >= target else ("CLOSE" if progress >= 75 else ("ON TRACK" if progress >= 40 else "BUILDING"))
+
+    return {
+        "success": True,
+        "version": V264_VERSION,
+        "username": username,
+        "target_completed": target,
+        "completed": completed,
+        "remaining": remaining,
+        "progress_percent": progress,
+        "state": state,
+        "weekly_state": insights.get("weekly_state"),
+        "updated_at": goal.get("updated_at"),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Weekly Focus Goal is a BL3 in-app completion target and has no monetary value."
+    }
+
+
+@app.route("/api/hunter-weekly-goal")
+def v264_weekly_goal_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v264_goal_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-weekly-goal", methods=["POST"])
+def v264_weekly_goal_set_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        target = int(payload.get("target_completed") or 0)
+    except Exception:
+        return jsonify({"success": False, "error": "invalid_target"}), 400
+    if target < 1 or target > 50:
+        return jsonify({"success": False, "error": "target_out_of_range"}), 400
+    _v264_set_goal(username, target)
+    return jsonify(_v264_goal_snapshot(username))
+
+
+@app.route("/hunter-weekly-goal")
+def v264_weekly_goal_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Weekly Focus Goal</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🎯 Weekly Focus Goal</h1><p>Sign in to set your weekly target.</p><a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v264_goal_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    progress = float(data.get("progress_percent") or 0)
+    state = str(data.get("state") or "BUILDING")
+    cls = "ok" if state == "COMPLETE" else ("warn" if state in ("CLOSE","ON TRACK") else "muted")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V26.4 Weekly Focus Goal</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b1f0d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:900px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0b08ec;border:1px solid #6b5529;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#f0cf72;font-size:13px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:12px 0 8px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}}
+    .card{{background:#0a0906;border:1px solid #4e411f;border-radius:17px;padding:17px}}.k{{color:#c9bb8b;font-size:12px;font-weight:900;letter-spacing:1px}}.v{{font-size:27px;font-weight:900;margin-top:8px}}.ok{{color:#61f2b2}}.warn{{color:#ffd166}}.muted{{color:#a9a38f}}
+    .track{{height:18px;background:#1e1a0f;border-radius:999px;overflow:hidden;margin:22px 0}}.bar{{height:100%;background:#e4bd4f;border-radius:999px}}input{{background:#0c0a07;color:#fff;border:1px solid #5f512b;border-radius:10px;padding:10px;width:100px}}button,.btn{{background:#171208;color:#fff;border:1px solid #7a6530;border-radius:10px;padding:10px 13px;cursor:pointer;text-decoration:none}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V26.4 // WEEKLY TARGET</div>
+        <h1>🎯 WEEKLY FOCUS GOAL</h1>
+        <p class='muted'>{username}, choose how many Focus Runs you want to complete in the current 7-day window.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>STATE</div><div class='v {cls}'>{state}</div></div>
+          <div class='card'><div class='k'>TARGET</div><div class='v'>{target}</div></div>
+          <div class='card'><div class='k'>COMPLETED</div><div class='v'>{completed}</div></div>
+          <div class='card'><div class='k'>REMAINING</div><div class='v'>{remaining}</div></div>
+        </div>
+        <div class='track'><div class='bar' style='width:{progress}%'></div></div>
+        <p><b>{progress}% complete</b></p>
+        <p>Set target: <input id='goalInput' type='number' min='1' max='50' value='{target}'> <button onclick='saveGoal()'>SAVE GOAL</button></p>
+        <p><a class='btn' href='/hunter-focus'>🔥 FOCUS RUNS</a> <a class='btn' href='/hunter-focus-insights'>📈 FOCUS INSIGHTS</a></p>
+        <div id='msg'></div>
+      </section>
+    </div>
+    <script>
+    async function saveGoal(){{
+      const target_completed=parseInt(document.getElementById('goalInput').value||'0',10);
+      const r=await fetch('/api/hunter-weekly-goal',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{target_completed}})}});
+      const j=await r.json();
+      if(j.success)location.reload();else document.getElementById('msg').textContent='Failed: '+(j.error||'unknown');
+    }}
+    </script></body></html>""".format(
+        username=esc(username), cls=cls, state=esc(state), target=esc(data.get("target_completed")),
+        completed=esc(data.get("completed")), remaining=esc(data.get("remaining")), progress=esc(progress)
+    )
+
+
+# Surface Weekly Goal from Focus Insights and Hunter Home.
+try:
+    _v264_prev_insights = app.view_functions.get("v263_focus_insights_page")
+    if _v264_prev_insights:
+        def _v264_insights_with_goal(*args, **kwargs):
+            response = _v264_prev_insights(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-weekly-goal" not in response:
+                response = response.replace("</body>", "<div style='max-width:1120px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-weekly-goal' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #7a6530;border-radius:12px;padding:11px 15px;background:#171208'>🎯 WEEKLY GOAL</a></div></body>", 1)
+            return response
+        app.view_functions["v263_focus_insights_page"] = _v264_insights_with_goal
+except Exception:
+    pass
+
+try:
+    _v264_prev_home = app.view_functions.get("v258_hunter_command_page")
+    if _v264_prev_home:
+        def _v264_home_with_goal(*args, **kwargs):
+            response = _v264_prev_home(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-weekly-goal" not in response:
+                response = response.replace("</body>", "<div style='max-width:1180px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-weekly-goal' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #7a6530;border-radius:12px;padding:11px 15px;background:#171208'>🎯 WEEKLY FOCUS GOAL</a></div></body>", 1)
+            return response
+        app.view_functions["v258_hunter_command_page"] = _v264_home_with_goal
 except Exception:
     pass
 
