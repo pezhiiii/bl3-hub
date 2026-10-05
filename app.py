@@ -27025,16 +27025,318 @@ if 'hunter_global_nemesis_page' in app.view_functions:
         return response
     app.view_functions['hunter_global_nemesis_page']=_V234_nemesis_with_evolution
 
+
+
+# ===== V23.5 RIVALRY MILESTONES + FEUD TITLES + ETERNAL RIVALRY RECORDS =====
+def _v235_pair_milestones(rivalry):
+    records = int(rivalry.get('records') or 0)
+    intensity = int(rivalry.get('current_intensity') or 0)
+    longest = int(rivalry.get('longest_leader_streak') or 0)
+    classic = int(rivalry.get('longest_classic_streak') or 0)
+    changes = int(rivalry.get('state_changes') or 0)
+
+    specs = [
+        ('first_blood', '⚔️', 'First Blood', 1, records, 'RECORDED SNAPSHOTS'),
+        ('ten_chapters', '📜', 'Ten Chapters', 10, records, 'RECORDED SNAPSHOTS'),
+        ('heated_feud', '🔥', 'Heated Feud', 70, intensity, 'INTENSITY'),
+        ('classic_feud', '👑', 'Classic Feud', 85, intensity, 'INTENSITY'),
+        ('streak_3', '⚡', 'Three-Run Streak', 3, longest, 'LEADER STREAK'),
+        ('streak_5', '🌩️', 'Five-Run Streak', 5, longest, 'LEADER STREAK'),
+        ('classic_3', '🏛️', 'Classic Trilogy', 3, classic, 'CLASSIC STREAK'),
+        ('state_3', '🌀', 'Evolution Arc', 3, changes, 'STATE CHANGES'),
+    ]
+    out = []
+    for key, icon, title, target, value, label in specs:
+        unlocked = value >= target
+        out.append({
+            'key': key,
+            'icon': icon,
+            'title': title,
+            'target': target,
+            'value': value,
+            'metric_label': label,
+            'unlocked': unlocked,
+            'progress_pct': 100 if unlocked else max(0, min(99, int((value / target) * 100))) if target else 0,
+        })
+    return out
+
+
+def _v235_feud_title(rivalry):
+    intensity = int(rivalry.get('current_intensity') or 0)
+    records = int(rivalry.get('records') or 0)
+    longest = int(rivalry.get('longest_leader_streak') or 0)
+    classic = int(rivalry.get('longest_classic_streak') or 0)
+    changes = int(rivalry.get('state_changes') or 0)
+
+    score = min(
+        100,
+        intensity
+        + min(15, records * 2)
+        + min(12, longest * 2)
+        + min(10, classic * 3)
+        + min(8, changes * 2)
+    )
+
+    if score >= 95:
+        title = 'ETERNAL FEUD'
+        icon = '🌌'
+    elif score >= 85:
+        title = 'DYNASTY FEUD'
+        icon = '👑'
+    elif score >= 75:
+        title = 'LEGENDARY FEUD'
+        icon = '🏆'
+    elif score >= 60:
+        title = 'HEATED FEUD'
+        icon = '🔥'
+    elif score >= 45:
+        title = 'ACTIVE FEUD'
+        icon = '⚔️'
+    else:
+        title = 'RISING FEUD'
+        icon = '✨'
+
+    return {
+        'title': title,
+        'icon': icon,
+        'score': score,
+    }
+
+
+def _v235_rivalry_milestones_snapshot(username=''):
+    base = _v234_rivalry_streaks_snapshot(username, 3000)
+    rivalries = []
+
+    for r in base.get('rivalries') or []:
+        item = dict(r)
+        item['feud'] = _v235_feud_title(item)
+        item['milestones'] = _v235_pair_milestones(item)
+        item['unlocked_milestones'] = sum(1 for m in item['milestones'] if m.get('unlocked'))
+        item['total_milestones'] = len(item['milestones'])
+        rivalries.append(item)
+
+    rivalries.sort(
+        key=lambda x: (
+            int((x.get('feud') or {}).get('score') or 0),
+            int(x.get('unlocked_milestones') or 0),
+            int(x.get('current_intensity') or 0),
+            int(x.get('records') or 0),
+        ),
+        reverse=True
+    )
+
+    payload = {
+        'success': True,
+        'username_filter': str(username or '').strip(),
+        'rivalries': rivalries,
+        'counts': {
+            'rivalries': len(rivalries),
+            'unlocked_milestones': sum(int(r.get('unlocked_milestones') or 0) for r in rivalries),
+            'eternal_feuds': sum(1 for r in rivalries if (r.get('feud') or {}).get('title') == 'ETERNAL FEUD'),
+            'legendary_or_higher': sum(
+                1 for r in rivalries
+                if (r.get('feud') or {}).get('title') in {'LEGENDARY FEUD', 'DYNASTY FEUD', 'ETERNAL FEUD'}
+            ),
+        },
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry Milestones and Feud Titles are deterministic BL3 display achievements '
+            'based only on stored rivalry-history snapshots. They are not predictions.'
+        ),
+    }
+    payload['milestone_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _v235_eternal_rivalry_records_snapshot():
+    base = _v235_rivalry_milestones_snapshot('')
+    rows = base.get('rivalries') or []
+
+    definitions = [
+        ('highest_intensity', '🔥', 'Highest Recorded Intensity', lambda r: int(r.get('current_intensity') or 0), 'INTENSITY'),
+        ('most_records', '📚', 'Most Recorded Chapters', lambda r: int(r.get('records') or 0), 'SNAPSHOTS'),
+        ('longest_streak', '⚡', 'Longest Leader Streak', lambda r: int(r.get('longest_leader_streak') or 0), 'STREAK'),
+        ('classic_streak', '👑', 'Longest Classic Streak', lambda r: int(r.get('longest_classic_streak') or 0), 'CLASSIC STREAK'),
+        ('most_evolved', '🌀', 'Most State Changes', lambda r: int(r.get('state_changes') or 0), 'STATE CHANGES'),
+        ('highest_feud_score', '🌌', 'Highest Feud Score', lambda r: int((r.get('feud') or {}).get('score') or 0), 'FEUD SCORE'),
+        ('most_milestones', '🏛️', 'Most Milestones Unlocked', lambda r: int(r.get('unlocked_milestones') or 0), 'MILESTONES'),
+    ]
+
+    records = []
+    for key, icon, title, metric_fn, label in definitions:
+        if not rows:
+            continue
+        winner = max(rows, key=metric_fn)
+        value = metric_fn(winner)
+        records.append({
+            'key': key,
+            'icon': icon,
+            'title': title,
+            'hunter_a': str(winner.get('hunter_a') or ''),
+            'hunter_b': str(winner.get('hunter_b') or ''),
+            'value': value,
+            'metric_label': label,
+            'feud_title': str((winner.get('feud') or {}).get('title') or ''),
+            'compare_url': str(winner.get('compare_url') or '#'),
+        })
+
+    payload = {
+        'success': True,
+        'records': records,
+        'rivalry_count': len(rows),
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Eternal Rivalry Records summarize stored BL3 rivalry history only. '
+            'Ties are resolved deterministically by the current sorted rivalry order.'
+        ),
+    }
+    payload['records_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/global-rivalry-milestones')
+def hunter_global_rivalry_milestones_api():
+    return jsonify(_v235_rivalry_milestones_snapshot(request.args.get('username') or ''))
+
+
+@app.route('/hunter-global-rivalry-milestones.json')
+def hunter_global_rivalry_milestones_json():
+    return jsonify(_v235_rivalry_milestones_snapshot(request.args.get('username') or ''))
+
+
+@app.route('/api/hunter/eternal-rivalry-records')
+def hunter_eternal_rivalry_records_api():
+    return jsonify(_v235_eternal_rivalry_records_snapshot())
+
+
+@app.route('/hunter-eternal-rivalry-records.json')
+def hunter_eternal_rivalry_records_json():
+    return jsonify(_v235_eternal_rivalry_records_snapshot())
+
+
+@app.route('/hunter-global-rivalry-milestones')
+def hunter_global_rivalry_milestones_page():
+    username = str(request.args.get('username') or '').strip()
+    data = _v235_rivalry_milestones_snapshot(username)
+    esc = html.escape
+
+    cards = []
+    for r in data.get('rivalries') or []:
+        feud = r.get('feud') or {}
+        milestones = ''.join(
+            '<div class="mile {state}"><span>{icon}</span><div><b>{title}</b><small>{value}/{target} {label}</small></div></div>'.format(
+                state='on' if m.get('unlocked') else 'off',
+                icon=esc(str(m.get('icon') or '🏅')),
+                title=esc(str(m.get('title') or '')),
+                value=int(m.get('value') or 0),
+                target=int(m.get('target') or 0),
+                label=esc(str(m.get('metric_label') or '')),
+            )
+            for m in r.get('milestones') or []
+        )
+
+        cards.append(
+            '<article class="feud"><div class="top"><div><span class="feud-title">{icon} {title}</span>'
+            '<h2>@{a} <i>VS</i> @{b}</h2><small>{records} recorded snapshots · current intensity {intensity} · state {state}</small></div>'
+            '<div class="score">{score}<small>FEUD SCORE</small></div></div>'
+            '<div class="milestones">{milestones}</div>'
+            '<div class="foot"><span>{unlocked}/{total} MILESTONES</span><a href="{href}">HEAD-TO-HEAD</a></div></article>'.format(
+                icon=esc(str(feud.get('icon') or '⚔️')),
+                title=esc(str(feud.get('title') or 'RISING FEUD')),
+                a=esc(str(r.get('hunter_a') or '')),
+                b=esc(str(r.get('hunter_b') or '')),
+                records=int(r.get('records') or 0),
+                intensity=int(r.get('current_intensity') or 0),
+                state=esc(str(r.get('current_state') or '')),
+                score=int(feud.get('score') or 0),
+                milestones=milestones,
+                unlocked=int(r.get('unlocked_milestones') or 0),
+                total=int(r.get('total_milestones') or 0),
+                href=esc(str(r.get('compare_url') or '#')),
+            )
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry Milestones</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#53125f,transparent 30%),radial-gradient(circle at 88% 0,#71480e,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.feud{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.feud-title,h2 i,.score{{color:#ffd66b}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}h2{{margin:8px 0}}h2 i{{font-style:normal}}small,.muted{{color:#9da1ad}}form{{display:flex;gap:10px;margin-top:15px}}input,button{{border:1px solid #383b46;border-radius:12px;background:#090a0f;color:#fff;padding:11px;font:inherit}}button{{background:#ffd66b;color:#171006;font-weight:900;cursor:pointer}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span{{font-size:9px;color:#9296a4}}.top{{display:flex;justify-content:space-between;gap:20px}}.score{{font-size:42px;font-weight:950;text-align:right}}.score small{{display:block;font-size:8px}}.milestones{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:16px}}.mile{{display:grid;grid-template-columns:34px 1fr;gap:9px;border:1px solid #30323b;border-radius:14px;padding:11px;background:#090a0f;opacity:.42}}.mile.on{{opacity:1;border-color:#66552b}}.mile>span{{font-size:24px}}.mile small{{display:block;font-size:8px;margin-top:3px}}.foot{{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:9px;font-weight:900}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats,.milestones{{grid-template-columns:1fr 1fr}}.top{{display:block}}.score{{text-align:left;margin-top:10px}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V23.5 // RIVALRY MILESTONES + FEUD TITLES</div><h1>FEUD LEGACY.</h1><p class="muted">Unlock historical rivalry milestones and permanent feud titles from stored BL3 rivalry snapshots.</p><form><input name="username" value="{esc(username)}" placeholder="Hunter username"><button type="submit">FILTER</button></form><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('rivalries') or 0)}</b><span>RIVALRIES</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('unlocked_milestones') or 0)}</b><span>MILESTONES</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('legendary_or_higher') or 0)}</b><span>LEGENDARY+</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('eternal_feuds') or 0)}</b><span>ETERNAL FEUDS</span></div></div><p><a href="/hunter-eternal-rivalry-records">ETERNAL RIVALRY RECORDS</a> <a href="/hunter-global-rivalry-streaks">RIVALRY STREAKS</a></p></section>{''.join(cards) or '<section class="feud muted">No recorded rivalries yet.</section>'}<div class="digest">MILESTONE DIGEST // {esc(str(data.get('milestone_digest') or ''))}</div><p class="muted">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+@app.route('/hunter-eternal-rivalry-records')
+def hunter_eternal_rivalry_records_page():
+    data = _v235_eternal_rivalry_records_snapshot()
+    esc = html.escape
+    cards = ''.join(
+        '<article class="record"><span>{icon}</span><div><b>{title}</b><h2>@{a} VS @{b}</h2>'
+        '<small>{value} {label} · {feud}</small></div><a href="{href}">OPEN</a></article>'.format(
+            icon=esc(str(r.get('icon') or '🏆')),
+            title=esc(str(r.get('title') or '')),
+            a=esc(str(r.get('hunter_a') or '')),
+            b=esc(str(r.get('hunter_b') or '')),
+            value=int(r.get('value') or 0),
+            label=esc(str(r.get('metric_label') or '')),
+            feud=esc(str(r.get('feud_title') or '')),
+            href=esc(str(r.get('compare_url') or '#')),
+        )
+        for r in data.get('records') or []
+    )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Eternal Rivalry Records</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 10% 0,#4e145d,transparent 30%),radial-gradient(circle at 90% 0,#74510d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1050px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.record>b,.record div>b{{color:#ffd66b}}h1{{font-size:clamp(48px,8vw,90px);line-height:.88;margin:10px 0}}.record{{display:grid;grid-template-columns:52px 1fr auto;gap:14px;align-items:center;border:1px solid #31343d;border-radius:16px;padding:15px;background:#090a0f;margin-top:9px}}.record>span{{font-size:34px}}.record h2{{margin:4px 0;font-size:21px}}small,.muted{{color:#9da1ad}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:700px){{.record{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V23.5 // ETERNAL RIVALRY RECORDS</div><h1>THE RECORD BOOK.</h1><p class="muted">All-time rivalry records derived from stored BL3 rivalry-history snapshots.</p><p><a href="/hunter-global-rivalry-milestones">RIVALRY MILESTONES</a> <a href="/hunter-global-rivalry-history">RIVALRY HISTORY</a></p></section><section class="panel">{cards or '<p class="muted">No rivalry records yet.</p>'}</section><div class="digest">RECORDS DIGEST // {esc(str(data.get('records_digest') or ''))}</div><p class="muted">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add V23.5 navigation to V23.4 rivalry surfaces.
+if 'hunter_global_rivalry_streaks_page' in app.view_functions:
+    _V234_streaks_view_v235 = app.view_functions['hunter_global_rivalry_streaks_page']
+
+    def _V235_streaks_with_milestones():
+        response = _V234_streaks_view_v235()
+        if isinstance(response, str):
+            link = '<a style="color:#ffd66b" href="/hunter-global-rivalry-milestones">RIVALRY MILESTONES</a>'
+            if link not in response:
+                response = response.replace(
+                    '<p><a style="color:#ffd66b" href="/hunter-global-rivalry-history">RIVALRY HISTORY</a></p>',
+                    '<p><a style="color:#ffd66b" href="/hunter-global-rivalry-history">RIVALRY HISTORY</a> · ' + link + '</p>',
+                    1
+                )
+            response = response.replace(
+                'V23.4 // RIVALRY STREAKS + HISTORIC TIMELINE',
+                'V23.5 // RIVALRY STREAKS + FEUD MILESTONES',
+                1
+            )
+        return response
+
+    app.view_functions['hunter_global_rivalry_streaks_page'] = _V235_streaks_with_milestones
+
+
+if 'hunter_global_rivalry_history_page' in app.view_functions:
+    _V234_history_view_v235 = app.view_functions['hunter_global_rivalry_history_page']
+
+    def _V235_history_with_records():
+        response = _V234_history_view_v235()
+        if isinstance(response, str):
+            link = '<a href="/hunter-eternal-rivalry-records">ETERNAL RIVALRY RECORDS</a>'
+            if link not in response:
+                response = response.replace('</section>', link + '</section>', 1)
+        return response
+
+    app.view_functions['hunter_global_rivalry_history_page'] = _V235_history_with_records
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("📜 BL3 ARENA V23.4 // RIVALRY STREAKS + NEMESIS EVOLUTION + HISTORIC RIVALRY TIMELINE")
+    print("🏆 BL3 ARENA V23.5 // RIVALRY MILESTONES + FEUD TITLES + ETERNAL RIVALRY RECORDS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏆 Rivalry Milestones + Feud Titles + Eternal Rivalry Records enabled")
     print("📜 Rivalry Streaks + Nemesis Evolution + Historic Rivalry Timeline enabled")
     print("😈 Rivalry History + Nemesis System + Legendary Matchups enabled")
     print("⚔️ Global Rivalries + Legend Compare + Eternal Head-to-Head enabled")
