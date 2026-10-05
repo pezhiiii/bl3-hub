@@ -30643,16 +30643,263 @@ if _v246_original_progression_page:
     app.view_functions["hunter_rivalry_progression_page"] = _v246_progression_page_with_profile
 
 
+
+# ===== V24.7 PROJECT VAULT + DEPLOYMENT LOCK + SECRET ISOLATION =====
+# Security model:
+# - No secret values are ever rendered by Project Vault.
+# - Deployment Lock is OFF by default so existing deployments continue to boot.
+# - To enable it, set BL3_DEPLOYMENT_LOCK=1 and BL3_DEPLOYMENT_KEY to the private key
+#   generated alongside this build. The app validates only its SHA-256 seal embedded below.
+# - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
+
+V247_DEPLOYMENT_SEAL_SHA256 = "7b568e05a33b880a8051b1d7f63a9ebdcf55eb43efd3cfd6051e017a15401499"
+V247_SECURITY_VERSION = "V24.7"
+V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
+V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
+V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
+
+
+def _v247_present(name):
+    return bool((os.environ.get(name) or "").strip())
+
+
+def _v247_lock_valid():
+    if not V247_LOCK_ENABLED:
+        return True
+    if not V247_DEPLOYMENT_KEY:
+        return False
+    supplied = hashlib.sha256(V247_DEPLOYMENT_KEY.encode("utf-8")).hexdigest()
+    return secrets.compare_digest(supplied, V247_DEPLOYMENT_SEAL_SHA256)
+
+
+def _v247_source_integrity():
+    try:
+        path = os.path.abspath(__file__)
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return {"ok": True, "sha256": h.hexdigest(), "bytes": os.path.getsize(path)}
+    except Exception as exc:
+        return {"ok": False, "sha256": "", "bytes": 0, "error": type(exc).__name__}
+
+
+def _v247_secret_posture():
+    # Presence-only posture. Never return values, lengths, prefixes, or hashes of secrets.
+    required = {
+        "BL3_SECRET_KEY": _v247_present("BL3_SECRET_KEY"),
+        "BL3_ADMIN_TOKEN": _v247_present("BL3_ADMIN_TOKEN"),
+        "BL3_DEPLOYMENT_KEY": _v247_present("BL3_DEPLOYMENT_KEY"),
+    }
+    optional = {
+        "BL3_PUBLIC_URL": _v247_present("BL3_PUBLIC_URL"),
+        "BL3_DB_PATH": _v247_present("BL3_DB_PATH"),
+        "BL3_BACKUP_DIR": _v247_present("BL3_BACKUP_DIR"),
+    }
+    production = BL3_ENV in ("production", "prod")
+    warnings = []
+    if production and not required["BL3_SECRET_KEY"]:
+        warnings.append("Production should set BL3_SECRET_KEY explicitly.")
+    if production and not required["BL3_ADMIN_TOKEN"]:
+        warnings.append("Production should set BL3_ADMIN_TOKEN explicitly.")
+    if V247_LOCK_ENABLED and not required["BL3_DEPLOYMENT_KEY"]:
+        warnings.append("Deployment Lock is enabled but BL3_DEPLOYMENT_KEY is missing.")
+    if V247_LOCK_ENABLED and required["BL3_DEPLOYMENT_KEY"] and not _v247_lock_valid():
+        warnings.append("Deployment key does not match this build seal.")
+    if V247_REQUIRE_SECRETS and production:
+        for k in ("BL3_SECRET_KEY", "BL3_ADMIN_TOKEN"):
+            if not required[k]:
+                warnings.append("Strict secret mode requires " + k + ".")
+    return {
+        "production": production,
+        "required_presence": required,
+        "optional_presence": optional,
+        "warnings": warnings,
+        "warning_count": len(warnings),
+    }
+
+
+def _v247_security_snapshot():
+    posture = _v247_secret_posture()
+    source = _v247_source_integrity()
+    lock_ok = _v247_lock_valid()
+    if V247_LOCK_ENABLED and lock_ok:
+        state = "SEALED"
+    elif V247_LOCK_ENABLED:
+        state = "BLOCKED"
+    elif posture["warning_count"]:
+        state = "HARDEN"
+    else:
+        state = "READY"
+    payload = {
+        "success": True,
+        "version": V247_SECURITY_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "state": state,
+        "environment": BL3_ENV,
+        "deployment_lock": {
+            "enabled": bool(V247_LOCK_ENABLED),
+            "valid": bool(lock_ok),
+            "seal_algorithm": "SHA-256",
+        },
+        "strict_secret_mode": bool(V247_REQUIRE_SECRETS),
+        "secret_posture": posture,
+        "source_integrity": source,
+        "controls": [
+            "Secrets stay in environment variables, not source code.",
+            "Admin token and session secret are presence-checked without disclosure.",
+            "Optional deployment seal blocks this exact build when its private key is absent or wrong.",
+            "Source SHA-256 can be recorded after each trusted deploy to detect accidental drift.",
+        ],
+        "limits": (
+            "Deployment Lock protects this exact build from running without its private key, but it cannot stop "
+            "someone who already controls and edits the source code from removing client-side/application checks. "
+            "Repository ownership, domain ownership, provider access controls and off-platform backups remain essential."
+        ),
+    }
+    digest_input = dict(payload)
+    digest_input.pop("generated_at", None)
+    payload["vault_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.before_request
+def _v247_deployment_lock_guard():
+    if not V247_LOCK_ENABLED:
+        return None
+    if _v247_lock_valid():
+        return None
+    # Keep only a tiny public health signal reachable while sealed incorrectly.
+    if request.path in ("/api/project-vault/lock-status",):
+        return None
+    return jsonify({
+        "success": False,
+        "error": "deployment_seal_required",
+        "message": "This BL3 build is sealed and the deployment key is missing or invalid."
+    }), 503
+
+
+@app.before_request
+def _v247_strict_secret_guard():
+    if not V247_REQUIRE_SECRETS or BL3_ENV not in ("production", "prod"):
+        return None
+    missing = [k for k in ("BL3_SECRET_KEY", "BL3_ADMIN_TOKEN") if not _v247_present(k)]
+    if not missing:
+        return None
+    if request.path in ("/api/project-vault/lock-status",):
+        return None
+    return jsonify({
+        "success": False,
+        "error": "required_secret_missing",
+        "missing": missing,
+        "message": "Strict secret mode is enabled. Configure required environment secrets before serving traffic."
+    }), 503
+
+
+@app.route("/api/project-vault/lock-status")
+def v247_lock_status_api():
+    # Intentionally minimal and safe for uptime checks.
+    return jsonify({
+        "success": True,
+        "version": V247_SECURITY_VERSION,
+        "lock_enabled": bool(V247_LOCK_ENABLED),
+        "lock_valid": bool(_v247_lock_valid()),
+        "strict_secret_mode": bool(V247_REQUIRE_SECRETS),
+    })
+
+
+@app.route("/api/admin/project-vault")
+def v247_project_vault_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v247_security_snapshot())
+
+
+@app.route("/admin/project-vault")
+def v247_project_vault_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Project Vault</title><body style='margin:0;background:#050507;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🔐 Project Vault</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+    data = _v247_security_snapshot()
+    esc = lambda v: html.escape(str(v or ""))
+    posture = data.get("secret_posture") or {}
+    req = posture.get("required_presence") or {}
+    rows = "".join(
+        "<div class='secret'><span>{}</span><b class='{}'>{}</b></div>".format(
+            esc(name), "ok" if present else "bad", "SET" if present else "MISSING"
+        ) for name, present in req.items()
+    )
+    warnings = posture.get("warnings") or []
+    warning_html = "".join("<li>{}</li>".format(esc(x)) for x in warnings) or "<li>No active vault warnings.</li>"
+    src = data.get("source_integrity") or {}
+    lock = data.get("deployment_lock") or {}
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V24.7 Project Vault</title><style>
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#28103f 0,#08070b 45%,#030304 100%);color:#fff;font-family:Arial,sans-serif}
+    .wrap{max-width:1050px;margin:auto;padding:34px 18px 70px}.hero{border:1px solid #6d36a5;background:#120d18dd;border-radius:28px;padding:28px;box-shadow:0 24px 80px #0009}
+    .eyebrow{font:900 11px Arial;letter-spacing:3px;color:#be7cff}.title{font-size:42px;font-weight:1000;margin:8px 0}.sub{color:#bbb;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:18px}
+    .card{background:#0c0a10;border:1px solid #3a254d;border-radius:20px;padding:18px}.label{font-size:11px;letter-spacing:2px;color:#9c7ead;font-weight:900}.value{font-size:25px;font-weight:1000;margin-top:8px}.ok{color:#65f0a9}.bad{color:#ff6b88}.warn{color:#ffd166}
+    .secret{display:flex;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid #24182e}.secret:last-child{border-bottom:0}.panel{margin-top:16px;background:#0c0a10;border:1px solid #3a254d;border-radius:20px;padding:20px}
+    code{word-break:break-all;color:#d6b4ff}a{color:#c791ff;text-decoration:none;font-weight:900}.pill{display:inline-block;padding:10px 14px;background:#8b3dff;color:#fff;border-radius:999px;margin:8px 8px 0 0}
+    </style></head><body><div class='wrap'><section class='hero'>
+    <div class='eyebrow'>BL3 V24.7 // PROJECT VAULT</div><div class='title'>🔐 DEPLOYMENT SECURITY</div>
+    <div class='sub'>Secret isolation, optional deployment sealing and source-integrity visibility. Secret values are never displayed here.</div>
+    <div class='grid'><div class='card'><div class='label'>VAULT STATE</div><div class='value'>{state}</div></div>
+    <div class='card'><div class='label'>DEPLOYMENT LOCK</div><div class='value {lock_cls}'>{lock_state}</div></div>
+    <div class='card'><div class='label'>STRICT SECRETS</div><div class='value'>{strict}</div></div>
+    <div class='card'><div class='label'>WARNINGS</div><div class='value'>{wc}</div></div></div>
+    </section><section class='panel'><div class='label'>SECRET PRESENCE</div>{rows}</section>
+    <section class='panel'><div class='label'>SOURCE INTEGRITY</div><p>SHA-256</p><code>{sha}</code><p>{bytes} bytes</p></section>
+    <section class='panel'><div class='label'>WARNINGS</div><ul>{warnings}</ul></section>
+    <section class='panel'><div class='label'>SECURITY NOTE</div><p class='sub'>{limits}</p>
+    <a class='pill' href='/admin/control-center'>⚙️ ADMIN CONTROL</a><a class='pill' href='/data-safety'>💾 DATA SAFETY</a><a class='pill' href='/api/admin/project-vault'>JSON</a></section>
+    </div></body></html>""".format(
+        state=esc(data.get("state")),
+        lock_cls="ok" if lock.get("valid") else "bad",
+        lock_state=esc("SEALED + VALID" if lock.get("enabled") and lock.get("valid") else ("BLOCKED" if lock.get("enabled") else "OFF")),
+        strict=esc("ON" if data.get("strict_secret_mode") else "OFF"), wc=esc(posture.get("warning_count")), rows=rows,
+        sha=esc(src.get("sha256") or "unavailable"), bytes=esc(src.get("bytes")), warnings=warning_html, limits=esc(data.get("limits"))
+    )
+
+
+# Add Project Vault to the existing Admin Control Center without replacing its logic.
+try:
+    _v247_original_admin_control_center_page = app.view_functions.get("admin_control_center_page")
+    if _v247_original_admin_control_center_page:
+        def _v247_admin_control_center_with_vault(*args, **kwargs):
+            result = _v247_original_admin_control_center_page(*args, **kwargs)
+            body, status, headers = result, None, None
+            if isinstance(result, tuple):
+                body = result[0]
+                status = result[1] if len(result) > 1 else None
+                headers = result[2] if len(result) > 2 else None
+            if isinstance(body, str) and "</body>" in body and "/admin/project-vault" not in body:
+                link = """<div style='position:fixed;right:18px;bottom:18px;z-index:9999'><a href='/admin/project-vault' style='display:inline-block;background:#8b3dff;color:#fff;text-decoration:none;padding:12px 16px;border-radius:999px;font:900 11px Arial;box-shadow:0 10px 30px #0008'>🔐 PROJECT VAULT</a></div>"""
+                body = body.replace("</body>", link + "</body>", 1)
+            if status is None:
+                return body
+            if headers is None:
+                return body, status
+            return body, status, headers
+        app.view_functions["admin_control_center_page"] = _v247_admin_control_center_with_vault
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏆 BL3 ARENA V24.6 // HUNTER PROFILE + ACHIEVEMENTS + TROPHY CABINET")
+    print("🔐 BL3 ARENA V24.7 // PROJECT VAULT + DEPLOYMENT LOCK + SECRET ISOLATION")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🔐 Project Vault + Deployment Lock + Secret Isolation enabled")
     print("🏆 Hunter Profile + Achievements + Trophy Cabinet enabled")
     print("⚡ Mission XP + Hunter Rank + Daily Reward Chest enabled")
     print("🎯 Rivalry Mission Control + Personal Objectives + Progress Streaks enabled")
