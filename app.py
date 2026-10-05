@@ -29886,16 +29886,502 @@ if 'hunter_rivalry_universe_page' in app.view_functions:
         return response
     app.view_functions['hunter_rivalry_universe_page'] = _V244_universe_with_missions
 
+
+# ===== V24.5 MISSION XP + HUNTER RANK + DAILY REWARD CHEST =====
+
+def _ensure_v245_rivalry_progression_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_mission_xp_ledger (
+            username TEXT NOT NULL,
+            mission_day TEXT NOT NULL,
+            mission_id TEXT NOT NULL,
+            mission_type TEXT NOT NULL DEFAULT '',
+            xp_awarded INTEGER NOT NULL DEFAULT 0,
+            awarded_at TEXT NOT NULL,
+            PRIMARY KEY (username, mission_day, mission_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_hunter_progression (
+            username TEXT PRIMARY KEY,
+            total_xp INTEGER NOT NULL DEFAULT 0,
+            missions_completed INTEGER NOT NULL DEFAULT 0,
+            chests_opened INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_daily_reward_chests (
+            username TEXT NOT NULL,
+            chest_day TEXT NOT NULL,
+            chest_tier TEXT NOT NULL DEFAULT 'STANDARD',
+            reward_xp INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'LOCKED',
+            opened_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (username, chest_day)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+_ensure_v245_rivalry_progression_schema()
+
+
+def _v245_rank_from_xp(total_xp):
+    total_xp = max(0, int(total_xp or 0))
+    rank_level = (total_xp // 250) + 1
+    rank_floor = (rank_level - 1) * 250
+    next_rank_xp = rank_level * 250
+    rank_titles = [
+        "SCOUT", "TRACKER", "HUNTER", "VANGUARD", "ELITE",
+        "ACE", "CHAMPION", "WARLORD", "MYTHIC", "LEGEND"
+    ]
+    title = rank_titles[min(len(rank_titles) - 1, rank_level - 1)]
+    into_rank = total_xp - rank_floor
+    needed = max(1, next_rank_xp - rank_floor)
+    progress_pct = min(100, int(round((into_rank / needed) * 100)))
+    return {
+        "rank_level": rank_level,
+        "rank_title": title,
+        "rank_floor_xp": rank_floor,
+        "next_rank_xp": next_rank_xp,
+        "xp_into_rank": into_rank,
+        "xp_to_next_rank": max(0, next_rank_xp - total_xp),
+        "rank_progress_pct": progress_pct,
+    }
+
+
+def _v245_mission_xp(mission):
+    tier = str((mission or {}).get("tier") or "NORMAL").upper()
+    signal_score = max(0, min(100, int((mission or {}).get("signal_score") or 0)))
+    base = {"CRITICAL": 80, "HIGH": 50, "NORMAL": 30}.get(tier, 30)
+    bonus = min(20, signal_score // 10 * 2)
+    return int(base + bonus)
+
+
+def _v245_progress_row(username):
+    conn = db()
+    row = conn.execute(
+        """SELECT username, total_xp, missions_completed, chests_opened, updated_at
+           FROM rivalry_hunter_progression WHERE username = ?""",
+        (username,)
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "username": username,
+        "total_xp": 0,
+        "missions_completed": 0,
+        "chests_opened": 0,
+        "updated_at": "",
+    }
+
+
+def _v245_grant_mission_xp(username, mission_day, mission):
+    username = str(username or "").strip()
+    mission_day = str(mission_day or "").strip()
+    mission_id = str((mission or {}).get("mission_id") or "").strip()
+    if not username or not mission_day or not mission_id:
+        return {"awarded": False, "xp": 0}
+
+    xp = _v245_mission_xp(mission)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    conn = db()
+    exists = conn.execute(
+        """SELECT xp_awarded FROM rivalry_mission_xp_ledger
+           WHERE username = ? AND mission_day = ? AND mission_id = ?""",
+        (username, mission_day, mission_id)
+    ).fetchone()
+
+    if exists:
+        conn.close()
+        return {"awarded": False, "xp": int(exists["xp_awarded"] or 0)}
+
+    conn.execute(
+        """INSERT INTO rivalry_mission_xp_ledger
+           (username, mission_day, mission_id, mission_type, xp_awarded, awarded_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            username, mission_day, mission_id,
+            str((mission or {}).get("mission_type") or ""),
+            xp, now
+        )
+    )
+    conn.execute(
+        """INSERT INTO rivalry_hunter_progression
+           (username, total_xp, missions_completed, chests_opened, updated_at)
+           VALUES (?, ?, 1, 0, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             total_xp = rivalry_hunter_progression.total_xp + excluded.total_xp,
+             missions_completed = rivalry_hunter_progression.missions_completed + 1,
+             updated_at = excluded.updated_at""",
+        (username, xp, now)
+    )
+    conn.commit()
+    conn.close()
+    return {"awarded": True, "xp": xp}
+
+
+def _v245_chest_tier(streak_value):
+    streak_value = int(streak_value or 0)
+    if streak_value >= 14:
+        return "MYTHIC"
+    if streak_value >= 7:
+        return "LEGENDARY"
+    if streak_value >= 3:
+        return "EPIC"
+    return "STANDARD"
+
+
+def _v245_chest_reward_xp(tier):
+    return {
+        "STANDARD": 60,
+        "EPIC": 100,
+        "LEGENDARY": 175,
+        "MYTHIC": 300,
+    }.get(str(tier or "").upper(), 60)
+
+
+def _v245_sync_reward_chest(username, mission_snapshot=None):
+    username = str(username or "").strip()
+    board = mission_snapshot or _v244_rivalry_mission_control_snapshot(username)
+    day_key = str(board.get("mission_day") or _v244_day_key())
+    streak = board.get("streak") or {}
+    all_complete = bool(board.get("mission_count")) and int(board.get("completed_count") or 0) == int(board.get("mission_count") or 0)
+    tier = _v245_chest_tier(streak.get("current_streak") or 0)
+    reward_xp = _v245_chest_reward_xp(tier)
+    target_status = "READY" if all_complete else "LOCKED"
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    conn = db()
+    row = conn.execute(
+        """SELECT username, chest_day, chest_tier, reward_xp, status, opened_at, created_at, updated_at
+           FROM rivalry_daily_reward_chests
+           WHERE username = ? AND chest_day = ?""",
+        (username, day_key)
+    ).fetchone()
+
+    if not row:
+        conn.execute(
+            """INSERT INTO rivalry_daily_reward_chests
+               (username, chest_day, chest_tier, reward_xp, status, opened_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, '', ?, ?)""",
+            (username, day_key, tier, reward_xp, target_status, now, now)
+        )
+        conn.commit()
+    elif str(row["status"] or "").upper() != "OPENED":
+        conn.execute(
+            """UPDATE rivalry_daily_reward_chests
+               SET chest_tier = ?, reward_xp = ?, status = ?, updated_at = ?
+               WHERE username = ? AND chest_day = ?""",
+            (tier, reward_xp, target_status, now, username, day_key)
+        )
+        conn.commit()
+
+    row = conn.execute(
+        """SELECT username, chest_day, chest_tier, reward_xp, status, opened_at, created_at, updated_at
+           FROM rivalry_daily_reward_chests
+           WHERE username = ? AND chest_day = ?""",
+        (username, day_key)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def _v245_progression_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "authentication_required"}
+
+    board = _v244_rivalry_mission_control_snapshot(username)
+    chest = _v245_sync_reward_chest(username, board)
+    progress = _v245_progress_row(username)
+
+    conn = db()
+    today_xp_row = conn.execute(
+        """SELECT COALESCE(SUM(xp_awarded), 0) AS xp
+           FROM rivalry_mission_xp_ledger
+           WHERE username = ? AND mission_day = ?""",
+        (username, str(board.get("mission_day") or _v244_day_key()))
+    ).fetchone()
+    recent = conn.execute(
+        """SELECT mission_day, mission_id, mission_type, xp_awarded, awarded_at
+           FROM rivalry_mission_xp_ledger
+           WHERE username = ?
+           ORDER BY awarded_at DESC LIMIT 20""",
+        (username,)
+    ).fetchall()
+    conn.close()
+
+    total_xp = int(progress.get("total_xp") or 0)
+    rank = _v245_rank_from_xp(total_xp)
+
+    payload = {
+        "success": True,
+        "username": username,
+        "version": "V24.5",
+        "mission_day": str(board.get("mission_day") or ""),
+        "total_xp": total_xp,
+        "today_mission_xp": int(today_xp_row["xp"] or 0) if today_xp_row else 0,
+        "missions_completed_lifetime": int(progress.get("missions_completed") or 0),
+        "chests_opened": int(progress.get("chests_opened") or 0),
+        "rank": rank,
+        "mission_board": {
+            "state": str(board.get("board_state") or "ACTIVE"),
+            "mission_count": int(board.get("mission_count") or 0),
+            "ready_count": int(board.get("ready_count") or 0),
+            "completed_count": int(board.get("completed_count") or 0),
+            "completion_pct": int(board.get("completion_pct") or 0),
+            "streak": board.get("streak") or {},
+        },
+        "daily_reward_chest": chest,
+        "recent_xp": [dict(r) for r in recent],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "V24.5 Mission XP, Hunter Rank and Daily Reward Chest are BL3 in-app progression systems. "
+            "XP and chest rewards are not money, tokens, transferable assets, or guaranteed monetary value. "
+            "Mission XP is granted once per mission per UTC day and reopening a mission never duplicates XP."
+        ),
+    }
+    digest_input = dict(payload)
+    digest_input.pop("generated_at", None)
+    payload["progression_digest"] = hashlib.sha256(
+        json.dumps(digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+# Wrap the V24.4 complete endpoint so a mission completion grants XP exactly once.
+_v245_original_complete_view = app.view_functions.get("hunter_rivalry_missions_complete_api")
+if _v245_original_complete_view:
+    def _v245_complete_with_xp():
+        username = str(session.get("authenticated_username") or "").strip()
+        if not username:
+            return jsonify({"success": False, "error": "authentication_required"}), 401
+
+        body = request.get_json(silent=True) or {}
+        mission_id = str(body.get("mission_id") or "").strip()
+        before = _v244_rivalry_mission_control_snapshot(username)
+        mission = next(
+            (m for m in (before.get("missions") or []) if str(m.get("mission_id") or "") == mission_id),
+            None
+        )
+        was_completed = bool((mission or {}).get("completed"))
+
+        response = _v245_original_complete_view()
+
+        if mission and not was_completed:
+            _v245_grant_mission_xp(
+                username,
+                str(before.get("mission_day") or _v244_day_key()),
+                mission
+            )
+            _v245_sync_reward_chest(username)
+
+        return response
+
+    app.view_functions["hunter_rivalry_missions_complete_api"] = _v245_complete_with_xp
+
+
+@app.route("/api/hunter/rivalry-progression")
+def hunter_rivalry_progression_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "authentication_required"}), 401
+    return jsonify(_v245_progression_snapshot(username))
+
+
+@app.route("/hunter-rivalry-progression.json")
+def hunter_rivalry_progression_json():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "authentication_required"}), 401
+    return Response(
+        json.dumps(_v245_progression_snapshot(username), ensure_ascii=False, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": 'attachment; filename="bl3-rivalry-progression-v24-5.json"'}
+    )
+
+
+@app.route("/api/hunter/rivalry-progression/chest/open", methods=["POST"])
+def hunter_rivalry_progression_open_chest_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "authentication_required"}), 401
+
+    board = _v244_rivalry_mission_control_snapshot(username)
+    chest = _v245_sync_reward_chest(username, board)
+    status = str(chest.get("status") or "LOCKED").upper()
+
+    if status == "LOCKED":
+        return jsonify({
+            "success": False,
+            "error": "chest_locked",
+            "message": "Complete today's Rivalry Mission Control board first.",
+            "progression": _v245_progression_snapshot(username),
+        }), 409
+
+    if status == "OPENED":
+        return jsonify({
+            "success": True,
+            "message": "Daily Reward Chest already opened.",
+            "progression": _v245_progression_snapshot(username),
+        })
+
+    reward_xp = int(chest.get("reward_xp") or 0)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    day_key = str(chest.get("chest_day") or _v244_day_key())
+
+    conn = db()
+    cur = conn.execute(
+        """UPDATE rivalry_daily_reward_chests
+           SET status = 'OPENED', opened_at = ?, updated_at = ?
+           WHERE username = ? AND chest_day = ? AND status = 'READY'""",
+        (now, now, username, day_key)
+    )
+    if int(cur.rowcount or 0) == 1:
+        conn.execute(
+            """INSERT INTO rivalry_hunter_progression
+               (username, total_xp, missions_completed, chests_opened, updated_at)
+               VALUES (?, ?, 0, 1, ?)
+               ON CONFLICT(username) DO UPDATE SET
+                 total_xp = rivalry_hunter_progression.total_xp + excluded.total_xp,
+                 chests_opened = rivalry_hunter_progression.chests_opened + 1,
+                 updated_at = excluded.updated_at""",
+            (username, reward_xp, now)
+        )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "Daily Reward Chest opened.",
+        "reward_xp": reward_xp,
+        "progression": _v245_progression_snapshot(username),
+    })
+
+
+@app.route("/hunter-rivalry-progression")
+def hunter_rivalry_progression_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Rivalry Progression</title>
+        <body style='margin:0;background:#050507;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚡ Mission XP + Hunter Rank</h1>
+        <p>Sign in to load your personal progression board.</p>
+        <a style='color:#ffd66b' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v245_progression_snapshot(username)
+    esc = lambda v: html.escape(str(v or ""))
+    rank = data.get("rank") or {}
+    chest = data.get("daily_reward_chest") or {}
+    board = data.get("mission_board") or {}
+
+    status = str(chest.get("status") or "LOCKED").upper()
+    chest_button = (
+        "<button onclick='openChest()'>OPEN DAILY REWARD CHEST</button>"
+        if status == "READY"
+        else ("<button disabled>OPENED ✓</button>" if status == "OPENED" else "<button disabled>LOCKED</button>")
+    )
+
+    recent_rows = "".join(
+        "<div class='row'><div><b>{}</b><span>{} · {}</span></div><strong>+{} XP</strong></div>".format(
+            esc(r.get("mission_type") or "MISSION"),
+            esc(r.get("mission_day") or ""),
+            esc(r.get("awarded_at") or ""),
+            int(r.get("xp_awarded") or 0),
+        )
+        for r in (data.get("recent_xp") or [])
+    ) or "<div class='muted'>No rivalry mission XP earned yet.</div>"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>BL3 V24.5 Mission XP + Hunter Rank</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 15% 0,#3b125d,transparent 30%),radial-gradient(circle at 85% 0,#4b2d10,transparent 30%),#050507;color:#fff;font-family:Inter,Arial,sans-serif;padding:22px}}.wrap{{max-width:1100px;margin:auto}}.hero,.panel{{background:#0b0c11;border:1px solid #292b34;border-radius:28px;padding:24px;margin:16px 0}}.k{{color:#bd7cff;font-size:10px;letter-spacing:2px;font-weight:900}}h1{{font-size:clamp(48px,8vw,90px);line-height:.9;margin:10px 0}}.rank{{display:flex;gap:14px;align-items:center;flex-wrap:wrap}}.rank b{{font-size:40px}}.pill{{border:1px solid #3b3e48;border-radius:999px;padding:8px 12px;font-weight:900}}.bar{{height:12px;background:#171820;border-radius:999px;overflow:hidden;margin:14px 0}}.bar i{{display:block;height:100%;width:{rank_pct}%;background:linear-gradient(90deg,#8b3dff,#ffd66b)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.stat{{background:#11131a;border:1px solid #282b35;border-radius:18px;padding:18px}}.stat b{{font-size:26px;display:block}}.stat span,.muted{{color:#9297a6;font-size:11px}}.chest{{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}}button,a.btn{{background:#8b3dff;color:#fff;border:0;border-radius:14px;padding:12px 16px;font-weight:900;text-decoration:none;cursor:pointer}}button:disabled{{opacity:.45;cursor:not-allowed}}.row{{display:flex;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid #20222a}}.row span{{display:block;color:#858a99;font-size:10px;margin-top:5px}}.links{{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}}.links a{{color:#ffd66b;text-decoration:none;font-weight:900;font-size:11px}}.digest{{font:9px ui-monospace,monospace;color:#707584;word-break:break-all}}@media(max-width:760px){{.grid{{grid-template-columns:repeat(2,1fr)}}}}
+</style></head><body><div class='wrap'>
+<section class='hero'><div class='k'>V24.5 // MISSION XP + HUNTER RANK</div><h1>LEVEL THE HUNTER.</h1>
+<div class='rank'><b>{rank_title} · LV {rank_level}</b><span class='pill'>{total_xp} XP</span><span class='pill'>{xp_next} XP TO NEXT</span></div>
+<div class='bar'><i></i></div><p class='muted'>Rivalry missions now award one-time daily XP. Rank rises every 250 XP; reopening a mission never farms duplicate XP.</p>
+<div class='links'><a href='/hunter-rivalry-missions'>MISSION CONTROL</a><a href='/hunter-rivalry-briefing'>COMMAND BRIEF</a><a href='/hunter-rivalry-watch'>WATCHLIST</a><a href='/hunter-rivalry-progression.json'>EXPORT JSON</a></div></section>
+<section class='panel'><div class='grid'>
+<div class='stat'><b>{today_xp}</b><span>TODAY XP</span></div>
+<div class='stat'><b>{missions_done}</b><span>LIFETIME MISSIONS</span></div>
+<div class='stat'><b>{chests_opened}</b><span>CHESTS OPENED</span></div>
+<div class='stat'><b>{board_pct}%</b><span>TODAY BOARD</span></div>
+</div></section>
+<section class='panel chest'><div><div class='k'>DAILY REWARD CHEST</div><h2>{chest_tier} · +{reward_xp} XP</h2><p class='muted'>Status: {chest_status}. Complete the full Rivalry Mission Control board to unlock it.</p></div>{chest_button}</section>
+<section class='panel'><div class='k'>RECENT XP LEDGER</div>{recent_rows}</section>
+<div class='digest'>PROGRESSION DIGEST // {digest}</div><p class='muted'>{policy}</p>
+</div><script>
+async function openChest(){{
+  const b=document.querySelector('.chest button'); if(b){{b.disabled=true;b.textContent='OPENING...';}}
+  const r=await fetch('/api/hunter/rivalry-progression/chest/open',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:'{{}}'}});
+  const j=await r.json(); alert(j.message||j.error||'Updated'); location.reload();
+}}
+</script></body></html>""".format(
+        rank_pct=int(rank.get("rank_progress_pct") or 0),
+        rank_title=esc(rank.get("rank_title") or "SCOUT"),
+        rank_level=int(rank.get("rank_level") or 1),
+        total_xp=int(data.get("total_xp") or 0),
+        xp_next=int(rank.get("xp_to_next_rank") or 0),
+        today_xp=int(data.get("today_mission_xp") or 0),
+        missions_done=int(data.get("missions_completed_lifetime") or 0),
+        chests_opened=int(data.get("chests_opened") or 0),
+        board_pct=int(board.get("completion_pct") or 0),
+        chest_tier=esc(chest.get("chest_tier") or "STANDARD"),
+        reward_xp=int(chest.get("reward_xp") or 0),
+        chest_status=esc(status),
+        chest_button=chest_button,
+        recent_rows=recent_rows,
+        digest=esc(data.get("progression_digest") or ""),
+        policy=esc(data.get("policy") or ""),
+    )
+
+
+# Add a Progression shortcut to the V24.4 Mission Control page without rewriting its UI.
+_v245_original_mission_page = app.view_functions.get("hunter_rivalry_missions_page")
+if _v245_original_mission_page:
+    def _v245_mission_page_with_progression():
+        response = _v245_original_mission_page()
+        status = None
+        headers = None
+        body = response
+        if isinstance(response, tuple):
+            body = response[0]
+            if len(response) > 1:
+                status = response[1]
+            if len(response) > 2:
+                headers = response[2]
+        if isinstance(body, str) and "</body>" in body:
+            link = """<div style="position:fixed;right:18px;bottom:18px;z-index:9999">
+            <a href="/hunter-rivalry-progression" style="display:inline-block;background:#8b3dff;color:#fff;text-decoration:none;padding:12px 16px;border-radius:999px;font:900 11px Arial;box-shadow:0 10px 30px #0008">⚡ XP + RANK</a></div>"""
+            body = body.replace("</body>", link + "</body>", 1)
+        if status is None:
+            return body
+        if headers is None:
+            return body, status
+        return body, status, headers
+
+    app.view_functions["hunter_rivalry_missions_page"] = _v245_mission_page_with_progression
+
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🎯 BL3 ARENA V24.4 // RIVALRY MISSION CONTROL + PERSONAL OBJECTIVES + PROGRESS STREAKS")
+    print("⚡ BL3 ARENA V24.5 // MISSION XP + HUNTER RANK + DAILY REWARD CHEST")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("⚡ Mission XP + Hunter Rank + Daily Reward Chest enabled")
     print("🎯 Rivalry Mission Control + Personal Objectives + Progress Streaks enabled")
     print("🧭 Rivalry Command Brief + Daily Digest + Alert Rules enabled")
     print("🔔 Rivalry Watchlist + Smart Alerts + Priority Inbox enabled")
