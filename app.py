@@ -27565,16 +27565,209 @@ if 'hunter_feud_profile_page' in app.view_functions:
         return response
     app.view_functions['hunter_feud_profile_page']=_V237_profile_with_archive
 
+
+
+# ===== V23.8 FEUD ERA AWARDS + RIVALRY SEASON CHAMPIONS + ETERNAL ARCHIVE INDEX =====
+def _v238_era_awards(feud):
+    awards=[]
+    eras=list(feud.get('rivalry_eras') or [])
+    if not eras:
+        return awards
+    strongest=max(eras,key=lambda e:(int(e.get('peak_intensity') or 0),float(e.get('avg_intensity') or 0),int(e.get('snapshots') or 0)))
+    longest=max(eras,key=lambda e:(int(e.get('snapshots') or 0),int(e.get('peak_intensity') or 0)))
+    most_stable=max(eras,key=lambda e:(int(e.get('snapshots') or 0),-abs(float(e.get('peak_intensity') or 0)-float(e.get('avg_intensity') or 0))))
+    awards.append({'key':'peak_era','icon':'🔥','title':'Peak Era','era_index':int(strongest.get('era_index') or 0),'era_title':str(strongest.get('era_title') or ''),'value':int(strongest.get('peak_intensity') or 0),'label':'PEAK INTENSITY'})
+    awards.append({'key':'longest_era','icon':'📜','title':'Longest Era','era_index':int(longest.get('era_index') or 0),'era_title':str(longest.get('era_title') or ''),'value':int(longest.get('snapshots') or 0),'label':'SNAPSHOTS'})
+    awards.append({'key':'stable_era','icon':'🛡️','title':'Most Stable Era','era_index':int(most_stable.get('era_index') or 0),'era_title':str(most_stable.get('era_title') or ''),'value':round(float(most_stable.get('avg_intensity') or 0),2),'label':'AVG INTENSITY'})
+    classic=[e for e in eras if str(e.get('state') or '')=='CLASSIC']
+    if classic:
+        c=max(classic,key=lambda e:(int(e.get('snapshots') or 0),int(e.get('peak_intensity') or 0)))
+        awards.append({'key':'classic_era','icon':'👑','title':'Classic Era Award','era_index':int(c.get('era_index') or 0),'era_title':str(c.get('era_title') or ''),'value':int(c.get('snapshots') or 0),'label':'CLASSIC SNAPSHOTS'})
+    return awards
+
+
+def _v238_season_champions(feud):
+    seasons=list(feud.get('feud_seasons') or [])
+    champions=[]
+    for s in seasons:
+        leader=str(s.get('dominant_leader') or 'EVEN')
+        snapshots=int(s.get('snapshots') or 0)
+        peak=int(s.get('peak_intensity') or 0)
+        avg=float(s.get('avg_intensity') or 0)
+        classic=int(s.get('classic_snapshots') or 0)
+        heated=int(s.get('heated_snapshots') or 0)
+        season_score=min(100, int(avg) + min(20, peak//5) + min(12, classic*4) + min(8, heated*2) + min(10, snapshots))
+        champions.append({
+            'season_key':str(s.get('season_key') or ''),
+            'label':str(s.get('label') or ''),
+            'champion':leader,
+            'snapshots':snapshots,
+            'avg_intensity':round(avg,2),
+            'peak_intensity':peak,
+            'classic_snapshots':classic,
+            'heated_snapshots':heated,
+            'season_score':season_score,
+            'title':'CROWN SEASON' if season_score>=85 else 'ELITE SEASON' if season_score>=70 else 'HOT SEASON' if season_score>=55 else 'RECORDED SEASON',
+        })
+    champions.sort(key=lambda x:(str(x.get('season_key') or ''),int(x.get('season_score') or 0)),reverse=True)
+    return champions
+
+
+def _v238_archive_index_snapshot(username='', season='', archive_class=''):
+    base=_v237_feud_archive_snapshot(username)
+    season=str(season or '').strip()
+    archive_class=str(archive_class or '').strip().upper()
+    rows=[]
+    for feud in base.get('archive') or []:
+        x=dict(feud)
+        x['era_awards']=_v238_era_awards(x)
+        x['season_champions']=_v238_season_champions(x)
+        x['award_count']=len(x['era_awards'])
+        x['season_champion_count']=len(x['season_champions'])
+        if season and not any(str(s.get('season_key') or '')==season for s in x['season_champions']):
+            continue
+        if archive_class and str(x.get('archive_class') or '').upper()!=archive_class:
+            continue
+        x['index_score']=min(1000,int(x.get('hall_score') or 0)+x['award_count']*35+x['season_champion_count']*18+int(x.get('era_count') or 0)*10)
+        x['index_url']='/hunter-eternal-archive-profile?pair='+urllib.parse.quote(str(x.get('pair_key') or ''),safe='')
+        rows.append(x)
+    rows.sort(key=lambda x:(int(x.get('index_score') or 0),int(x.get('hall_score') or 0),int(x.get('records') or 0)),reverse=True)
+    seasons=sorted({str(s.get('season_key') or '') for r in rows for s in r.get('season_champions') or [] if str(s.get('season_key') or '')},reverse=True)
+    payload={
+        'success':True,
+        'username_filter':str(username or '').strip(),
+        'season_filter':season,
+        'archive_class_filter':archive_class,
+        'index':rows,
+        'available_seasons':seasons,
+        'counts':{
+            'feuds':len(rows),
+            'era_awards':sum(int(r.get('award_count') or 0) for r in rows),
+            'season_champions':sum(int(r.get('season_champion_count') or 0) for r in rows),
+            'immortal':sum(1 for r in rows if str(r.get('archive_class') or '')=='IMMORTAL ARCHIVE'),
+        },
+        'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+        'policy':'Era Awards and Rivalry Season Champions are deterministic summaries of stored BL3 rivalry snapshots. Season champion means the dominant recorded leader inside that archive quarter, not a forecast or universal skill ranking.'
+    }
+    payload['eternal_index_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+def _v238_archive_profile_snapshot(pair_key):
+    pair_key=str(pair_key or '').strip()
+    data=_v238_archive_index_snapshot('','','')
+    feud=next((x for x in data.get('index') or [] if str(x.get('pair_key') or '')==pair_key),None)
+    if not feud:
+        return {'success':False,'message':'Eternal archive entry not found.'}
+    payload={
+        'success':True,
+        'pair_key':pair_key,
+        'hunter_a':str(feud.get('hunter_a') or ''),
+        'hunter_b':str(feud.get('hunter_b') or ''),
+        'archive_class':str(feud.get('archive_class') or ''),
+        'hall_class':str(feud.get('hall_class') or ''),
+        'hall_rank':int(feud.get('hall_rank') or 0),
+        'hall_score':int(feud.get('hall_score') or 0),
+        'index_score':int(feud.get('index_score') or 0),
+        'era_awards':feud.get('era_awards') or [],
+        'season_champions':feud.get('season_champions') or [],
+        'feud_seasons':feud.get('feud_seasons') or [],
+        'rivalry_eras':feud.get('rivalry_eras') or [],
+        'timeline':feud.get('timeline') or [],
+        'compare_url':str(feud.get('compare_url') or '#'),
+        'legendary_profile_url':str(feud.get('profile_url') or '#'),
+        'immortal_archive_url':str(feud.get('archive_url') or '#'),
+        'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+        'policy':'This Eternal Archive profile summarizes only stored BL3 rivalry history and deterministic archive awards.'
+    }
+    payload['eternal_profile_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/eternal-archive-index')
+def hunter_eternal_archive_index_api():
+    return jsonify(_v238_archive_index_snapshot(request.args.get('username') or '',request.args.get('season') or '',request.args.get('archive_class') or ''))
+
+@app.route('/hunter-eternal-archive-index.json')
+def hunter_eternal_archive_index_json():
+    return jsonify(_v238_archive_index_snapshot(request.args.get('username') or '',request.args.get('season') or '',request.args.get('archive_class') or ''))
+
+@app.route('/api/hunter/eternal-archive-profile')
+def hunter_eternal_archive_profile_api():
+    d=_v238_archive_profile_snapshot(request.args.get('pair') or '')
+    return jsonify(d),(200 if d.get('success') else 404)
+
+@app.route('/hunter-eternal-archive-profile.json')
+def hunter_eternal_archive_profile_json():
+    d=_v238_archive_profile_snapshot(request.args.get('pair') or '')
+    return jsonify(d),(200 if d.get('success') else 404)
+
+
+@app.route('/hunter-eternal-archive-index')
+def hunter_eternal_archive_index_page():
+    username=str(request.args.get('username') or '').strip()
+    season=str(request.args.get('season') or '').strip()
+    archive_class=str(request.args.get('archive_class') or '').strip()
+    data=_v238_archive_index_snapshot(username,season,archive_class)
+    esc=html.escape
+    rows=''.join(
+        '<article style="border:1px solid #30323b;border-radius:18px;padding:16px;margin:10px 0;background:#090a0f">'
+        '<b style="color:#ffd66b">#{rank} · {aclass}</b><h2>@{a} VS @{b}</h2>'
+        '<p>Index Score {idx} · Hall Score {hall} · {awards} Era Awards · {seasons} Rivalry Seasons</p>'
+        '<a style="color:#ffd66b" href="{href}">OPEN ETERNAL PROFILE</a></article>'.format(
+            rank=i+1,aclass=esc(str(r.get('archive_class') or '')),a=esc(str(r.get('hunter_a') or '')),b=esc(str(r.get('hunter_b') or '')),
+            idx=int(r.get('index_score') or 0),hall=int(r.get('hall_score') or 0),awards=int(r.get('award_count') or 0),seasons=int(r.get('season_champion_count') or 0),href=esc(str(r.get('index_url') or '#'))
+        ) for i,r in enumerate(data.get('index') or [])
+    ) or '<p>No archive entries match these filters.</p>'
+    options=''.join('<option value="{0}" {1}>{0}</option>'.format(esc(s),'selected' if s==season else '') for s in data.get('available_seasons') or [])
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Eternal Archive Index</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1120px;margin:auto"><h4 style="color:#ffd66b">V23.8 // FEUD ERA AWARDS + SEASON CHAMPIONS</h4><h1 style="font-size:64px;margin:8px 0">ETERNAL ARCHIVE INDEX.</h1><form><input name="username" value="{}" placeholder="Hunter username" style="padding:10px;background:#090a0f;color:#fff;border:1px solid #333;border-radius:10px"><select name="season" style="padding:10px;margin-left:8px;background:#090a0f;color:#fff"><option value="">ALL SEASONS</option>{}</select><select name="archive_class" style="padding:10px;margin-left:8px;background:#090a0f;color:#fff"><option value="">ALL CLASSES</option><option>HISTORIC ARCHIVE</option><option>LEGENDARY ARCHIVE</option><option>IMMORTAL ARCHIVE</option></select><button style="padding:10px;margin-left:8px">FILTER</button></form><p><a style="color:#ffd66b" href="/hunter-feud-archive">IMMORTAL FEUD ARCHIVE</a> · <a style="color:#ffd66b" href="/hunter-feud-hall-of-fame">FEUD HALL</a></p>{}<p style="color:#777;font:10px monospace">ETERNAL INDEX DIGEST // {}</p></main></body>'.format(esc(username),options,rows,esc(str(data.get('eternal_index_digest') or '')))
+
+
+@app.route('/hunter-eternal-archive-profile')
+def hunter_eternal_archive_profile_page():
+    data=_v238_archive_profile_snapshot(request.args.get('pair') or '')
+    esc=html.escape
+    if not data.get('success'):
+        return '<!doctype html><body style="background:#05060a;color:#fff;font-family:system-ui;padding:30px"><h1>Eternal archive profile not found.</h1></body>',404
+    awards=''.join('<li><b>{}</b> — {} · {} {}</li>'.format(esc(str(a.get('title') or '')),esc(str(a.get('era_title') or '')),esc(str(a.get('value') or 0)),esc(str(a.get('label') or ''))) for a in data.get('era_awards') or []) or '<li>No era awards yet.</li>'
+    seasons=''.join('<li><b>{}</b> — champion {} · score {} · peak {} · {}</li>'.format(esc(str(s.get('label') or '')),esc(str(s.get('champion') or 'EVEN')),int(s.get('season_score') or 0),int(s.get('peak_intensity') or 0),esc(str(s.get('title') or ''))) for s in data.get('season_champions') or []) or '<li>No recorded feud seasons yet.</li>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Eternal Archive Profile</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1000px;margin:auto"><h4 style="color:#ffd66b">V23.8 // ETERNAL ARCHIVE PROFILE</h4><h1 style="font-size:58px">@{} VS @{}</h1><p>{} · Hall Rank #{} · Hall Score {} · Index Score {}</p><p><a style="color:#ffd66b" href="{}">HEAD-TO-HEAD</a> · <a style="color:#ffd66b" href="{}">IMMORTAL ARCHIVE</a> · <a style="color:#ffd66b" href="/hunter-eternal-archive-index">BACK TO INDEX</a></p><h2>Feud Era Awards</h2><ul>{}</ul><h2>Rivalry Season Champions</h2><ul>{}</ul><p style="color:#777;font:10px monospace">ETERNAL PROFILE DIGEST // {}</p></main></body>'.format(esc(data.get('hunter_a') or ''),esc(data.get('hunter_b') or ''),esc(str(data.get('archive_class') or '')),int(data.get('hall_rank') or 0),int(data.get('hall_score') or 0),int(data.get('index_score') or 0),esc(str(data.get('compare_url') or '#')),esc(str(data.get('immortal_archive_url') or '#')),awards,seasons,esc(str(data.get('eternal_profile_digest') or '')))
+
+
+if 'hunter_feud_archive_page' in app.view_functions:
+    _V237_archive_view_v238=app.view_functions['hunter_feud_archive_page']
+    def _V238_archive_with_index():
+        response=_V237_archive_view_v238()
+        if isinstance(response,str) and '/hunter-eternal-archive-index' not in response:
+            response=response.replace('ETERNAL RECORDS</a></p>','ETERNAL RECORDS</a> · <a style="color:#ffd66b" href="/hunter-eternal-archive-index">ETERNAL ARCHIVE INDEX</a></p>',1)
+            response=response.replace('V23.7 // FEUD SEASONS + RIVALRY ERAS','V23.8 // FEUD SEASONS + ERA AWARDS',1)
+        return response
+    app.view_functions['hunter_feud_archive_page']=_V238_archive_with_index
+
+if 'hunter_immortal_feud_archive_page' in app.view_functions:
+    _V237_immortal_archive_view_v238=app.view_functions['hunter_immortal_feud_archive_page']
+    def _V238_immortal_archive_with_index():
+        response=_V237_immortal_archive_view_v238()
+        if isinstance(response,str):
+            pair=str(request.args.get('pair') or '')
+            link='<a style="color:#ffd66b" href="/hunter-eternal-archive-profile?pair={}">ETERNAL PROFILE</a>'.format(urllib.parse.quote(pair,safe=''))
+            if '/hunter-eternal-archive-profile' not in response:
+                response=response.replace('BACK TO ARCHIVE</a></p>','BACK TO ARCHIVE</a> · '+link+'</p>',1)
+                response=response.replace('V23.7 // IMMORTAL FEUD ARCHIVE','V23.8 // IMMORTAL FEUD + ETERNAL INDEX',1)
+        return response
+    app.view_functions['hunter_immortal_feud_archive_page']=_V238_immortal_archive_with_index
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🌌 BL3 ARENA V23.7 // FEUD SEASONS + RIVALRY ERAS + IMMORTAL FEUD ARCHIVE")
+    print("🏆 BL3 ARENA V23.8 // FEUD ERA AWARDS + RIVALRY SEASON CHAMPIONS + ETERNAL ARCHIVE INDEX")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏆 Feud Era Awards + Rivalry Season Champions + Eternal Archive Index enabled")
     print("🌌 Feud Seasons + Rivalry Eras + Immortal Feud Archive enabled")
     print("🏛️ Rivalry Achievements + Feud Hall of Fame + Legendary Feud Profiles enabled")
     print("🏆 Rivalry Milestones + Feud Titles + Eternal Rivalry Records enabled")
