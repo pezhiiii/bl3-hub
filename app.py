@@ -29022,16 +29022,398 @@ if 'hunter_rivalry_pulse_page' in app.view_functions:
         return response
     app.view_functions['hunter_rivalry_pulse_page'] = _V242_pulse_with_watch
 
+
+# ===== V24.3 RIVALRY COMMAND BRIEF + DAILY DIGEST + ALERT RULES =====
+_V243_PRIORITY_RANK = {'NORMAL': 1, 'HIGH': 2, 'CRITICAL': 3}
+
+
+def _ensure_v243_rivalry_brief_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_alert_preferences (
+            username TEXT PRIMARY KEY,
+            min_priority TEXT NOT NULL DEFAULT 'NORMAL',
+            max_items INTEGER NOT NULL DEFAULT 12,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+_ensure_v243_rivalry_brief_schema()
+
+
+def _v243_alert_preferences(username):
+    username = str(username or '').strip()
+    conn = db()
+    row = conn.execute(
+        """SELECT username, min_priority, max_items, updated_at
+           FROM rivalry_alert_preferences WHERE username = ?""",
+        (username,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {
+            'username': username,
+            'min_priority': 'NORMAL',
+            'max_items': 12,
+            'updated_at': '',
+        }
+    data = dict(row)
+    level = str(data.get('min_priority') or 'NORMAL').upper()
+    if level not in _V243_PRIORITY_RANK:
+        level = 'NORMAL'
+    try:
+        max_items = max(3, min(30, int(data.get('max_items') or 12)))
+    except Exception:
+        max_items = 12
+    return {
+        'username': username,
+        'min_priority': level,
+        'max_items': max_items,
+        'updated_at': str(data.get('updated_at') or ''),
+    }
+
+
+def _v243_filtered_alerts(alerts, min_priority='NORMAL', max_items=12):
+    level = str(min_priority or 'NORMAL').upper()
+    threshold = _V243_PRIORITY_RANK.get(level, 1)
+    try:
+        max_items = max(3, min(30, int(max_items or 12)))
+    except Exception:
+        max_items = 12
+    rows = []
+    for alert in alerts or []:
+        priority = str(alert.get('priority') or 'NORMAL').upper()
+        if _V243_PRIORITY_RANK.get(priority, 1) < threshold:
+            continue
+        rows.append(dict(alert))
+    rows.sort(
+        key=lambda x: (
+            0 if int(x.get('is_read') or 0) else 1,
+            int(x.get('priority_score') or 0),
+            int(x.get('id') or 0),
+        ),
+        reverse=True
+    )
+    return rows[:max_items]
+
+
+def _v243_rivalry_command_brief_snapshot(username):
+    username = str(username or '').strip()
+    if not username:
+        return {'success': False, 'error': 'authentication_required'}
+
+    watch = _v242_rivalry_watch_snapshot(username, 300)
+    prefs = _v243_alert_preferences(username)
+    pulse = _v241_rivalry_pulse_snapshot()
+    spotlight = _v241_universe_spotlight_snapshot()
+
+    filtered = _v243_filtered_alerts(
+        watch.get('alerts') or [],
+        prefs.get('min_priority') or 'NORMAL',
+        prefs.get('max_items') or 12
+    )
+    unread_filtered = [a for a in filtered if not int(a.get('is_read') or 0)]
+    critical = sum(1 for a in unread_filtered if str(a.get('priority') or '').upper() == 'CRITICAL')
+    high = sum(1 for a in unread_filtered if str(a.get('priority') or '').upper() == 'HIGH')
+
+    watch_pairs = {
+        str(w.get('pair_key') or ''): dict(w)
+        for w in (watch.get('watches') or [])
+        if str(w.get('pair_key') or '')
+    }
+
+    top_watch = None
+    for alert in unread_filtered:
+        pair_key = str(alert.get('pair_key') or '')
+        if pair_key and pair_key in watch_pairs:
+            top_watch = {
+                'pair_key': pair_key,
+                'hunter_a': str(alert.get('hunter_a') or ''),
+                'hunter_b': str(alert.get('hunter_b') or ''),
+                'priority': str(alert.get('priority') or 'NORMAL'),
+                'priority_score': int(alert.get('priority_score') or 0),
+                'title': str(alert.get('title') or ''),
+                'detail': str(alert.get('detail') or ''),
+                'profile_url': str(alert.get('profile_url') or '#'),
+            }
+            break
+
+    if not top_watch and watch_pairs:
+        first = next(iter(watch_pairs.values()))
+        top_watch = {
+            'pair_key': str(first.get('pair_key') or ''),
+            'hunter_a': str(first.get('hunter_a') or ''),
+            'hunter_b': str(first.get('hunter_b') or ''),
+            'priority': 'NORMAL',
+            'priority_score': 0,
+            'title': 'Watched rivalry',
+            'detail': 'No unread matching alert at the current filter level.',
+            'profile_url': '/hunter-eternal-archive-profile?pair=' + urllib.parse.quote(str(first.get('pair_key') or ''), safe=''),
+        }
+
+    pulse_score = int(pulse.get('pulse_score') or 0)
+    urgency_score = min(
+        100,
+        critical * 28 +
+        high * 14 +
+        min(24, len(unread_filtered) * 4) +
+        min(20, int(pulse_score * 0.20))
+    )
+    if urgency_score >= 75:
+        state = 'REDLINE'
+    elif urgency_score >= 50:
+        state = 'HOT'
+    elif urgency_score >= 20:
+        state = 'ACTIVE'
+    else:
+        state = 'CLEAR'
+
+    actions = []
+    if critical:
+        actions.append({
+            'tier': 'CRITICAL',
+            'title': 'Review critical rivalry alerts',
+            'detail': '{} unread critical alert(s) match your current rules.'.format(critical),
+            'href': '/hunter-rivalry-watch',
+        })
+    if top_watch:
+        actions.append({
+            'tier': 'HIGH' if int(top_watch.get('priority_score') or 0) >= 50 else 'NORMAL',
+            'title': 'Inspect watched feud: @{} vs @{}'.format(
+                top_watch.get('hunter_a') or '',
+                top_watch.get('hunter_b') or ''
+            ),
+            'detail': str(top_watch.get('title') or 'Open the recorded feud profile.'),
+            'href': str(top_watch.get('profile_url') or '#'),
+        })
+    if pulse_score >= 50:
+        actions.append({
+            'tier': 'NORMAL',
+            'title': 'Check the Rivalry Pulse',
+            'detail': 'Recorded archive activity is currently {} with pulse score {}.'.format(
+                str(pulse.get('pulse_state') or 'ACTIVE'),
+                pulse_score
+            ),
+            'href': '/hunter-rivalry-pulse',
+        })
+    if not actions:
+        actions.append({
+            'tier': 'NORMAL',
+            'title': 'Archive is quiet',
+            'detail': 'No urgent watched-rivalry signals match your current alert rules.',
+            'href': '/hunter-rivalry-universe',
+        })
+
+    spotlight_item = spotlight.get('spotlight') or {}
+    summary = {
+        'watch_count': int(watch.get('watch_count') or 0),
+        'unread_total': int(watch.get('unread') or 0),
+        'matching_unread': len(unread_filtered),
+        'critical_matching': critical,
+        'high_matching': high,
+        'pulse_score': pulse_score,
+        'pulse_state': str(pulse.get('pulse_state') or 'CALM'),
+    }
+
+    payload = {
+        'success': True,
+        'username': username,
+        'day_key': datetime.utcnow().strftime('%Y-%m-%d'),
+        'state': state,
+        'urgency_score': urgency_score,
+        'summary': summary,
+        'preferences': prefs,
+        'top_watch': top_watch,
+        'actions': actions[:5],
+        'priority_inbox': filtered,
+        'spotlight': spotlight_item,
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry Command Brief summarizes recorded BL3 watchlist alerts, archive pulse data, and the Hunter\'s local '
+            'alert rules. Its urgency score is a workflow triage heuristic only; it does not predict future feud outcomes.'
+        ),
+    }
+    payload['brief_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/rivalry-briefing')
+def hunter_rivalry_briefing_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    return jsonify(_v243_rivalry_command_brief_snapshot(username))
+
+
+@app.route('/hunter-rivalry-briefing.json')
+def hunter_rivalry_briefing_json():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    return jsonify(_v243_rivalry_command_brief_snapshot(username))
+
+
+@app.route('/api/hunter/rivalry-briefing/preferences', methods=['POST'])
+def hunter_rivalry_briefing_preferences_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    body = request.get_json(silent=True) or {}
+    min_priority = str(body.get('min_priority') or 'NORMAL').upper()
+    if min_priority not in _V243_PRIORITY_RANK:
+        return jsonify({'success': False, 'error': 'invalid_min_priority'}), 400
+    try:
+        max_items = max(3, min(30, int(body.get('max_items') or 12)))
+    except Exception:
+        return jsonify({'success': False, 'error': 'invalid_max_items'}), 400
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    conn = db()
+    conn.execute(
+        """INSERT INTO rivalry_alert_preferences(username, min_priority, max_items, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             min_priority = excluded.min_priority,
+             max_items = excluded.max_items,
+             updated_at = excluded.updated_at""",
+        (username, min_priority, max_items, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify(_v243_rivalry_command_brief_snapshot(username))
+
+
+@app.route('/hunter-rivalry-briefing')
+def hunter_rivalry_briefing_page():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Rivalry Command Brief</title><body style='background:#08000f;color:#fff;font-family:Arial;padding:40px'><h1>🧭 Rivalry Command Brief</h1><p>Sign in to open your personal daily rivalry briefing.</p><p><a style='color:#ffd66b' href='/'>BACK TO BL3</a></p></body>""", 401
+
+    data = _v243_rivalry_command_brief_snapshot(username)
+    esc = lambda v: html.escape(str(v or ''))
+    s = data.get('summary') or {}
+    prefs = data.get('preferences') or {}
+
+    action_cards = ''.join(
+        '<article class="action {tier}"><span>{tier}</span><div><h3>{title}</h3><p>{detail}</p></div><a href="{href}">OPEN</a></article>'.format(
+            tier=esc(str(a.get('tier') or 'NORMAL').lower()),
+            title=esc(a.get('title')),
+            detail=esc(a.get('detail')),
+            href=esc(a.get('href') or '#')
+        )
+        for a in data.get('actions') or []
+    )
+
+    alert_cards = ''.join(
+        '<article class="alert"><div><span class="pill">{priority} · {score}</span><h3>@{a} VS @{b}</h3><b>{title}</b><p>{detail}</p></div><a href="{href}">PROFILE</a></article>'.format(
+            priority=esc(x.get('priority')),
+            score=int(x.get('priority_score') or 0),
+            a=esc(x.get('hunter_a')),
+            b=esc(x.get('hunter_b')),
+            title=esc(x.get('title')),
+            detail=esc(x.get('detail')),
+            href=esc(x.get('profile_url') or '#')
+        )
+        for x in data.get('priority_inbox') or []
+    ) or '<p class="muted">No alerts match the current rules.</p>'
+
+    spotlight = data.get('spotlight') or {}
+    spotlight_html = '<p class="muted">No archive spotlight available.</p>'
+    if spotlight:
+        spotlight_html = (
+            '<div class="spot"><b>@{a} VS @{b}</b><span>{cls} · Index {idx}</span>'
+            '<a href="{href}">OPEN SPOTLIGHT FEUD</a></div>'
+        ).format(
+            a=esc(spotlight.get('hunter_a')),
+            b=esc(spotlight.get('hunter_b')),
+            cls=esc(spotlight.get('archive_class')),
+            idx=int(spotlight.get('index_score') or 0),
+            href=esc(spotlight.get('profile_url') or '#')
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry Command Brief</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 15% 0,#3f0b70,transparent 28%),radial-gradient(circle at 85% 0,#7a4d09,transparent 25%),#05060a;color:#fff;font-family:Inter,Arial,sans-serif}}main{{max-width:1120px;margin:auto;padding:34px 18px 70px}}a{{color:#ffd66b;text-decoration:none}}.hero,.panel{{border:1px solid #393345;background:#0b0b12e8;border-radius:24px;padding:24px;margin-bottom:18px}}.hero h1{{font-size:clamp(42px,8vw,82px);line-height:.9;margin:10px 0}}.hero .state{{color:#ffd66b;font-weight:800;letter-spacing:.1em}}.score{{font-size:58px;font-weight:900}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid #ffffff14;background:#ffffff08;border-radius:14px;padding:13px}}.stat b{{display:block;font-size:24px}}.muted,.stat span,p,small{{color:#aaa4b5}}.action,.alert{{display:grid;grid-template-columns:90px 1fr auto;gap:14px;align-items:center;border-top:1px solid #292633;padding:15px 0}}.action>span,.pill{{font-size:11px;border:1px solid #5b5268;border-radius:999px;padding:6px 8px;text-align:center}}.action.critical>span{{border-color:#ff466f;color:#ff9aaf}}.action.high>span{{border-color:#ffb347;color:#ffd08b}}.action h3,.alert h3{{margin:3px 0}}select,input,button{{background:#140f1c;color:#fff;border:1px solid #5a4c69;border-radius:10px;padding:10px}}button{{cursor:pointer}}.rules{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}.spot{{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;padding:14px;border:1px solid #40341f;border-radius:14px;background:#151108}}.digest{{font:9px ui-monospace,monospace;color:#6f6978;word-break:break-all}}@media(max-width:760px){{.stats{{grid-template-columns:1fr 1fr}}.action,.alert{{grid-template-columns:1fr}}}}
+</style></head><body><main>
+<section class="hero"><span>V24.3 // RIVALRY COMMAND BRIEF + DAILY DIGEST</span><h1>KNOW WHAT NEEDS ATTENTION.</h1><div class="state">{esc(data.get('state'))}</div><div class="score">{int(data.get('urgency_score') or 0)}</div><p>A personal read-only briefing built from your Rivalry Watchlist, stored archive alerts, and current recorded rivalry pulse.</p>
+<div class="stats"><div class="stat"><b>{int(s.get('watch_count') or 0)}</b><span>WATCHES</span></div><div class="stat"><b>{int(s.get('unread_total') or 0)}</b><span>UNREAD TOTAL</span></div><div class="stat"><b>{int(s.get('matching_unread') or 0)}</b><span>MATCHING</span></div><div class="stat"><b>{int(s.get('critical_matching') or 0)}</b><span>CRITICAL</span></div><div class="stat"><b>{int(s.get('pulse_score') or 0)}</b><span>PULSE</span></div></div></section>
+<section class="panel"><h2>🎛️ ALERT RULES</h2><div class="rules"><label>Minimum priority <select id="minPriority"><option {'selected' if prefs.get('min_priority')=='NORMAL' else ''}>NORMAL</option><option {'selected' if prefs.get('min_priority')=='HIGH' else ''}>HIGH</option><option {'selected' if prefs.get('min_priority')=='CRITICAL' else ''}>CRITICAL</option></select></label><label>Inbox size <input id="maxItems" type="number" min="3" max="30" value="{int(prefs.get('max_items') or 12)}"></label><button onclick="saveRules()">SAVE RULES</button></div></section>
+<section class="panel"><h2>🧭 TODAY'S COMMAND ACTIONS</h2>{action_cards}</section>
+<section class="panel"><h2>🔔 FILTERED PRIORITY INBOX</h2>{alert_cards}</section>
+<section class="panel"><h2>🌠 ARCHIVE SPOTLIGHT</h2>{spotlight_html}</section>
+<p><a href="/hunter-rivalry-watch">RIVALRY WATCH</a> · <a href="/hunter-rivalry-pulse">RIVALRY PULSE</a> · <a href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a href="/hunter-live-archive-activity">LIVE ARCHIVE</a></p>
+<p class="digest">BRIEF DIGEST // {esc(data.get('brief_digest'))}</p><small>{esc(data.get('policy'))}</small>
+</main><script>
+async function saveRules(){{
+ const min_priority=document.getElementById('minPriority').value;
+ const max_items=parseInt(document.getElementById('maxItems').value||'12',10);
+ const r=await fetch('/api/hunter/rivalry-briefing/preferences',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{min_priority,max_items}})}});
+ const d=await r.json(); if(!r.ok){{alert(d.error||'Request failed');return;}} location.reload();
+}}
+</script></body></html>"""
+
+
+# Surface V24.3 from the Watchlist, Rivalry Universe, and Pulse pages while preserving prior routes.
+if 'hunter_rivalry_watch_page' in app.view_functions:
+    _V242_watch_view_v243 = app.view_functions['hunter_rivalry_watch_page']
+    def _V243_watch_with_brief():
+        response = _V242_watch_view_v243()
+        if isinstance(response, str) and '/hunter-rivalry-briefing' not in response:
+            response = response.replace(
+                'RIVALRY UNIVERSE</a> ·',
+                'RIVALRY UNIVERSE</a> · <a href="/hunter-rivalry-briefing">COMMAND BRIEF</a> ·',
+                1
+            )
+            response = response.replace(
+                'V24.2 // RIVALRY WATCHLIST + SMART ALERTS',
+                'V24.3 // RIVALRY WATCHLIST + COMMAND BRIEF',
+                1
+            )
+        return response
+    app.view_functions['hunter_rivalry_watch_page'] = _V243_watch_with_brief
+
+if 'hunter_rivalry_universe_page' in app.view_functions:
+    _V242_universe_view_v243 = app.view_functions['hunter_rivalry_universe_page']
+    def _V243_universe_with_brief():
+        response = _V242_universe_view_v243()
+        if isinstance(response, str) and '/hunter-rivalry-briefing' not in response:
+            tile = '<a class="tile" href="/hunter-rivalry-briefing"><span>🧭</span><b>Rivalry Command Brief</b></a>'
+            response = response.replace('<div class="grid">', '<div class="grid">' + tile, 1)
+            response = response.replace(
+                'V24.2 // RIVALRY WATCHLIST + SMART ALERTS',
+                'V24.3 // RIVALRY COMMAND BRIEF + ALERT RULES',
+                1
+            )
+        return response
+    app.view_functions['hunter_rivalry_universe_page'] = _V243_universe_with_brief
+
+if 'hunter_rivalry_pulse_page' in app.view_functions:
+    _V242_pulse_view_v243 = app.view_functions['hunter_rivalry_pulse_page']
+    def _V243_pulse_with_brief():
+        response = _V242_pulse_view_v243()
+        if isinstance(response, str) and '/hunter-rivalry-briefing' not in response:
+            response = response.replace(
+                'RIVALRY UNIVERSE</a> ·',
+                'RIVALRY UNIVERSE</a> · <a href="/hunter-rivalry-briefing">COMMAND BRIEF</a> ·',
+                1
+            )
+        return response
+    app.view_functions['hunter_rivalry_pulse_page'] = _V243_pulse_with_brief
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🔔 BL3 ARENA V24.2 // RIVALRY WATCHLIST + SMART ALERTS + PRIORITY INBOX")
+    print("🧭 BL3 ARENA V24.3 // RIVALRY COMMAND BRIEF + DAILY DIGEST + ALERT RULES")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🧭 Rivalry Command Brief + Daily Digest + Alert Rules enabled")
     print("🔔 Rivalry Watchlist + Smart Alerts + Priority Inbox enabled")
     print("⚡ Rivalry Pulse + Live Archive Activity + Universe Spotlight enabled")
     print("🌌 Rivalry Universe Hub + Eternal Records Dashboard + Feud Analytics enabled")
