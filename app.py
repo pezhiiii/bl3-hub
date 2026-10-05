@@ -30889,16 +30889,231 @@ try:
 except Exception:
     pass
 
+
+
+# ===== V24.8 OWNERSHIP MANIFEST + BUILD ATTESTATION + TAMPER LEDGER =====
+# Purpose:
+# - Give every trusted BL3 deploy a deterministic build fingerprint.
+# - Allow an admin to record a trusted attestation in SQLite.
+# - Detect source drift against the last recorded trusted build.
+# - Optionally sign the attestation with the deployment key using HMAC-SHA256.
+# - Never reveal secret values.
+
+V248_SECURITY_VERSION = "V24.8"
+V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
+V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
+
+
+def _v248_ensure_schema():
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS build_attestations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                app_version TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                source_bytes INTEGER NOT NULL,
+                build_fingerprint TEXT NOT NULL,
+                signature_alg TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                recorded_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_build_attestations_recorded_at ON build_attestations(recorded_at DESC)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v248_manifest_core():
+    src = _v247_source_integrity()
+    core = {
+        "project_id": V248_PROJECT_ID,
+        "owner_id": V248_OWNER_ID,
+        "app_version": V248_SECURITY_VERSION,
+        "environment": BL3_ENV,
+        "source_sha256": src.get("sha256") or "",
+        "source_bytes": int(src.get("bytes") or 0),
+        "deployment_lock_enabled": bool(V247_LOCK_ENABLED),
+        "strict_secret_mode": bool(V247_REQUIRE_SECRETS),
+    }
+    canonical = json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    core["build_fingerprint"] = hashlib.sha256(canonical).hexdigest()
+    return core
+
+
+def _v248_signature(core):
+    # HMAC signature is optional. The secret key itself is never returned or persisted.
+    key = (os.environ.get("BL3_DEPLOYMENT_KEY") or "").encode("utf-8")
+    if not key:
+        return {"algorithm": "NONE", "signature": "", "signed": False}
+    import hmac
+    payload = json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    sig = hmac.new(key, payload, hashlib.sha256).hexdigest()
+    return {"algorithm": "HMAC-SHA256", "signature": sig, "signed": True}
+
+
+def _v248_latest_attestation():
+    _v248_ensure_schema()
+    conn = sqlite3.connect(DB); conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM build_attestations ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v248_attestation_snapshot():
+    core = _v248_manifest_core()
+    sig = _v248_signature(core)
+    latest = _v248_latest_attestation()
+    if latest is None:
+        state = "UNATTESTED"
+        drift = False
+    else:
+        drift = not secrets.compare_digest(str(latest.get("source_sha256") or ""), str(core.get("source_sha256") or ""))
+        state = "DRIFT" if drift else "MATCH"
+    payload = {
+        "success": True,
+        "version": V248_SECURITY_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "state": state,
+        "drift_detected": bool(drift),
+        "manifest": core,
+        "current_signature": sig,
+        "latest_attestation": latest,
+        "policy": (
+            "This attestation is a deployment integrity aid. It proves only that a recorded source hash matched the source "
+            "at attestation time. Repository ownership, provider access control, domain ownership and independent backups remain required."
+        ),
+    }
+    digestable = dict(payload); digestable.pop("generated_at", None)
+    payload["attestation_digest"] = hashlib.sha256(
+        json.dumps(digestable, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/admin/build-attestation")
+def v248_build_attestation_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v248_attestation_snapshot())
+
+
+@app.route("/api/admin/build-attestation/record", methods=["POST"])
+def v248_build_attestation_record_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    _v248_ensure_schema()
+    core = _v248_manifest_core()
+    sig = _v248_signature(core)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute("""
+            INSERT INTO build_attestations
+            (project_id, owner_id, app_version, source_sha256, source_bytes, build_fingerprint, signature_alg, signature, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            core["project_id"], core["owner_id"], core["app_version"], core["source_sha256"], core["source_bytes"],
+            core["build_fingerprint"], sig["algorithm"], sig["signature"], now
+        ))
+        conn.commit()
+        attestation_id = cur.lastrowid
+    finally:
+        conn.close()
+    out = _v248_attestation_snapshot()
+    out["recorded"] = True
+    out["attestation_id"] = attestation_id
+    return jsonify(out)
+
+
+@app.route("/admin/build-attestation")
+def v248_build_attestation_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Build Attestation</title><body style='margin:0;background:#06050a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧬 Build Attestation</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+    data = _v248_attestation_snapshot(); esc=lambda v: html.escape(str(v if v is not None else ""))
+    manifest=data.get("manifest") or {}; latest=data.get("latest_attestation") or {}; sig=data.get("current_signature") or {}
+    state=data.get("state") or "UNATTESTED"
+    cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V24.8 Build Attestation</title><style>
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}
+    .wrap{max-width:1050px;margin:auto;padding:34px 18px 72px}.hero,.panel{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}
+    .eyebrow{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}.title{font-size:42px;font-weight:1000;margin:7px 0}.sub{color:#bbb;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}
+    .card{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}.label{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}.value{font-size:23px;font-weight:1000;margin-top:7px}.ok{color:#63e6a2}.bad{color:#ff6685}.warn{color:#ffd166}
+    code{word-break:break-all;color:#d8b7ff}.row{padding:10px 0;border-bottom:1px solid #251a2e}.row:last-child{border:0}.btn{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}
+    </style></head><body><div class='wrap'><section class='hero'>
+    <div class='eyebrow'>BL3 V24.8 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
+    <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
+    <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
+    <div class='card'><div class='label'>OWNER ID</div><div class='value'>{owner}</div></div>
+    <div class='card'><div class='label'>SIGNATURE</div><div class='value'>{signed}</div></div></div></section>
+    <section class='panel'><div class='label'>CURRENT BUILD FINGERPRINT</div><p><code>{fp}</code></p><div class='row'>SOURCE SHA-256<br><code>{sha}</code></div><div class='row'>SOURCE BYTES: {bytes}</div></section>
+    <section class='panel'><div class='label'>LATEST TRUSTED ATTESTATION</div><div class='row'>Recorded: {recorded}</div><div class='row'>Version: {lv}</div><div class='row'>Fingerprint<br><code>{lfp}</code></div></section>
+    <section class='panel'><button class='btn' onclick='recordBuild()'>✅ RECORD CURRENT BUILD AS TRUSTED</button><a class='btn' href='/admin/project-vault'>🔐 PROJECT VAULT</a><a class='btn' href='/api/admin/build-attestation'>JSON</a><p id='msg' class='sub'></p></section>
+    <section class='panel'><div class='label'>SECURITY NOTE</div><p class='sub'>{policy}</p></section>
+    </div><script>async function recordBuild(){const m=document.getElementById('msg');m.textContent='Recording…';try{const r=await fetch('/api/admin/build-attestation/record',{method:'POST'});const j=await r.json();m.textContent=j.success?'Trusted attestation recorded. Reloading…':('Failed: '+(j.error||'unknown'));if(j.success)setTimeout(()=>location.reload(),650)}catch(e){m.textContent='Request failed.'}}</script></body></html>""".format(
+        cls=cls,state=esc(state),project=esc(manifest.get("project_id")),owner=esc(manifest.get("owner_id")),signed=esc("HMAC-SHA256" if sig.get("signed") else "UNSIGNED"),
+        fp=esc(manifest.get("build_fingerprint")),sha=esc(manifest.get("source_sha256")),bytes=esc(manifest.get("source_bytes")),recorded=esc(latest.get("recorded_at") or "None yet"),lv=esc(latest.get("app_version") or "—"),lfp=esc(latest.get("build_fingerprint") or "—"),policy=esc(data.get("policy"))
+    )
+
+
+# Add Build Attestation links to Project Vault and Admin Control Center without replacing existing behavior.
+try:
+    _v248_original_vault_page = app.view_functions.get("v247_project_vault_page")
+    if _v248_original_vault_page:
+        def _v248_vault_with_attestation(*args, **kwargs):
+            result = _v248_original_vault_page(*args, **kwargs)
+            body, status, headers = result, None, None
+            if isinstance(result, tuple):
+                body=result[0]; status=result[1] if len(result)>1 else None; headers=result[2] if len(result)>2 else None
+            if isinstance(body,str) and "</body>" in body and "/admin/build-attestation" not in body:
+                link="<div style='position:fixed;left:18px;bottom:18px;z-index:9999'><a href='/admin/build-attestation' style='display:inline-block;background:#5d24a8;color:#fff;text-decoration:none;padding:12px 16px;border-radius:999px;font:900 11px Arial;box-shadow:0 10px 30px #0008'>🧬 BUILD ATTESTATION</a></div>"
+                body=body.replace("</body>",link+"</body>",1)
+            if status is None:return body
+            if headers is None:return body,status
+            return body,status,headers
+        app.view_functions["v247_project_vault_page"] = _v248_vault_with_attestation
+except Exception:
+    pass
+
+try:
+    _v248_original_admin_control = app.view_functions.get("admin_control_center_page")
+    if _v248_original_admin_control:
+        def _v248_admin_with_attestation(*args, **kwargs):
+            result=_v248_original_admin_control(*args, **kwargs)
+            body,status,headers=result,None,None
+            if isinstance(result,tuple):
+                body=result[0];status=result[1] if len(result)>1 else None;headers=result[2] if len(result)>2 else None
+            if isinstance(body,str) and "</body>" in body and "/admin/build-attestation" not in body:
+                link="<div style='position:fixed;left:18px;bottom:18px;z-index:9999'><a href='/admin/build-attestation' style='display:inline-block;background:#5d24a8;color:#fff;text-decoration:none;padding:12px 16px;border-radius:999px;font:900 11px Arial;box-shadow:0 10px 30px #0008'>🧬 BUILD ATTESTATION</a></div>"
+                body=body.replace("</body>",link+"</body>",1)
+            if status is None:return body
+            if headers is None:return body,status
+            return body,status,headers
+        app.view_functions["admin_control_center_page"]=_v248_admin_with_attestation
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🔐 BL3 ARENA V24.7 // PROJECT VAULT + DEPLOYMENT LOCK + SECRET ISOLATION")
+    print("🧬 BL3 ARENA V24.8 // OWNERSHIP MANIFEST + BUILD ATTESTATION + TAMPER LEDGER")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🧬 Ownership Manifest + Build Attestation + Tamper Ledger enabled")
     print("🔐 Project Vault + Deployment Lock + Secret Isolation enabled")
     print("🏆 Hunter Profile + Achievements + Trophy Cabinet enabled")
     print("⚡ Mission XP + Hunter Rank + Daily Reward Chest enabled")
