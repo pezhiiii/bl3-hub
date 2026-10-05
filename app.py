@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V26.7"
+V247_SECURITY_VERSION = "V26.8"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V26.7"
+V248_SECURITY_VERSION = "V26.8"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.7 Build Attestation</title><style>
+    <title>BL3 V26.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V26.7"
+V250_VERSION = "V26.8"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V26.7"
+V253_VERSION = "V26.8"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V26.7"
+V254_VERSION = "V26.8"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V26.7"
+V255_VERSION = "V26.8"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V26.7"
+V256_VERSION = "V26.8"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V26.7"
+V257_VERSION = "V26.8"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V26.7"
+V258_VERSION = "V26.8"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.7 Hunter Command Deck</title>
+    <title>BL3 V26.8 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V26.7"
+V259_VERSION = "V26.8"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V26.7"
+V260_VERSION = "V26.8"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V26.7"
+V261_VERSION = "V26.8"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V26.7"
+V262_VERSION = "V26.8"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V26.7"
+V263_VERSION = "V26.8"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V26.7"
+V264_VERSION = "V26.8"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V26.7"
+V265_VERSION = "V26.8"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V26.7"
+V266_VERSION = "V26.8"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V26.7"
+V267_VERSION = "V26.8"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35287,7 +35287,7 @@ def v267_progress_passport_page(username):
     .empty{{color:#8fa2ad}}@media(max-width:600px){{h1{{font-size:32px}}}}
     </style></head><body><div class='wrap'>
       <section class='hero'>
-        <div class='eyebrow'>BL3 V26.7 // PUBLIC PROGRESSION PASSPORT</div>
+        <div class='eyebrow'>BL3 V26.8 // PUBLIC PROGRESSION PASSPORT</div>
         <div class='identity'>
           <div class='avatar'>{title_icon}</div>
           <div><h1>{username}</h1><div class='tag'>{title_name} · {tier}</div><div class='muted'>{aura_icon} {aura_label}</div></div>
@@ -35389,6 +35389,215 @@ try:
                     response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v266_focus_badges_page"] = _v267_badges_with_passport
+except Exception:
+    pass
+
+
+# ===== V26.8 HUNTER PROGRESS COMPARE =====
+# Public side-by-side comparison of two existing Progress Passports.
+# Uses only public BL3 progression signals already exposed by V26.7.
+
+V268_VERSION = "V26.8"
+
+def _v268_compare_snapshot(username_a, username_b):
+    a = _v267_progress_passport_snapshot(username_a)
+    b = _v267_progress_passport_snapshot(username_b)
+
+    if not a.get("success") or not b.get("success"):
+        return {
+            "success": False,
+            "error": "hunter_not_found",
+            "version": V268_VERSION,
+            "hunter_a_found": bool(a.get("success")),
+            "hunter_b_found": bool(b.get("success")),
+        }
+
+    metrics = [
+        ("completed_focus_runs", "Focus Runs"),
+        ("current_streak", "Current Streak"),
+        ("best_streak", "Best Streak"),
+        ("focus_badge_count", "Focus Badges"),
+        ("trophy_score", "Trophy Score"),
+    ]
+
+    rows = []
+    score_a = 0
+    score_b = 0
+    for key, label in metrics:
+        va = int(a.get(key) or 0)
+        vb = int(b.get(key) or 0)
+        winner = "TIE"
+        if va > vb:
+            winner = "A"
+            score_a += 1
+        elif vb > va:
+            winner = "B"
+            score_b += 1
+        rows.append({
+            "key": key,
+            "label": label,
+            "a": va,
+            "b": vb,
+            "winner": winner,
+        })
+
+    overall = "TIE"
+    if score_a > score_b:
+        overall = "A"
+    elif score_b > score_a:
+        overall = "B"
+
+    payload = {
+        "success": True,
+        "version": V268_VERSION,
+        "hunter_a": a,
+        "hunter_b": b,
+        "metrics": rows,
+        "metric_wins": {"a": score_a, "b": score_b},
+        "overall": overall,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Progress Compare uses public BL3 progression signals only. "
+            "It is a cosmetic comparison and does not imply monetary value, skill certainty, or future outcomes."
+        ),
+    }
+    payload["compare_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-progress-compare/<hunter_a>/<hunter_b>")
+def v268_progress_compare_api(hunter_a, hunter_b):
+    data = _v268_compare_snapshot(hunter_a, hunter_b)
+    return jsonify(data), (200 if data.get("success") else 404)
+
+
+@app.route("/hunter-progress-compare")
+def v268_progress_compare_page():
+    hunter_a = str(request.args.get("a") or "").strip()
+    hunter_b = str(request.args.get("b") or "").strip()
+
+    if not hunter_a or not hunter_b:
+        return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Progress Compare</title>
+        <style>
+        *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#231733 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}
+        .wrap{max-width:760px;margin:auto}.panel{background:#0b0a11;border:1px solid #4e3c68;border-radius:24px;padding:24px}h1{font-size:40px}
+        input,button{width:100%;padding:12px;border-radius:11px;border:1px solid #5f4b7c;background:#100d17;color:#fff;margin:7px 0}button{cursor:pointer;font-weight:900}
+        </style></head><body><div class='wrap'><div class='panel'>
+        <h1>⚖️ HUNTER PROGRESS COMPARE</h1><p>Enter two public Hunter IDs.</p>
+        <input id='a' placeholder='Hunter A'><input id='b' placeholder='Hunter B'>
+        <button onclick="go()">COMPARE</button>
+        </div></div><script>
+        function go(){const a=document.getElementById('a').value.trim(),b=document.getElementById('b').value.trim();if(a&&b)location.href='/hunter-progress-compare?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b);}
+        </script></body></html>"""
+
+    data = _v268_compare_snapshot(hunter_a, hunter_b)
+    if not data.get("success"):
+        return "One or both Hunters were not found.", 404
+
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    a = data.get("hunter_a") or {}
+    b = data.get("hunter_b") or {}
+    ta = a.get("title") or {}
+    tb = b.get("title") or {}
+    overall = str(data.get("overall") or "TIE")
+
+    rows = []
+    for row in data.get("metrics") or []:
+        wa = "win" if row.get("winner") == "A" else ""
+        wb = "win" if row.get("winner") == "B" else ""
+        rows.append(
+            "<tr><td class='{}'>{}</td><td>{}</td><td class='{}'>{}</td></tr>".format(
+                wa, esc(row.get("a")), esc(row.get("label")), wb, esc(row.get("b"))
+            )
+        )
+
+    overall_text = "TIE"
+    if overall == "A":
+        overall_text = "{} leads".format(hunter_a)
+    elif overall == "B":
+        overall_text = "{} leads".format(hunter_b)
+
+    share_url = "{}/hunter-progress-compare?a={}&b={}".format(
+        _public_origin(),
+        urllib.parse.quote(hunter_a),
+        urllib.parse.quote(hunter_b),
+    )
+    share_text = "⚖️ {} vs {} on BL3 Progress Compare — {}".format(hunter_a, hunter_b, share_url)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>{a_name} vs {b_name} // BL3 Progress Compare</title>
+    <meta name='description' content='Public BL3 progression comparison between {a_name} and {b_name}.'>
+    <meta property='og:title' content='{a_name} vs {b_name} // BL3 Progress Compare'>
+    <meta property='og:description' content='Focus Runs, streaks, badges and Trophy Score side by side.'>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at top,#25173a 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:980px;margin:auto}}.panel{{background:#0b0a11ed;border:1px solid #503c70;border-radius:26px;padding:24px;margin-bottom:16px}}
+    .eyebrow{{color:#bca1ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:12px 0}}.fighters{{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center}}
+    .fighter{{background:#0d0b13;border:1px solid #3f3158;border-radius:20px;padding:20px;text-align:center}}.avatar{{font-size:48px}}.name{{font-size:26px;font-weight:950;margin-top:8px}}.tag{{color:#bca9c8;margin-top:5px}}.vs{{font-size:28px;font-weight:950;color:#d7c3ff}}
+    .score{{font-size:15px;color:#b7a9c5}}table{{width:100%;border-collapse:collapse;margin-top:10px}}th,td{{padding:14px 10px;border-bottom:1px solid #2b2138;text-align:center}}th{{color:#bca9cf}}td:nth-child(2){{font-weight:850}}.win{{color:#61f2b2;font-weight:950;background:#10231b}}
+    .result{{font-size:28px;font-weight:950;text-align:center;padding:18px;border-radius:18px;background:#100d17;border:1px solid #4f3c6a}}.btns{{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}}a,button{{border:1px solid #604b7f;border-radius:11px;padding:10px 13px;background:#120e19;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}}
+    @media(max-width:700px){{.fighters{{grid-template-columns:1fr}}.vs{{text-align:center}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V26.8 // PUBLIC PROGRESSION MATCHUP</div>
+        <h1>⚖️ HUNTER PROGRESS COMPARE</h1>
+        <div class='fighters'>
+          <div class='fighter'><div class='avatar'>{a_icon}</div><div class='name'>{a_name}</div><div class='tag'>{a_title}</div><div class='score'>Metric wins: {a_wins}</div></div>
+          <div class='vs'>VS</div>
+          <div class='fighter'><div class='avatar'>{b_icon}</div><div class='name'>{b_name}</div><div class='tag'>{b_title}</div><div class='score'>Metric wins: {b_wins}</div></div>
+        </div>
+        <div class='btns'>
+          <a href='/hunter-progress/{a_path}'>VIEW {a_name} PASSPORT</a>
+          <a href='/hunter-progress/{b_path}'>VIEW {b_name} PASSPORT</a>
+          <button onclick='copyShare()'>COPY SHARE TEXT</button>
+          <a href='/hunter-progress-compare'>NEW COMPARISON</a>
+        </div>
+      </section>
+
+      <section class='panel'>
+        <table><thead><tr><th>{a_name}</th><th>METRIC</th><th>{b_name}</th></tr></thead><tbody>{rows}</tbody></table>
+      </section>
+
+      <section class='panel'><div class='result'>{overall_text}</div></section>
+    </div>
+    <script>
+    function copyShare(){{
+      const text={share_text_json};
+      if(navigator.clipboard) navigator.clipboard.writeText(text).then(()=>alert('Share text copied'));
+      else alert(text);
+    }}
+    </script></body></html>""".format(
+        a_name=esc(hunter_a),
+        b_name=esc(hunter_b),
+        a_icon=esc(ta.get("icon") or "👾"),
+        b_icon=esc(tb.get("icon") or "👾"),
+        a_title=esc(ta.get("title") or "HUNTER"),
+        b_title=esc(tb.get("title") or "HUNTER"),
+        a_wins=esc((data.get("metric_wins") or {}).get("a")),
+        b_wins=esc((data.get("metric_wins") or {}).get("b")),
+        a_path=urllib.parse.quote(hunter_a),
+        b_path=urllib.parse.quote(hunter_b),
+        rows="".join(rows),
+        overall_text=esc(overall_text),
+        share_text_json=json.dumps(share_text, ensure_ascii=False),
+    )
+
+
+# Add Compare entry point to public Progress Passport.
+try:
+    _v268_prev_passport = app.view_functions.get("v267_progress_passport_page")
+    if _v268_prev_passport:
+        def _v268_passport_with_compare(username, *args, **kwargs):
+            response = _v268_prev_passport(username, *args, **kwargs)
+            if isinstance(response, str) and "/hunter-progress-compare" not in response:
+                href = "/hunter-progress-compare?a=" + urllib.parse.quote(str(username or ""))
+                link = "<a href='{}' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #604b7f;border-radius:10px;color:#fff;text-decoration:none'>⚖️ COMPARE WITH ANOTHER HUNTER</a>".format(href)
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v267_progress_passport_page"] = _v268_passport_with_compare
 except Exception:
     pass
 
