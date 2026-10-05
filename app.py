@@ -27981,16 +27981,372 @@ if 'hunter_eternal_archive_profile_page' in app.view_functions:
         return response
     app.view_functions['hunter_eternal_archive_profile_page']=_V239_profile_with_compare
 
+
+
+# ===== V24.0 RIVALRY UNIVERSE HUB + ETERNAL RECORDS DASHBOARD + FEUD ANALYTICS =====
+def _v240_feud_analytics_snapshot():
+    base = _v238_archive_index_snapshot('', '', '')
+    rows = list(base.get('index') or [])
+
+    archive_classes = {}
+    hall_classes = {}
+    total_records = 0
+    total_eras = 0
+    total_seasons = 0
+    total_index = 0
+    total_hall = 0
+    total_intensity = 0
+    intensity_count = 0
+    trends = []
+    hunter_counts = {}
+
+    for r in rows:
+        aclass = str(r.get('archive_class') or 'UNCLASSIFIED')
+        hclass = str(r.get('hall_class') or 'UNCLASSIFIED')
+        archive_classes[aclass] = archive_classes.get(aclass, 0) + 1
+        hall_classes[hclass] = hall_classes.get(hclass, 0) + 1
+
+        total_records += int(r.get('records') or 0)
+        total_eras += int(r.get('era_count') or 0)
+        total_seasons += int(r.get('season_count') or 0)
+        total_index += int(r.get('index_score') or 0)
+        total_hall += int(r.get('hall_score') or 0)
+
+        for hunter in (str(r.get('hunter_a') or ''), str(r.get('hunter_b') or '')):
+            if hunter:
+                hunter_counts[hunter] = hunter_counts.get(hunter, 0) + 1
+
+        timeline = list(r.get('timeline') or [])
+        intensities = [int(x.get('intensity') or 0) for x in timeline if x.get('intensity') is not None]
+        if intensities:
+            total_intensity += sum(intensities)
+            intensity_count += len(intensities)
+            delta = intensities[-1] - intensities[0]
+            if delta >= 10:
+                direction = 'RISING'
+            elif delta <= -10:
+                direction = 'COOLING'
+            else:
+                direction = 'STABLE'
+            trends.append({
+                'pair_key': str(r.get('pair_key') or ''),
+                'hunter_a': str(r.get('hunter_a') or ''),
+                'hunter_b': str(r.get('hunter_b') or ''),
+                'start_intensity': intensities[0],
+                'latest_intensity': intensities[-1],
+                'delta': delta,
+                'direction': direction,
+                'index_score': int(r.get('index_score') or 0),
+                'profile_url': str(r.get('index_url') or '#'),
+            })
+
+    trends.sort(key=lambda x: (abs(int(x.get('delta') or 0)), int(x.get('index_score') or 0)), reverse=True)
+    top_hunters = sorted(
+        ({'hunter': h, 'rivalries': c} for h, c in hunter_counts.items()),
+        key=lambda x: (x['rivalries'], x['hunter'].lower()),
+        reverse=True
+    )[:12]
+
+    payload = {
+        'success': True,
+        'summary': {
+            'feuds': len(rows),
+            'recorded_snapshots': total_records,
+            'rivalry_eras': total_eras,
+            'feud_seasons': total_seasons,
+            'avg_index_score': round(total_index / len(rows), 2) if rows else 0,
+            'avg_hall_score': round(total_hall / len(rows), 2) if rows else 0,
+            'avg_recorded_intensity': round(total_intensity / intensity_count, 2) if intensity_count else 0,
+            'unique_hunters': len(hunter_counts),
+        },
+        'archive_class_distribution': archive_classes,
+        'hall_class_distribution': hall_classes,
+        'trend_breakdown': {
+            'RISING': sum(1 for x in trends if x.get('direction') == 'RISING'),
+            'STABLE': sum(1 for x in trends if x.get('direction') == 'STABLE'),
+            'COOLING': sum(1 for x in trends if x.get('direction') == 'COOLING'),
+        },
+        'trend_leaders': trends[:12],
+        'most_connected_hunters': top_hunters,
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Feud Analytics summarizes stored BL3 rivalry archive data only. '
+            'Trend labels compare first and latest recorded intensity and are descriptive, not predictive.'
+        ),
+    }
+    payload['analytics_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _v240_eternal_records_dashboard_snapshot():
+    records = _v235_eternal_rivalry_records_snapshot()
+    seasons = _v239_season_champion_hall_snapshot('')
+    index = _v238_archive_index_snapshot('', '', '')
+    analytics = _v240_feud_analytics_snapshot()
+
+    top_index = list(index.get('index') or [])[:10]
+    season_entries = list(seasons.get('entries') or [])
+    season_entries.sort(
+        key=lambda x: (int(x.get('season_score') or 0), int(x.get('peak_intensity') or 0), int(x.get('snapshots') or 0)),
+        reverse=True
+    )
+
+    payload = {
+        'success': True,
+        'eternal_records': records.get('records') or [],
+        'top_archive_entries': [{
+            'rank': i + 1,
+            'pair_key': str(r.get('pair_key') or ''),
+            'hunter_a': str(r.get('hunter_a') or ''),
+            'hunter_b': str(r.get('hunter_b') or ''),
+            'index_score': int(r.get('index_score') or 0),
+            'hall_score': int(r.get('hall_score') or 0),
+            'archive_class': str(r.get('archive_class') or ''),
+            'profile_url': str(r.get('index_url') or '#'),
+        } for i, r in enumerate(top_index)],
+        'top_season_champions': season_entries[:10],
+        'universe_summary': analytics.get('summary') or {},
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'The Eternal Records Dashboard combines deterministic record holders, archive scores, '
+            'and recorded season summaries. It does not create missing history or future rankings.'
+        ),
+    }
+    payload['records_dashboard_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _v240_rivalry_universe_snapshot():
+    analytics = _v240_feud_analytics_snapshot()
+    dashboard = _v240_eternal_records_dashboard_snapshot()
+    index = _v238_archive_index_snapshot('', '', '')
+    season_hall = _v239_season_champion_hall_snapshot('')
+
+    top_feud = None
+    if index.get('index'):
+        r = index['index'][0]
+        top_feud = {
+            'pair_key': str(r.get('pair_key') or ''),
+            'hunter_a': str(r.get('hunter_a') or ''),
+            'hunter_b': str(r.get('hunter_b') or ''),
+            'index_score': int(r.get('index_score') or 0),
+            'hall_score': int(r.get('hall_score') or 0),
+            'archive_class': str(r.get('archive_class') or ''),
+            'profile_url': str(r.get('index_url') or '#'),
+        }
+
+    latest_season = ''
+    available = list(season_hall.get('available_seasons') or [])
+    if available:
+        latest_season = str(available[0])
+
+    payload = {
+        'success': True,
+        'summary': analytics.get('summary') or {},
+        'top_feud': top_feud,
+        'latest_recorded_season': latest_season,
+        'archive_classes': analytics.get('archive_class_distribution') or {},
+        'trend_breakdown': analytics.get('trend_breakdown') or {},
+        'top_record': (dashboard.get('eternal_records') or [None])[0],
+        'top_season_champion': (dashboard.get('top_season_champions') or [None])[0],
+        'links': [
+            {'title': 'Eternal Records Dashboard', 'href': '/hunter-eternal-records-dashboard', 'icon': '🏆'},
+            {'title': 'Feud Analytics', 'href': '/hunter-feud-analytics', 'icon': '📊'},
+            {'title': 'Archive Search', 'href': '/hunter-archive-search', 'icon': '🔎'},
+            {'title': 'Eternal Archive Index', 'href': '/hunter-eternal-archive-index', 'icon': '📚'},
+            {'title': 'Season Champion Hall', 'href': '/hunter-season-champion-hall', 'icon': '👑'},
+            {'title': 'Feud Hall of Fame', 'href': '/hunter-feud-hall-of-fame', 'icon': '🏛️'},
+            {'title': 'Rivalry Milestones', 'href': '/hunter-global-rivalry-milestones', 'icon': '⚔️'},
+            {'title': 'Rivalry History', 'href': '/hunter-global-rivalry-history', 'icon': '📜'},
+        ],
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry Universe is a navigation and analytics hub over recorded BL3 rivalry data. '
+            'All scores and trends are deterministic summaries, not forecasts.'
+        ),
+    }
+    payload['universe_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/rivalry-universe')
+def hunter_rivalry_universe_api():
+    return jsonify(_v240_rivalry_universe_snapshot())
+
+@app.route('/hunter-rivalry-universe.json')
+def hunter_rivalry_universe_json():
+    return jsonify(_v240_rivalry_universe_snapshot())
+
+@app.route('/api/hunter/feud-analytics')
+def hunter_feud_analytics_api():
+    return jsonify(_v240_feud_analytics_snapshot())
+
+@app.route('/hunter-feud-analytics.json')
+def hunter_feud_analytics_json():
+    return jsonify(_v240_feud_analytics_snapshot())
+
+@app.route('/api/hunter/eternal-records-dashboard')
+def hunter_eternal_records_dashboard_api():
+    return jsonify(_v240_eternal_records_dashboard_snapshot())
+
+@app.route('/hunter-eternal-records-dashboard.json')
+def hunter_eternal_records_dashboard_json():
+    return jsonify(_v240_eternal_records_dashboard_snapshot())
+
+
+@app.route('/hunter-rivalry-universe')
+def hunter_rivalry_universe_page():
+    data = _v240_rivalry_universe_snapshot()
+    esc = html.escape
+    s = data.get('summary') or {}
+    top = data.get('top_feud') or {}
+
+    links = ''.join(
+        '<a class="tile" href="{href}"><span>{icon}</span><b>{title}</b></a>'.format(
+            href=esc(str(x.get('href') or '#')),
+            icon=esc(str(x.get('icon') or '✦')),
+            title=esc(str(x.get('title') or ''))
+        )
+        for x in data.get('links') or []
+    )
+
+    top_html = '<p class="muted">No recorded feud yet.</p>'
+    if top:
+        top_html = (
+            '<div class="topfeud"><div><small>TOP ETERNAL FEUD</small><h2>@{a} VS @{b}</h2>'
+            '<p>{cls} · Index {idx} · Hall {hall}</p></div><a href="{href}">OPEN PROFILE</a></div>'
+        ).format(
+            a=esc(str(top.get('hunter_a') or '')),
+            b=esc(str(top.get('hunter_b') or '')),
+            cls=esc(str(top.get('archive_class') or '')),
+            idx=int(top.get('index_score') or 0),
+            hall=int(top.get('hall_score') or 0),
+            href=esc(str(top.get('profile_url') or '#')),
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry Universe</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 14% 0,#51145f,transparent 30%),radial-gradient(circle at 86% 0,#75520d,transparent 30%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #353843;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold{{color:#ffd66b}}h1{{font-size:clamp(52px,8vw,96px);line-height:.86;margin:12px 0}}.muted,small{{color:#9da1ad}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}.stat{{border:1px solid #30323b;background:#090a0f;border-radius:16px;padding:15px}}.stat b{{display:block;font-size:26px}}.stat span{{font-size:9px;color:#8f93a0}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.tile{{display:grid;gap:8px;border:1px solid #343640;background:#090a0f;border-radius:18px;padding:18px;color:#fff;text-decoration:none}}.tile span{{font-size:30px}}.tile b{{color:#ffd66b}}.topfeud{{display:flex;justify-content:space-between;align-items:center;gap:20px}}.topfeud h2{{font-size:30px;margin:5px 0}}a{{color:#ffd66b;text-decoration:none}}.digest{{font:9px ui-monospace,monospace;color:#777a87;word-break:break-all}}@media(max-width:850px){{.stats,.grid{{grid-template-columns:1fr 1fr}}.topfeud{{display:block}}}}
+</style></head><body><main class="wrap"><section class="hero"><div class="gold">V24.0 // RIVALRY UNIVERSE HUB</div><h1>THE RIVALRY UNIVERSE.</h1><p class="muted">One command center for every recorded feud, era, season, record, and archive.</p><div class="stats"><div class="stat"><b>{int(s.get('feuds') or 0)}</b><span>FEUDS</span></div><div class="stat"><b>{int(s.get('recorded_snapshots') or 0)}</b><span>RECORDED SNAPSHOTS</span></div><div class="stat"><b>{int(s.get('rivalry_eras') or 0)}</b><span>RIVALRY ERAS</span></div><div class="stat"><b>{int(s.get('unique_hunters') or 0)}</b><span>UNIQUE HUNTERS</span></div></div></section><section class="panel">{top_html}</section><section class="panel"><div class="grid">{links}</div></section><p class="digest">UNIVERSE DIGEST // {esc(str(data.get('universe_digest') or ''))}</p><p class="muted">{esc(str(data.get('policy') or ''))}</p></main></body></html>"""
+
+
+@app.route('/hunter-feud-analytics')
+def hunter_feud_analytics_page():
+    data = _v240_feud_analytics_snapshot()
+    esc = html.escape
+    s = data.get('summary') or {}
+    trends = ''.join(
+        '<article><b>@{} VS @{}</b><span>{} → {} ({:+d}) · {}</span><a href="{}">PROFILE</a></article>'.format(
+            esc(str(x.get('hunter_a') or '')),
+            esc(str(x.get('hunter_b') or '')),
+            int(x.get('start_intensity') or 0),
+            int(x.get('latest_intensity') or 0),
+            int(x.get('delta') or 0),
+            esc(str(x.get('direction') or '')),
+            esc(str(x.get('profile_url') or '#')),
+        )
+        for x in data.get('trend_leaders') or []
+    ) or '<p>No recorded intensity trend data.</p>'
+
+    dist = data.get('archive_class_distribution') or {}
+    t = data.get('trend_breakdown') or {}
+    return f"""<!doctype html><meta charset="utf-8"><title>BL3 Feud Analytics</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1100px;margin:auto"><h4 style="color:#ffd66b">V24.0 // FEUD ANALYTICS</h4><h1 style="font-size:68px;margin:8px 0">READ THE ARCHIVE.</h1><p style="color:#999">Historical analytics over recorded BL3 rivalry snapshots.</p><section style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"><div><b>{int(s.get('feuds') or 0)}</b><small> FEUDS</small></div><div><b>{s.get('avg_index_score',0)}</b><small> AVG INDEX</small></div><div><b>{s.get('avg_hall_score',0)}</b><small> AVG HALL</small></div><div><b>{s.get('avg_recorded_intensity',0)}</b><small> AVG INTENSITY</small></div></section><h2>Archive classes</h2><p>Historic {int(dist.get('HISTORIC ARCHIVE',0))} · Legendary {int(dist.get('LEGENDARY ARCHIVE',0))} · Immortal {int(dist.get('IMMORTAL ARCHIVE',0))}</p><h2>Recorded intensity direction</h2><p>Rising {int(t.get('RISING',0))} · Stable {int(t.get('STABLE',0))} · Cooling {int(t.get('COOLING',0))}</p><h2>Largest recorded changes</h2><section style="display:grid;gap:8px">{trends}</section><p><a style="color:#ffd66b" href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a style="color:#ffd66b" href="/hunter-eternal-records-dashboard">ETERNAL RECORDS</a></p><p style="color:#777;font:10px monospace">ANALYTICS DIGEST // {esc(str(data.get('analytics_digest') or ''))}</p></main><style>article{{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;border:1px solid #333;border-radius:14px;padding:12px;background:#090a0f}}article span,small{{color:#999}}article a{{color:#ffd66b}}</style></body>"""
+
+
+@app.route('/hunter-eternal-records-dashboard')
+def hunter_eternal_records_dashboard_page():
+    data = _v240_eternal_records_dashboard_snapshot()
+    esc = html.escape
+
+    records = ''.join(
+        '<article><span>{icon}</span><div><b>{title}</b><h3>@{a} VS @{b}</h3><small>{value} {label}</small></div></article>'.format(
+            icon=esc(str(r.get('icon') or '🏆')),
+            title=esc(str(r.get('title') or '')),
+            a=esc(str(r.get('hunter_a') or '')),
+            b=esc(str(r.get('hunter_b') or '')),
+            value=esc(str(r.get('value') or 0)),
+            label=esc(str(r.get('metric_label') or '')),
+        )
+        for r in data.get('eternal_records') or []
+    ) or '<p>No eternal records yet.</p>'
+
+    top = ''.join(
+        '<article><span>#{rank}</span><div><b>@{a} VS @{b}</b><h3>{cls}</h3><small>Index {idx} · Hall {hall}</small></div><a href="{href}">OPEN</a></article>'.format(
+            rank=int(r.get('rank') or 0),
+            a=esc(str(r.get('hunter_a') or '')),
+            b=esc(str(r.get('hunter_b') or '')),
+            cls=esc(str(r.get('archive_class') or '')),
+            idx=int(r.get('index_score') or 0),
+            hall=int(r.get('hall_score') or 0),
+            href=esc(str(r.get('profile_url') or '#')),
+        )
+        for r in data.get('top_archive_entries') or []
+    )
+
+    return f"""<!doctype html><meta charset="utf-8"><title>BL3 Eternal Records Dashboard</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1120px;margin:auto"><h4 style="color:#ffd66b">V24.0 // ETERNAL RECORDS DASHBOARD</h4><h1 style="font-size:68px;margin:8px 0">THE RECORD BOOK.</h1><p style="color:#999">Permanent recorded feud records and the highest archive scores.</p><h2>Eternal Records</h2><section class="grid">{records}</section><h2>Top Eternal Archive</h2><section class="grid">{top}</section><p><a href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a href="/hunter-feud-analytics">FEUD ANALYTICS</a> · <a href="/hunter-season-champion-hall">SEASON CHAMPIONS</a></p><p class="digest">DASHBOARD DIGEST // {esc(str(data.get('records_dashboard_digest') or ''))}</p></main><style>.grid{{display:grid;grid-template-columns:1fr 1fr;gap:9px}}article{{display:grid;grid-template-columns:50px 1fr auto;gap:12px;align-items:center;border:1px solid #333;border-radius:16px;padding:14px;background:#090a0f}}article>span{{font-size:28px;color:#ffd66b}}article h3{{margin:4px 0}}small{{color:#999}}a{{color:#ffd66b;text-decoration:none}}.digest{{color:#777;font:10px monospace;word-break:break-all}}@media(max-width:760px){{.grid{{grid-template-columns:1fr}}}}</style></body>"""
+
+
+# Surface V24.0 navigation from core V23.9 pages.
+if 'hunter_eternal_archive_index_page' in app.view_functions:
+    _V239_index_view_v240 = app.view_functions['hunter_eternal_archive_index_page']
+    def _V240_index_with_universe():
+        response = _V239_index_view_v240()
+        if isinstance(response, str) and '/hunter-rivalry-universe' not in response:
+            response = response.replace(
+                'ARCHIVE SEARCH</a> ·',
+                'ARCHIVE SEARCH</a> · <a style="color:#ffd66b" href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a style="color:#ffd66b" href="/hunter-eternal-records-dashboard">RECORDS DASHBOARD</a> ·',
+                1
+            )
+            response = response.replace(
+                'V23.9 // ARCHIVE SEARCH + ERA COMPARE + SEASON HALL',
+                'V24.0 // RIVALRY UNIVERSE + ETERNAL RECORDS + ANALYTICS',
+                1
+            )
+        return response
+    app.view_functions['hunter_eternal_archive_index_page'] = _V240_index_with_universe
+
+if 'hunter_archive_search_page' in app.view_functions:
+    _V239_search_view_v240 = app.view_functions['hunter_archive_search_page']
+    def _V240_search_with_universe():
+        response = _V239_search_view_v240()
+        if isinstance(response, str) and '/hunter-rivalry-universe' not in response:
+            response = response.replace(
+                'SEASON CHAMPION HALL</a></p>',
+                'SEASON CHAMPION HALL</a> · <a style="color:#ffd66b" href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a></p>',
+                1
+            )
+        return response
+    app.view_functions['hunter_archive_search_page'] = _V240_search_with_universe
+
+if 'hunter_season_champion_hall_page' in app.view_functions:
+    _V239_season_hall_view_v240 = app.view_functions['hunter_season_champion_hall_page']
+    def _V240_season_hall_with_universe():
+        response = _V239_season_hall_view_v240()
+        if isinstance(response, str) and '/hunter-rivalry-universe' not in response:
+            response = response.replace(
+                'ETERNAL INDEX</a></p>',
+                'ETERNAL INDEX</a> · <a style="color:#ffd66b" href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a style="color:#ffd66b" href="/hunter-feud-analytics">FEUD ANALYTICS</a></p>',
+                1
+            )
+        return response
+    app.view_functions['hunter_season_champion_hall_page'] = _V240_season_hall_with_universe
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🔎 BL3 ARENA V23.9 // ARCHIVE SEARCH + ERA COMPARE + SEASON CHAMPION HALL")
+    print("🌌 BL3 ARENA V24.0 // RIVALRY UNIVERSE HUB + ETERNAL RECORDS DASHBOARD + FEUD ANALYTICS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🌌 Rivalry Universe Hub + Eternal Records Dashboard + Feud Analytics enabled")
     print("🔎 Archive Search + Era Compare + Season Champion Hall enabled")
     print("🏆 Feud Era Awards + Rivalry Season Champions + Eternal Archive Index enabled")
     print("🌌 Feud Seasons + Rivalry Eras + Immortal Feud Archive enabled")
