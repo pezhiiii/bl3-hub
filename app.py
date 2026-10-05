@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V26.0"
+V247_SECURITY_VERSION = "V26.1"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V26.0"
+V248_SECURITY_VERSION = "V26.1"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Build Attestation</title><style>
+    <title>BL3 V26.1 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V26.0 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V26.1 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V26.0"
+V250_VERSION = "V26.1"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Release Sentinel</title><style>
+    <title>BL3 V26.1 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V26.0 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V26.1 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V26.0"
+V253_VERSION = "V26.1"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Integrity Watch</title>
+    <title>BL3 V26.1 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V26.1 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V26.0"
+V254_VERSION = "V26.1"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31798,7 +31798,7 @@ def v254_integrity_incidents_page():
         rows.append("<tr><td colspan='6'>No integrity incidents recorded.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Integrity Incident Journal</title>
+    <title>BL3 V26.1 Integrity Incident Journal</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1020 0,#09070b 52%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0a10ea;border:1px solid #56304c;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31808,7 +31808,7 @@ def v254_integrity_incidents_page():
     th{{color:#d9aec8}}button,a.btn{{background:#1b1018;color:#fff;border:1px solid #76405f;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // SECURITY OPERATIONS</div>
+        <div class='eyebrow'>BL3 V26.1 // SECURITY OPERATIONS</div>
         <h1>🚨 INTEGRITY INCIDENT JOURNAL</h1>
         <p>Record and acknowledge runtime integrity findings without exposing secret values.</p>
         <div class='grid'>
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V26.0"
+V255_VERSION = "V26.1"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32097,7 +32097,7 @@ def v255_security_timeline_page():
     latest_cls = "ok" if latest_state == "SECURE" else ("warn" if latest_state == "REVIEW" else "bad")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Security Event Timeline</title>
+    <title>BL3 V26.1 Security Event Timeline</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13203d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1220px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11eb;border:1px solid #334b76;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32107,7 +32107,7 @@ def v255_security_timeline_page():
     th{{color:#b4c9e9}}button,a.btn{{background:#101827;color:#fff;border:1px solid #48689a;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // SECURITY OBSERVABILITY</div>
+        <div class='eyebrow'>BL3 V26.1 // SECURITY OBSERVABILITY</div>
         <h1>🕓 SECURITY EVENT TIMELINE</h1>
         <p>Automatic snapshots are written only when integrity posture changes.</p>
         <div class='grid'>
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V26.0"
+V256_VERSION = "V26.1"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32356,7 +32356,7 @@ def v256_security_diff_page():
         next_hint = "<a class='btn' href='/admin/security-diff?snapshot_id={}'>← COMPARE PREVIOUS SNAPSHOT</a>".format(int(prev_id))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Change Diff Viewer</title>
+    <title>BL3 V26.1 Change Diff Viewer</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1a183a 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11ec;border:1px solid #454377;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32367,7 +32367,7 @@ def v256_security_diff_page():
     .pill.changed{{background:#5a1e41;color:#ffb2d6}}.pill.same{{background:#143b31;color:#8cf5cf}}a.btn{{display:inline-block;background:#111226;color:#fff;border:1px solid #555398;border-radius:10px;padding:9px 12px;text-decoration:none;margin:4px 5px 0 0}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // SNAPSHOT INTELLIGENCE</div>
+        <div class='eyebrow'>BL3 V26.1 // SNAPSHOT INTELLIGENCE</div>
         <h1>🔬 CHANGE DIFF VIEWER</h1>
         <p>Compare one security snapshot against the immediately previous snapshot.</p>
         <div class='grid'>
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V26.0"
+V257_VERSION = "V26.1"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32660,7 +32660,7 @@ def v257_security_baseline_page():
         pin_label = "📌 RE-PIN CURRENT SNAPSHOT"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Trusted Security Baseline</title>
+    <title>BL3 V26.1 Trusted Security Baseline</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#133221 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0a0d0beb;border:1px solid #2d6046;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32670,7 +32670,7 @@ def v257_security_baseline_page():
     th{{color:#abd2bb}}button,a.btn{{display:inline-block;background:#0e1c14;color:#fff;border:1px solid #3e7c5c;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer;margin:4px 5px 0 0}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // TRUST ANCHOR</div>
+        <div class='eyebrow'>BL3 V26.1 // TRUST ANCHOR</div>
         <h1>📌 TRUSTED SECURITY BASELINE</h1>
         <p>Pin one known-good secure snapshot and compare later runtime posture against it.</p>
         <div class='grid'>
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V26.0"
+V258_VERSION = "V26.1"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Hunter Command Deck</title>
+    <title>BL3 V26.1 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -32952,7 +32952,7 @@ def v258_hunter_command_page():
     .empty{{color:#9f95a8;padding:14px 0}}@media(max-width:760px){{.cols{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'>
       <section class='hero'>
-        <div class='eyebrow'>BL3 V26.0 // HUNTER HOME</div>
+        <div class='eyebrow'>BL3 V26.1 // HUNTER HOME</div>
         <div class='identity'>
           <div class='avatar'>{title_icon}</div>
           <div><div class='name'>{username}</div>
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V26.0"
+V259_VERSION = "V26.1"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33184,7 +33184,7 @@ def v259_hunter_next_move_page():
         action_html.append("<div class='empty'>No priority actions right now. Your board is clear.</div>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Hunter Next Move</title>
+    <title>BL3 V26.1 Hunter Next Move</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#331d12 0,#09070c 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1040px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0a0aed;border:1px solid #65412c;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
@@ -33197,7 +33197,7 @@ def v259_hunter_next_move_page():
     .btn{{display:inline-block;text-decoration:none;color:#fff;background:#14100e;border:1px solid #65412c;border-radius:11px;padding:10px 13px;margin:5px 5px 0 0}}.empty{{color:#a99b94;padding:18px}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // PERSONAL ACTION ENGINE</div>
+        <div class='eyebrow'>BL3 V26.1 // PERSONAL ACTION ENGINE</div>
         <h1>⚡ HUNTER NEXT MOVE</h1>
         <p class='sub'>{username}, this is your ranked action queue from current BL3 signals.</p>
         <div class='grid'>
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V26.0"
+V260_VERSION = "V26.1"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33534,7 +33534,7 @@ def v260_hunter_focus_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.0 Hunter Focus Runs</title>
+    <title>BL3 V26.1 Hunter Focus Runs</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#35120f 0,#09070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0909ed;border:1px solid #6c342d;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -33545,7 +33545,7 @@ def v260_hunter_focus_page():
     table{{width:100%;border-collapse:collapse}}th,td{{padding:11px 8px;border-bottom:1px solid #2f1b19;text-align:left;font-size:13px}}th{{color:#d2aaa5}}.ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}.empty{{color:#aa9896;padding:12px 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.0 // EXECUTION LOOP</div>
+        <div class='eyebrow'>BL3 V26.1 // EXECUTION LOOP</div>
         <h1>🔥 HUNTER FOCUS RUNS</h1>
         <p class='muted'>{username}, pick one move, focus on it, complete it, build your streak.</p>
         <div class='grid'>
@@ -33616,6 +33616,393 @@ try:
                 )
             return response
         app.view_functions["v258_hunter_command_page"] = _v260_home_with_focus
+except Exception:
+    pass
+
+
+# ===== V26.1 HUNTER FOCUS QUEUE + AUTO ADVANCE =====
+# Lets a signed-in Hunter line up a few next moves, then promote the next queued
+# action into an active Focus Run. Queue state is local BL3 app state only.
+
+V261_VERSION = "V26.1"
+V261_MAX_QUEUE = 5
+
+def _v261_ensure_schema():
+    _v260_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_focus_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                action_kind TEXT NOT NULL,
+                action_title TEXT NOT NULL,
+                action_href TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                score INTEGER NOT NULL DEFAULT 0,
+                position INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_hunter_focus_queue_user ON hunter_focus_queue(username, position, id)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v261_queue_rows(username):
+    _v261_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_focus_queue
+               WHERE username=?
+               ORDER BY position ASC, id ASC""",
+            (username,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v261_reindex_queue(username):
+    _v261_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        rows = conn.execute(
+            """SELECT id FROM hunter_focus_queue
+               WHERE username=?
+               ORDER BY position ASC, id ASC""",
+            (username,)
+        ).fetchall()
+        for idx, row in enumerate(rows, start=1):
+            conn.execute(
+                "UPDATE hunter_focus_queue SET position=? WHERE id=? AND username=?",
+                (idx, int(row[0]), username)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v261_queue_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V261_VERSION}
+
+    active = _v260_active_focus(username)
+    rows = _v261_queue_rows(username)
+    next_move = _v259_hunter_next_move_snapshot(username)
+    suggestions = list(next_move.get("actions") or [])[:5] if next_move.get("success") else []
+
+    return {
+        "success": True,
+        "version": V261_VERSION,
+        "username": username,
+        "active": active,
+        "queue": rows,
+        "queue_count": len(rows),
+        "queue_limit": V261_MAX_QUEUE,
+        "suggestions": suggestions,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Hunter Focus Queue is a local execution planner for BL3 in-app actions. "
+            "Queued items do not represent financial commitments or external value."
+        ),
+    }
+
+
+@app.route("/api/hunter-focus-queue")
+def v261_focus_queue_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v261_queue_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-focus-queue/add", methods=["POST"])
+def v261_focus_queue_add_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    rows = _v261_queue_rows(username)
+    if len(rows) >= V261_MAX_QUEUE:
+        return jsonify({"success": False, "error": "queue_full", "limit": V261_MAX_QUEUE}), 409
+
+    payload = request.get_json(silent=True) or {}
+    title = str(payload.get("title") or "").strip()[:180]
+    kind = str(payload.get("kind") or "ACTION").strip()[:40]
+    href = str(payload.get("href") or "/hunter-next-move").strip()[:300]
+    priority = str(payload.get("priority") or "NORMAL").strip().upper()[:20]
+    try:
+        score = max(0, min(100, int(payload.get("score") or 0)))
+    except Exception:
+        score = 0
+
+    if not title:
+        return jsonify({"success": False, "error": "title_required"}), 400
+    if not href.startswith("/") or href.startswith("//"):
+        href = "/hunter-next-move"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    position = len(rows) + 1
+    _v261_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """INSERT INTO hunter_focus_queue
+               (username, action_kind, action_title, action_href, priority, score, position, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (username, kind, title, href, priority, score, position, now)
+        )
+        conn.commit()
+        queue_id = int(cur.lastrowid)
+    finally:
+        conn.close()
+
+    return jsonify({"success": True, "queue_id": queue_id, "position": position})
+
+
+@app.route("/api/hunter-focus-queue/<int:queue_id>/remove", methods=["POST"])
+def v261_focus_queue_remove_api(queue_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    _v261_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            "DELETE FROM hunter_focus_queue WHERE id=? AND username=?",
+            (int(queue_id), username)
+        )
+        conn.commit()
+        if cur.rowcount < 1:
+            return jsonify({"success": False, "error": "queue_item_not_found"}), 404
+    finally:
+        conn.close()
+    _v261_reindex_queue(username)
+    return jsonify({"success": True, "queue_id": int(queue_id)})
+
+
+@app.route("/api/hunter-focus-queue/<int:queue_id>/move", methods=["POST"])
+def v261_focus_queue_move_api(queue_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    direction = str(payload.get("direction") or "").lower()
+    if direction not in ("up", "down"):
+        return jsonify({"success": False, "error": "invalid_direction"}), 400
+
+    rows = _v261_queue_rows(username)
+    ids = [int(x.get("id") or 0) for x in rows]
+    if int(queue_id) not in ids:
+        return jsonify({"success": False, "error": "queue_item_not_found"}), 404
+
+    idx = ids.index(int(queue_id))
+    swap_idx = idx - 1 if direction == "up" else idx + 1
+    if swap_idx < 0 or swap_idx >= len(rows):
+        return jsonify({"success": True, "moved": False, "reason": "edge"})
+
+    a, b = rows[idx], rows[swap_idx]
+    _v261_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("UPDATE hunter_focus_queue SET position=? WHERE id=? AND username=?",
+                     (int(b.get("position") or 0), int(a.get("id") or 0), username))
+        conn.execute("UPDATE hunter_focus_queue SET position=? WHERE id=? AND username=?",
+                     (int(a.get("position") or 0), int(b.get("id") or 0), username))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"success": True, "moved": True})
+
+
+@app.route("/api/hunter-focus-queue/start-next", methods=["POST"])
+def v261_focus_queue_start_next_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    if _v260_active_focus(username):
+        return jsonify({"success": False, "error": "active_focus_exists"}), 409
+
+    rows = _v261_queue_rows(username)
+    if not rows:
+        return jsonify({"success": False, "error": "queue_empty"}), 404
+
+    item = rows[0]
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v260_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """INSERT INTO hunter_focus_runs
+               (username, action_kind, action_title, action_href, priority, score, status, started_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)""",
+            (
+                username,
+                str(item.get("action_kind") or "ACTION"),
+                str(item.get("action_title") or "BL3 Action"),
+                str(item.get("action_href") or "/hunter-next-move"),
+                str(item.get("priority") or "NORMAL"),
+                int(item.get("score") or 0),
+                now,
+            )
+        )
+        run_id = int(cur.lastrowid)
+        conn.execute(
+            "DELETE FROM hunter_focus_queue WHERE id=? AND username=?",
+            (int(item.get("id") or 0), username)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _v261_reindex_queue(username)
+    return jsonify({"success": True, "run_id": run_id, "started_at": now})
+
+
+@app.route("/hunter-focus-queue")
+def v261_focus_queue_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Hunter Focus Queue</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📋 Hunter Focus Queue</h1><p>Sign in to manage your action queue.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v261_queue_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    queue_rows = []
+    for row in data.get("queue") or []:
+        queue_rows.append(
+            """<div class='qrow'>
+              <div class='pos'>#{position}</div>
+              <div class='qbody'><b>{title}</b><div class='muted'>{kind} · {priority} · SCORE {score}</div></div>
+              <div class='qactions'>
+                <button onclick='moveItem({id},"up")'>↑</button>
+                <button onclick='moveItem({id},"down")'>↓</button>
+                <button class='remove' onclick='removeItem({id})'>REMOVE</button>
+              </div>
+            </div>""".format(
+                position=esc(row.get("position")),
+                title=esc(row.get("action_title")),
+                kind=esc(row.get("action_kind")),
+                priority=esc(row.get("priority")),
+                score=esc(row.get("score")),
+                id=int(row.get("id") or 0),
+            )
+        )
+    if not queue_rows:
+        queue_rows.append("<div class='empty'>Queue is empty. Add a recommended move below.</div>")
+
+    suggestions = []
+    for item in data.get("suggestions") or []:
+        payload = {
+            "kind": str(item.get("kind") or "ACTION"),
+            "title": str(item.get("title") or "BL3 Action"),
+            "href": str(item.get("href") or "/hunter-next-move"),
+            "priority": str(item.get("priority") or "NORMAL"),
+            "score": int(item.get("score") or 0),
+        }
+        suggestions.append(
+            "<div class='srow'><div><b>{icon} {title}</b><div class='muted'>{detail}</div></div><button onclick='addItem({payload})'>ADD TO QUEUE</button></div>".format(
+                icon=esc(item.get("icon") or "⚡"),
+                title=esc(item.get("title")),
+                detail=esc(item.get("detail")),
+                payload=json.dumps(payload, ensure_ascii=False),
+            )
+        )
+    if not suggestions:
+        suggestions.append("<div class='empty'>No suggestions available right now.</div>")
+
+    active = data.get("active") or {}
+    active_label = esc(active.get("action_title") if active else "NONE")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V26.1 Hunter Focus Queue</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#112d38 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#091014ed;border:1px solid #315d69;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#7bd9ee;font-size:13px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:12px 0 8px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}}
+    .card{{background:#071013;border:1px solid #274b55;border-radius:17px;padding:17px}}.k{{color:#9ec4cb;font-size:12px;font-weight:900;letter-spacing:1px}}.v{{font-size:27px;font-weight:900;margin-top:8px}}
+    .qrow,.srow{{display:flex;align-items:center;gap:14px;background:#080c0e;border:1px solid #28444d;border-radius:16px;padding:14px;margin:10px 0}}.pos{{width:44px;height:44px;border-radius:13px;background:#102027;display:grid;place-items:center;font-weight:900;color:#8fe3f4}}
+    .qbody{{flex:1}}.qactions{{display:flex;gap:6px;flex-wrap:wrap}}.srow>div{{flex:1}}.muted{{color:#9dafb4;font-size:13px;margin-top:5px}}button,.btn{{border:1px solid #3f7d8d;background:#0f1c21;color:#fff;padding:9px 12px;border-radius:10px;cursor:pointer;text-decoration:none;font-weight:800}}button.remove{{border-color:#7c3f4c}}.empty{{color:#91a4a9;padding:12px 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V26.1 // EXECUTION PLANNER</div>
+        <h1>📋 HUNTER FOCUS QUEUE</h1>
+        <p class='muted'>{username}, line up your next moves and promote them into Focus Runs one by one.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>QUEUE</div><div class='v'>{count} / {limit}</div></div>
+          <div class='card'><div class='k'>ACTIVE FOCUS</div><div class='v'>{active}</div></div>
+        </div>
+        <p><button onclick='startNext()'>▶ START NEXT QUEUED MOVE</button><a class='btn' href='/hunter-focus'>🔥 FOCUS RUNS</a><a class='btn' href='/hunter-next-move'>⚡ NEXT MOVE</a></p>
+      </section>
+
+      <section class='panel'><h2>YOUR QUEUE</h2>{queue}</section>
+      <section class='panel'><h2>RECOMMENDED MOVES</h2>{suggestions}</section>
+    </div>
+    <script>
+    async function addItem(payload){{
+      const r=await fetch('/api/hunter-focus-queue/add',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}});
+      const j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');
+    }}
+    async function removeItem(id){{
+      const r=await fetch('/api/hunter-focus-queue/'+id+'/remove',{{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+      const j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');
+    }}
+    async function moveItem(id,direction){{
+      const r=await fetch('/api/hunter-focus-queue/'+id+'/move',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{direction}})}});
+      const j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');
+    }}
+    async function startNext(){{
+      const r=await fetch('/api/hunter-focus-queue/start-next',{{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+      const j=await r.json();if(j.success)location.href='/hunter-focus';else alert(j.error||'Failed');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        count=esc(data.get("queue_count")),
+        limit=esc(data.get("queue_limit")),
+        active=active_label,
+        queue="".join(queue_rows),
+        suggestions="".join(suggestions),
+    )
+
+
+# Add Focus Queue navigation to Focus Runs and Hunter Home.
+try:
+    _v261_prev_focus = app.view_functions.get("v260_hunter_focus_page")
+    if _v261_prev_focus:
+        def _v261_focus_with_queue(*args, **kwargs):
+            response = _v261_prev_focus(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-queue" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1080px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-focus-queue' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #3f7d8d;border-radius:12px;padding:11px 15px;background:#0f1c21'>📋 FOCUS QUEUE</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v260_hunter_focus_page"] = _v261_focus_with_queue
+except Exception:
+    pass
+
+try:
+    _v261_prev_home = app.view_functions.get("v258_hunter_command_page")
+    if _v261_prev_home:
+        def _v261_home_with_queue(*args, **kwargs):
+            response = _v261_prev_home(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-queue" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1180px;margin:0 auto 30px;padding:0 18px'><a href='/hunter-focus-queue' style='display:inline-block;color:#fff;text-decoration:none;border:1px solid #3f7d8d;border-radius:12px;padding:11px 15px;background:#0f1c21'>📋 FOCUS QUEUE</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v258_hunter_command_page"] = _v261_home_with_queue
 except Exception:
     pass
 
