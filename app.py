@@ -29403,16 +29403,500 @@ if 'hunter_rivalry_pulse_page' in app.view_functions:
         return response
     app.view_functions['hunter_rivalry_pulse_page'] = _V243_pulse_with_brief
 
+
+# ===== V24.4 RIVALRY MISSION CONTROL + PERSONAL OBJECTIVES + PROGRESS STREAKS =====
+
+def _ensure_v244_rivalry_mission_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_daily_mission_state (
+            username TEXT NOT NULL,
+            mission_day TEXT NOT NULL,
+            mission_id TEXT NOT NULL,
+            mission_type TEXT NOT NULL,
+            completed_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (username, mission_day, mission_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_mission_streaks (
+            username TEXT PRIMARY KEY,
+            current_streak INTEGER NOT NULL DEFAULT 0,
+            best_streak INTEGER NOT NULL DEFAULT 0,
+            last_complete_day TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+_ensure_v244_rivalry_mission_schema()
+
+
+def _v244_day_key():
+    return datetime.utcnow().strftime('%Y-%m-%d')
+
+
+def _v244_mission_id(username, day_key, mission_type, source_key):
+    raw = '{}|{}|{}|{}'.format(
+        str(username or '').strip().lower(),
+        str(day_key or ''),
+        str(mission_type or ''),
+        str(source_key or ''),
+    )
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:20]
+
+
+def _v244_load_mission_state(username, day_key):
+    conn = db()
+    rows = conn.execute(
+        """SELECT mission_id, mission_type, completed_at, updated_at
+           FROM rivalry_daily_mission_state
+           WHERE username = ? AND mission_day = ?""",
+        (username, day_key)
+    ).fetchall()
+    conn.close()
+    return {str(r['mission_id']): dict(r) for r in rows}
+
+
+def _v244_get_streak(username):
+    conn = db()
+    row = conn.execute(
+        """SELECT username, current_streak, best_streak, last_complete_day, updated_at
+           FROM rivalry_mission_streaks WHERE username = ?""",
+        (username,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {
+            'username': username,
+            'current_streak': 0,
+            'best_streak': 0,
+            'last_complete_day': '',
+            'updated_at': '',
+        }
+    return dict(row)
+
+
+def _v244_refresh_streak(username, day_key):
+    conn = db()
+    completed_today = conn.execute(
+        """SELECT COUNT(*) AS c
+           FROM rivalry_daily_mission_state
+           WHERE username = ? AND mission_day = ? AND completed_at <> ''""",
+        (username, day_key)
+    ).fetchone()
+    done_count = int(completed_today['c'] or 0)
+
+    row = conn.execute(
+        """SELECT current_streak, best_streak, last_complete_day
+           FROM rivalry_mission_streaks WHERE username = ?""",
+        (username,)
+    ).fetchone()
+
+    current = int(row['current_streak'] or 0) if row else 0
+    best = int(row['best_streak'] or 0) if row else 0
+    last_day = str(row['last_complete_day'] or '') if row else ''
+
+    if done_count > 0 and last_day != day_key:
+        try:
+            today_dt = datetime.strptime(day_key, '%Y-%m-%d')
+            prev_dt = datetime.strptime(last_day, '%Y-%m-%d') if last_day else None
+            if prev_dt and (today_dt - prev_dt).days == 1:
+                current += 1
+            else:
+                current = 1
+        except Exception:
+            current = 1
+        best = max(best, current)
+        last_day = day_key
+    elif done_count == 0 and last_day:
+        try:
+            today_dt = datetime.strptime(day_key, '%Y-%m-%d')
+            prev_dt = datetime.strptime(last_day, '%Y-%m-%d')
+            if (today_dt - prev_dt).days > 1:
+                current = 0
+        except Exception:
+            pass
+
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    conn.execute(
+        """INSERT INTO rivalry_mission_streaks(username, current_streak, best_streak, last_complete_day, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(username) DO UPDATE SET
+             current_streak = excluded.current_streak,
+             best_streak = excluded.best_streak,
+             last_complete_day = excluded.last_complete_day,
+             updated_at = excluded.updated_at""",
+        (username, current, best, last_day, now)
+    )
+    conn.commit()
+    conn.close()
+    return {
+        'username': username,
+        'current_streak': current,
+        'best_streak': best,
+        'last_complete_day': last_day,
+        'updated_at': now,
+    }
+
+
+def _v244_rivalry_mission_control_snapshot(username):
+    username = str(username or '').strip()
+    if not username:
+        return {'success': False, 'error': 'authentication_required'}
+
+    day_key = _v244_day_key()
+    brief = _v243_rivalry_command_brief_snapshot(username)
+    watch = _v242_rivalry_watch_snapshot(username, 300)
+    pulse = _v241_rivalry_pulse_snapshot()
+    archive = _v240_rivalry_universe_snapshot()
+
+    missions = []
+
+    critical_alerts = [
+        a for a in (brief.get('priority_inbox') or [])
+        if str(a.get('priority') or '').upper() == 'CRITICAL' and not int(a.get('is_read') or 0)
+    ]
+    if critical_alerts:
+        source = 'critical:' + ','.join(str(a.get('id') or '') for a in critical_alerts[:5])
+        missions.append({
+            'mission_type': 'REVIEW_CRITICAL',
+            'tier': 'CRITICAL',
+            'signal_score': min(100, 80 + len(critical_alerts) * 4),
+            'title': 'Clear the critical rivalry queue',
+            'detail': '{} critical watched-rivalry alert(s) need review.'.format(len(critical_alerts)),
+            'href': '/hunter-rivalry-watch',
+            'source_key': source,
+            'source': 'Rivalry Watchlist',
+            'reason': 'Critical unread alerts match your stored watch rules.',
+        })
+
+    top_watch = brief.get('top_watch') or {}
+    if top_watch and str(top_watch.get('pair_key') or ''):
+        pair_key = str(top_watch.get('pair_key') or '')
+        missions.append({
+            'mission_type': 'RIVAL_RECON',
+            'tier': 'HIGH' if int(top_watch.get('priority_score') or 0) >= 50 else 'NORMAL',
+            'signal_score': max(20, min(100, int(top_watch.get('priority_score') or 0))),
+            'title': 'Recon @{} vs @{}'.format(
+                str(top_watch.get('hunter_a') or ''),
+                str(top_watch.get('hunter_b') or '')
+            ),
+            'detail': str(top_watch.get('detail') or 'Inspect the stored rivalry profile and recent archive record.'),
+            'href': str(top_watch.get('profile_url') or '#'),
+            'source_key': pair_key,
+            'source': 'Rivalry Command Brief',
+            'reason': 'This rivalry is currently the highest-priority watched feud in your command brief.',
+        })
+
+    pulse_score = int(pulse.get('pulse_score') or 0)
+    missions.append({
+        'mission_type': 'PULSE_SCAN',
+        'tier': 'HIGH' if pulse_score >= 70 else 'NORMAL',
+        'signal_score': pulse_score,
+        'title': 'Run a Rivalry Pulse scan',
+        'detail': 'Review recorded rivalry activity while the pulse is {} (score {}).'.format(
+            str(pulse.get('pulse_state') or 'CALM'),
+            pulse_score
+        ),
+        'href': '/hunter-rivalry-pulse',
+        'source_key': 'pulse:' + str(pulse_score) + ':' + str(pulse.get('pulse_state') or ''),
+        'source': 'Rivalry Pulse',
+        'reason': 'Daily situational-awareness mission generated from recorded archive activity.',
+    })
+
+    spotlight = brief.get('spotlight') or {}
+    if spotlight and str(spotlight.get('pair_key') or ''):
+        missions.append({
+            'mission_type': 'ARCHIVE_SPOTLIGHT',
+            'tier': 'NORMAL',
+            'signal_score': int(spotlight.get('index_score') or 0),
+            'title': 'Study the archive spotlight feud',
+            'detail': '@{} vs @{} · {} · index {}.'.format(
+                str(spotlight.get('hunter_a') or ''),
+                str(spotlight.get('hunter_b') or ''),
+                str(spotlight.get('archive_class') or 'ARCHIVE'),
+                int(spotlight.get('index_score') or 0)
+            ),
+            'href': str(spotlight.get('profile_url') or '/hunter-rivalry-universe'),
+            'source_key': 'spotlight:' + str(spotlight.get('pair_key') or ''),
+            'source': 'Rivalry Universe',
+            'reason': 'Keeps one archive feud in the Hunter research loop each day.',
+        })
+
+    watch_count = int(watch.get('watch_count') or 0)
+    if watch_count < 3:
+        missions.append({
+            'mission_type': 'EXPAND_WATCHLIST',
+            'tier': 'NORMAL',
+            'signal_score': max(10, 35 - watch_count * 8),
+            'title': 'Expand your rivalry watchlist',
+            'detail': 'You currently watch {} rivalry pair(s). Add another feud worth following.'.format(watch_count),
+            'href': '/hunter-rivalry-universe',
+            'source_key': 'watchcount:' + str(watch_count),
+            'source': 'Rivalry Watchlist',
+            'reason': 'A broader watchlist improves future personal alert coverage.',
+        })
+    else:
+        missions.append({
+            'mission_type': 'WATCHLIST_REVIEW',
+            'tier': 'NORMAL',
+            'signal_score': min(60, 20 + watch_count * 4),
+            'title': 'Review your watched rivalries',
+            'detail': 'Audit your {} active rivalry watch(es) and remove stale interests if needed.'.format(watch_count),
+            'href': '/hunter-rivalry-watch',
+            'source_key': 'watchreview:' + str(watch_count),
+            'source': 'Rivalry Watchlist',
+            'reason': 'Keeps the personal signal set intentional and current.',
+        })
+
+    # Keep the daily board compact and deterministic.
+    tier_rank = {'CRITICAL': 3, 'HIGH': 2, 'NORMAL': 1}
+    missions.sort(
+        key=lambda m: (tier_rank.get(str(m.get('tier') or 'NORMAL'), 1), int(m.get('signal_score') or 0)),
+        reverse=True
+    )
+    missions = missions[:6]
+
+    state_rows = _v244_load_mission_state(username, day_key)
+    for m in missions:
+        mid = _v244_mission_id(username, day_key, m.get('mission_type'), m.get('source_key'))
+        m['mission_id'] = mid
+        row = state_rows.get(mid) or {}
+        m['completed'] = bool(str(row.get('completed_at') or ''))
+        m['completed_at'] = str(row.get('completed_at') or '')
+        m.pop('source_key', None)
+
+    completed = sum(1 for m in missions if m.get('completed'))
+    ready = max(0, len(missions) - completed)
+    critical_ready = sum(
+        1 for m in missions
+        if not m.get('completed') and str(m.get('tier') or '').upper() == 'CRITICAL'
+    )
+    completion_pct = int(round((completed / len(missions)) * 100)) if missions else 100
+
+    streak = _v244_refresh_streak(username, day_key)
+
+    if critical_ready:
+        board_state = 'CRITICAL'
+    elif ready >= 4:
+        board_state = 'ACTIVE'
+    elif ready:
+        board_state = 'FOCUSED'
+    else:
+        board_state = 'CLEARED'
+
+    payload = {
+        'success': True,
+        'username': username,
+        'mission_day': day_key,
+        'board_state': board_state,
+        'mission_count': len(missions),
+        'ready_count': ready,
+        'completed_count': completed,
+        'completion_pct': completion_pct,
+        'critical_ready': critical_ready,
+        'streak': streak,
+        'missions': missions,
+        'brief_state': str(brief.get('state') or 'CLEAR'),
+        'brief_urgency_score': int(brief.get('urgency_score') or 0),
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry Mission Control creates daily workflow objectives from recorded BL3 archive signals, stored watchlist '
+            'alerts, and Hunter preferences. Missions are navigational research/review prompts only; they do not predict '
+            'future rivalry outcomes or guarantee rewards.'
+        ),
+    }
+    payload['mission_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/rivalry-missions')
+def hunter_rivalry_missions_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    return jsonify(_v244_rivalry_mission_control_snapshot(username))
+
+
+@app.route('/hunter-rivalry-missions.json')
+def hunter_rivalry_missions_json():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    return jsonify(_v244_rivalry_mission_control_snapshot(username))
+
+
+@app.route('/api/hunter/rivalry-missions/complete', methods=['POST'])
+def hunter_rivalry_missions_complete_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+
+    body = request.get_json(silent=True) or {}
+    mission_id = str(body.get('mission_id') or '').strip()
+    if not mission_id:
+        return jsonify({'success': False, 'error': 'mission_id_required'}), 400
+
+    snapshot = _v244_rivalry_mission_control_snapshot(username)
+    mission = next((m for m in snapshot.get('missions') or [] if str(m.get('mission_id') or '') == mission_id), None)
+    if not mission:
+        return jsonify({'success': False, 'error': 'mission_not_found_for_today'}), 404
+
+    day_key = str(snapshot.get('mission_day') or _v244_day_key())
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    conn = db()
+    conn.execute(
+        """INSERT INTO rivalry_daily_mission_state(
+               username, mission_day, mission_id, mission_type, completed_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(username, mission_day, mission_id) DO UPDATE SET
+             completed_at = excluded.completed_at,
+             updated_at = excluded.updated_at""",
+        (username, day_key, mission_id, str(mission.get('mission_type') or ''), now, now)
+    )
+    conn.commit()
+    conn.close()
+    _v244_refresh_streak(username, day_key)
+    return jsonify(_v244_rivalry_mission_control_snapshot(username))
+
+
+@app.route('/api/hunter/rivalry-missions/reopen', methods=['POST'])
+def hunter_rivalry_missions_reopen_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+
+    body = request.get_json(silent=True) or {}
+    mission_id = str(body.get('mission_id') or '').strip()
+    if not mission_id:
+        return jsonify({'success': False, 'error': 'mission_id_required'}), 400
+
+    day_key = _v244_day_key()
+    conn = db()
+    conn.execute(
+        """UPDATE rivalry_daily_mission_state
+           SET completed_at = '', updated_at = ?
+           WHERE username = ? AND mission_day = ? AND mission_id = ?""",
+        (datetime.utcnow().isoformat(timespec='seconds') + 'Z', username, day_key, mission_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify(_v244_rivalry_mission_control_snapshot(username))
+
+
+@app.route('/hunter-rivalry-missions')
+def hunter_rivalry_missions_page():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Rivalry Mission Control</title><body style='background:#06050a;color:#fff;font-family:Arial;padding:40px'><h1>🎯 Rivalry Mission Control</h1><p>Sign in to load your personal daily mission board.</p><p><a style='color:#ffd66b' href='/'>BACK TO BL3</a></p></body>""", 401
+
+    data = _v244_rivalry_mission_control_snapshot(username)
+    esc = lambda v: html.escape(str(v or ''))
+    streak = data.get('streak') or {}
+
+    mission_cards = ''.join(
+        """
+        <article class="mission {done} {tier}">
+          <div class="icon">{icon}</div>
+          <div class="body">
+            <div class="meta">{tier} · SCORE {score} · {source}</div>
+            <h3>{title}</h3>
+            <p>{detail}</p>
+            <small>{reason}</small>
+          </div>
+          <div class="actions">
+            <a href="{href}">OPEN</a>
+            <button onclick="{fn}('{mid}')">{button}</button>
+          </div>
+        </article>
+        """.format(
+            done='done' if m.get('completed') else '',
+            tier=esc(str(m.get('tier') or 'NORMAL').lower()),
+            icon='✅' if m.get('completed') else ('🚨' if str(m.get('tier') or '').upper() == 'CRITICAL' else '🎯'),
+            score=int(m.get('signal_score') or 0),
+            source=esc(m.get('source')),
+            title=esc(m.get('title')),
+            detail=esc(m.get('detail')),
+            reason=esc(m.get('reason')),
+            href=esc(m.get('href') or '#'),
+            fn='reopenMission' if m.get('completed') else 'completeMission',
+            mid=esc(m.get('mission_id')),
+            button='REOPEN' if m.get('completed') else 'COMPLETE',
+        )
+        for m in data.get('missions') or []
+    ) or '<p class="muted">No missions generated for today.</p>'
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry Mission Control</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 10% 0,#33115f,transparent 30%),radial-gradient(circle at 90% 0,#6e4410,transparent 28%),#050509;color:#fff;font-family:Inter,Arial,sans-serif}}main{{max-width:1120px;margin:auto;padding:32px 18px 70px}}a{{color:#ffd66b;text-decoration:none}}.hero,.panel{{background:#0d0d13eb;border:1px solid #39313f;border-radius:24px;padding:24px;margin-bottom:18px}}.hero h1{{font-size:clamp(42px,8vw,82px);line-height:.92;margin:8px 0}}.state{{color:#ffd66b;font-weight:900;letter-spacing:.12em}}.progress{{height:14px;border-radius:999px;background:#211d26;overflow:hidden;margin:16px 0}}.progress i{{display:block;height:100%;width:{int(data.get('completion_pct') or 0)}%;background:linear-gradient(90deg,#7e28ff,#ffd66b)}}.stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}.stat{{border:1px solid #ffffff14;background:#ffffff08;border-radius:14px;padding:13px}}.stat b{{font-size:26px;display:block}}.stat span,.muted,p,small{{color:#aaa4b5}}.mission{{display:grid;grid-template-columns:64px 1fr auto;gap:16px;align-items:center;padding:18px 0;border-top:1px solid #2a2630}}.mission .icon{{font-size:32px}}.mission h3{{margin:4px 0 6px;font-size:22px}}.mission .meta{{font-size:11px;color:#ffd66b;letter-spacing:.08em}}.mission.critical{{border-left:3px solid #ff426f;padding-left:14px}}.mission.high{{border-left:3px solid #ffb347;padding-left:14px}}.mission.done{{opacity:.55}}.actions{{display:flex;gap:8px;flex-direction:column}}button{{background:#17121d;color:#fff;border:1px solid #5f5368;border-radius:10px;padding:10px;cursor:pointer}}.digest{{font:9px ui-monospace,monospace;color:#6e6874;word-break:break-all}}@media(max-width:780px){{.stats{{grid-template-columns:1fr 1fr}}.mission{{grid-template-columns:1fr}}.actions{{flex-direction:row}}}}
+</style></head><body><main>
+<section class="hero"><span>V24.4 // RIVALRY MISSION CONTROL</span><h1>TURN SIGNALS INTO ACTION.</h1><div class="state">{esc(data.get('board_state'))}</div><p>Your personal daily objective board is generated from recorded rivalry signals, watches, alerts, and archive activity.</p><div class="progress"><i></i></div>
+<div class="stats"><div class="stat"><b>{int(data.get('mission_count') or 0)}</b><span>MISSIONS</span></div><div class="stat"><b>{int(data.get('ready_count') or 0)}</b><span>READY</span></div><div class="stat"><b>{int(data.get('completed_count') or 0)}</b><span>DONE</span></div><div class="stat"><b>{int(data.get('completion_pct') or 0)}%</b><span>PROGRESS</span></div><div class="stat"><b>{int(streak.get('current_streak') or 0)}</b><span>STREAK</span></div><div class="stat"><b>{int(streak.get('best_streak') or 0)}</b><span>BEST</span></div></div></section>
+<section class="panel"><h2>🎯 TODAY'S OBJECTIVES</h2>{mission_cards}</section>
+<p><a href="/hunter-rivalry-briefing">COMMAND BRIEF</a> · <a href="/hunter-rivalry-watch">RIVALRY WATCH</a> · <a href="/hunter-rivalry-pulse">RIVALRY PULSE</a> · <a href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a></p>
+<p class="digest">MISSION DIGEST // {esc(data.get('mission_digest'))}</p><small>{esc(data.get('policy'))}</small>
+</main><script>
+async function completeMission(id){{
+ const r=await fetch('/api/hunter/rivalry-missions/complete',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{mission_id:id}})}});
+ const d=await r.json(); if(!r.ok){{alert(d.error||'Request failed');return;}} location.reload();
+}}
+async function reopenMission(id){{
+ const r=await fetch('/api/hunter/rivalry-missions/reopen',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{mission_id:id}})}});
+ const d=await r.json(); if(!r.ok){{alert(d.error||'Request failed');return;}} location.reload();
+}}
+</script></body></html>"""
+
+
+# Add Mission Control links into V24.3 surfaces without removing anything.
+if 'hunter_rivalry_briefing_page' in app.view_functions:
+    _V243_brief_view_v244 = app.view_functions['hunter_rivalry_briefing_page']
+    def _V244_brief_with_missions():
+        response = _V243_brief_view_v244()
+        if isinstance(response, str) and '/hunter-rivalry-missions' not in response:
+            response = response.replace(
+                'RIVALRY WATCH</a> ·',
+                'RIVALRY WATCH</a> · <a href="/hunter-rivalry-missions">MISSION CONTROL</a> ·',
+                1
+            )
+            response = response.replace(
+                'V24.3 // RIVALRY COMMAND BRIEF + DAILY DIGEST',
+                'V24.4 // RIVALRY COMMAND BRIEF + MISSION CONTROL',
+                1
+            )
+        return response
+    app.view_functions['hunter_rivalry_briefing_page'] = _V244_brief_with_missions
+
+if 'hunter_rivalry_universe_page' in app.view_functions:
+    _V243_universe_view_v244 = app.view_functions['hunter_rivalry_universe_page']
+    def _V244_universe_with_missions():
+        response = _V243_universe_view_v244()
+        if isinstance(response, str) and '/hunter-rivalry-missions' not in response:
+            tile = '<a class="tile" href="/hunter-rivalry-missions"><span>🎯</span><b>Rivalry Mission Control</b></a>'
+            response = response.replace('<div class="grid">', '<div class="grid">' + tile, 1)
+            response = response.replace(
+                'V24.3 // RIVALRY COMMAND BRIEF + ALERT RULES',
+                'V24.4 // RIVALRY MISSION CONTROL + OBJECTIVE STREAKS',
+                1
+            )
+        return response
+    app.view_functions['hunter_rivalry_universe_page'] = _V244_universe_with_missions
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🧭 BL3 ARENA V24.3 // RIVALRY COMMAND BRIEF + DAILY DIGEST + ALERT RULES")
+    print("🎯 BL3 ARENA V24.4 // RIVALRY MISSION CONTROL + PERSONAL OBJECTIVES + PROGRESS STREAKS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🎯 Rivalry Mission Control + Personal Objectives + Progress Streaks enabled")
     print("🧭 Rivalry Command Brief + Daily Digest + Alert Rules enabled")
     print("🔔 Rivalry Watchlist + Smart Alerts + Priority Inbox enabled")
     print("⚡ Rivalry Pulse + Live Archive Activity + Universe Spotlight enabled")
