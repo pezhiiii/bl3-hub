@@ -28676,16 +28676,363 @@ if 'hunter_feud_analytics_page' in app.view_functions:
         return response
     app.view_functions['hunter_feud_analytics_page'] = _V241_analytics_with_pulse
 
+
+# ===== V24.2 RIVALRY WATCHLIST + SMART ALERTS + PRIORITY INBOX =====
+def _v242_pair_key(hunter_a, hunter_b):
+    a = str(hunter_a or '').strip()
+    b = str(hunter_b or '').strip()
+    if not a or not b:
+        return ''
+    ordered = sorted([a, b], key=lambda x: x.casefold())
+    return '{}::{}'.format(ordered[0].casefold(), ordered[1].casefold())
+
+
+def _ensure_v242_rivalry_watch_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            pair_key TEXT NOT NULL,
+            hunter_a TEXT NOT NULL,
+            hunter_b TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, pair_key)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rivalry_watch_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            event_key TEXT NOT NULL,
+            pair_key TEXT NOT NULL,
+            hunter_a TEXT NOT NULL,
+            hunter_b TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            profile_url TEXT DEFAULT '',
+            priority TEXT NOT NULL DEFAULT 'NORMAL',
+            priority_score INTEGER NOT NULL DEFAULT 0,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, event_key)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rivalry_watch_user ON rivalry_watchlist(username, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rivalry_alert_user_read ON rivalry_watch_alerts(username, is_read, priority_score DESC, id DESC)")
+    conn.commit()
+    conn.close()
+
+
+_ensure_v242_rivalry_watch_schema()
+
+
+def _v242_priority_for_activity(activity):
+    title = str((activity or {}).get('title') or '').lower()
+    detail = str((activity or {}).get('detail') or '').lower()
+    intensity = max(0, min(100, int((activity or {}).get('intensity') or 0)))
+    score = min(55, intensity)
+    joined = title + ' ' + detail
+    if any(k in joined for k in ('champion', 'award', 'record', 'milestone', 'legendary', 'immortal')):
+        score += 30
+    elif any(k in joined for k in ('streak', 'season', 'era', 'nemesis', 'title')):
+        score += 20
+    else:
+        score += 10
+    score = min(100, score)
+    if score >= 75:
+        priority = 'CRITICAL'
+    elif score >= 50:
+        priority = 'HIGH'
+    else:
+        priority = 'NORMAL'
+    return priority, score
+
+
+def _v242_watch_rows(username):
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, username, pair_key, hunter_a, hunter_b, created_at
+           FROM rivalry_watchlist WHERE username = ? ORDER BY id DESC""",
+        (username,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _v242_sync_alerts(username):
+    watches = _v242_watch_rows(username)
+    if not watches:
+        return 0
+    watch_map = {str(w.get('pair_key') or ''): w for w in watches}
+    activity = _v241_live_archive_activity_snapshot(250)
+    inserted = 0
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    conn = db()
+    try:
+        for item in activity.get('activity') or []:
+            a = str(item.get('hunter_a') or '')
+            b = str(item.get('hunter_b') or '')
+            pair_key = _v242_pair_key(a, b)
+            if not pair_key or pair_key not in watch_map:
+                continue
+            event_identity = {
+                'activity_id': str(item.get('activity_id') or ''),
+                'pair_key': pair_key,
+                'title': str(item.get('title') or ''),
+                'detail': str(item.get('detail') or ''),
+            }
+            event_key = hashlib.sha256(
+                json.dumps(event_identity, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+            ).hexdigest()
+            priority, score = _v242_priority_for_activity(item)
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO rivalry_watch_alerts
+                   (username, event_key, pair_key, hunter_a, hunter_b, title, detail, profile_url,
+                    priority, priority_score, is_read, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                (
+                    username, event_key, pair_key, a, b,
+                    str(item.get('title') or 'Recorded rivalry activity'),
+                    str(item.get('detail') or ''),
+                    str(item.get('profile_url') or '#'),
+                    priority, score, now,
+                )
+            )
+            if cur.rowcount:
+                inserted += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return inserted
+
+
+def _v242_rivalry_watch_snapshot(username, limit=120):
+    username = str(username or '').strip()
+    if not username:
+        return {'success': False, 'error': 'authentication_required'}
+    try:
+        limit = max(1, min(300, int(limit or 120)))
+    except Exception:
+        limit = 120
+
+    _v242_sync_alerts(username)
+    watches = _v242_watch_rows(username)
+    conn = db()
+    rows = conn.execute(
+        """SELECT id, event_key, pair_key, hunter_a, hunter_b, title, detail, profile_url,
+                  priority, priority_score, is_read, created_at
+           FROM rivalry_watch_alerts
+           WHERE username = ?
+           ORDER BY is_read ASC, priority_score DESC, id DESC
+           LIMIT ?""",
+        (username, limit)
+    ).fetchall()
+    conn.close()
+    alerts = [dict(r) for r in rows]
+    unread = sum(1 for x in alerts if not int(x.get('is_read') or 0))
+    critical = sum(1 for x in alerts if not int(x.get('is_read') or 0) and str(x.get('priority')) == 'CRITICAL')
+    high = sum(1 for x in alerts if not int(x.get('is_read') or 0) and str(x.get('priority')) == 'HIGH')
+    payload = {
+        'success': True,
+        'username': username,
+        'watch_count': len(watches),
+        'unread': unread,
+        'critical': critical,
+        'high': high,
+        'watches': watches,
+        'alerts': alerts,
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry Watchlist alerts are generated only from recorded BL3 archive activity matching feuds '
+            'the signed-in Hunter chose to watch. Priority is a local workflow heuristic, not a prediction, '
+            'recommendation, or ranking of Hunter worth.'
+        ),
+    }
+    payload['watch_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _v242_existing_pair(hunter_a, hunter_b):
+    wanted = _v242_pair_key(hunter_a, hunter_b)
+    if not wanted:
+        return None
+    base = _v238_archive_index_snapshot('', '', '')
+    for feud in base.get('index') or []:
+        a = str(feud.get('hunter_a') or '')
+        b = str(feud.get('hunter_b') or '')
+        if _v242_pair_key(a, b) == wanted:
+            return {
+                'pair_key': wanted,
+                'hunter_a': a,
+                'hunter_b': b,
+                'profile_url': str(feud.get('index_url') or '#'),
+            }
+    return None
+
+
+@app.route('/api/hunter/rivalry-watch')
+def hunter_rivalry_watch_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    return jsonify(_v242_rivalry_watch_snapshot(username, request.args.get('limit', 120)))
+
+
+@app.route('/hunter-rivalry-watch.json')
+def hunter_rivalry_watch_json():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    return jsonify(_v242_rivalry_watch_snapshot(username, request.args.get('limit', 120)))
+
+
+@app.route('/api/hunter/rivalry-watch/add', methods=['POST'])
+def hunter_rivalry_watch_add_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    body = request.get_json(silent=True) or {}
+    pair = _v242_existing_pair(body.get('hunter_a'), body.get('hunter_b'))
+    if not pair:
+        return jsonify({'success': False, 'error': 'recorded_rivalry_not_found'}), 404
+    conn = db()
+    conn.execute(
+        """INSERT OR IGNORE INTO rivalry_watchlist
+           (username, pair_key, hunter_a, hunter_b, created_at) VALUES (?, ?, ?, ?, ?)""",
+        (username, pair['pair_key'], pair['hunter_a'], pair['hunter_b'], datetime.utcnow().isoformat(timespec='seconds') + 'Z')
+    )
+    conn.commit()
+    conn.close()
+    return jsonify(_v242_rivalry_watch_snapshot(username))
+
+
+@app.route('/api/hunter/rivalry-watch/remove', methods=['POST'])
+def hunter_rivalry_watch_remove_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    body = request.get_json(silent=True) or {}
+    pair_key = str(body.get('pair_key') or '')
+    if not pair_key:
+        pair_key = _v242_pair_key(body.get('hunter_a'), body.get('hunter_b'))
+    conn = db()
+    conn.execute('DELETE FROM rivalry_watchlist WHERE username = ? AND pair_key = ?', (username, pair_key))
+    conn.commit()
+    conn.close()
+    return jsonify(_v242_rivalry_watch_snapshot(username))
+
+
+@app.route('/api/hunter/rivalry-watch/read', methods=['POST'])
+def hunter_rivalry_watch_read_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    body = request.get_json(silent=True) or {}
+    alert_id = int(body.get('alert_id') or 0)
+    if alert_id <= 0:
+        return jsonify({'success': False, 'error': 'alert_id_required'}), 400
+    conn = db()
+    conn.execute('UPDATE rivalry_watch_alerts SET is_read = 1 WHERE username = ? AND id = ?', (username, alert_id))
+    conn.commit()
+    conn.close()
+    return jsonify(_v242_rivalry_watch_snapshot(username))
+
+
+@app.route('/api/hunter/rivalry-watch/read-all', methods=['POST'])
+def hunter_rivalry_watch_read_all_api():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return jsonify({'success': False, 'error': 'authentication_required'}), 401
+    conn = db()
+    conn.execute('UPDATE rivalry_watch_alerts SET is_read = 1 WHERE username = ?', (username,))
+    conn.commit()
+    conn.close()
+    return jsonify(_v242_rivalry_watch_snapshot(username))
+
+
+@app.route('/hunter-rivalry-watch')
+def hunter_rivalry_watch_page():
+    username = str(session.get('authenticated_username') or '')
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Rivalry Watch</title><body style='background:#090015;color:#fff;font-family:Arial;padding:40px'><h1>⚔️ Rivalry Watch</h1><p>Sign in to build your personal rivalry watchlist.</p><p><a style='color:#ffd66b' href='/'>BACK TO BL3</a></p></body>""", 401
+    data = _v242_rivalry_watch_snapshot(username)
+    esc = lambda v: html.escape(str(v or ''))
+    watch_cards = ''.join(
+        '<div class="watch"><b>@{} VS @{}</b><button onclick="removeWatch(\'{}\')">REMOVE</button></div>'.format(
+            esc(w.get('hunter_a')), esc(w.get('hunter_b')), esc(w.get('pair_key'))
+        ) for w in data.get('watches') or []
+    ) or '<p class="muted">No watched rivalries yet. Add one from a recorded feud below.</p>'
+
+    archive = _v238_archive_index_snapshot('', '', '')
+    options = ''.join(
+        '<option value="{}|{}">@{} vs @{}</option>'.format(
+            esc(r.get('hunter_a')), esc(r.get('hunter_b')), esc(r.get('hunter_a')), esc(r.get('hunter_b'))
+        ) for r in (archive.get('index') or [])[:150]
+    )
+    alert_cards = ''.join(
+        '<article class="alert {}"><div><span class="pill">{} · {}</span><h3>@{} VS @{}</h3><b>{}</b><p>{}</p><small>{}</small></div><div class="actions"><a href="{}">OPEN</a>{}</div></article>'.format(
+            esc(str(a.get('priority') or 'NORMAL').lower()),
+            esc(a.get('priority')), int(a.get('priority_score') or 0),
+            esc(a.get('hunter_a')), esc(a.get('hunter_b')), esc(a.get('title')), esc(a.get('detail')),
+            esc(a.get('created_at')), esc(a.get('profile_url') or '#'),
+            '' if int(a.get('is_read') or 0) else '<button onclick="markRead({})">MARK READ</button>'.format(int(a.get('id') or 0))
+        ) for a in data.get('alerts') or []
+    ) or '<p class="muted">No matching recorded activity yet.</p>'
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry Watchlist</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b0060 0,#090015 42%,#040009 100%);color:#fff;font-family:Inter,Arial,sans-serif}}main{{max-width:1100px;margin:auto;padding:34px 18px 70px}}a{{color:#ffd66b;text-decoration:none}}.hero{{padding:28px;border:1px solid #6630a8;background:linear-gradient(135deg,#1b0736dd,#0d061add);border-radius:24px;box-shadow:0 22px 70px #0008}}.hero h1{{font-size:clamp(34px,7vw,72px);margin:8px 0}}.hero p{{color:#c9b5dc;max-width:760px}}.stats{{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}}.stat{{padding:12px 16px;background:#ffffff0c;border:1px solid #ffffff18;border-radius:14px}}.panel{{margin-top:20px;padding:22px;border-radius:20px;background:#0d061add;border:1px solid #38204f}}select,button{{background:#180c29;color:#fff;border:1px solid #7340aa;border-radius:11px;padding:11px 13px}}button{{cursor:pointer}}.watch{{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px;margin:9px 0;background:#ffffff08;border-radius:13px}}.alert{{display:flex;justify-content:space-between;gap:18px;padding:17px;margin:12px 0;border-left:4px solid #8056a8;background:#ffffff08;border-radius:14px}}.alert.high{{border-left-color:#ffb347}}.alert.critical{{border-left-color:#ff466f}}.pill{{font-size:12px;padding:5px 8px;background:#ffffff12;border-radius:999px}}.actions{{min-width:105px;display:flex;gap:8px;flex-direction:column;justify-content:center}}.muted,small{{color:#a995ba}}.nav{{margin-top:24px}}@media(max-width:650px){{.alert{{flex-direction:column}}}}
+    </style></head><body><main><section class="hero"><span>V24.2 // RIVALRY WATCHLIST + SMART ALERTS</span><h1>WATCH THE FEUDS THAT MATTER.</h1><p>Follow recorded BL3 rivalries and get a personal priority inbox whenever their archive activity changes.</p><div class="stats"><div class="stat">WATCHES <b>{int(data.get('watch_count') or 0)}</b></div><div class="stat">UNREAD <b>{int(data.get('unread') or 0)}</b></div><div class="stat">CRITICAL <b>{int(data.get('critical') or 0)}</b></div><div class="stat">HIGH <b>{int(data.get('high') or 0)}</b></div></div></section>
+    <section class="panel"><h2>⚔️ YOUR WATCHLIST</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="pair"><option value="">Choose a recorded rivalry…</option>{options}</select><button onclick="addWatch()">ADD WATCH</button></div>{watch_cards}</section>
+    <section class="panel"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><h2>🔔 PRIORITY INBOX</h2><button onclick="readAll()">MARK ALL READ</button></div>{alert_cards}</section>
+    <p class="nav"><a href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a href="/hunter-rivalry-pulse">RIVALRY PULSE</a> · <a href="/hunter-live-archive-activity">LIVE ARCHIVE</a> · <a href="/hunter-feud-analytics">FEUD ANALYTICS</a></p><small>{esc(data.get('policy'))}</small></main>
+    <script>
+    async function post(url,payload){{const r=await fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload||{{}})}});const d=await r.json();if(!r.ok)alert(d.error||'Request failed');else location.reload();}}
+    function addWatch(){{const v=document.getElementById('pair').value;if(!v)return;const p=v.split('|');post('/api/hunter/rivalry-watch/add',{{hunter_a:p[0],hunter_b:p[1]}})}}
+    function removeWatch(k){{post('/api/hunter/rivalry-watch/remove',{{pair_key:k}})}}
+    function markRead(id){{post('/api/hunter/rivalry-watch/read',{{alert_id:id}})}}
+    function readAll(){{post('/api/hunter/rivalry-watch/read-all',{{}})}}
+    </script></body></html>"""
+
+
+# Surface V24.2 from the existing Rivalry Universe and Pulse pages without changing old routes.
+if 'hunter_rivalry_universe_page' in app.view_functions:
+    _V241_universe_view_v242 = app.view_functions['hunter_rivalry_universe_page']
+    def _V242_universe_with_watch():
+        response = _V241_universe_view_v242()
+        if isinstance(response, str) and '/hunter-rivalry-watch' not in response:
+            tile = '<a class="tile" href="/hunter-rivalry-watch"><span>🔔</span><b>Rivalry Watchlist</b></a>'
+            response = response.replace('<div class="grid">', '<div class="grid">' + tile, 1)
+            response = response.replace('V24.1 // RIVALRY PULSE + LIVE ARCHIVE + SPOTLIGHT', 'V24.2 // RIVALRY WATCHLIST + SMART ALERTS', 1)
+        return response
+    app.view_functions['hunter_rivalry_universe_page'] = _V242_universe_with_watch
+
+if 'hunter_rivalry_pulse_page' in app.view_functions:
+    _V241_pulse_view_v242 = app.view_functions['hunter_rivalry_pulse_page']
+    def _V242_pulse_with_watch():
+        response = _V241_pulse_view_v242()
+        if isinstance(response, str) and '/hunter-rivalry-watch' not in response:
+            response = response.replace(
+                'RIVALRY UNIVERSE</a> ·',
+                'RIVALRY UNIVERSE</a> · <a href="/hunter-rivalry-watch">RIVALRY WATCH</a> ·',
+                1
+            )
+        return response
+    app.view_functions['hunter_rivalry_pulse_page'] = _V242_pulse_with_watch
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("⚡ BL3 ARENA V24.1 // RIVALRY PULSE + LIVE ARCHIVE ACTIVITY + UNIVERSE SPOTLIGHT")
+    print("🔔 BL3 ARENA V24.2 // RIVALRY WATCHLIST + SMART ALERTS + PRIORITY INBOX")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🔔 Rivalry Watchlist + Smart Alerts + Priority Inbox enabled")
     print("⚡ Rivalry Pulse + Live Archive Activity + Universe Spotlight enabled")
     print("🌌 Rivalry Universe Hub + Eternal Records Dashboard + Feud Analytics enabled")
     print("🔎 Archive Search + Era Compare + Season Champion Hall enabled")
