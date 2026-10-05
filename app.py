@@ -25998,16 +25998,417 @@ if 'hunter_global_hall_of_fame_page' in app.view_functions:
         return response
     app.view_functions['hunter_global_hall_of_fame_page']=_V231_global_hall_with_profiles_and_search
 
+
+
+# ===== V23.2 GLOBAL RIVALRIES + LEGEND COMPARE + ETERNAL HEAD-TO-HEAD =====
+def _global_legend_compare_snapshot(username_a, username_b):
+    username_a = str(username_a or '').strip()
+    username_b = str(username_b or '').strip()
+    if not username_a or not username_b:
+        return {'success': False, 'message': 'Two Hunter usernames are required.'}
+    if username_a.lower() == username_b.lower():
+        return {'success': False, 'message': 'Choose two different Hunters.'}
+
+    profile_a = _global_legend_profile_snapshot(username_a)
+    profile_b = _global_legend_profile_snapshot(username_b)
+    if not profile_a.get('success') or not profile_b.get('success'):
+        missing = username_a if not profile_a.get('success') else username_b
+        return {'success': False, 'message': f'Global Legend not found: {missing}'}
+
+    a = dict(profile_a.get('hunter') or {})
+    b = dict(profile_b.get('hunter') or {})
+    a['record_holds'] = len(profile_a.get('record_holds') or [])
+    b['record_holds'] = len(profile_b.get('record_holds') or [])
+    a['medal_count'] = len(a.get('medals') or [])
+    b['medal_count'] = len(b.get('medals') or [])
+
+    metrics = [
+        ('eternal_score', 'ETERNAL SCORE', '🌌'),
+        ('total_progress', 'TOTAL PROGRESS', '⚡'),
+        ('season_awards', 'SEASON AWARDS', '🏅'),
+        ('trophy_mvp', 'TROPHY MVP', '🏆'),
+        ('seasons_played', 'SEASONS PLAYED', '📜'),
+        ('challenges_helped', 'CHALLENGES HELPED', '⚔️'),
+        ('updates', 'PROGRESS UPDATES', '🛡️'),
+        ('circles_touched', 'CIRCLES TOUCHED', '🌐'),
+        ('record_holds', 'ETERNAL RECORDS', '💎'),
+        ('medal_count', 'LEGEND MEDALS', '🎖️'),
+    ]
+
+    comparisons = []
+    wins_a = 0
+    wins_b = 0
+    ties = 0
+    total_gap = 0
+    for key, label, icon in metrics:
+        va = int(a.get(key) or 0)
+        vb = int(b.get(key) or 0)
+        diff = va - vb
+        total_gap += abs(diff)
+        if diff > 0:
+            winner = str(a.get('username') or username_a)
+            wins_a += 1
+        elif diff < 0:
+            winner = str(b.get('username') or username_b)
+            wins_b += 1
+        else:
+            winner = 'TIE'
+            ties += 1
+        comparisons.append({
+            'metric': key,
+            'label': label,
+            'icon': icon,
+            'a': va,
+            'b': vb,
+            'difference': diff,
+            'winner': winner,
+        })
+
+    circles_a = {int(c.get('circle_id') or 0): c for c in (profile_a.get('circles') or []) if int(c.get('circle_id') or 0)}
+    circles_b = {int(c.get('circle_id') or 0): c for c in (profile_b.get('circles') or []) if int(c.get('circle_id') or 0)}
+    shared_ids = sorted(set(circles_a).intersection(circles_b))
+    shared_circles = []
+    for cid in shared_ids:
+        ca = circles_a[cid]
+        cb = circles_b[cid]
+        shared_circles.append({
+            'circle_id': cid,
+            'circle_name': str(ca.get('circle_name') or cb.get('circle_name') or 'Circle'),
+            'circle_emoji': str(ca.get('circle_emoji') or cb.get('circle_emoji') or '🫂'),
+            'a_progress': int(ca.get('progress') or 0),
+            'b_progress': int(cb.get('progress') or 0),
+            'a_challenges': int(ca.get('challenges_helped') or 0),
+            'b_challenges': int(cb.get('challenges_helped') or 0),
+            'legacy_url': str(ca.get('legacy_url') or cb.get('legacy_url') or f'/hunter-circles/{cid}/legacy'),
+        })
+
+    same_class = str(a.get('eternal_class') or '') == str(b.get('eternal_class') or '')
+    rank_gap = abs(int(a.get('global_rank') or 0) - int(b.get('global_rank') or 0))
+    eternal_gap = abs(int(a.get('eternal_score') or 0) - int(b.get('eternal_score') or 0))
+    # "Rivalry intensity" is a display heuristic for historical similarity, not a prediction.
+    rivalry_intensity = max(
+        0,
+        min(
+            100,
+            60
+            + (15 if same_class else 0)
+            + min(15, len(shared_circles) * 5)
+            + max(0, 10 - min(10, rank_gap))
+            - min(30, eternal_gap // 50)
+        )
+    )
+    rivalry_state = (
+        'CLASSIC' if rivalry_intensity >= 85 else
+        'HEATED' if rivalry_intensity >= 70 else
+        'ACTIVE' if rivalry_intensity >= 50 else
+        'DISTANT'
+    )
+
+    leader = (
+        str(a.get('username') or username_a) if wins_a > wins_b else
+        str(b.get('username') or username_b) if wins_b > wins_a else
+        'EVEN'
+    )
+
+    payload = {
+        'success': True,
+        'a': a,
+        'b': b,
+        'profile_a': {
+            'global_legend_url': '/hunter-global-legends/{}'.format(urllib.parse.quote(str(a.get('username') or username_a), safe='')),
+            'circle_count': len(profile_a.get('circles') or []),
+            'record_holds': profile_a.get('record_holds') or [],
+        },
+        'profile_b': {
+            'global_legend_url': '/hunter-global-legends/{}'.format(urllib.parse.quote(str(b.get('username') or username_b), safe='')),
+            'circle_count': len(profile_b.get('circles') or []),
+            'record_holds': profile_b.get('record_holds') or [],
+        },
+        'comparisons': comparisons,
+        'scorecard': {
+            'wins_a': wins_a,
+            'wins_b': wins_b,
+            'ties': ties,
+            'leader': leader,
+        },
+        'rivalry': {
+            'intensity': rivalry_intensity,
+            'state': rivalry_state,
+            'same_class': same_class,
+            'rank_gap': rank_gap,
+            'eternal_score_gap': eternal_gap,
+            'shared_circle_count': len(shared_circles),
+            'shared_circles': shared_circles,
+        },
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Eternal Head-to-Head compares recorded BL3 historical totals only. '
+            'Metric wins and rivalry intensity are deterministic display heuristics; '
+            'they do not predict future outcomes or establish universal skill.'
+        ),
+    }
+    payload['compare_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _global_rivalries_snapshot(limit=50):
+    limit = max(1, min(int(limit or 50), 100))
+    hall = _global_hall_of_fame_snapshot(250)
+    hunters = list(hall.get('hall_of_fame') or [])
+    candidates = []
+
+    # Compare near-neighbours in the Global Hall plus same-class near-score pairs.
+    for i, a in enumerate(hunters):
+        for j in range(i + 1, min(len(hunters), i + 7)):
+            b = hunters[j]
+            score_gap = abs(int(a.get('eternal_score') or 0) - int(b.get('eternal_score') or 0))
+            rank_gap = abs(int(a.get('global_rank') or 0) - int(b.get('global_rank') or 0))
+            same_class = str(a.get('eternal_class') or '') == str(b.get('eternal_class') or '')
+
+            # Cheap shared-circle lookup using profiles for candidate pairs only.
+            pa = _global_legend_profile_snapshot(str(a.get('username') or ''))
+            pb = _global_legend_profile_snapshot(str(b.get('username') or ''))
+            circles_a = {int(c.get('circle_id') or 0) for c in (pa.get('circles') or []) if int(c.get('circle_id') or 0)}
+            circles_b = {int(c.get('circle_id') or 0) for c in (pb.get('circles') or []) if int(c.get('circle_id') or 0)}
+            shared = len(circles_a.intersection(circles_b))
+
+            intensity = max(
+                0,
+                min(
+                    100,
+                    55
+                    + (15 if same_class else 0)
+                    + min(15, shared * 5)
+                    + max(0, 12 - rank_gap * 2)
+                    - min(30, score_gap // 50)
+                )
+            )
+            if intensity < 35:
+                continue
+            candidates.append({
+                'a': {
+                    'username': str(a.get('username') or ''),
+                    'rank': int(a.get('global_rank') or 0),
+                    'class': str(a.get('eternal_class') or ''),
+                    'score': int(a.get('eternal_score') or 0),
+                },
+                'b': {
+                    'username': str(b.get('username') or ''),
+                    'rank': int(b.get('global_rank') or 0),
+                    'class': str(b.get('eternal_class') or ''),
+                    'score': int(b.get('eternal_score') or 0),
+                },
+                'intensity': intensity,
+                'state': 'CLASSIC' if intensity >= 85 else 'HEATED' if intensity >= 70 else 'ACTIVE' if intensity >= 50 else 'DISTANT',
+                'score_gap': score_gap,
+                'rank_gap': rank_gap,
+                'shared_circles': shared,
+                'compare_url': '/hunter-global-legend-compare?a={}&b={}'.format(
+                    urllib.parse.quote(str(a.get('username') or ''), safe=''),
+                    urllib.parse.quote(str(b.get('username') or ''), safe='')
+                ),
+            })
+
+    candidates.sort(
+        key=lambda x: (
+            int(x.get('intensity') or 0),
+            -int(x.get('score_gap') or 0),
+            -int(x.get('rank_gap') or 0),
+        ),
+        reverse=True
+    )
+    candidates = candidates[:limit]
+
+    payload = {
+        'rivalries': candidates,
+        'counts': {
+            'rivalries': len(candidates),
+            'classic': sum(1 for r in candidates if r.get('state') == 'CLASSIC'),
+            'heated': sum(1 for r in candidates if r.get('state') == 'HEATED'),
+            'active': sum(1 for r in candidates if r.get('state') == 'ACTIVE'),
+        },
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Global Rivalries are similarity pairings based on recorded BL3 historical scores, '
+            'ranking proximity, class and shared Circle history. They are not predictions.'
+        ),
+    }
+    payload['rivalries_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/global-legend-compare')
+def hunter_global_legend_compare_api():
+    data = _global_legend_compare_snapshot(request.args.get('a') or '', request.args.get('b') or '')
+    return jsonify(data), (200 if data.get('success') else 400)
+
+
+@app.route('/hunter-global-legend-compare.json')
+def hunter_global_legend_compare_json():
+    data = _global_legend_compare_snapshot(request.args.get('a') or '', request.args.get('b') or '')
+    return jsonify(data), (200 if data.get('success') else 400)
+
+
+@app.route('/api/hunter/global-rivalries')
+def hunter_global_rivalries_api():
+    try:
+        limit = int(request.args.get('limit') or 50)
+    except Exception:
+        limit = 50
+    return jsonify({'success': True, **_global_rivalries_snapshot(limit)})
+
+
+@app.route('/hunter-global-rivalries.json')
+def hunter_global_rivalries_json():
+    return jsonify(_global_rivalries_snapshot(100))
+
+
+@app.route('/hunter-global-legend-compare')
+def hunter_global_legend_compare_page():
+    hall = _global_hall_of_fame_snapshot(250)
+    names = [str(h.get('username') or '') for h in hall.get('hall_of_fame') or []]
+    a_name = str(request.args.get('a') or '').strip()
+    b_name = str(request.args.get('b') or '').strip()
+    data = _global_legend_compare_snapshot(a_name, b_name) if a_name and b_name else None
+    esc = html.escape
+
+    options = ''.join('<option value="{}"></option>'.format(esc(name)) for name in names)
+    comparison_html = ''
+    summary_html = ''
+    shared_html = ''
+    if data and data.get('success'):
+        a = data.get('a') or {}
+        b = data.get('b') or {}
+        score = data.get('scorecard') or {}
+        rivalry = data.get('rivalry') or {}
+
+        comparison_html = ''.join(
+            '<div class="metric"><div><span>{icon}</span><b>{label}</b></div>'
+            '<strong>{a}</strong><em>{winner}</em><strong>{b}</strong></div>'.format(
+                icon=esc(str(m.get('icon') or '⚔️')),
+                label=esc(str(m.get('label') or '')),
+                a=int(m.get('a') or 0),
+                b=int(m.get('b') or 0),
+                winner=esc('TIE' if m.get('winner') == 'TIE' else '@' + str(m.get('winner') or '')),
+            )
+            for m in data.get('comparisons') or []
+        )
+        shared_html = ''.join(
+            '<a class="shared" href="{href}"><b>{emoji} {name}</b>'
+            '<small>@{a}: {ap} · @{b}: {bp}</small></a>'.format(
+                href=esc(str(c.get('legacy_url') or '#')),
+                emoji=esc(str(c.get('circle_emoji') or '🫂')),
+                name=esc(str(c.get('circle_name') or 'Circle')),
+                a=esc(str(a.get('username') or a_name)),
+                b=esc(str(b.get('username') or b_name)),
+                ap=int(c.get('a_progress') or 0),
+                bp=int(c.get('b_progress') or 0),
+            )
+            for c in rivalry.get('shared_circles') or []
+        ) or '<div class="muted">No shared Circles recorded.</div>'
+
+        summary_html = f"""
+        <section class="versus">
+          <article><span>#{int(a.get('global_rank') or 0)}</span><h2>@{esc(str(a.get('username') or a_name))}</h2><b>{esc(str(a.get('eternal_class') or ''))}</b><strong>{int(a.get('eternal_score') or 0)}</strong><small>ETERNAL SCORE</small></article>
+          <div class="vs"><b>VS</b><span>{int(rivalry.get('intensity') or 0)}</span><small>{esc(str(rivalry.get('state') or ''))}</small></div>
+          <article><span>#{int(b.get('global_rank') or 0)}</span><h2>@{esc(str(b.get('username') or b_name))}</h2><b>{esc(str(b.get('eternal_class') or ''))}</b><strong>{int(b.get('eternal_score') or 0)}</strong><small>ETERNAL SCORE</small></article>
+        </section>
+        <section class="scorecard"><b>{int(score.get('wins_a') or 0)} WINS</b><span>{esc(str(score.get('leader') or 'EVEN'))}</span><b>{int(score.get('wins_b') or 0)} WINS</b><small>{int(score.get('ties') or 0)} TIES · HISTORICAL METRIC SCORECARD</small></section>
+        """
+
+    error_html = ''
+    if data and not data.get('success'):
+        error_html = '<div class="error">{}</div>'.format(esc(str(data.get('message') or 'Unable to compare Hunters.')))
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Eternal Head-to-Head</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#52115f,transparent 30%),radial-gradient(circle at 88% 0,#70460e,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.metric em,.scorecard span{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}.muted,.hero p,small{{color:#9da1ad}}form{{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;margin-top:18px}}input,button{{border:1px solid #383b46;border-radius:12px;background:#090a0f;color:#fff;padding:12px;font:inherit}}button{{font-size:10px;font-weight:900;cursor:pointer;background:#ffd66b;color:#160f03;border-color:#ffd66b}}.versus{{display:grid;grid-template-columns:1fr 140px 1fr;gap:14px;align-items:stretch;margin-bottom:18px}}.versus article,.vs,.scorecard{{border:1px solid #343741;border-radius:22px;background:#090a0f;padding:18px;text-align:center}}.versus article h2{{margin:7px 0;font-size:28px}}.versus article>strong{{display:block;font-size:40px;color:#ffd66b;margin-top:10px}}.vs{{display:grid;place-content:center}}.vs b{{font-size:28px}}.vs span{{font-size:44px;font-weight:950;color:#ffd66b}}.scorecard{{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:18px}}.scorecard small{{grid-column:1/-1}}.metrics{{display:grid;gap:8px}}.metric{{display:grid;grid-template-columns:1fr 130px 180px 130px;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:14px;background:#090a0f;padding:12px}}.metric>div span{{margin-right:8px}}.metric strong{{font-size:18px;text-align:center}}.metric em{{font-style:normal;text-align:center;font-size:10px}}.shared-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}}.shared{{color:#fff;text-decoration:none;border:1px solid #343741;border-radius:14px;padding:12px;background:#090a0f}}.shared small{{display:block;margin-top:5px}}a.nav{{display:inline-block;margin-top:12px;margin-right:8px;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.error{{margin-top:14px;border:1px solid #8b3030;border-radius:12px;padding:12px;color:#ff9f9f}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{form,.versus,.shared-grid{{grid-template-columns:1fr}}.scorecard{{grid-template-columns:1fr}}.metric{{grid-template-columns:1fr 1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V23.2 // ETERNAL HEAD-TO-HEAD</div><h1>LEGEND VS LEGEND.</h1><p>Compare two Global Hall Hunters using recorded BL3 historical metrics.</p><form method="get"><div><input list="hunters" name="a" value="{esc(a_name)}" placeholder="First Hunter"><datalist id="hunters">{options}</datalist></div><div><input list="hunters" name="b" value="{esc(b_name)}" placeholder="Second Hunter"></div><button type="submit">COMPARE</button></form><a class="nav" href="/hunter-global-rivalries">GLOBAL RIVALRIES</a><a class="nav" href="/hunter-global-hall-search">HALL SEARCH</a><a class="nav" href="/hunter-global-hall-of-fame">GLOBAL HALL</a>{error_html}</section>{summary_html}<section class="panel"><div class="gold">HISTORICAL METRICS</div><div class="metrics">{comparison_html or '<div class="muted">Choose two Global Legends to begin.</div>'}</div></section><section class="panel"><div class="gold">SHARED CIRCLE HISTORY</div><div class="shared-grid">{shared_html if data and data.get('success') else '<div class="muted">Comparison required.</div>'}</div></section>{('<div class="digest">COMPARE DIGEST // '+esc(str(data.get('compare_digest') or ''))+'</div><p class="muted">'+esc(str(data.get('policy') or ''))+'</p>') if data and data.get('success') else ''}</div></body></html>"""
+
+
+@app.route('/hunter-global-rivalries')
+def hunter_global_rivalries_page():
+    try:
+        limit = int(request.args.get('limit') or 50)
+    except Exception:
+        limit = 50
+    data = _global_rivalries_snapshot(limit)
+    esc = html.escape
+    cards = ''.join(
+        '<article class="rivalry"><div class="intensity"><b>{intensity}</b><small>{state}</small></div>'
+        '<div><h3>@{a} <span>VS</span> @{b}</h3><p>Rank #{ar} vs #{br} · {aclass} / {bclass} · Score gap {gap} · {shared} shared Circles</p></div>'
+        '<a href="{href}">HEAD-TO-HEAD</a></article>'.format(
+            intensity=int(r.get('intensity') or 0),
+            state=esc(str(r.get('state') or '')),
+            a=esc(str((r.get('a') or {}).get('username') or '')),
+            b=esc(str((r.get('b') or {}).get('username') or '')),
+            ar=int((r.get('a') or {}).get('rank') or 0),
+            br=int((r.get('b') or {}).get('rank') or 0),
+            aclass=esc(str((r.get('a') or {}).get('class') or '')),
+            bclass=esc(str((r.get('b') or {}).get('class') or '')),
+            gap=int(r.get('score_gap') or 0),
+            shared=int(r.get('shared_circles') or 0),
+            href=esc(str(r.get('compare_url') or '#')),
+        )
+        for r in data.get('rivalries') or []
+    )
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Global Rivalries</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#51115f,transparent 30%),radial-gradient(circle at 88% 0,#70460d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.intensity b,h3 span{{color:#ffd66b}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span,.rivalry p,.intensity small,.meta{{color:#9da1ad;font-size:10px}}.rivalry{{display:grid;grid-template-columns:90px 1fr auto;gap:14px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}.intensity{{text-align:center}}.intensity b{{display:block;font-size:30px}}.rivalry h3{{margin:0 0 5px}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats{{grid-template-columns:1fr 1fr}}.rivalry{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V23.2 // GLOBAL RIVALRIES</div><h1>ETERNAL RIVALS.</h1><p class="meta">Historical similarity pairings from Global Hall scores, rank proximity, class and shared Circle history.</p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('rivalries') or 0)}</b><span>RIVALRIES</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('classic') or 0)}</b><span>CLASSIC</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('heated') or 0)}</b><span>HEATED</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('active') or 0)}</b><span>ACTIVE</span></div></div><p><a href="/hunter-global-legend-compare">COMPARE LEGENDS</a> <a href="/hunter-global-hall-of-fame">GLOBAL HALL</a></p></section><section class="panel">{cards or '<div class="meta">No Global Rivalries yet.</div>'}</section><div class="digest">RIVALRIES DIGEST // {esc(str(data.get('rivalries_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add V23.2 navigation to Global Hall and Search surfaces.
+if 'hunter_global_hall_of_fame_page' in app.view_functions:
+    _V231_global_hall_view_rivalries = app.view_functions['hunter_global_hall_of_fame_page']
+
+    def _V232_global_hall_with_rivalries():
+        response = _V231_global_hall_view_rivalries()
+        if isinstance(response, str):
+            compare_link = '<a href="/hunter-global-legend-compare">COMPARE LEGENDS</a>'
+            rival_link = '<a href="/hunter-global-rivalries">GLOBAL RIVALRIES</a>'
+            if compare_link not in response:
+                response = response.replace(
+                    "<p><a href='/hunter-global-hall-of-fame.json'>JSON</a></p>",
+                    "<p><a href='/hunter-global-hall-of-fame.json'>JSON</a> " + compare_link + " " + rival_link + "</p>",
+                    1
+                )
+            response = response.replace(
+                'V23.0 // GLOBAL HALL OF FAME',
+                'V23.2 // GLOBAL HALL + ETERNAL RIVALRIES',
+                1
+            )
+        return response
+
+    app.view_functions['hunter_global_hall_of_fame_page'] = _V232_global_hall_with_rivalries
+
+
+if 'hunter_global_hall_search_page' in app.view_functions:
+    _V231_global_search_view_rivalries = app.view_functions['hunter_global_hall_search_page']
+
+    def _V232_global_search_with_rivalries():
+        response = _V231_global_search_view_rivalries()
+        if isinstance(response, str):
+            link = '<a href="/hunter-global-legend-compare">COMPARE LEGENDS</a>'
+            if link not in response:
+                response = response.replace('</section>', link + '</section>', 1)
+        return response
+
+    app.view_functions['hunter_global_hall_search_page'] = _V232_global_search_with_rivalries
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🔎 BL3 ARENA V23.1 // GLOBAL LEGEND PROFILES + RECORD HOLDERS + HALL SEARCH")
+    print("⚔️ BL3 ARENA V23.2 // GLOBAL RIVALRIES + LEGEND COMPARE + ETERNAL HEAD-TO-HEAD")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("⚔️ Global Rivalries + Legend Compare + Eternal Head-to-Head enabled")
     print("🔎 Global Legend Profiles + Record Holders + Hall Search enabled")
     print("🏆 Legend Medals + Eternal Records + Global Hall of Fame enabled")
     print("🌌 Legend Profiles + Legacy Timeline + Immortal Showcase enabled")
