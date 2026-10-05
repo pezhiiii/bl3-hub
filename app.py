@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V26.6"
+V247_SECURITY_VERSION = "V26.7"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V26.6"
+V248_SECURITY_VERSION = "V26.7"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Build Attestation</title><style>
+    <title>BL3 V26.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V26.6"
+V250_VERSION = "V26.7"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V26.6"
+V253_VERSION = "V26.7"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V26.6"
+V254_VERSION = "V26.7"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V26.6"
+V255_VERSION = "V26.7"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V26.6"
+V256_VERSION = "V26.7"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V26.6"
+V257_VERSION = "V26.7"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V26.6"
+V258_VERSION = "V26.7"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Hunter Command Deck</title>
+    <title>BL3 V26.7 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V26.6"
+V259_VERSION = "V26.7"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33184,7 +33184,7 @@ def v259_hunter_next_move_page():
         action_html.append("<div class='empty'>No priority actions right now. Your board is clear.</div>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Hunter Next Move</title>
+    <title>BL3 V26.7 Hunter Next Move</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#331d12 0,#09070c 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1040px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0a0aed;border:1px solid #65412c;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V26.6"
+V260_VERSION = "V26.7"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33534,7 +33534,7 @@ def v260_hunter_focus_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Hunter Focus Runs</title>
+    <title>BL3 V26.7 Hunter Focus Runs</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#35120f 0,#09070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0909ed;border:1px solid #6c342d;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V26.6"
+V261_VERSION = "V26.7"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -33923,7 +33923,7 @@ def v261_focus_queue_page():
     active_label = esc(active.get("action_title") if active else "NONE")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Hunter Focus Queue</title>
+    <title>BL3 V26.7 Hunter Focus Queue</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#112d38 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:32px 18px 72px}}.panel{{background:#091014ed;border:1px solid #315d69;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V26.6"
+V262_VERSION = "V26.7"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V26.6"
+V263_VERSION = "V26.7"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34408,7 +34408,7 @@ def v263_focus_insights_page():
         recent_rows.append("<tr><td colspan='5'>No Focus Runs in the last 7 days.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Focus Insights</title>
+    <title>BL3 V26.7 Focus Insights</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#152c22 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1120px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0a0d0bed;border:1px solid #355b46;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V26.6"
+V264_VERSION = "V26.7"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34639,7 +34639,7 @@ def v264_weekly_goal_page():
     cls = "ok" if state == "COMPLETE" else ("warn" if state in ("CLOSE","ON TRACK") else "muted")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Weekly Focus Goal</title>
+    <title>BL3 V26.7 Weekly Focus Goal</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b1f0d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:900px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0b08ec;border:1px solid #6b5529;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V26.6"
+V265_VERSION = "V26.7"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34868,7 +34868,7 @@ def v265_goal_history_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Goal History + Milestones</title>
+    <title>BL3 V26.7 Goal History + Milestones</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b1636 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1060px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0911ed;border:1px solid #60356f;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V26.6"
+V266_VERSION = "V26.7"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35097,7 +35097,7 @@ def v266_focus_badges_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.6 Focus Badge Showcase</title>
+    <title>BL3 V26.7 Focus Badge Showcase</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b1738 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1000px;margin:auto;padding:32px 18px 72px}}.panel{{background:#0d0911ed;border:1px solid #60386f;border-radius:24px;padding:22px;margin-bottom:16px}}
@@ -35106,7 +35106,7 @@ def v266_focus_badges_page():
     button,.btn{{border:1px solid #7a4789;background:#160d1a;color:#fff;padding:9px 12px;border-radius:10px;text-decoration:none;cursor:pointer;font-weight:800}}.nav{{display:flex;gap:8px;flex-wrap:wrap}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.6 // PROFILE BRIDGE</div>
+        <div class='eyebrow'>BL3 V26.7 // PROFILE BRIDGE</div>
         <h1>🏅 FOCUS BADGE SHOWCASE</h1>
         <p class='sub'>{username}, unlocked Focus milestones can now become your featured Hunter badge.</p>
         <div class='nav'><a class='btn' href='/hunter-goal-history'>🏅 MILESTONES</a><a class='btn' href='/hunter-profile'>👤 HUNTER PROFILE</a><a class='btn' href='/hunter-focus'>🔥 FOCUS RUNS</a></div>
@@ -35160,6 +35160,235 @@ try:
                 )
             return response
         app.view_functions["v258_hunter_command_page"] = _v266_home_with_badges
+except Exception:
+    pass
+
+
+# ===== V26.7 HUNTER PROGRESS PASSPORT =====
+# Public, shareable progression summary built from existing BL3 profile,
+# focus, goal and badge signals. No private/session/admin data is exposed.
+
+V267_VERSION = "V26.7"
+
+def _v267_progress_passport_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "username_required", "version": V267_VERSION}
+
+    profile = _v258_safe_call(_hunter_public_profile_snapshot, username, default={}) or {}
+    if not profile.get("success"):
+        return {"success": False, "error": "hunter_not_found", "version": V267_VERSION}
+
+    stats = _v260_streak_stats(username)
+    goal = _v258_safe_call(_v264_goal_snapshot, username, default={}) or {}
+    badge_data = _v258_safe_call(_hunter_badges_snapshot, username, default={}) or {}
+    focus_badges = list(badge_data.get("focus_milestone_badges") or [])
+    unlocked_focus = [b for b in focus_badges if b.get("unlocked")]
+
+    title = profile.get("title") or {"title": "HUNTER", "icon": "👾", "tier": "UNRANKED"}
+    aura = profile.get("aura") or {"label": "SIGNAL", "icon": "📡"}
+    featured = badge_data.get("featured_badge")
+
+    payload = {
+        "success": True,
+        "version": V267_VERSION,
+        "username": username,
+        "title": title,
+        "aura": aura,
+        "trophy_score": int(profile.get("trophy_score") or 0),
+        "trophy_tier": str(profile.get("trophy_tier") or "RISING CABINET"),
+        "completed_focus_runs": int(stats.get("completed_runs") or 0),
+        "current_streak": int(stats.get("current_streak") or 0),
+        "best_streak": int(stats.get("best_streak") or 0),
+        "weekly_goal": {
+            "target": int(goal.get("target_completed") or 5),
+            "completed": int(goal.get("completed") or 0),
+            "progress_percent": float(goal.get("progress_percent") or 0.0),
+            "state": str(goal.get("state") or "BUILDING"),
+        },
+        "featured_badge": featured,
+        "focus_badges": [
+            {
+                "key": b.get("key"),
+                "icon": b.get("icon"),
+                "title": b.get("title"),
+                "detail": b.get("detail"),
+                "unlocked_at": b.get("unlocked_at"),
+            }
+            for b in unlocked_focus
+        ],
+        "focus_badge_count": len(unlocked_focus),
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Progress Passport exposes public BL3 progression signals only. "
+            "Badges, streaks, scores and goals are cosmetic/in-app signals and have no monetary value."
+        ),
+    }
+    payload["passport_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-progress/<username>")
+def v267_progress_passport_api(username):
+    data = _v267_progress_passport_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 404)
+
+
+@app.route("/hunter-progress/<username>")
+def v267_progress_passport_page(username):
+    data = _v267_progress_passport_snapshot(username)
+    if not data.get("success"):
+        return "Hunter not found", 404
+
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    title = data.get("title") or {}
+    aura = data.get("aura") or {}
+    goal = data.get("weekly_goal") or {}
+    featured = data.get("featured_badge") or {}
+    badges = data.get("focus_badges") or []
+
+    badge_html = []
+    for badge in badges:
+        badge_html.append(
+            "<div class='badge'><div class='bicon'>{}</div><div><b>{}</b><div class='muted'>{}</div></div></div>".format(
+                esc(badge.get("icon")),
+                esc(badge.get("title")),
+                esc(badge.get("detail")),
+            )
+        )
+    if not badge_html:
+        badge_html.append("<div class='empty'>No Focus milestone badges unlocked yet.</div>")
+
+    profile_url = "{}/hunter/{}".format(_public_origin(), urllib.parse.quote(username))
+    passport_url = "{}/hunter-progress/{}".format(_public_origin(), urllib.parse.quote(username))
+    share_text = "{} {}'s BL3 Progress Passport — {} completed Focus Runs, best streak {}. {}".format(
+        title.get("icon") or "👾",
+        username,
+        data.get("completed_focus_runs"),
+        data.get("best_streak"),
+        passport_url,
+    )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>{username} // BL3 Progress Passport</title>
+    <meta name='description' content='{username} BL3 progression summary: Focus Runs, streaks, goals and milestones.'>
+    <meta property='og:title' content='{username} // BL3 Progress Passport'>
+    <meta property='og:description' content='Completed Focus Runs: {completed} · Best streak: {best_streak} · Focus badges: {badge_count}'>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at top,#142a37 0,#08080d 46%,#030305 100%);color:#fff;font-family:Inter,system-ui,Arial;padding:24px}}
+    .wrap{{max-width:980px;margin:auto}}.hero,.panel{{background:#0b0c12ed;border:1px solid #31586d;border-radius:28px;padding:24px;margin-bottom:16px;box-shadow:0 28px 90px #0008}}
+    .eyebrow{{font-size:12px;font-weight:950;letter-spacing:2px;color:#86d8ff}}.identity{{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:14px}}.avatar{{width:78px;height:78px;border-radius:22px;display:grid;place-items:center;font-size:38px;background:#101b24;border:1px solid #416d83}}
+    h1{{font-size:42px;margin:0}}.muted{{color:#a7b6c0}}.tag{{display:inline-block;margin-top:7px;padding:7px 10px;border-radius:999px;background:#101922;border:1px solid #35576a;color:#b9e6ff}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}}.card{{background:#090b10;border:1px solid #294655;border-radius:17px;padding:17px}}.k{{font-size:11px;letter-spacing:1px;color:#9fc4d3;font-weight:900}}.v{{font-size:27px;font-weight:950;margin-top:7px}}
+    .progress{{height:14px;background:#14212a;border-radius:999px;overflow:hidden;margin-top:12px}}.bar{{height:100%;background:#67d4ff;border-radius:999px}}.badges{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}}.badge{{display:flex;gap:12px;align-items:center;background:#090b10;border:1px solid #294655;border-radius:16px;padding:14px}}.bicon{{font-size:30px}}
+    .featured{{display:flex;gap:13px;align-items:center;background:#10111a;border:1px solid #66508b;border-radius:18px;padding:16px}}.featured .bicon{{font-size:38px}}.btns{{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}}a,button{{border:1px solid #416d83;border-radius:11px;padding:10px 13px;background:#101820;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}}.hot{{background:#86d8ff;color:#061017;border-color:#86d8ff}}
+    .empty{{color:#8fa2ad}}@media(max-width:600px){{h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V26.7 // PUBLIC PROGRESSION PASSPORT</div>
+        <div class='identity'>
+          <div class='avatar'>{title_icon}</div>
+          <div><h1>{username}</h1><div class='tag'>{title_name} · {tier}</div><div class='muted'>{aura_icon} {aura_label}</div></div>
+        </div>
+        <div class='grid'>
+          <div class='card'><div class='k'>FOCUS RUNS</div><div class='v'>{completed}</div></div>
+          <div class='card'><div class='k'>CURRENT STREAK</div><div class='v'>{current_streak}</div></div>
+          <div class='card'><div class='k'>BEST STREAK</div><div class='v'>{best_streak}</div></div>
+          <div class='card'><div class='k'>FOCUS BADGES</div><div class='v'>{badge_count}</div></div>
+          <div class='card'><div class='k'>TROPHY SCORE</div><div class='v'>{trophy_score}</div></div>
+          <div class='card'><div class='k'>TROPHY TIER</div><div class='v'>{trophy_tier}</div></div>
+        </div>
+        <div class='btns'>
+          <a class='hot' href='{profile_url}'>VIEW HUNTER PROFILE</a>
+          <button onclick='copyShare()'>COPY SHARE TEXT</button>
+        </div>
+      </section>
+
+      <section class='panel'>
+        <h2>🎯 WEEKLY GOAL</h2>
+        <div class='grid'>
+          <div class='card'><div class='k'>TARGET</div><div class='v'>{goal_target}</div></div>
+          <div class='card'><div class='k'>COMPLETED</div><div class='v'>{goal_completed}</div></div>
+          <div class='card'><div class='k'>STATE</div><div class='v'>{goal_state}</div></div>
+        </div>
+        <div class='progress'><div class='bar' style='width:{goal_progress}%'></div></div>
+        <p class='muted'>{goal_progress}% complete</p>
+      </section>
+
+      <section class='panel'>
+        <h2>🏅 FEATURED BADGE</h2>
+        <div class='featured'><div class='bicon'>{featured_icon}</div><div><b>{featured_title}</b><div class='muted'>{featured_detail}</div></div></div>
+      </section>
+
+      <section class='panel'>
+        <h2>🏆 FOCUS MILESTONES</h2>
+        <div class='badges'>{badges}</div>
+      </section>
+    </div>
+    <script>
+    function copyShare(){{
+      const text={share_text_json};
+      if(navigator.clipboard) navigator.clipboard.writeText(text).then(()=>alert('Share text copied'));
+      else alert(text);
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        title_icon=esc(title.get("icon") or "👾"),
+        title_name=esc(title.get("title") or "HUNTER"),
+        tier=esc(title.get("tier") or "UNRANKED"),
+        aura_icon=esc(aura.get("icon") or "📡"),
+        aura_label=esc(aura.get("label") or "SIGNAL"),
+        completed=esc(data.get("completed_focus_runs")),
+        current_streak=esc(data.get("current_streak")),
+        best_streak=esc(data.get("best_streak")),
+        badge_count=esc(data.get("focus_badge_count")),
+        trophy_score=esc(data.get("trophy_score")),
+        trophy_tier=esc(data.get("trophy_tier")),
+        profile_url=esc(profile_url),
+        goal_target=esc(goal.get("target")),
+        goal_completed=esc(goal.get("completed")),
+        goal_state=esc(goal.get("state")),
+        goal_progress=esc(goal.get("progress_percent")),
+        featured_icon=esc(featured.get("icon") or "🏅"),
+        featured_title=esc(featured.get("title") or "NO FEATURED BADGE"),
+        featured_detail=esc(featured.get("detail") or "Feature an unlocked badge from your badge showcase."),
+        badges="".join(badge_html),
+        share_text_json=json.dumps(share_text, ensure_ascii=False),
+    )
+
+
+# Surface the Passport from Hunter Home and Focus Badge Showcase.
+try:
+    _v267_prev_home = app.view_functions.get("v258_hunter_command_page")
+    if _v267_prev_home:
+        def _v267_home_with_passport(*args, **kwargs):
+            response = _v267_prev_home(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-progress/" not in response:
+                username = str(session.get("authenticated_username") or "").strip()
+                if username:
+                    href = "/hunter-progress/" + urllib.parse.quote(username)
+                    link = "<a href='{}' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #416d83;border-radius:10px;color:#fff;text-decoration:none'>🪪 PROGRESS PASSPORT</a>".format(href)
+                    response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v258_hunter_command_page"] = _v267_home_with_passport
+except Exception:
+    pass
+
+try:
+    _v267_prev_badges = app.view_functions.get("v266_focus_badges_page")
+    if _v267_prev_badges:
+        def _v267_badges_with_passport(*args, **kwargs):
+            response = _v267_prev_badges(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-progress/" not in response:
+                username = str(session.get("authenticated_username") or "").strip()
+                if username:
+                    href = "/hunter-progress/" + urllib.parse.quote(username)
+                    link = "<a href='{}' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #416d83;border-radius:10px;color:#fff;text-decoration:none'>🪪 PUBLIC PROGRESS PASSPORT</a>".format(href)
+                    response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v266_focus_badges_page"] = _v267_badges_with_passport
 except Exception:
     pass
 
