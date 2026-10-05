@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V26.8"
+V247_SECURITY_VERSION = "V26.9"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V26.8"
+V248_SECURITY_VERSION = "V26.9"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.8 Build Attestation</title><style>
+    <title>BL3 V26.9 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V26.8"
+V250_VERSION = "V26.9"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V26.8"
+V253_VERSION = "V26.9"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V26.8"
+V254_VERSION = "V26.9"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V26.8"
+V255_VERSION = "V26.9"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V26.8"
+V256_VERSION = "V26.9"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V26.8"
+V257_VERSION = "V26.9"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V26.8"
+V258_VERSION = "V26.9"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V26.8 Hunter Command Deck</title>
+    <title>BL3 V26.9 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V26.8"
+V259_VERSION = "V26.9"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V26.8"
+V260_VERSION = "V26.9"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V26.8"
+V261_VERSION = "V26.9"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V26.8"
+V262_VERSION = "V26.9"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V26.8"
+V263_VERSION = "V26.9"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V26.8"
+V264_VERSION = "V26.9"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V26.8"
+V265_VERSION = "V26.9"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V26.8"
+V266_VERSION = "V26.9"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V26.8"
+V267_VERSION = "V26.9"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35287,7 +35287,7 @@ def v267_progress_passport_page(username):
     .empty{{color:#8fa2ad}}@media(max-width:600px){{h1{{font-size:32px}}}}
     </style></head><body><div class='wrap'>
       <section class='hero'>
-        <div class='eyebrow'>BL3 V26.8 // PUBLIC PROGRESSION PASSPORT</div>
+        <div class='eyebrow'>BL3 V26.9 // PUBLIC PROGRESSION PASSPORT</div>
         <div class='identity'>
           <div class='avatar'>{title_icon}</div>
           <div><h1>{username}</h1><div class='tag'>{title_name} · {tier}</div><div class='muted'>{aura_icon} {aura_label}</div></div>
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V26.8"
+V268_VERSION = "V26.9"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35542,7 +35542,7 @@ def v268_progress_compare_page():
     @media(max-width:700px){{.fighters{{grid-template-columns:1fr}}.vs{{text-align:center}}h1{{font-size:32px}}}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V26.8 // PUBLIC PROGRESSION MATCHUP</div>
+        <div class='eyebrow'>BL3 V26.9 // PUBLIC PROGRESSION MATCHUP</div>
         <h1>⚖️ HUNTER PROGRESS COMPARE</h1>
         <div class='fighters'>
           <div class='fighter'><div class='avatar'>{a_icon}</div><div class='name'>{a_name}</div><div class='tag'>{a_title}</div><div class='score'>Metric wins: {a_wins}</div></div>
@@ -35598,6 +35598,268 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v267_progress_passport_page"] = _v268_passport_with_compare
+except Exception:
+    pass
+
+
+# ===== V26.9 PROGRESS CHECKPOINTS + GROWTH DELTA =====
+# Authenticated Hunters can capture public progression checkpoints and compare
+# growth between captures. Stored values are public BL3 progression signals only.
+
+V269_VERSION = "V26.9"
+
+def _v269_ensure_schema():
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_progress_checkpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                completed_focus_runs INTEGER NOT NULL DEFAULT 0,
+                current_streak INTEGER NOT NULL DEFAULT 0,
+                best_streak INTEGER NOT NULL DEFAULT 0,
+                focus_badge_count INTEGER NOT NULL DEFAULT 0,
+                trophy_score INTEGER NOT NULL DEFAULT 0,
+                weekly_goal_progress REAL NOT NULL DEFAULT 0,
+                passport_digest TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_checkpoints_user ON hunter_progress_checkpoints(username, id DESC)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v269_capture(username):
+    username = str(username or "").strip()
+    snap = _v267_progress_passport_snapshot(username)
+    if not snap.get("success"):
+        return {"success": False, "error": "hunter_not_found"}
+
+    _v269_ensure_schema()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    goal = snap.get("weekly_goal") or {}
+    row = (
+        username,
+        now,
+        int(snap.get("completed_focus_runs") or 0),
+        int(snap.get("current_streak") or 0),
+        int(snap.get("best_streak") or 0),
+        int(snap.get("focus_badge_count") or 0),
+        int(snap.get("trophy_score") or 0),
+        float(goal.get("progress_percent") or 0.0),
+        str(snap.get("passport_digest") or ""),
+    )
+
+    conn = sqlite3.connect(DB)
+    try:
+        # Avoid exact duplicate consecutive captures.
+        latest = conn.execute(
+            """SELECT completed_focus_runs,current_streak,best_streak,focus_badge_count,
+                      trophy_score,weekly_goal_progress,passport_digest
+               FROM hunter_progress_checkpoints
+               WHERE username=? ORDER BY id DESC LIMIT 1""",
+            (username,)
+        ).fetchone()
+        current_sig = row[2:]
+        if latest and tuple(latest) == tuple(current_sig):
+            return {"success": True, "duplicate": True, "message": "No progression change since the latest checkpoint."}
+        cur = conn.execute(
+            """INSERT INTO hunter_progress_checkpoints
+               (username,captured_at,completed_focus_runs,current_streak,best_streak,
+                focus_badge_count,trophy_score,weekly_goal_progress,passport_digest)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            row
+        )
+        conn.commit()
+        return {"success": True, "duplicate": False, "checkpoint_id": int(cur.lastrowid), "captured_at": now}
+    finally:
+        conn.close()
+
+
+def _v269_history(username, limit=30):
+    _v269_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_progress_checkpoints
+               WHERE username=? ORDER BY id DESC LIMIT ?""",
+            (username, int(max(1, min(limit, 100))))
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v269_delta(newer, older):
+    keys = [
+        "completed_focus_runs",
+        "current_streak",
+        "best_streak",
+        "focus_badge_count",
+        "trophy_score",
+        "weekly_goal_progress",
+    ]
+    out = {}
+    for key in keys:
+        a = newer.get(key) or 0
+        b = older.get(key) or 0
+        try:
+            out[key] = round(float(a) - float(b), 1)
+        except Exception:
+            out[key] = 0
+    return out
+
+
+def _v269_checkpoint_snapshot(username):
+    rows = _v269_history(username, 30)
+    latest = rows[0] if rows else None
+    previous = rows[1] if len(rows) > 1 else None
+    delta = _v269_delta(latest, previous) if latest and previous else {}
+
+    return {
+        "success": True,
+        "version": V269_VERSION,
+        "username": username,
+        "count": len(rows),
+        "latest": latest,
+        "previous": previous,
+        "delta": delta,
+        "history": rows,
+        "policy": (
+            "Progress Checkpoints store public BL3 progression metrics only. "
+            "They are cosmetic/in-app activity records and have no monetary value."
+        ),
+    }
+
+
+@app.route("/api/hunter-progress-checkpoints/<username>")
+def v269_progress_checkpoints_api(username):
+    data = _v269_checkpoint_snapshot(username)
+    return jsonify(data)
+
+
+@app.route("/api/hunter-progress-checkpoints/capture", methods=["POST"])
+def v269_progress_checkpoint_capture_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    result = _v269_capture(username)
+    return jsonify(result), (200 if result.get("success") else 400)
+
+
+@app.route("/hunter-progress-checkpoints/<username>")
+def v269_progress_checkpoints_page(username):
+    data = _v269_checkpoint_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    viewer = str(session.get("authenticated_username") or "").strip()
+    is_owner = viewer == username
+
+    rows = data.get("history") or []
+    delta = data.get("delta") or {}
+
+    def fmt_delta(v):
+        try:
+            x = float(v)
+        except Exception:
+            x = 0.0
+        prefix = "+" if x > 0 else ""
+        return prefix + str(int(x) if x.is_integer() else round(x,1))
+
+    history_html = []
+    for row in rows:
+        history_html.append(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}%</td></tr>".format(
+                esc(row.get("captured_at")),
+                esc(row.get("completed_focus_runs")),
+                esc(row.get("current_streak")),
+                esc(row.get("best_streak")),
+                esc(row.get("focus_badge_count")),
+                esc(row.get("trophy_score")),
+                esc(row.get("weekly_goal_progress")),
+            )
+        )
+    if not history_html:
+        history_html.append("<tr><td colspan='7'>No checkpoints captured yet.</td></tr>")
+
+    owner_button = ""
+    if is_owner:
+        owner_button = "<button onclick='captureNow()'>📌 CAPTURE CURRENT PROGRESS</button>"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>{username} // BL3 Progress Checkpoints</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#17362e 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1080px;margin:auto}}.panel{{background:#0a0e0ced;border:1px solid #376857;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#84e2bd;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#a4b8b0}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}}.card{{background:#07100d;border:1px solid #2b5144;border-radius:17px;padding:16px}}
+    .k{{font-size:11px;color:#a2c9b9;font-weight:900;letter-spacing:1px}}.v{{font-size:26px;font-weight:950;margin-top:7px}}.pos{{color:#61f2b2}}.neg{{color:#ff7d95}}
+    table{{width:100%;border-collapse:collapse}}th,td{{padding:11px 8px;border-bottom:1px solid #223a31;text-align:left;font-size:13px}}th{{color:#a8c8bb}}
+    button,a{{display:inline-block;border:1px solid #467b67;border-radius:10px;padding:10px 13px;background:#0d1713;color:#fff;text-decoration:none;cursor:pointer;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V26.9 // GROWTH MEMORY</div>
+        <h1>📌 PROGRESS CHECKPOINTS</h1>
+        <p class='muted'>{username}'s progression history based on public BL3 signals.</p>
+        {owner_button}
+        <a href='/hunter-progress/{username_path}'>🪪 PROGRESS PASSPORT</a>
+        <div id='msg'></div>
+      </section>
+
+      <section class='panel'>
+        <h2>LATEST GROWTH DELTA</h2>
+        <div class='grid'>
+          <div class='card'><div class='k'>FOCUS RUNS</div><div class='v'>{d_focus}</div></div>
+          <div class='card'><div class='k'>CURRENT STREAK</div><div class='v'>{d_current}</div></div>
+          <div class='card'><div class='k'>BEST STREAK</div><div class='v'>{d_best}</div></div>
+          <div class='card'><div class='k'>FOCUS BADGES</div><div class='v'>{d_badges}</div></div>
+          <div class='card'><div class='k'>TROPHY SCORE</div><div class='v'>{d_trophy}</div></div>
+          <div class='card'><div class='k'>GOAL PROGRESS</div><div class='v'>{d_goal}%</div></div>
+        </div>
+      </section>
+
+      <section class='panel'>
+        <h2>CHECKPOINT HISTORY</h2>
+        <div style='overflow:auto'>
+        <table><thead><tr><th>Captured</th><th>Focus Runs</th><th>Current</th><th>Best</th><th>Badges</th><th>Trophy Score</th><th>Goal</th></tr></thead>
+        <tbody>{history}</tbody></table></div>
+      </section>
+    </div>
+    <script>
+    async function captureNow(){{
+      const r=await fetch('/api/hunter-progress-checkpoints/capture',{{method:'POST'}});
+      const j=await r.json();
+      document.getElementById('msg').textContent=j.message||j.error||(j.success?'Checkpoint captured':'Failed');
+      if(j.success&&!j.duplicate)setTimeout(()=>location.reload(),500);
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        username_path=urllib.parse.quote(username),
+        owner_button=owner_button,
+        d_focus=esc(fmt_delta(delta.get("completed_focus_runs",0))),
+        d_current=esc(fmt_delta(delta.get("current_streak",0))),
+        d_best=esc(fmt_delta(delta.get("best_streak",0))),
+        d_badges=esc(fmt_delta(delta.get("focus_badge_count",0))),
+        d_trophy=esc(fmt_delta(delta.get("trophy_score",0))),
+        d_goal=esc(fmt_delta(delta.get("weekly_goal_progress",0))),
+        history="".join(history_html),
+    )
+
+
+# Add checkpoints link to Progress Passport.
+try:
+    _v269_prev_passport = app.view_functions.get("v267_progress_passport_page")
+    if _v269_prev_passport:
+        def _v269_passport_with_checkpoints(username, *args, **kwargs):
+            response = _v269_prev_passport(username, *args, **kwargs)
+            if isinstance(response, str) and "/hunter-progress-checkpoints/" not in response:
+                href = "/hunter-progress-checkpoints/" + urllib.parse.quote(str(username or ""))
+                link = "<a href='{}' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #467b67;border-radius:10px;color:#fff;text-decoration:none'>📌 PROGRESS CHECKPOINTS</a>".format(href)
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v267_progress_passport_page"] = _v269_passport_with_checkpoints
 except Exception:
     pass
 
