@@ -3639,8 +3639,14 @@ function hydrateChallenge(){
 }
 
 async function connectWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{const a=await ethereum.request({method:"eth_requestAccounts"});if(!a.length)return;document.getElementById("wallet").value=a[0];show("Wallet connected. Now sign the message.")}catch(e){show("Wallet connection cancelled.")}}
-async function signInWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{currentUser();if(username==="demo_user"){show("Enter your BL3 username first.");return}const a=await ethereum.request({method:"eth_requestAccounts"}),wallet=a[0];const n=await jsonFetch("/api/auth/nonce?wallet="+encodeURIComponent(wallet)+"&user="+encodeURIComponent(username));if(!n.success){show(n.message);return}const signature=await ethereum.request({method:"personal_sign",params:[n.message,wallet]});const d=await jsonFetch("/api/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({wallet,username,message:n.message,signature})});show(d.message||"Sign-in finished");if(d.success){document.getElementById("authStatus").innerText="Verified: "+wallet.slice(0,6)+"…"+wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED";await refreshTrustBadge();await loadUser()}}catch(e){show("Wallet sign-in cancelled or failed.")}}
-async function authStatus(){const d=await jsonFetch("/api/auth/status");if(d.authenticated){document.getElementById("authStatus").innerText="Verified: "+d.wallet.slice(0,6)+"…"+d.wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED"}await refreshTrustBadge()}
+async function signInWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{currentUser();if(username==="demo_user"){show("Enter your BL3 username first.");return}const a=await ethereum.request({method:"eth_requestAccounts"}),wallet=a[0];const n=await jsonFetch("/api/auth/nonce?wallet="+encodeURIComponent(wallet)+"&user="+encodeURIComponent(username));if(!n.success){show(n.message);return}const signature=await ethereum.request({method:"personal_sign",params:[n.message,wallet]});const d=await jsonFetch("/api/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({wallet,username,message:n.message,signature})});show(d.message||"Sign-in finished");if(d.success){document.getElementById("authStatus").innerText="Verified: "+wallet.slice(0,6)+"…"+wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED";await authStatus();await loadUser();await loadRivalFeed();await loadSignals()}}catch(e){show("Wallet sign-in cancelled or failed.")}}
+async function authStatus(){
+ const d=await jsonFetch("/api/auth/status");
+ window.bl3AuthState={authenticated:Boolean(d&&d.authenticated),username:String((d&&d.username)||""),wallet:String((d&&d.wallet)||"")};
+ if(d.authenticated){document.getElementById("authStatus").innerText="Verified: "+d.wallet.slice(0,6)+"…"+d.wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED"}
+ await refreshTrustBadge();
+ return window.bl3AuthState;
+}
 async function loadLeaderboard(){const d=await jsonFetch("/api/leaderboard");let h="";(Array.isArray(d)?d:[]).slice(0,10).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.xp+' XP</b></div>');document.getElementById("leaderboard").innerHTML=h||'<div class="meta">No hunters yet.</div>';document.getElementById("totalHunters").innerText=Array.isArray(d)?d.length:0}
 async function claimStreakReward(){currentUser();const s=Number(document.getElementById("streak").innerText),p=await jsonFetch("/api/user/"+encodeURIComponent(username)),c=Array.isArray(p.claimed_milestones)?p.claimed_milestones.map(Number):[];let m=0;if(s>=3&&!c.includes(3))m=3;else if(s>=7&&!c.includes(7))m=7;else if(s>=30&&!c.includes(30))m=30;if(!m){show("No streak reward available yet.");return}const d=await jsonFetch("/api/streak/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,milestone:m})});show(d.message||"Claim finished");if(d.success)await loadUser()}
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
@@ -3696,6 +3702,12 @@ async function declineChallenge(id){
 async function loadSignals(){
  currentUser();
  const el=document.getElementById("signalCenter"),badge=document.getElementById("signalBadge");
+ const auth=window.bl3AuthState||{authenticated:false,username:""};
+ if(!auth.authenticated||auth.username!==username){
+   if(badge)badge.innerText="SIGNALS —";
+   if(el)el.innerHTML='<div class="meta">🔐 Verify this Hunter ID to load private signals.</div>';
+   return;
+ }
  const d=await jsonFetch("/api/notifications/"+encodeURIComponent(username));
  if(!d.success){
    if(badge)badge.innerText="SIGNALS —";
@@ -3708,6 +3720,8 @@ async function loadSignals(){
 }
 async function markSignalsRead(){
  currentUser();
+ const auth=window.bl3AuthState||{authenticated:false,username:""};
+ if(!auth.authenticated||auth.username!==username){show("🔐 Verify this Hunter ID before changing private signals.");return}
  const d=await jsonFetch("/api/notifications/"+encodeURIComponent(username)+"/read-all",{method:"POST"});
  show(d.message||"Signals updated");
  if(d.success)await loadSignals();
@@ -3724,6 +3738,11 @@ async function loadRivalFeed(){
  currentUser();
  const el=document.getElementById("rivalFeed");
  if(!el)return;
+ const auth=window.bl3AuthState||{authenticated:false,username:""};
+ if(!auth.authenticated||auth.username!==username){
+   el.innerHTML='<div class="meta">🔐 Verify this Hunter ID to load private Rival Watch activity.</div>';
+   return;
+ }
  const d=await jsonFetch("/api/rivals/"+encodeURIComponent(username)+"/activity?limit=16");
  if(!d.success){el.innerHTML='<div class="meta">'+escapeHtml(d.message||"Sign in with this Hunter ID to watch Rivals.")+'</div>';return}
  const items=Array.isArray(d.events)?d.events:[];
@@ -30899,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V24.8"
+V248_SECURITY_VERSION = "V25.0"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31043,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V24.8 Build Attestation</title><style>
+    <title>BL3 V25.0 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V24.8 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.0 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31103,17 +31122,283 @@ try:
 except Exception:
     pass
 
+# ===== V24.9 AUTH-AWARE PRIVATE FEEDS + 401 GUARD =====
+# Client-side private feed loaders now honor /api/auth/status before calling
+# authenticated notifications/rival endpoints. Server-side authorization remains unchanged.
+
+
+# ===== V25.0 RELEASE SENTINEL + LAUNCH READINESS GATE =====
+# A production-facing release gate that combines health, secret posture,
+# deployment lock and trusted build attestation into one admin-safe readiness view.
+# Secret values are never exposed.
+
+V250_VERSION = "V25.0"
+V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
+
+
+def _v250_db_check():
+    try:
+        conn = sqlite3.connect(DB)
+        try:
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
+        return {"ok": True, "label": "Database reachable"}
+    except Exception as exc:
+        return {"ok": False, "label": "Database unreachable", "error": type(exc).__name__}
+
+
+def _v250_route_exists(rule, method="GET"):
+    method = str(method or "GET").upper()
+    try:
+        for r in app.url_map.iter_rules():
+            if str(r.rule) == str(rule) and method in set(r.methods or []):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _v250_readiness_snapshot():
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    db_state = _v250_db_check()
+    source = _v247_source_integrity()
+    secret_posture = _v247_secret_posture()
+    attestation = _v248_attestation_snapshot()
+    production = BL3_ENV in ("production", "prod")
+
+    required = secret_posture.get("required") or {}
+    checks = [
+        {
+            "key": "database",
+            "label": "Database reachable",
+            "ok": bool(db_state.get("ok")),
+            "critical": True,
+            "detail": "SQLite connectivity check",
+        },
+        {
+            "key": "source_integrity",
+            "label": "Source fingerprint available",
+            "ok": bool(source.get("ok") and source.get("sha256")),
+            "critical": True,
+            "detail": "Runtime source can be hashed",
+        },
+        {
+            "key": "trusted_attestation",
+            "label": "Trusted build matches current source",
+            "ok": str(attestation.get("state") or "") == "MATCH",
+            "critical": True,
+            "detail": "Build Attestation state must be MATCH",
+        },
+        {
+            "key": "deployment_lock",
+            "label": "Deployment Lock valid",
+            "ok": bool(_v247_lock_valid()),
+            "critical": bool(V247_LOCK_ENABLED),
+            "detail": "Current deployment key validates against the build seal" if V247_LOCK_ENABLED else "Deployment Lock is not enabled",
+        },
+        {
+            "key": "secret_key",
+            "label": "BL3 secret key configured",
+            "ok": bool(required.get("BL3_SECRET_KEY")),
+            "critical": bool(production),
+            "detail": "Presence-only check; value never exposed",
+        },
+        {
+            "key": "admin_token",
+            "label": "Admin token configured",
+            "ok": bool(required.get("BL3_ADMIN_TOKEN")),
+            "critical": bool(production),
+            "detail": "Presence-only check; value never exposed",
+        },
+        {
+            "key": "secure_cookie",
+            "label": "Secure session cookie enabled",
+            "ok": bool(app.config.get("SESSION_COOKIE_SECURE")) if production else True,
+            "critical": bool(production),
+            "detail": "Required for production HTTPS sessions" if production else "Non-production environment",
+        },
+        {
+            "key": "auth_status_route",
+            "label": "Authentication status endpoint online",
+            "ok": _v250_route_exists("/api/auth/status", "GET"),
+            "critical": True,
+            "detail": "Supports auth-aware private feed loading",
+        },
+        {
+            "key": "attestation_record_route",
+            "label": "Build trust recording endpoint online",
+            "ok": _v250_route_exists("/api/admin/build-attestation/record", "POST"),
+            "critical": True,
+            "detail": "Admin can attest current deployment",
+        },
+    ]
+
+    blocking = [c for c in checks if c.get("critical") and not c.get("ok")]
+    passed = sum(1 for c in checks if c.get("ok"))
+    score = int(round((passed / max(1, len(checks))) * 100))
+    if blocking:
+        state = "BLOCKED"
+    elif score == 100:
+        state = "READY"
+    else:
+        state = "READY_WITH_WARNINGS"
+
+    payload = {
+        "success": True,
+        "version": V250_VERSION,
+        "release": V250_RELEASE,
+        "generated_at": now,
+        "environment": BL3_ENV,
+        "state": state,
+        "score": score,
+        "ready": not bool(blocking),
+        "blocking_count": len(blocking),
+        "warning_count": len([c for c in checks if (not c.get("critical")) and (not c.get("ok"))]),
+        "checks": checks,
+        "attestation_state": attestation.get("state") or "UNATTESTED",
+        "build_fingerprint": ((attestation.get("manifest") or {}).get("build_fingerprint") or ""),
+        "source_sha256": source.get("sha256") or "",
+        "source_bytes": int(source.get("bytes") or 0),
+        "secret_warnings": list(secret_posture.get("warnings") or []),
+        "policy": (
+            "Release Sentinel is an operational readiness aid, not a security guarantee. "
+            "It never returns secret values and does not replace provider access controls, repository protection, backups or independent monitoring."
+        ),
+    }
+    digestable = dict(payload)
+    digestable.pop("generated_at", None)
+    payload["readiness_digest"] = hashlib.sha256(
+        json.dumps(digestable, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/admin/release-readiness")
+def v250_release_readiness_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v250_readiness_snapshot())
+
+
+@app.route("/api/release-status")
+def v250_public_release_status_api():
+    data = _v250_readiness_snapshot()
+    return jsonify({
+        "success": True,
+        "version": V250_VERSION,
+        "release": V250_RELEASE,
+        "state": data.get("state"),
+        "ready": bool(data.get("ready")),
+        "score": int(data.get("score") or 0),
+        "generated_at": data.get("generated_at"),
+    })
+
+
+@app.route("/admin/release-readiness")
+def v250_release_readiness_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Release Sentinel</title><body style='margin:0;background:#050407;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🛰️ Release Sentinel</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+    d = _v250_readiness_snapshot()
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    state = str(d.get("state") or "BLOCKED")
+    state_cls = "ok" if state == "READY" else ("warn" if state == "READY_WITH_WARNINGS" else "bad")
+    rows = []
+    for c in d.get("checks") or []:
+        icon = "✅" if c.get("ok") else ("⛔" if c.get("critical") else "⚠️")
+        rows.append(
+            "<div class='check'><div class='icon'>{}</div><div><b>{}</b><p>{}</p></div><span class='pill'>{}</span></div>".format(
+                icon, esc(c.get("label")), esc(c.get("detail")), "PASS" if c.get("ok") else ("BLOCK" if c.get("critical") else "WARN")
+            )
+        )
+    checks_html = "".join(rows)
+    warnings = d.get("secret_warnings") or []
+    warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.0 Release Sentinel</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
+    .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
+    .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.card b{{font-size:25px}}.label{{font-size:10px;letter-spacing:2px;color:#9f82ad;font-weight:900;margin-bottom:7px}}
+    .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
+    .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
+    </style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V25.0 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
+    <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
+    <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
+    <section class='panel'><div class='eyebrow'>CURRENT BUILD</div><p>Fingerprint</p><code>{fingerprint}</code><p>Source SHA-256</p><code>{sha}</code><p class='muted'>{policy}</p>
+    <a class='btn' href='/admin/build-attestation'>🧬 BUILD ATTESTATION</a><a class='btn' href='/admin/project-vault'>🔐 PROJECT VAULT</a><a class='btn' href='/api/admin/release-readiness'>JSON</a><a class='btn' href='/admin/control-center'>CONTROL CENTER</a></section>
+    </div></body></html>""".format(
+        state_cls=state_cls,
+        state=esc(state),
+        score=int(d.get("score") or 0),
+        blocking=int(d.get("blocking_count") or 0),
+        attestation=esc(d.get("attestation_state")),
+        checks=checks_html,
+        warnings=warnings_html,
+        fingerprint=esc(d.get("build_fingerprint")),
+        sha=esc(d.get("source_sha256")),
+        policy=esc(d.get("policy")),
+    )
+
+
+# Keep the public health probe aligned with the current release without exposing admin-only detail.
+def _v250_healthz():
+    db_state = _v250_db_check()
+    return jsonify({
+        "ok": bool(db_state.get("ok")),
+        "service": "bl3",
+        "version": V250_VERSION,
+        "release": V250_RELEASE,
+        "database": "ok" if db_state.get("ok") else "error",
+        "utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }), (200 if db_state.get("ok") else 503)
+
+try:
+    if "healthz" in app.view_functions:
+        app.view_functions["healthz"] = _v250_healthz
+except Exception:
+    pass
+
+
+# Add a Release Sentinel shortcut to the existing Admin Control Center.
+try:
+    if "admin_control_center_page" in app.view_functions:
+        _v250_previous_admin_control = app.view_functions["admin_control_center_page"]
+        def _v250_admin_with_release_sentinel(*args, **kwargs):
+            result = _v250_previous_admin_control(*args, **kwargs)
+            body = result; status = None; headers = None
+            if isinstance(result, tuple):
+                body = result[0]
+                if len(result) > 1: status = result[1]
+                if len(result) > 2: headers = result[2]
+            if isinstance(body, str) and "</body>" in body and "/admin/release-readiness" not in body:
+                link = "<div style='position:fixed;left:18px;bottom:70px;z-index:9999'><a href='/admin/release-readiness' style='display:inline-block;background:#7b2dff;color:#fff;text-decoration:none;padding:12px 16px;border-radius:999px;font:900 11px Arial;box-shadow:0 10px 30px #0008'>🛰️ RELEASE SENTINEL</a></div>"
+                body = body.replace("</body>", link + "</body>", 1)
+            if status is None: return body
+            if headers is None: return body, status
+            return body, status, headers
+        app.view_functions["admin_control_center_page"] = _v250_admin_with_release_sentinel
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🧬 BL3 ARENA V24.8 // OWNERSHIP MANIFEST + BUILD ATTESTATION + TAMPER LEDGER")
+    print("🛰️ BL3 ARENA V25.0 // RELEASE SENTINEL + LAUNCH READINESS GATE")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
     print("🧬 Ownership Manifest + Build Attestation + Tamper Ledger enabled")
+    print("🛡️ Auth-aware private feeds + 401 request guard enabled")
+    print("🛰️ Release Sentinel + Launch Readiness Gate enabled")
     print("🔐 Project Vault + Deployment Lock + Secret Isolation enabled")
     print("🏆 Hunter Profile + Achievements + Trophy Cabinet enabled")
     print("⚡ Mission XP + Hunter Rank + Daily Reward Chest enabled")
