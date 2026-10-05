@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V25.3"
+V247_SECURITY_VERSION = "V25.4"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.3"
+V248_SECURITY_VERSION = "V25.4"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.3 Build Attestation</title><style>
+    <title>BL3 V25.4 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.3 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.4 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.3"
+V250_VERSION = "V25.4"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.3 Release Sentinel</title><style>
+    <title>BL3 V25.4 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.3 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.4 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V25.3"
+V253_VERSION = "V25.4"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.3 Integrity Watch</title>
+    <title>BL3 V25.4 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.3 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V25.4 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31597,6 +31597,280 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["admin_control_center_page"] = _v253_control_center_with_integrity_watch
+except Exception:
+    pass
+
+
+# ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
+# Admin-only integrity event journal. No secret values are stored.
+
+V254_VERSION = "V25.4"
+
+def _v254_ensure_schema():
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS integrity_incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                severity TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                acknowledged INTEGER NOT NULL DEFAULT 0,
+                acknowledged_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_integrity_incidents_created_at ON integrity_incidents(created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_integrity_incidents_ack ON integrity_incidents(acknowledged, created_at DESC)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v254_detect_incident():
+    snap = _v253_integrity_snapshot()
+    cur = snap.get("current") or {}
+    state = str(snap.get("state") or "REVIEW")
+
+    if state == "SECURE":
+        return None
+
+    severity = "CRITICAL" if state == "BLOCKED" else "WARN"
+    blockers = list(snap.get("blockers") or [])
+    warnings = list(snap.get("warnings") or [])
+    detail = "; ".join(blockers or warnings)[:1600] or "Integrity posture requires review."
+    event_type = "INTEGRITY_BLOCK" if state == "BLOCKED" else "INTEGRITY_REVIEW"
+    title = "Runtime integrity blocked" if state == "BLOCKED" else "Runtime integrity requires review"
+
+    return {
+        "severity": severity,
+        "event_type": event_type,
+        "title": title,
+        "detail": detail,
+        "fingerprint": str(cur.get("build_fingerprint") or ""),
+        "source_sha256": str(cur.get("source_sha256") or ""),
+        "state": state,
+    }
+
+
+def _v254_record_detected_incident():
+    incident = _v254_detect_incident()
+    if not incident:
+        return {"recorded": False, "reason": "secure"}
+
+    _v254_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        recent = conn.execute(
+            """SELECT id, fingerprint, event_type, acknowledged
+               FROM integrity_incidents
+               ORDER BY id DESC LIMIT 1"""
+        ).fetchone()
+        if recent:
+            recent_id, recent_fp, recent_type, recent_ack = recent
+            if str(recent_fp or "") == incident["fingerprint"] and str(recent_type or "") == incident["event_type"] and not int(recent_ack or 0):
+                return {"recorded": False, "reason": "duplicate_open", "incident_id": recent_id}
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = conn.execute(
+            """INSERT INTO integrity_incidents
+               (severity, event_type, title, detail, fingerprint, source_sha256, state, created_at, acknowledged, acknowledged_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '')""",
+            (
+                incident["severity"], incident["event_type"], incident["title"], incident["detail"],
+                incident["fingerprint"], incident["source_sha256"], incident["state"], now
+            )
+        )
+        conn.commit()
+        return {"recorded": True, "incident_id": cur.lastrowid}
+    finally:
+        conn.close()
+
+
+def _v254_incident_rows(limit=100):
+    _v254_ensure_schema()
+    limit = max(1, min(int(limit or 100), 300))
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM integrity_incidents
+               ORDER BY id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v254_incident_snapshot():
+    current = _v253_integrity_snapshot()
+    incidents = _v254_incident_rows(100)
+    open_count = sum(1 for x in incidents if not int(x.get("acknowledged") or 0))
+    critical_open = sum(1 for x in incidents if not int(x.get("acknowledged") or 0) and str(x.get("severity") or "") == "CRITICAL")
+    return {
+        "success": True,
+        "version": V254_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "current_integrity_state": current.get("state"),
+        "open_incidents": open_count,
+        "critical_open": critical_open,
+        "incidents": incidents,
+        "policy": "Incident Journal stores integrity metadata only; no deployment keys, admin tokens, or secret values are stored."
+    }
+
+
+@app.route("/api/admin/integrity-incidents")
+def v254_integrity_incidents_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v254_incident_snapshot())
+
+
+@app.route("/api/admin/integrity-incidents/scan", methods=["POST"])
+def v254_integrity_incidents_scan_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    result = _v254_record_detected_incident()
+    out = _v254_incident_snapshot()
+    out["scan"] = result
+    return jsonify(out)
+
+
+@app.route("/api/admin/integrity-incidents/<int:incident_id>/ack", methods=["POST"])
+def v254_integrity_incident_ack_api(incident_id):
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    _v254_ensure_schema()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """UPDATE integrity_incidents
+               SET acknowledged=1, acknowledged_at=?
+               WHERE id=?""",
+            (now, int(incident_id))
+        )
+        conn.commit()
+        if cur.rowcount < 1:
+            return jsonify({"success": False, "error": "incident_not_found"}), 404
+    finally:
+        conn.close()
+    return jsonify({"success": True, "incident_id": int(incident_id), "acknowledged_at": now})
+
+
+@app.route("/admin/integrity-incidents")
+def v254_integrity_incidents_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Integrity Incidents</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🚨 Integrity Incidents</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+
+    data = _v254_incident_snapshot()
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    incidents = data.get("incidents") or []
+
+    rows = []
+    for item in incidents:
+        sev = str(item.get("severity") or "INFO")
+        sev_cls = "bad" if sev == "CRITICAL" else ("warn" if sev == "WARN" else "ok")
+        acked = bool(int(item.get("acknowledged") or 0))
+        ack_html = "ACKNOWLEDGED" if acked else (
+            "<button onclick=\"ackIncident({})\">ACKNOWLEDGE</button>".format(int(item.get("id") or 0))
+        )
+        rows.append(
+            "<tr><td>{}</td><td class='{}'>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td><td>{}</td></tr>".format(
+                esc(item.get("created_at")),
+                sev_cls,
+                esc(sev),
+                esc(item.get("title")),
+                esc(item.get("state")),
+                esc(str(item.get("fingerprint") or "")[:18] + "…"),
+                ack_html
+            )
+        )
+    if not rows:
+        rows.append("<tr><td colspan='6'>No integrity incidents recorded.</td></tr>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.4 Integrity Incident Journal</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1020 0,#09070b 52%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0a10ea;border:1px solid #56304c;border-radius:22px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#ff92c6;font-weight:800;letter-spacing:2px;font-size:13px}}h1{{font-size:42px;margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}}
+    .card{{background:#08070c;border:1px solid #3b2235;border-radius:18px;padding:18px}}.k{{color:#c9a9bd;font-size:12px;font-weight:800;letter-spacing:1px}}.v{{font-size:26px;font-weight:900;margin-top:8px}}
+    .ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}code{{color:#f3a7ce}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:12px 10px;border-bottom:1px solid #281b27;text-align:left;font-size:13px}}
+    th{{color:#d9aec8}}button,a.btn{{background:#1b1018;color:#fff;border:1px solid #76405f;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
+    </style></head><body><div class='wrap'>
+      <div class='panel'>
+        <div class='eyebrow'>BL3 V25.4 // SECURITY OPERATIONS</div>
+        <h1>🚨 INTEGRITY INCIDENT JOURNAL</h1>
+        <p>Record and acknowledge runtime integrity findings without exposing secret values.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>CURRENT INTEGRITY</div><div class='v'>{state}</div></div>
+          <div class='card'><div class='k'>OPEN INCIDENTS</div><div class='v'>{open_count}</div></div>
+          <div class='card'><div class='k'>OPEN CRITICAL</div><div class='v'>{critical}</div></div>
+        </div>
+        <p><button onclick='scanNow()'>🔎 SCAN CURRENT INTEGRITY</button>
+        <a class='btn' href='/admin/integrity-watch'>🛡️ INTEGRITY WATCH</a>
+        <a class='btn' href='/admin/release-readiness'>🚦 RELEASE SENTINEL</a></p>
+        <div id='msg'></div>
+      </div>
+      <div class='panel'>
+        <h2>Incident history</h2>
+        <div style='overflow:auto'><table><thead><tr><th>Created</th><th>Severity</th><th>Title</th><th>State</th><th>Fingerprint</th><th>Action</th></tr></thead><tbody>{rows}</tbody></table></div>
+      </div>
+    </div>
+    <script>
+    async function scanNow(){{
+      const r=await fetch('/api/admin/integrity-incidents/scan',{{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+      const j=await r.json();document.getElementById('msg').textContent=j.scan?(j.scan.recorded?'Incident recorded.':'No new open incident: '+j.scan.reason):'Scan complete.';
+      setTimeout(()=>location.reload(),700);
+    }}
+    async function ackIncident(id){{
+      const r=await fetch('/api/admin/integrity-incidents/'+id+'/ack',{{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+      const j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');
+    }}
+    </script></body></html>""".format(
+        state=esc(data.get("current_integrity_state")),
+        open_count=esc(data.get("open_incidents")),
+        critical=esc(data.get("critical_open")),
+        rows="".join(rows),
+    )
+
+
+# Add journal link to Integrity Watch and Control Center.
+try:
+    _v254_previous_integrity_watch = app.view_functions.get("v253_integrity_watch_page")
+    if _v254_previous_integrity_watch:
+        def _v254_integrity_watch_with_journal(*args, **kwargs):
+            response = _v254_previous_integrity_watch(*args, **kwargs)
+            if isinstance(response, str) and "/admin/integrity-incidents" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1180px;margin:0 auto 30px;padding:0 18px'><a href='/admin/integrity-incidents' style='color:#fff;text-decoration:none;border:1px solid #67448a;border-radius:12px;padding:10px 14px'>🚨 INCIDENT JOURNAL</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v253_integrity_watch_page"] = _v254_integrity_watch_with_journal
+except Exception:
+    pass
+
+try:
+    _v254_previous_control_center = app.view_functions.get("admin_control_center_page")
+    if _v254_previous_control_center:
+        def _v254_control_center_with_incidents(*args, **kwargs):
+            response = _v254_previous_control_center(*args, **kwargs)
+            if isinstance(response, str) and "/admin/integrity-incidents" not in response:
+                link = "<a href='/admin/integrity-incidents' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #76405f;border-radius:10px;color:#fff;text-decoration:none'>🚨 INCIDENT JOURNAL</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["admin_control_center_page"] = _v254_control_center_with_incidents
 except Exception:
     pass
 
