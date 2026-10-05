@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V25.4"
+V247_SECURITY_VERSION = "V25.5"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.4"
+V248_SECURITY_VERSION = "V25.5"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.4 Build Attestation</title><style>
+    <title>BL3 V25.5 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.4 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.5 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.4"
+V250_VERSION = "V25.5"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.4 Release Sentinel</title><style>
+    <title>BL3 V25.5 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.4 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.5 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V25.4"
+V253_VERSION = "V25.5"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.4 Integrity Watch</title>
+    <title>BL3 V25.5 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.4 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V25.5 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V25.4"
+V254_VERSION = "V25.5"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31798,7 +31798,7 @@ def v254_integrity_incidents_page():
         rows.append("<tr><td colspan='6'>No integrity incidents recorded.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.4 Integrity Incident Journal</title>
+    <title>BL3 V25.5 Integrity Incident Journal</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1020 0,#09070b 52%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0a10ea;border:1px solid #56304c;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31808,7 +31808,7 @@ def v254_integrity_incidents_page():
     th{{color:#d9aec8}}button,a.btn{{background:#1b1018;color:#fff;border:1px solid #76405f;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.4 // SECURITY OPERATIONS</div>
+        <div class='eyebrow'>BL3 V25.5 // SECURITY OPERATIONS</div>
         <h1>🚨 INTEGRITY INCIDENT JOURNAL</h1>
         <p>Record and acknowledge runtime integrity findings without exposing secret values.</p>
         <div class='grid'>
@@ -31871,6 +31871,311 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["admin_control_center_page"] = _v254_control_center_with_incidents
+except Exception:
+    pass
+
+
+# ===== V25.5 SECURITY EVENT TIMELINE + AUTO SNAPSHOT ON CHANGE =====
+# Captures admin-safe integrity posture only when meaningful state changes.
+# No secret values, tokens, deployment keys, or session contents are stored.
+
+V255_VERSION = "V25.5"
+
+def _v255_ensure_schema():
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS integrity_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_digest TEXT NOT NULL,
+                integrity_state TEXT NOT NULL,
+                attestation_state TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                app_version TEXT NOT NULL,
+                build_fingerprint TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                signature_alg TEXT NOT NULL,
+                deployment_lock_enabled INTEGER NOT NULL,
+                deployment_lock_valid INTEGER NOT NULL,
+                environment TEXT NOT NULL,
+                trigger_path TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_integrity_snapshots_digest ON integrity_snapshots(snapshot_digest)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_integrity_snapshots_created_at ON integrity_snapshots(created_at DESC)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v255_snapshot_core(trigger_path="manual"):
+    snap = _v253_integrity_snapshot()
+    cur = snap.get("current") or {}
+    core = {
+        "integrity_state": str(snap.get("state") or ""),
+        "attestation_state": str(cur.get("attestation_state") or ""),
+        "project_id": str(cur.get("project_id") or ""),
+        "owner_id": str(cur.get("owner_id") or ""),
+        "app_version": str(cur.get("app_version") or ""),
+        "build_fingerprint": str(cur.get("build_fingerprint") or ""),
+        "source_sha256": str(cur.get("source_sha256") or ""),
+        "signature_alg": str(cur.get("signature_algorithm") or ""),
+        "deployment_lock_enabled": 1 if cur.get("deployment_lock_enabled") else 0,
+        "deployment_lock_valid": 1 if cur.get("deployment_lock_valid") else 0,
+        "environment": str(BL3_ENV or ""),
+        "trigger_path": str(trigger_path or "manual")[:240],
+    }
+    # Exclude trigger path so repeated views of different admin security pages
+    # do not create duplicate snapshots for the exact same posture.
+    digestable = dict(core)
+    digestable.pop("trigger_path", None)
+    core["snapshot_digest"] = hashlib.sha256(
+        json.dumps(digestable, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return core
+
+
+def _v255_capture_if_changed(trigger_path="manual"):
+    _v255_ensure_schema()
+    core = _v255_snapshot_core(trigger_path)
+    conn = sqlite3.connect(DB)
+    try:
+        last = conn.execute(
+            "SELECT id, snapshot_digest FROM integrity_snapshots ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if last and secrets.compare_digest(str(last[1] or ""), core["snapshot_digest"]):
+            return {"captured": False, "reason": "unchanged", "snapshot_id": int(last[0])}
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO integrity_snapshots
+               (snapshot_digest, integrity_state, attestation_state, project_id, owner_id,
+                app_version, build_fingerprint, source_sha256, signature_alg,
+                deployment_lock_enabled, deployment_lock_valid, environment, trigger_path, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                core["snapshot_digest"], core["integrity_state"], core["attestation_state"],
+                core["project_id"], core["owner_id"], core["app_version"],
+                core["build_fingerprint"], core["source_sha256"], core["signature_alg"],
+                core["deployment_lock_enabled"], core["deployment_lock_valid"],
+                core["environment"], core["trigger_path"], now
+            )
+        )
+        conn.commit()
+        snapshot_id = int(cur.lastrowid or 0)
+        if snapshot_id == 0:
+            row = conn.execute(
+                "SELECT id FROM integrity_snapshots WHERE snapshot_digest=?",
+                (core["snapshot_digest"],)
+            ).fetchone()
+            snapshot_id = int(row[0]) if row else 0
+        return {"captured": True, "snapshot_id": snapshot_id, "created_at": now}
+    finally:
+        conn.close()
+
+
+def _v255_timeline(limit=100):
+    _v255_ensure_schema()
+    limit = max(1, min(int(limit or 100), 300))
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM integrity_snapshots
+               ORDER BY id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v255_timeline_snapshot():
+    rows = _v255_timeline(100)
+    changes = 0
+    previous = None
+    for row in reversed(rows):
+        if previous is not None and row.get("snapshot_digest") != previous.get("snapshot_digest"):
+            changes += 1
+        previous = row
+    latest = rows[0] if rows else None
+    return {
+        "success": True,
+        "version": V255_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "snapshot_count": len(rows),
+        "change_count": changes,
+        "latest": latest,
+        "timeline": rows,
+        "policy": (
+            "Snapshots contain integrity metadata only. Secret values, admin tokens, "
+            "deployment keys, and session contents are never stored."
+        ),
+    }
+
+
+@app.route("/api/admin/security-timeline")
+def v255_security_timeline_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v255_timeline_snapshot())
+
+
+@app.route("/api/admin/security-timeline/capture", methods=["POST"])
+def v255_security_timeline_capture_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    result = _v255_capture_if_changed("manual_api")
+    out = _v255_timeline_snapshot()
+    out["capture"] = result
+    return jsonify(out)
+
+
+@app.before_request
+def _v255_auto_snapshot_on_security_views():
+    try:
+        if request.method != "GET":
+            return None
+        watched = {
+            "/admin/build-attestation",
+            "/admin/release-readiness",
+            "/admin/project-vault",
+            "/admin/integrity-watch",
+            "/admin/integrity-incidents",
+            "/admin/security-timeline",
+        }
+        if request.path not in watched:
+            return None
+        if not _admin_ok():
+            return None
+        _v255_capture_if_changed(request.path)
+    except Exception:
+        # Observability must never break the app or an admin page.
+        pass
+    return None
+
+
+@app.route("/admin/security-timeline")
+def v255_security_timeline_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Security Timeline</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🕓 Security Timeline</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+
+    # The before_request hook may already have captured the current posture.
+    data = _v255_timeline_snapshot()
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    rows = data.get("timeline") or []
+
+    out_rows = []
+    for item in rows:
+        state = str(item.get("integrity_state") or "")
+        cls = "ok" if state == "SECURE" else ("warn" if state == "REVIEW" else "bad")
+        fp = str(item.get("build_fingerprint") or "")
+        sha = str(item.get("source_sha256") or "")
+        lock = "SEALED" if int(item.get("deployment_lock_enabled") or 0) and int(item.get("deployment_lock_valid") or 0) else "CHECK"
+        out_rows.append(
+            "<tr><td>{}</td><td class='{}'>{}</td><td>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td><td><code>{}</code></td></tr>".format(
+                esc(item.get("created_at")),
+                cls,
+                esc(state),
+                esc(item.get("app_version")),
+                esc(item.get("attestation_state")),
+                esc(lock),
+                esc(fp[:18] + ("…" if len(fp) > 18 else "")),
+                esc(sha[:16] + ("…" if len(sha) > 16 else "")),
+            )
+        )
+    if not out_rows:
+        out_rows.append("<tr><td colspan='7'>No security snapshots recorded yet.</td></tr>")
+
+    latest = data.get("latest") or {}
+    latest_state = str(latest.get("integrity_state") or "NONE")
+    latest_cls = "ok" if latest_state == "SECURE" else ("warn" if latest_state == "REVIEW" else "bad")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.5 Security Event Timeline</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13203d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1220px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11eb;border:1px solid #334b76;border-radius:22px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#8fb8ff;font-weight:800;letter-spacing:2px;font-size:13px}}h1{{font-size:42px;margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}}
+    .card{{background:#08070c;border:1px solid #243a5c;border-radius:18px;padding:18px}}.k{{color:#a9bad3;font-size:12px;font-weight:800;letter-spacing:1px}}.v{{font-size:26px;font-weight:900;margin-top:8px}}
+    .ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}code{{color:#a9c8ff}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:12px 10px;border-bottom:1px solid #1f2b40;text-align:left;font-size:13px}}
+    th{{color:#b4c9e9}}button,a.btn{{background:#101827;color:#fff;border:1px solid #48689a;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
+    </style></head><body><div class='wrap'>
+      <div class='panel'>
+        <div class='eyebrow'>BL3 V25.5 // SECURITY OBSERVABILITY</div>
+        <h1>🕓 SECURITY EVENT TIMELINE</h1>
+        <p>Automatic snapshots are written only when integrity posture changes.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>LATEST STATE</div><div class='v {latest_cls}'>{latest_state}</div></div>
+          <div class='card'><div class='k'>SNAPSHOTS</div><div class='v'>{count}</div></div>
+          <div class='card'><div class='k'>CHANGES</div><div class='v'>{changes}</div></div>
+          <div class='card'><div class='k'>LATEST VERSION</div><div class='v'>{version}</div></div>
+        </div>
+        <p>
+          <button onclick='captureNow()'>📸 CAPTURE IF CHANGED</button>
+          <a class='btn' href='/admin/integrity-watch'>🛡️ INTEGRITY WATCH</a>
+          <a class='btn' href='/admin/integrity-incidents'>🚨 INCIDENT JOURNAL</a>
+          <a class='btn' href='/admin/release-readiness'>🚦 RELEASE SENTINEL</a>
+        </p>
+        <div id='msg'></div>
+      </div>
+      <div class='panel'>
+        <h2>Integrity snapshot history</h2>
+        <div style='overflow:auto'><table><thead><tr>
+          <th>Created</th><th>State</th><th>Version</th><th>Attestation</th><th>Lock</th><th>Fingerprint</th><th>Source SHA</th>
+        </tr></thead><tbody>{rows}</tbody></table></div>
+      </div>
+    </div>
+    <script>
+    async function captureNow(){{
+      const r=await fetch('/api/admin/security-timeline/capture',{{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+      const j=await r.json();
+      const c=j.capture||{{}};
+      document.getElementById('msg').textContent=c.captured?'New security snapshot captured.':'No new snapshot: '+(c.reason||'unchanged');
+      setTimeout(()=>location.reload(),650);
+    }}
+    </script></body></html>""".format(
+        latest_cls=latest_cls,
+        latest_state=esc(latest_state),
+        count=esc(data.get("snapshot_count")),
+        changes=esc(data.get("change_count")),
+        version=esc(latest.get("app_version") or ""),
+        rows="".join(out_rows),
+    )
+
+
+# Add Security Timeline links to existing admin pages.
+try:
+    _v255_prev_control = app.view_functions.get("admin_control_center_page")
+    if _v255_prev_control:
+        def _v255_control_with_timeline(*args, **kwargs):
+            response = _v255_prev_control(*args, **kwargs)
+            if isinstance(response, str) and "/admin/security-timeline" not in response:
+                link = "<a href='/admin/security-timeline' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #48689a;border-radius:10px;color:#fff;text-decoration:none'>🕓 SECURITY TIMELINE</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["admin_control_center_page"] = _v255_control_with_timeline
+except Exception:
+    pass
+
+try:
+    _v255_prev_integrity = app.view_functions.get("v253_integrity_watch_page")
+    if _v255_prev_integrity:
+        def _v255_integrity_with_timeline(*args, **kwargs):
+            response = _v255_prev_integrity(*args, **kwargs)
+            if isinstance(response, str) and "/admin/security-timeline" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1180px;margin:0 auto 30px;padding:0 18px'><a href='/admin/security-timeline' style='color:#fff;text-decoration:none;border:1px solid #48689a;border-radius:12px;padding:10px 14px'>🕓 SECURITY TIMELINE</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v253_integrity_watch_page"] = _v255_integrity_with_timeline
 except Exception:
     pass
 
