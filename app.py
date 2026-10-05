@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V25.2"
+V247_SECURITY_VERSION = "V25.3"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.2"
+V248_SECURITY_VERSION = "V25.3"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.2 Build Attestation</title><style>
+    <title>BL3 V25.3 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.2 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.3 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.2"
+V250_VERSION = "V25.3"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.2 Release Sentinel</title><style>
+    <title>BL3 V25.3 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.2 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.3 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31393,6 +31393,213 @@ try:
         app.view_functions["admin_control_center_page"] = _v250_admin_with_release_sentinel
 except Exception:
     pass
+
+# ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
+# Admin-safe runtime integrity overview. No secret values are exposed.
+
+V253_VERSION = "V25.3"
+
+def _v253_attestation_history(limit=12):
+    _v248_ensure_schema()
+    limit = max(1, min(int(limit or 12), 50))
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT id, project_id, owner_id, app_version, source_sha256, source_bytes,
+                      build_fingerprint, signature_alg, recorded_at
+               FROM build_attestations
+               ORDER BY id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v253_integrity_snapshot():
+    current = _v248_attestation_snapshot()
+    history = _v253_attestation_history(12)
+    manifest = current.get("manifest") or {}
+    signature = current.get("current_signature") or {}
+    latest = current.get("latest_attestation") or {}
+
+    production = BL3_ENV in ("production", "prod")
+    lock_valid = bool(_v247_lock_valid())
+    lock_enforced = bool(V247_LOCK_ENABLED and lock_valid) if production else lock_valid
+    trusted_match = str(current.get("state") or "") == "MATCH"
+    signed = bool(signature.get("signed"))
+    owner_set = str(manifest.get("owner_id") or "UNSET") != "UNSET"
+
+    blockers = []
+    warnings = []
+    if not trusted_match:
+        blockers.append("Current runtime source does not match the latest trusted attestation.")
+    if production and not lock_enforced:
+        blockers.append("Production Deployment Lock is not enabled with a valid key.")
+    if production and not signed:
+        blockers.append("Current build attestation is not HMAC-signed.")
+    if not owner_set:
+        warnings.append("BL3_OWNER_ID is not configured.")
+    if not history:
+        warnings.append("No trusted attestation history is available yet.")
+
+    state = "SECURE"
+    if blockers:
+        state = "BLOCKED"
+    elif warnings:
+        state = "REVIEW"
+
+    return {
+        "success": True,
+        "version": V253_VERSION,
+        "state": state,
+        "environment": BL3_ENV,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "current": {
+            "project_id": manifest.get("project_id"),
+            "owner_id": manifest.get("owner_id"),
+            "app_version": manifest.get("app_version"),
+            "source_sha256": manifest.get("source_sha256"),
+            "source_bytes": manifest.get("source_bytes"),
+            "build_fingerprint": manifest.get("build_fingerprint"),
+            "attestation_state": current.get("state"),
+            "signature_algorithm": signature.get("algorithm"),
+            "signed": signed,
+            "deployment_lock_enabled": bool(V247_LOCK_ENABLED),
+            "deployment_lock_valid": lock_valid,
+        },
+        "latest_trusted": latest,
+        "attestation_count": len(history),
+        "history": history,
+        "blockers": blockers,
+        "warnings": warnings,
+        "policy": (
+            "Integrity Watch compares the running source with the latest trusted attestation "
+            "and surfaces deployment-lock/signature posture. It does not replace provider, "
+            "repository, domain, or account security."
+        ),
+    }
+
+
+@app.route("/api/admin/integrity-watch")
+def v253_integrity_watch_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    return jsonify(_v253_integrity_snapshot())
+
+
+@app.route("/admin/integrity-watch")
+def v253_integrity_watch_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Integrity Watch</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🛡️ Integrity Watch</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+
+    data = _v253_integrity_snapshot()
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cur = data.get("current") or {}
+    history = data.get("history") or []
+    state = str(data.get("state") or "REVIEW")
+    badge = "ok" if state == "SECURE" else ("warn" if state == "REVIEW" else "bad")
+
+    rows = []
+    for item in history:
+        fp = str(item.get("build_fingerprint") or "")
+        sha = str(item.get("source_sha256") or "")
+        rows.append(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td><td>{}</td><td>{}</td></tr>".format(
+                esc(item.get("recorded_at")),
+                esc(item.get("app_version")),
+                esc(item.get("owner_id")),
+                esc(fp[:18] + ("…" if len(fp) > 18 else "")),
+                esc(item.get("signature_alg")),
+                esc(sha[:16] + ("…" if len(sha) > 16 else "")),
+            )
+        )
+    if not rows:
+        rows.append("<tr><td colspan='6'>No trusted attestations recorded yet.</td></tr>")
+
+    blockers = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("blockers") or [])) or "<li>None</li>"
+    warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.3 Integrity Watch</title>
+    <style>
+    *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#c48bff;font-weight:800;letter-spacing:2px;font-size:13px}} h1{{font-size:42px;margin:12px 0}} .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}}
+    .card{{background:#08070c;border:1px solid #342040;border-radius:18px;padding:18px}} .k{{color:#bda9cf;font-size:12px;font-weight:800;letter-spacing:1px}} .v{{font-size:25px;font-weight:900;margin-top:8px;word-break:break-word}}
+    .ok{{color:#61f2b2}} .warn{{color:#ffd166}} .bad{{color:#ff718f}} code{{color:#d4a8ff;word-break:break-all}}
+    table{{width:100%;border-collapse:collapse;margin-top:12px}} th,td{{padding:12px 10px;border-bottom:1px solid #281b31;text-align:left;font-size:13px}} th{{color:#c6a6dd}}
+    a.btn{{display:inline-block;color:#fff;text-decoration:none;border:1px solid #67448a;border-radius:12px;padding:10px 14px;margin:6px 6px 0 0;background:#17101f}}
+    ul{{line-height:1.7}}
+    </style></head><body><div class='wrap'>
+      <div class='panel'>
+        <div class='eyebrow'>BL3 V25.3 // RUNTIME TRUST</div>
+        <h1>🛡️ INTEGRITY WATCH</h1>
+        <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>STATE</div><div class='v {badge}'>{state}</div></div>
+          <div class='card'><div class='k'>ATTESTATION</div><div class='v'>{attestation}</div></div>
+          <div class='card'><div class='k'>SIGNATURE</div><div class='v'>{signature}</div></div>
+          <div class='card'><div class='k'>DEPLOYMENT LOCK</div><div class='v'>{lock}</div></div>
+        </div>
+      </div>
+      <div class='panel'>
+        <div class='grid'>
+          <div class='card'><div class='k'>PROJECT</div><div class='v'>{project}</div></div>
+          <div class='card'><div class='k'>OWNER</div><div class='v'>{owner}</div></div>
+          <div class='card'><div class='k'>VERSION</div><div class='v'>{version}</div></div>
+          <div class='card'><div class='k'>TRUSTED RECORDS SHOWN</div><div class='v'>{count}</div></div>
+        </div>
+        <p><b>Current fingerprint</b><br><code>{fingerprint}</code></p>
+        <p><b>Source SHA-256</b><br><code>{source_sha}</code></p>
+      </div>
+      <div class='panel'>
+        <h2>Security findings</h2>
+        <div class='grid'>
+          <div class='card'><div class='k'>BLOCKERS</div><ul>{blockers}</ul></div>
+          <div class='card'><div class='k'>WARNINGS</div><ul>{warnings}</ul></div>
+        </div>
+      </div>
+      <div class='panel'>
+        <h2>Trusted attestation timeline</h2>
+        <div style='overflow:auto'><table><thead><tr><th>Recorded</th><th>Version</th><th>Owner</th><th>Fingerprint</th><th>Signature</th><th>Source SHA</th></tr></thead>
+        <tbody>{rows}</tbody></table></div>
+      </div>
+      <div class='panel'>
+        <a class='btn' href='/admin/build-attestation'>🧬 BUILD ATTESTATION</a>
+        <a class='btn' href='/admin/release-readiness'>🚦 RELEASE SENTINEL</a>
+        <a class='btn' href='/admin/project-vault'>🔐 PROJECT VAULT</a>
+        <a class='btn' href='/api/admin/integrity-watch'>JSON</a>
+      </div>
+    </div></body></html>""".format(
+        badge=badge, state=esc(state), attestation=esc(cur.get("attestation_state")),
+        signature=esc(cur.get("signature_algorithm")),
+        lock=esc("SEALED" if cur.get("deployment_lock_enabled") and cur.get("deployment_lock_valid") else "CHECK"),
+        project=esc(cur.get("project_id")), owner=esc(cur.get("owner_id")),
+        version=esc(cur.get("app_version")), count=esc(data.get("attestation_count")),
+        fingerprint=esc(cur.get("build_fingerprint")), source_sha=esc(cur.get("source_sha256")),
+        blockers=blockers, warnings=warnings, rows="".join(rows)
+    )
+
+
+# Add Integrity Watch to the existing admin control center without changing auth behavior.
+try:
+    _v253_previous_control_center = app.view_functions.get("admin_control_center_page")
+    if _v253_previous_control_center:
+        def _v253_control_center_with_integrity_watch(*args, **kwargs):
+            response = _v253_previous_control_center(*args, **kwargs)
+            if isinstance(response, str) and "/admin/integrity-watch" not in response:
+                link = "<a href='/admin/integrity-watch' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #67448a;border-radius:10px;color:#fff;text-decoration:none'>🛡️ INTEGRITY WATCH</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["admin_control_center_page"] = _v253_control_center_with_integrity_watch
+except Exception:
+    pass
+
 
 if __name__ == "__main__":
 
