@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V27.0"
+V247_SECURITY_VERSION = "V27.1"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V27.0"
+V248_SECURITY_VERSION = "V27.1"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.0 Build Attestation</title><style>
+    <title>BL3 V27.1 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V27.0"
+V250_VERSION = "V27.1"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V27.0"
+V253_VERSION = "V27.1"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V27.0"
+V254_VERSION = "V27.1"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V27.0"
+V255_VERSION = "V27.1"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V27.0"
+V256_VERSION = "V27.1"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V27.0"
+V257_VERSION = "V27.1"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V27.0"
+V258_VERSION = "V27.1"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.0 Hunter Command Deck</title>
+    <title>BL3 V27.1 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V27.0"
+V259_VERSION = "V27.1"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V27.0"
+V260_VERSION = "V27.1"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V27.0"
+V261_VERSION = "V27.1"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V27.0"
+V262_VERSION = "V27.1"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V27.0"
+V263_VERSION = "V27.1"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V27.0"
+V264_VERSION = "V27.1"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V27.0"
+V265_VERSION = "V27.1"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V27.0"
+V266_VERSION = "V27.1"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V27.0"
+V267_VERSION = "V27.1"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35287,7 +35287,7 @@ def v267_progress_passport_page(username):
     .empty{{color:#8fa2ad}}@media(max-width:600px){{h1{{font-size:32px}}}}
     </style></head><body><div class='wrap'>
       <section class='hero'>
-        <div class='eyebrow'>BL3 V27.0 // PUBLIC PROGRESSION PASSPORT</div>
+        <div class='eyebrow'>BL3 V27.1 // PUBLIC PROGRESSION PASSPORT</div>
         <div class='identity'>
           <div class='avatar'>{title_icon}</div>
           <div><h1>{username}</h1><div class='tag'>{title_name} · {tier}</div><div class='muted'>{aura_icon} {aura_label}</div></div>
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V27.0"
+V268_VERSION = "V27.1"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35542,7 +35542,7 @@ def v268_progress_compare_page():
     @media(max-width:700px){{.fighters{{grid-template-columns:1fr}}.vs{{text-align:center}}h1{{font-size:32px}}}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.0 // PUBLIC PROGRESSION MATCHUP</div>
+        <div class='eyebrow'>BL3 V27.1 // PUBLIC PROGRESSION MATCHUP</div>
         <h1>⚖️ HUNTER PROGRESS COMPARE</h1>
         <div class='fighters'>
           <div class='fighter'><div class='avatar'>{a_icon}</div><div class='name'>{a_name}</div><div class='tag'>{a_title}</div><div class='score'>Metric wins: {a_wins}</div></div>
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V27.0"
+V269_VERSION = "V27.1"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35800,7 +35800,7 @@ def v269_progress_checkpoints_page(username):
     button,a{{display:inline-block;border:1px solid #467b67;border-radius:10px;padding:10px 13px;background:#0d1713;color:#fff;text-decoration:none;cursor:pointer;font-weight:850;margin:4px 4px 0 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.0 // GROWTH MEMORY</div>
+        <div class='eyebrow'>BL3 V27.1 // GROWTH MEMORY</div>
         <h1>📌 PROGRESS CHECKPOINTS</h1>
         <p class='muted'>{username}'s progression history based on public BL3 signals.</p>
         {owner_button}
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V27.0"
+V270_VERSION = "V27.1"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36021,7 +36021,7 @@ def v270_growth_timeline_page(username):
     .delta{{font-size:11px;color:#9edfc2;margin-top:8px}}a{{display:inline-block;border:1px solid #3d6e86;border-radius:10px;padding:10px 13px;background:#0c1920;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}.empty{{color:#8fa5b0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.0 // GROWTH TIMELINE</div>
+        <div class='eyebrow'>BL3 V27.1 // GROWTH TIMELINE</div>
         <h1>📈 PERSONAL BESTS + HISTORY</h1>
         <p class='muted'>{username}'s recorded progression over {count} checkpoint(s).</p>
         <a href='/hunter-progress-checkpoints/{username_path}'>📌 CHECKPOINTS</a>
@@ -36095,6 +36095,220 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v267_progress_passport_page"] = _v270_passport_with_timeline
+except Exception:
+    pass
+
+
+# ===== V27.1 CHECKPOINT REFLECTIONS + PRIVATE JOURNAL =====
+# Lets an authenticated Hunter attach a private reflection to a captured
+# progress checkpoint. Reflections are never exposed through public passport
+# or timeline APIs/pages.
+
+V271_VERSION = "V27.1"
+V271_MAX_REFLECTION = 600
+
+def _v271_ensure_schema():
+    _v269_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_progress_reflections (
+                checkpoint_id INTEGER PRIMARY KEY,
+                username TEXT NOT NULL,
+                reflection TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_progress_reflections_user "
+            "ON hunter_progress_reflections(username, updated_at DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v271_checkpoint_owned(username, checkpoint_id):
+    _v269_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        row = conn.execute(
+            "SELECT id FROM hunter_progress_checkpoints WHERE id=? AND username=?",
+            (int(checkpoint_id), username)
+        ).fetchone()
+        return bool(row)
+    finally:
+        conn.close()
+
+
+def _v271_reflections(username):
+    _v271_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT checkpoint_id, reflection, updated_at
+               FROM hunter_progress_reflections
+               WHERE username=?
+               ORDER BY updated_at DESC""",
+            (username,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v271_reflection_map(username):
+    return {int(r.get("checkpoint_id")): r for r in _v271_reflections(username)}
+
+
+@app.route("/api/hunter-progress-reflections")
+def v271_progress_reflections_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({
+        "success": True,
+        "version": V271_VERSION,
+        "username": username,
+        "items": _v271_reflections(username),
+        "policy": "Checkpoint reflections are private to the signed-in Hunter."
+    })
+
+
+@app.route("/api/hunter-progress-reflections/<int:checkpoint_id>", methods=["POST"])
+def v271_progress_reflection_set_api(checkpoint_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    if not _v271_checkpoint_owned(username, checkpoint_id):
+        return jsonify({"success": False, "error": "checkpoint_not_found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    reflection = str(payload.get("reflection") or "").strip()
+    if len(reflection) > V271_MAX_REFLECTION:
+        return jsonify({"success": False, "error": "reflection_too_long", "max": V271_MAX_REFLECTION}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v271_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        if reflection:
+            conn.execute(
+                """INSERT INTO hunter_progress_reflections(checkpoint_id, username, reflection, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(checkpoint_id) DO UPDATE SET
+                     username=excluded.username,
+                     reflection=excluded.reflection,
+                     updated_at=excluded.updated_at""",
+                (int(checkpoint_id), username, reflection, now)
+            )
+        else:
+            conn.execute(
+                "DELETE FROM hunter_progress_reflections WHERE checkpoint_id=? AND username=?",
+                (int(checkpoint_id), username)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "checkpoint_id": int(checkpoint_id),
+        "saved": bool(reflection),
+        "updated_at": now
+    })
+
+
+@app.route("/hunter-progress-journal")
+def v271_progress_journal_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Progress Journal</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📝 Progress Journal</h1><p>Sign in to open your private checkpoint reflections.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    history = _v269_history(username, 40)
+    reflection_map = _v271_reflection_map(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    cards = []
+    for row in history:
+        checkpoint_id = int(row.get("id") or 0)
+        saved = reflection_map.get(checkpoint_id) or {}
+        reflection = str(saved.get("reflection") or "")
+        cards.append(
+            """<article class='entry'>
+              <div class='top'><div><div class='time'>{time}</div><b>Checkpoint #{id}</b></div>
+              <div class='stats'>{focus} Focus · {trophy} Trophy · {badges} Badges</div></div>
+              <textarea id='r{id}' maxlength='{max_len}' placeholder='What changed? What worked? What is the next adjustment?'>{reflection}</textarea>
+              <div class='actions'><button onclick='saveReflection({id})'>SAVE REFLECTION</button>
+              <span id='m{id}' class='msg'></span></div>
+            </article>""".format(
+                time=esc(row.get("captured_at")),
+                id=checkpoint_id,
+                focus=esc(row.get("completed_focus_runs")),
+                trophy=esc(row.get("trophy_score")),
+                badges=esc(row.get("focus_badge_count")),
+                max_len=V271_MAX_REFLECTION,
+                reflection=esc(reflection),
+            )
+        )
+    if not cards:
+        cards.append("<div class='empty'>No checkpoints yet. Capture one first from Progress Checkpoints.</div>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V27.1 Private Progress Journal</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b2210 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:950px;margin:auto}}.panel{{background:#0d0b08ed;border:1px solid #6b5832;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#f0cb77;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#bcb29b}}
+    .entry{{background:#0b0a07;border:1px solid #493e25;border-radius:18px;padding:17px;margin:12px 0}}.top{{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap}}.time{{font-size:11px;color:#a89d84}}.stats{{font-size:12px;color:#d4c18b}}
+    textarea{{width:100%;min-height:120px;margin-top:12px;border:1px solid #5b4b27;border-radius:12px;background:#080805;color:#fff;padding:12px;resize:vertical;font-family:inherit;line-height:1.5}}
+    button,a{{display:inline-block;border:1px solid #725d2d;border-radius:10px;padding:10px 13px;background:#171208;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}}.actions{{display:flex;gap:10px;align-items:center;margin-top:9px;flex-wrap:wrap}}.msg{{font-size:12px;color:#9ed7ad}}.empty{{color:#a89d84}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V27.1 // PRIVATE REFLECTION LOOP</div>
+        <h1>📝 PROGRESS JOURNAL</h1>
+        <p class='muted'>{username}, write a private reflection beside each captured checkpoint. These notes are not shown on public Passports, Timelines or APIs.</p>
+        <a href='/hunter-progress-checkpoints/{username_path}'>📌 CHECKPOINTS</a>
+        <a href='/hunter-growth-timeline/{username_path}'>📈 GROWTH TIMELINE</a>
+      </section>
+      <section class='panel'>{cards}</section>
+    </div>
+    <script>
+    async function saveReflection(id){{
+      const box=document.getElementById('r'+id);
+      const msg=document.getElementById('m'+id);
+      const r=await fetch('/api/hunter-progress-reflections/'+id,{{
+        method:'POST',
+        headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify({{reflection:box.value}})
+      }});
+      const j=await r.json();
+      msg.textContent=j.success?(j.saved?'Saved':'Reflection cleared'):(j.error||'Failed');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        username_path=urllib.parse.quote(username),
+        cards="".join(cards),
+    )
+
+
+# Surface private journal only for the signed-in owner on Checkpoints.
+try:
+    _v271_prev_checkpoints = app.view_functions.get("v269_progress_checkpoints_page")
+    if _v271_prev_checkpoints:
+        def _v271_checkpoints_with_journal(username, *args, **kwargs):
+            response = _v271_prev_checkpoints(username, *args, **kwargs)
+            if isinstance(response, str) and "/hunter-progress-journal" not in response:
+                viewer = str(session.get("authenticated_username") or "").strip()
+                if viewer == str(username or "").strip():
+                    link = "<a href='/hunter-progress-journal' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #725d2d;border-radius:10px;color:#fff;text-decoration:none'>📝 PRIVATE JOURNAL</a>"
+                    response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v269_progress_checkpoints_page"] = _v271_checkpoints_with_journal
 except Exception:
     pass
 
