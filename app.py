@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V25.7"
+V247_SECURITY_VERSION = "V25.8"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.7"
+V248_SECURITY_VERSION = "V25.8"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Build Attestation</title><style>
+    <title>BL3 V25.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.7 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.8 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.7"
+V250_VERSION = "V25.8"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Release Sentinel</title><style>
+    <title>BL3 V25.8 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.7 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.8 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V25.7"
+V253_VERSION = "V25.8"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Integrity Watch</title>
+    <title>BL3 V25.8 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.7 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V25.8 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V25.7"
+V254_VERSION = "V25.8"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31798,7 +31798,7 @@ def v254_integrity_incidents_page():
         rows.append("<tr><td colspan='6'>No integrity incidents recorded.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Integrity Incident Journal</title>
+    <title>BL3 V25.8 Integrity Incident Journal</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1020 0,#09070b 52%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0a10ea;border:1px solid #56304c;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31808,7 +31808,7 @@ def v254_integrity_incidents_page():
     th{{color:#d9aec8}}button,a.btn{{background:#1b1018;color:#fff;border:1px solid #76405f;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.7 // SECURITY OPERATIONS</div>
+        <div class='eyebrow'>BL3 V25.8 // SECURITY OPERATIONS</div>
         <h1>🚨 INTEGRITY INCIDENT JOURNAL</h1>
         <p>Record and acknowledge runtime integrity findings without exposing secret values.</p>
         <div class='grid'>
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V25.7"
+V255_VERSION = "V25.8"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32097,7 +32097,7 @@ def v255_security_timeline_page():
     latest_cls = "ok" if latest_state == "SECURE" else ("warn" if latest_state == "REVIEW" else "bad")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Security Event Timeline</title>
+    <title>BL3 V25.8 Security Event Timeline</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13203d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1220px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11eb;border:1px solid #334b76;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32107,7 +32107,7 @@ def v255_security_timeline_page():
     th{{color:#b4c9e9}}button,a.btn{{background:#101827;color:#fff;border:1px solid #48689a;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.7 // SECURITY OBSERVABILITY</div>
+        <div class='eyebrow'>BL3 V25.8 // SECURITY OBSERVABILITY</div>
         <h1>🕓 SECURITY EVENT TIMELINE</h1>
         <p>Automatic snapshots are written only when integrity posture changes.</p>
         <div class='grid'>
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V25.7"
+V256_VERSION = "V25.8"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32356,7 +32356,7 @@ def v256_security_diff_page():
         next_hint = "<a class='btn' href='/admin/security-diff?snapshot_id={}'>← COMPARE PREVIOUS SNAPSHOT</a>".format(int(prev_id))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Change Diff Viewer</title>
+    <title>BL3 V25.8 Change Diff Viewer</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1a183a 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11ec;border:1px solid #454377;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32367,7 +32367,7 @@ def v256_security_diff_page():
     .pill.changed{{background:#5a1e41;color:#ffb2d6}}.pill.same{{background:#143b31;color:#8cf5cf}}a.btn{{display:inline-block;background:#111226;color:#fff;border:1px solid #555398;border-radius:10px;padding:9px 12px;text-decoration:none;margin:4px 5px 0 0}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.7 // SNAPSHOT INTELLIGENCE</div>
+        <div class='eyebrow'>BL3 V25.8 // SNAPSHOT INTELLIGENCE</div>
         <h1>🔬 CHANGE DIFF VIEWER</h1>
         <p>Compare one security snapshot against the immediately previous snapshot.</p>
         <div class='grid'>
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V25.7"
+V257_VERSION = "V25.8"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32660,7 +32660,7 @@ def v257_security_baseline_page():
         pin_label = "📌 RE-PIN CURRENT SNAPSHOT"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.7 Trusted Security Baseline</title>
+    <title>BL3 V25.8 Trusted Security Baseline</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#133221 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0a0d0beb;border:1px solid #2d6046;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32670,7 +32670,7 @@ def v257_security_baseline_page():
     th{{color:#abd2bb}}button,a.btn{{display:inline-block;background:#0e1c14;color:#fff;border:1px solid #3e7c5c;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer;margin:4px 5px 0 0}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.7 // TRUST ANCHOR</div>
+        <div class='eyebrow'>BL3 V25.8 // TRUST ANCHOR</div>
         <h1>📌 TRUSTED SECURITY BASELINE</h1>
         <p>Pin one known-good secure snapshot and compare later runtime posture against it.</p>
         <div class='grid'>
@@ -32750,6 +32750,252 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["admin_control_center_page"] = _v257_control_with_baseline
+except Exception:
+    pass
+
+
+# ===== V25.8 HUNTER COMMAND DECK =====
+# Product-facing personalized home for signed-in Hunters.
+# Reuses existing progression/social/profile systems; no new economic value is introduced.
+
+V258_VERSION = "V25.8"
+
+def _v258_safe_call(fn, *args, default=None, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except Exception:
+        return default
+
+
+def _v258_hunter_command_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {
+            "success": False,
+            "error": "auth_required",
+            "version": V258_VERSION,
+        }
+
+    profile = _v258_safe_call(_hunter_public_profile_snapshot, username, default={}) or {}
+    missions = _v258_safe_call(_hunter_daily_missions_snapshot, username, default={}) or {}
+    briefing = _v258_safe_call(_hunter_intelligence_briefing, username, default={}) or {}
+    trophy = _v258_safe_call(_hunter_trophy_room_snapshot, username, default={}) or {}
+    social = _v258_safe_call(_hunter_social_feed_snapshot, username, 16, default={}) or {}
+
+    title = profile.get("title") or {"title": "HUNTER", "icon": "👾", "tier": "UNRANKED"}
+    aura = profile.get("aura") or {"label": "SIGNAL", "icon": "📡"}
+    stats = dict(profile.get("stats") or {})
+    mission_list = list(missions.get("missions") or missions.get("items") or [])
+    completed = int(missions.get("completed") or stats.get("mission_completed") or 0)
+    mission_count = int(missions.get("mission_count") or stats.get("mission_count") or len(mission_list))
+    remaining = max(mission_count - completed, 0)
+
+    feed_items = list(
+        social.get("items")
+        or social.get("feed")
+        or social.get("entries")
+        or social.get("activity")
+        or []
+    )[:8]
+
+    cards = [
+        {
+            "key": "missions",
+            "icon": "🎯",
+            "title": "DAILY MISSIONS",
+            "value": "{} / {}".format(completed, mission_count) if mission_count else "READY",
+            "detail": "{} remaining".format(remaining) if mission_count else "Open your mission board",
+            "href": "/hunter-missions",
+        },
+        {
+            "key": "trophy",
+            "icon": "🏆",
+            "title": "TROPHY SCORE",
+            "value": int(profile.get("trophy_score") or trophy.get("trophy_score") or 0),
+            "detail": str(profile.get("trophy_tier") or trophy.get("trophy_tier") or "RISING CABINET"),
+            "href": "/hunter-trophy-room",
+        },
+        {
+            "key": "briefing",
+            "icon": "🧠",
+            "title": "INTEL BRIEFING",
+            "value": str(briefing.get("briefing_state") or stats.get("briefing_state") or "CLEAR"),
+            "detail": "Signal score {}".format(int(briefing.get("briefing_score") or stats.get("briefing_score") or 0)),
+            "href": "/hunter-briefing",
+        },
+        {
+            "key": "social",
+            "icon": "🌐",
+            "title": "SOCIAL SIGNALS",
+            "value": len(feed_items),
+            "detail": "Recent activity loaded",
+            "href": "/hunter-social-feed",
+        },
+    ]
+
+    payload = {
+        "success": True,
+        "version": V258_VERSION,
+        "username": username,
+        "title": title,
+        "aura": aura,
+        "skin": profile.get("skin") or {},
+        "featured_trophy": profile.get("featured_trophy"),
+        "stats": stats,
+        "cards": cards,
+        "missions": mission_list[:6],
+        "social_activity": feed_items,
+        "quick_links": [
+            {"icon": "👤", "label": "PROFILE", "href": "/hunter-profile"},
+            {"icon": "🎯", "label": "MISSIONS", "href": "/hunter-missions"},
+            {"icon": "🏆", "label": "TROPHIES", "href": "/hunter-trophy-room"},
+            {"icon": "🌐", "label": "SOCIAL FEED", "href": "/hunter-social-feed"},
+            {"icon": "⚔️", "label": "RIVALRY", "href": "/hunter-rivalry-progression"},
+            {"icon": "👥", "label": "CIRCLES", "href": "/hunter-circles"},
+        ],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Hunter Command Deck summarizes existing BL3 progression and social signals. "
+            "Scores, badges, trophies and progression are in-app signals and do not represent monetary value."
+        ),
+    }
+    payload["command_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+@app.route("/api/hunter-command")
+def v258_hunter_command_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v258_hunter_command_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-home")
+def v258_hunter_command_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Hunter Command Deck</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>👑 Hunter Command Deck</h1><p>Sign in to open your personalized Hunter home.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v258_hunter_command_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    title = data.get("title") or {}
+    aura = data.get("aura") or {}
+    cards = data.get("cards") or []
+    missions = data.get("missions") or []
+    social = data.get("social_activity") or []
+
+    card_html = []
+    for card in cards:
+        card_html.append(
+            "<a class='metric' href='{href}'><div class='mi'>{icon}</div><div class='mk'>{title}</div><div class='mv'>{value}</div><div class='md'>{detail}</div></a>".format(
+                href=esc(card.get("href")),
+                icon=esc(card.get("icon")),
+                title=esc(card.get("title")),
+                value=esc(card.get("value")),
+                detail=esc(card.get("detail")),
+            )
+        )
+
+    mission_html = []
+    for item in missions:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("title") or item.get("name") or item.get("label") or item.get("key") or "MISSION"
+        state = item.get("state") or ("DONE" if item.get("completed") else "ACTIVE")
+        reward = item.get("reward") or item.get("reward_label") or item.get("xp") or ""
+        mission_html.append(
+            "<div class='row'><div><b>{}</b><div class='muted'>{}</div></div><span class='pill'>{}</span></div>".format(
+                esc(name), esc(reward), esc(state)
+            )
+        )
+    if not mission_html:
+        mission_html.append("<div class='empty'>No mission rows available yet — open the full mission board.</div>")
+
+    social_html = []
+    for item in social:
+        if not isinstance(item, dict):
+            continue
+        who = item.get("author") or item.get("username") or item.get("actor") or item.get("recipient") or "HUNTER"
+        msg = item.get("message") or item.get("detail") or item.get("text") or item.get("activity") or "New BL3 activity"
+        social_html.append(
+            "<div class='row'><div><b>{}</b><div class='muted'>{}</div></div></div>".format(
+                esc(who), esc(str(msg)[:180])
+            )
+        )
+    if not social_html:
+        social_html.append("<div class='empty'>Your recent social activity will appear here.</div>")
+
+    quick_html = "".join(
+        "<a class='quick' href='{href}'><span>{icon}</span>{label}</a>".format(
+            href=esc(x.get("href")), icon=esc(x.get("icon")), label=esc(x.get("label"))
+        )
+        for x in (data.get("quick_links") or [])
+    )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.8 Hunter Command Deck</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
+    .eyebrow{{color:#c895ff;font-size:13px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:12px 0 8px}}.sub{{color:#c8bed0}}
+    .identity{{display:flex;gap:14px;align-items:center;flex-wrap:wrap}}.avatar{{width:76px;height:76px;border-radius:22px;display:grid;place-items:center;font-size:36px;background:#171022;border:1px solid #6d438e}}
+    .name{{font-size:28px;font-weight:900}}.tag{{display:inline-block;padding:7px 10px;border-radius:999px;background:#1a1125;border:1px solid #5d3c79;color:#d9b6ff;margin-top:7px}}
+    .metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}}.metric{{text-decoration:none;color:#fff;background:#08070c;border:1px solid #3a2450;border-radius:18px;padding:18px;transition:.15s}}
+    .metric:hover{{transform:translateY(-2px);border-color:#9b62c8}}.mi{{font-size:25px}}.mk{{font-size:12px;letter-spacing:1px;color:#bfa5d3;font-weight:900;margin-top:8px}}.mv{{font-size:27px;font-weight:900;margin-top:7px}}.md{{font-size:13px;color:#9f95a8;margin-top:5px}}
+    .cols{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}.row{{display:flex;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #25182f}}.muted{{color:#a79aac;font-size:13px;margin-top:4px}}.pill{{padding:6px 9px;border-radius:999px;background:#16281f;color:#79efb0;font-size:11px;font-weight:900;align-self:flex-start}}
+    .quickbar{{display:flex;flex-wrap:wrap;gap:9px}}.quick{{display:flex;gap:7px;align-items:center;text-decoration:none;color:#fff;background:#110d18;border:1px solid #432d57;padding:10px 12px;border-radius:12px;font-weight:800;font-size:13px}}.quick:hover{{border-color:#9c67c5}}
+    .empty{{color:#9f95a8;padding:14px 0}}@media(max-width:760px){{.cols{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V25.8 // HUNTER HOME</div>
+        <div class='identity'>
+          <div class='avatar'>{title_icon}</div>
+          <div><div class='name'>{username}</div>
+          <div class='tag'>{title_name} · {tier}</div>
+          <div class='sub'>{aura_icon} {aura_label}</div></div>
+        </div>
+        <div class='metrics'>{cards}</div>
+      </section>
+
+      <section class='panel'>
+        <h2>⚡ QUICK LAUNCH</h2>
+        <div class='quickbar'>{quick}</div>
+      </section>
+
+      <div class='cols'>
+        <section class='panel'><h2>🎯 TODAY'S MISSIONS</h2>{missions}<p><a class='quick' href='/hunter-missions'>OPEN MISSION BOARD →</a></p></section>
+        <section class='panel'><h2>🌐 RECENT SOCIAL SIGNALS</h2>{social}<p><a class='quick' href='/hunter-social-feed'>OPEN SOCIAL FEED →</a></p></section>
+      </div>
+    </div></body></html>""".format(
+        title_icon=esc(title.get("icon") or "👾"),
+        username=esc(username),
+        title_name=esc(title.get("title") or "HUNTER"),
+        tier=esc(title.get("tier") or "UNRANKED"),
+        aura_icon=esc(aura.get("icon") or "📡"),
+        aura_label=esc(aura.get("label") or "SIGNAL"),
+        cards="".join(card_html),
+        quick=quick_html,
+        missions="".join(mission_html),
+        social="".join(social_html),
+    )
+
+
+# Surface the new Hunter Home from the public Hunter Profile when available.
+try:
+    _v258_prev_profile_page = app.view_functions.get("hunter_profile_page")
+    if _v258_prev_profile_page:
+        def _v258_profile_with_home(*args, **kwargs):
+            response = _v258_prev_profile_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-home" not in response:
+                link = "<a href='/hunter-home' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #6d438e;border-radius:10px;color:#fff;text-decoration:none'>👑 HUNTER HOME</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["hunter_profile_page"] = _v258_profile_with_home
 except Exception:
     pass
 
