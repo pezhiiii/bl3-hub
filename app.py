@@ -27326,16 +27326,92 @@ if 'hunter_global_rivalry_history_page' in app.view_functions:
 
     app.view_functions['hunter_global_rivalry_history_page'] = _V235_history_with_records
 
+
+
+# ===== V23.6 RIVALRY ACHIEVEMENTS + FEUD HALL OF FAME + LEGENDARY FEUD PROFILES =====
+def _v236_rivalry_achievements(r):
+    feud=r.get('feud') or {}; out=[]
+    def add(key,icon,title,detail,ok):
+        if ok: out.append({'key':key,'icon':icon,'title':title,'detail':detail})
+    add('recorded','📜','Recorded Feud','At least one stored rivalry snapshot exists.',int(r.get('records') or 0)>=1)
+    add('heated','🔥','Heat Locked','Intensity reached 70+.',int(r.get('current_intensity') or 0)>=70)
+    add('classic','👑','Classic Rivals','Intensity reached 85+.',int(r.get('current_intensity') or 0)>=85)
+    add('chapters','📚','Ten Chapters','Ten or more snapshots are stored.',int(r.get('records') or 0)>=10)
+    add('streak','⚡','Streak Master','Longest leader streak reached five.',int(r.get('longest_leader_streak') or 0)>=5)
+    add('classic_run','🏛️','Classic Run','Three consecutive CLASSIC states were stored.',int(r.get('longest_classic_streak') or 0)>=3)
+    add('evolution','🌀','Rivalry Evolution','State changed at least three times.',int(r.get('state_changes') or 0)>=3)
+    add('milestones','🏅','Milestone Hunter','Five rivalry milestones are unlocked.',int(r.get('unlocked_milestones') or 0)>=5)
+    add('eternal','🌌','Eternal Feud','The pair earned ETERNAL FEUD.',str(feud.get('title') or '')=='ETERNAL FEUD')
+    return out
+
+
+def _v236_feud_hall_snapshot(username=''):
+    base=_v235_rivalry_milestones_snapshot(username); hall=[]
+    for r in base.get('rivalries') or []:
+        x=dict(r); x['achievements']=_v236_rivalry_achievements(x); x['achievement_count']=len(x['achievements'])
+        feud_score=int((x.get('feud') or {}).get('score') or 0)
+        x['hall_score']=min(1000,feud_score*6+min(150,int(x.get('records') or 0)*8)+min(180,x['achievement_count']*20)+min(120,int(x.get('longest_classic_streak') or 0)*20))
+        s=x['hall_score']; x['hall_class']='IMMORTAL FEUD' if s>=850 else 'LEGENDARY FEUD' if s>=700 else 'HISTORIC FEUD' if s>=500 else 'NOTABLE FEUD' if s>=300 else 'RISING FEUD'
+        x['profile_url']='/hunter-feud-profile?pair='+urllib.parse.quote(str(x.get('pair_key') or ''),safe=''); hall.append(x)
+    hall.sort(key=lambda x:(int(x.get('hall_score') or 0),int(x.get('achievement_count') or 0),int((x.get('feud') or {}).get('score') or 0)),reverse=True)
+    for i,x in enumerate(hall,1): x['hall_rank']=i
+    payload={'success':True,'username_filter':str(username or '').strip(),'hall':hall,'counts':{'feuds':len(hall),'achievements':sum(int(x.get('achievement_count') or 0) for x in hall),'legendary_or_higher':sum(1 for x in hall if x.get('hall_class') in {'LEGENDARY FEUD','IMMORTAL FEUD'}),'immortal':sum(1 for x in hall if x.get('hall_class')=='IMMORTAL FEUD')},'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','policy':'Feud Hall rankings and achievements summarize stored BL3 rivalry history only. They are historical display systems, not predictions.'}
+    payload['hall_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest(); return payload
+
+
+def _v236_feud_profile_snapshot(pair_key):
+    pair_key=str(pair_key or '').strip(); hall=_v236_feud_hall_snapshot('')
+    feud=next((x for x in hall.get('hall') or [] if str(x.get('pair_key') or '')==pair_key),None)
+    if not feud: return {'success':False,'message':'Recorded feud not found.'}
+    timeline=feud.get('timeline') or []
+    data={'success':True,'pair_key':pair_key,'hunter_a':str(feud.get('hunter_a') or ''),'hunter_b':str(feud.get('hunter_b') or ''),'hall_rank':int(feud.get('hall_rank') or 0),'hall_score':int(feud.get('hall_score') or 0),'hall_class':str(feud.get('hall_class') or ''),'feud':feud.get('feud') or {},'achievements':feud.get('achievements') or [],'milestones':feud.get('milestones') or [],'records':int(feud.get('records') or 0),'timeline':timeline,'compare_url':str(feud.get('compare_url') or '#'),'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','policy':'Legendary Feud Profiles use only stored BL3 rivalry history and deterministic display achievements.'}
+    data['profile_digest']=hashlib.sha256(json.dumps(data,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest(); return data
+
+@app.route('/api/hunter/feud-hall-of-fame')
+def hunter_feud_hall_of_fame_api(): return jsonify(_v236_feud_hall_snapshot(request.args.get('username') or ''))
+@app.route('/hunter-feud-hall-of-fame.json')
+def hunter_feud_hall_of_fame_json(): return jsonify(_v236_feud_hall_snapshot(request.args.get('username') or ''))
+@app.route('/api/hunter/feud-profile')
+def hunter_feud_profile_api():
+    d=_v236_feud_profile_snapshot(request.args.get('pair') or ''); return jsonify(d),(200 if d.get('success') else 404)
+@app.route('/hunter-feud-profile.json')
+def hunter_feud_profile_json():
+    d=_v236_feud_profile_snapshot(request.args.get('pair') or ''); return jsonify(d),(200 if d.get('success') else 404)
+
+@app.route('/hunter-feud-hall-of-fame')
+def hunter_feud_hall_of_fame_page():
+    username=str(request.args.get('username') or '').strip(); data=_v236_feud_hall_snapshot(username); esc=html.escape
+    cards=''.join('<article style="border:1px solid #30323b;border-radius:16px;padding:14px;margin:10px 0;background:#090a0f"><b style="color:#ffd66b">#{rank} · {cls}</b><h2>@{a} VS @{b}</h2><p>{records} records · {ach} achievements · Hall Score {score}</p><a style="color:#ffd66b" href="{href}">LEGENDARY FEUD PROFILE</a></article>'.format(rank=int(r.get('hall_rank') or 0),cls=esc(str(r.get('hall_class') or '')),a=esc(str(r.get('hunter_a') or '')),b=esc(str(r.get('hunter_b') or '')),records=int(r.get('records') or 0),ach=int(r.get('achievement_count') or 0),score=int(r.get('hall_score') or 0),href=esc(str(r.get('profile_url') or '#'))) for r in data.get('hall') or []) or '<p>No recorded feuds yet.</p>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Feud Hall</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1100px;margin:auto"><h4 style="color:#ffd66b">V23.6 // FEUD HALL OF FAME</h4><h1 style="font-size:64px;margin:8px 0">RIVALRIES BECOME LEGENDS.</h1><form><input name="username" value="{}" placeholder="Hunter username" style="padding:10px;background:#090a0f;color:#fff;border:1px solid #333;border-radius:10px"><button style="padding:10px;margin-left:8px">FILTER</button></form><p><a style="color:#ffd66b" href="/hunter-global-rivalry-milestones">RIVALRY MILESTONES</a> · <a style="color:#ffd66b" href="/hunter-eternal-rivalry-records">ETERNAL RECORDS</a></p>{}<p style="color:#777;font:10px monospace">HALL DIGEST // {}</p></main></body>'.format(esc(username),cards,esc(str(data.get('hall_digest') or '')))
+
+@app.route('/hunter-feud-profile')
+def hunter_feud_profile_page():
+    data=_v236_feud_profile_snapshot(request.args.get('pair') or ''); esc=html.escape
+    if not data.get('success'): return '<!doctype html><body style="background:#05060a;color:#fff;font-family:system-ui;padding:30px"><h1>Feud not found.</h1></body>',404
+    ach=''.join('<li>{} <b>{}</b> — {}</li>'.format(esc(str(a.get('icon') or '🏅')),esc(str(a.get('title') or '')),esc(str(a.get('detail') or ''))) for a in data.get('achievements') or []) or '<li>No achievements yet.</li>'
+    timeline=''.join('<li>{} · {} · intensity {} · leader {}</li>'.format(esc(str(t.get('recorded_at') or '')),esc(str(t.get('state') or '')),int(t.get('intensity') or 0),esc(str(t.get('leader') or 'EVEN'))) for t in data.get('timeline') or []) or '<li>No stored timeline yet.</li>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Legendary Feud</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1000px;margin:auto"><h4 style="color:#ffd66b">V23.6 // LEGENDARY FEUD PROFILE</h4><h1 style="font-size:58px">@{} VS @{}</h1><p>{} · Hall Rank #{} · Hall Score {}</p><p><a style="color:#ffd66b" href="{}">HEAD-TO-HEAD</a> · <a style="color:#ffd66b" href="/hunter-feud-hall-of-fame">FEUD HALL</a></p><h2>Achievements</h2><ul>{}</ul><h2>Historic Timeline</h2><ul>{}</ul><p style="color:#777;font:10px monospace">PROFILE DIGEST // {}</p></main></body>'.format(esc(data.get('hunter_a') or ''),esc(data.get('hunter_b') or ''),esc(str(data.get('hall_class') or '')),int(data.get('hall_rank') or 0),int(data.get('hall_score') or 0),esc(str(data.get('compare_url') or '#')),ach,timeline,esc(str(data.get('profile_digest') or '')))
+
+if 'hunter_global_rivalry_milestones_page' in app.view_functions:
+    _V235_milestones_view_v236=app.view_functions['hunter_global_rivalry_milestones_page']
+    def _V236_milestones_with_hall():
+        response=_V235_milestones_view_v236()
+        if isinstance(response,str) and '/hunter-feud-hall-of-fame' not in response:
+            response=response.replace('</section>','<a href="/hunter-feud-hall-of-fame">FEUD HALL OF FAME</a></section>',1)
+        return response
+    app.view_functions['hunter_global_rivalry_milestones_page']=_V236_milestones_with_hall
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏆 BL3 ARENA V23.5 // RIVALRY MILESTONES + FEUD TITLES + ETERNAL RIVALRY RECORDS")
+    print("🏛️ BL3 ARENA V23.6 // RIVALRY ACHIEVEMENTS + FEUD HALL OF FAME + LEGENDARY FEUD PROFILES")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🏛️ Rivalry Achievements + Feud Hall of Fame + Legendary Feud Profiles enabled")
     print("🏆 Rivalry Milestones + Feud Titles + Eternal Rivalry Records enabled")
     print("📜 Rivalry Streaks + Nemesis Evolution + Historic Rivalry Timeline enabled")
     print("😈 Rivalry History + Nemesis System + Legendary Matchups enabled")
