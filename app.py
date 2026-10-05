@@ -28336,16 +28336,357 @@ if 'hunter_season_champion_hall_page' in app.view_functions:
         return response
     app.view_functions['hunter_season_champion_hall_page'] = _V240_season_hall_with_universe
 
+
+
+# ===== V24.1 RIVALRY PULSE + LIVE ARCHIVE ACTIVITY + UNIVERSE SPOTLIGHT =====
+def _v241_activity_time(item):
+    for key in ('created_at', 'recorded_at', 'timestamp', 'occurred_at', 'date', 'time'):
+        value = str((item or {}).get(key) or '').strip()
+        if value:
+            return value
+    return ''
+
+
+def _v241_live_archive_activity_snapshot(limit=80):
+    try:
+        limit = max(1, min(250, int(limit or 80)))
+    except Exception:
+        limit = 80
+
+    base = _v238_archive_index_snapshot('', '', '')
+    events = []
+    for feud in base.get('index') or []:
+        pair_key = str(feud.get('pair_key') or '')
+        a = str(feud.get('hunter_a') or '')
+        b = str(feud.get('hunter_b') or '')
+        profile_url = str(feud.get('index_url') or '#')
+        timeline = list(feud.get('timeline') or [])
+
+        for n, item in enumerate(timeline):
+            item = dict(item or {})
+            title = str(
+                item.get('title') or item.get('event') or item.get('state') or
+                item.get('type') or item.get('label') or 'Recorded rivalry activity'
+            )
+            detail = str(
+                item.get('detail') or item.get('description') or item.get('note') or
+                item.get('leader') or item.get('winner') or ''
+            )
+            intensity = int(item.get('intensity') or item.get('score') or item.get('value') or 0)
+            created_at = _v241_activity_time(item)
+            identity = json.dumps(
+                {'pair': pair_key, 'n': n, 'time': created_at, 'title': title, 'detail': detail},
+                sort_keys=True, ensure_ascii=False, default=str
+            )
+            events.append({
+                'activity_id': hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20],
+                'pair_key': pair_key,
+                'hunter_a': a,
+                'hunter_b': b,
+                'title': title,
+                'detail': detail,
+                'intensity': intensity,
+                'created_at': created_at,
+                'profile_url': profile_url,
+                'source': 'RIVALRY_ARCHIVE',
+            })
+
+        # Every feud still contributes one deterministic archive-summary signal.
+        summary_identity = '{}|{}|{}|{}'.format(
+            pair_key,
+            int(feud.get('records') or 0),
+            int(feud.get('index_score') or 0),
+            int(feud.get('hall_score') or 0)
+        )
+        events.append({
+            'activity_id': hashlib.sha256(summary_identity.encode('utf-8')).hexdigest()[:20],
+            'pair_key': pair_key,
+            'hunter_a': a,
+            'hunter_b': b,
+            'title': 'Archive summary updated',
+            'detail': '{} snapshots · {} eras · {} seasons'.format(
+                int(feud.get('records') or 0),
+                int(feud.get('era_count') or 0),
+                int(feud.get('season_count') or 0)
+            ),
+            'intensity': int(feud.get('index_score') or 0),
+            'created_at': '',
+            'profile_url': profile_url,
+            'source': 'ETERNAL_INDEX',
+        })
+
+    # Timestamped entries first; deterministic score/id fallback keeps output stable.
+    events.sort(
+        key=lambda x: (
+            1 if str(x.get('created_at') or '') else 0,
+            str(x.get('created_at') or ''),
+            int(x.get('intensity') or 0),
+            str(x.get('activity_id') or '')
+        ),
+        reverse=True
+    )
+    events = events[:limit]
+
+    payload = {
+        'success': True,
+        'activity': events,
+        'count': len(events),
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Live Archive Activity is a live view of currently stored BL3 rivalry records. '
+            'It does not invent external events or infer unrecorded history.'
+        ),
+    }
+    payload['activity_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _v241_rivalry_pulse_snapshot():
+    analytics = _v240_feud_analytics_snapshot()
+    activity = _v241_live_archive_activity_snapshot(120)
+    index = _v238_archive_index_snapshot('', '', '')
+
+    rows = list(index.get('index') or [])
+    rising = int((analytics.get('trend_breakdown') or {}).get('RISING') or 0)
+    stable = int((analytics.get('trend_breakdown') or {}).get('STABLE') or 0)
+    cooling = int((analytics.get('trend_breakdown') or {}).get('COOLING') or 0)
+    recent_intensity = sum(min(100, max(0, int(x.get('intensity') or 0))) for x in (activity.get('activity') or [])[:12])
+    avg_recent = round(recent_intensity / max(1, min(12, len(activity.get('activity') or []))), 2)
+
+    pulse_score = min(
+        100,
+        int(
+            min(35, rising * 7) +
+            min(20, len(rows) * 2) +
+            min(25, avg_recent * 0.25) +
+            min(20, int((analytics.get('summary') or {}).get('rivalry_eras') or 0))
+        )
+    )
+    if pulse_score >= 75:
+        pulse_state = 'REDLINE'
+    elif pulse_score >= 50:
+        pulse_state = 'HOT'
+    elif pulse_score >= 25:
+        pulse_state = 'ACTIVE'
+    else:
+        pulse_state = 'CALM'
+
+    hottest = None
+    if rows:
+        r = max(rows, key=lambda x: (int(x.get('index_score') or 0), int(x.get('hall_score') or 0)))
+        hottest = {
+            'pair_key': str(r.get('pair_key') or ''),
+            'hunter_a': str(r.get('hunter_a') or ''),
+            'hunter_b': str(r.get('hunter_b') or ''),
+            'index_score': int(r.get('index_score') or 0),
+            'hall_score': int(r.get('hall_score') or 0),
+            'archive_class': str(r.get('archive_class') or ''),
+            'profile_url': str(r.get('index_url') or '#'),
+        }
+
+    payload = {
+        'success': True,
+        'pulse_score': pulse_score,
+        'pulse_state': pulse_state,
+        'rising_feuds': rising,
+        'stable_feuds': stable,
+        'cooling_feuds': cooling,
+        'avg_recent_signal': avg_recent,
+        'hottest_recorded_feud': hottest,
+        'recent_activity': (activity.get('activity') or [])[:16],
+        'summary': analytics.get('summary') or {},
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry Pulse is a descriptive workflow score derived from recorded feud counts, archive scores, '
+            'and stored intensity history. It is not a forecast of future rivalry outcomes.'
+        ),
+    }
+    payload['pulse_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _v241_universe_spotlight_snapshot():
+    index = _v238_archive_index_snapshot('', '', '')
+    rows = list(index.get('index') or [])
+    day_key = datetime.utcnow().strftime('%Y-%m-%d')
+
+    if not rows:
+        spotlight = None
+    else:
+        ranked = sorted(rows, key=lambda x: str(x.get('pair_key') or ''))
+        seed = int(hashlib.sha256(day_key.encode('utf-8')).hexdigest()[:16], 16)
+        r = ranked[seed % len(ranked)]
+        spotlight = {
+            'day_key': day_key,
+            'pair_key': str(r.get('pair_key') or ''),
+            'hunter_a': str(r.get('hunter_a') or ''),
+            'hunter_b': str(r.get('hunter_b') or ''),
+            'archive_class': str(r.get('archive_class') or ''),
+            'hall_class': str(r.get('hall_class') or ''),
+            'index_score': int(r.get('index_score') or 0),
+            'hall_score': int(r.get('hall_score') or 0),
+            'records': int(r.get('records') or 0),
+            'era_count': int(r.get('era_count') or 0),
+            'season_count': int(r.get('season_count') or 0),
+            'profile_url': str(r.get('index_url') or '#'),
+            'reason': 'Deterministic UTC daily archive rotation.',
+        }
+
+    payload = {
+        'success': True,
+        'spotlight': spotlight,
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Universe Spotlight is a deterministic daily rotation through existing archive entries. '
+            'Selection is not a ranking, endorsement, or prediction.'
+        ),
+    }
+    payload['spotlight_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/rivalry-pulse')
+def hunter_rivalry_pulse_api():
+    return jsonify(_v241_rivalry_pulse_snapshot())
+
+@app.route('/hunter-rivalry-pulse.json')
+def hunter_rivalry_pulse_json():
+    return jsonify(_v241_rivalry_pulse_snapshot())
+
+@app.route('/api/hunter/live-archive-activity')
+def hunter_live_archive_activity_api():
+    return jsonify(_v241_live_archive_activity_snapshot(request.args.get('limit') or 80))
+
+@app.route('/hunter-live-archive-activity.json')
+def hunter_live_archive_activity_json():
+    return jsonify(_v241_live_archive_activity_snapshot(request.args.get('limit') or 80))
+
+@app.route('/api/hunter/universe-spotlight')
+def hunter_universe_spotlight_api():
+    return jsonify(_v241_universe_spotlight_snapshot())
+
+@app.route('/hunter-universe-spotlight.json')
+def hunter_universe_spotlight_json():
+    return jsonify(_v241_universe_spotlight_snapshot())
+
+
+@app.route('/hunter-rivalry-pulse')
+def hunter_rivalry_pulse_page():
+    data = _v241_rivalry_pulse_snapshot()
+    esc = html.escape
+    hot = data.get('hottest_recorded_feud') or {}
+    activity = ''.join(
+        '<article><div><b>@{} VS @{}</b><small>{}</small></div><div><strong>{}</strong><small>{}</small></div><a href="{}">OPEN</a></article>'.format(
+            esc(str(x.get('hunter_a') or '')),
+            esc(str(x.get('hunter_b') or '')),
+            esc(str(x.get('created_at') or 'RECORDED ARCHIVE')),
+            esc(str(x.get('title') or 'Archive activity')),
+            esc(str(x.get('detail') or '')),
+            esc(str(x.get('profile_url') or '#')),
+        )
+        for x in data.get('recent_activity') or []
+    ) or '<p>No recorded archive activity yet.</p>'
+    hot_html = '<p>No recorded feud yet.</p>'
+    if hot:
+        hot_html = '<h2>@{} VS @{}</h2><p>{} · Index {} · Hall {}</p><a href="{}">OPEN ETERNAL PROFILE</a>'.format(
+            esc(str(hot.get('hunter_a') or '')),
+            esc(str(hot.get('hunter_b') or '')),
+            esc(str(hot.get('archive_class') or '')),
+            int(hot.get('index_score') or 0),
+            int(hot.get('hall_score') or 0),
+            esc(str(hot.get('profile_url') or '#')),
+        )
+    return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry Pulse</title><body><main><section class="hero"><span>V24.1 // RIVALRY PULSE</span><h1>THE UNIVERSE IS MOVING.</h1><div class="orb">{int(data.get('pulse_score') or 0)}<small>{esc(str(data.get('pulse_state') or 'CALM'))}</small></div><div class="stats"><b>RISING {int(data.get('rising_feuds') or 0)}</b><b>STABLE {int(data.get('stable_feuds') or 0)}</b><b>COOLING {int(data.get('cooling_feuds') or 0)}</b></div></section><section class="panel"><span>HOTTEST RECORDED FEUD</span>{hot_html}</section><section class="panel"><h2>LIVE ARCHIVE ACTIVITY</h2>{activity}</section><p><a href="/hunter-rivalry-universe">RIVALRY UNIVERSE</a> · <a href="/hunter-universe-spotlight">UNIVERSE SPOTLIGHT</a> · <a href="/hunter-feud-analytics">ANALYTICS</a></p><p class="digest">PULSE DIGEST // {esc(str(data.get('pulse_digest') or ''))}</p></main><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 50% 0,#48105e,transparent 35%),#05060a;color:white;font-family:system-ui;padding:24px}}main{{max-width:1120px;margin:auto}}.hero,.panel{{background:#090a0f;border:1px solid #343640;border-radius:24px;padding:22px;margin-bottom:14px}}.hero>span,.panel>span,a{{color:#ffd66b}}h1{{font-size:clamp(50px,8vw,92px);line-height:.9;margin:10px 0}}.orb{{width:145px;height:145px;border-radius:50%;display:grid;place-items:center;background:#14091d;border:2px solid #ffd66b;font-size:54px;margin:20px 0}}.orb small{{display:block;font-size:10px;color:#ffd66b}}.stats{{display:flex;gap:10px;flex-wrap:wrap}}.stats b{{border:1px solid #333;border-radius:999px;padding:8px 12px}}article{{display:grid;grid-template-columns:1fr 1.3fr auto;gap:12px;align-items:center;border-top:1px solid #252730;padding:12px 0}}article small{{display:block;color:#9296a1}}article a{{text-decoration:none}}.digest{{font:9px monospace;color:#777;word-break:break-all}}@media(max-width:750px){{article{{grid-template-columns:1fr}}}}</style></body>"""
+
+
+@app.route('/hunter-live-archive-activity')
+def hunter_live_archive_activity_page():
+    data = _v241_live_archive_activity_snapshot(request.args.get('limit') or 100)
+    esc = html.escape
+    cards = ''.join(
+        '<article><b>@{} VS @{}</b><h3>{}</h3><p>{}</p><small>{}</small><a href="{}">PROFILE</a></article>'.format(
+            esc(str(x.get('hunter_a') or '')),
+            esc(str(x.get('hunter_b') or '')),
+            esc(str(x.get('title') or '')),
+            esc(str(x.get('detail') or '')),
+            esc(str(x.get('created_at') or 'RECORDED ARCHIVE SIGNAL')),
+            esc(str(x.get('profile_url') or '#')),
+        )
+        for x in data.get('activity') or []
+    ) or '<p>No recorded archive activity.</p>'
+    return f"""<!doctype html><meta charset="utf-8"><title>BL3 Live Archive Activity</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1100px;margin:auto"><h4 style="color:#ffd66b">V24.1 // LIVE ARCHIVE ACTIVITY</h4><h1 style="font-size:68px">ARCHIVE STREAM.</h1><p style="color:#999">A read-only stream of stored rivalry activity and archive summary signals.</p>{cards}<p><a style="color:#ffd66b" href="/hunter-rivalry-pulse">RIVALRY PULSE</a> · <a style="color:#ffd66b" href="/hunter-rivalry-universe">UNIVERSE HUB</a></p><p style="color:#777;font:10px monospace">ACTIVITY DIGEST // {esc(str(data.get('activity_digest') or ''))}</p></main><style>article{{border:1px solid #333;border-radius:16px;padding:14px;margin:9px 0;background:#090a0f}}article h3{{margin:5px 0}}article p,article small{{color:#999}}article a{{color:#ffd66b}}</style></body>"""
+
+
+@app.route('/hunter-universe-spotlight')
+def hunter_universe_spotlight_page():
+    data = _v241_universe_spotlight_snapshot()
+    esc = html.escape
+    s = data.get('spotlight') or {}
+    if not s:
+        card = '<p>No archive entry is available for today.</p>'
+    else:
+        card = '<article><div class="tag">DAILY ARCHIVE SPOTLIGHT · {}</div><h2>@{} VS @{}</h2><p>{} · {} · {} recorded snapshots</p><div class="nums"><b>{}<small>INDEX</small></b><b>{}<small>HALL</small></b><b>{}<small>ERAS</small></b><b>{}<small>SEASONS</small></b></div><a href="{}">ENTER ETERNAL PROFILE</a></article>'.format(
+            esc(str(s.get('day_key') or '')),
+            esc(str(s.get('hunter_a') or '')),
+            esc(str(s.get('hunter_b') or '')),
+            esc(str(s.get('archive_class') or '')),
+            esc(str(s.get('hall_class') or '')),
+            int(s.get('records') or 0),
+            int(s.get('index_score') or 0),
+            int(s.get('hall_score') or 0),
+            int(s.get('era_count') or 0),
+            int(s.get('season_count') or 0),
+            esc(str(s.get('profile_url') or '#')),
+        )
+    return f"""<!doctype html><meta charset="utf-8"><title>BL3 Universe Spotlight</title><body><main><h4>V24.1 // UNIVERSE SPOTLIGHT</h4><h1>TODAY IN THE ARCHIVE.</h1>{card}<p><a href="/hunter-rivalry-pulse">RIVALRY PULSE</a> · <a href="/hunter-rivalry-universe">UNIVERSE HUB</a></p><p class="digest">SPOTLIGHT DIGEST // {esc(str(data.get('spotlight_digest') or ''))}</p></main><style>body{{margin:0;background:radial-gradient(circle at 50% 10%,#64460c,transparent 35%),#05060a;color:#fff;font-family:system-ui;padding:24px}}main{{max-width:960px;margin:auto}}h4,.tag,a{{color:#ffd66b}}h1{{font-size:70px}}article{{border:1px solid #5d4b22;background:#0b0a08;border-radius:28px;padding:30px}}article h2{{font-size:44px}}.nums{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:20px 0}}.nums b{{border:1px solid #3c3422;border-radius:16px;padding:14px;font-size:28px}}.nums small{{display:block;font-size:9px;color:#aaa}}.digest{{font:9px monospace;color:#777;word-break:break-all}}</style></body>"""
+
+
+# Upgrade the V24.0 Universe hub with V24.1 live surfaces.
+if 'hunter_rivalry_universe_page' in app.view_functions:
+    _V240_universe_view_v241 = app.view_functions['hunter_rivalry_universe_page']
+    def _V241_universe_with_pulse():
+        response = _V240_universe_view_v241()
+        if isinstance(response, str) and '/hunter-rivalry-pulse' not in response:
+            pulse_links = (
+                '<a class="tile" href="/hunter-rivalry-pulse"><span>⚡</span><b>Rivalry Pulse</b></a>'
+                '<a class="tile" href="/hunter-live-archive-activity"><span>📡</span><b>Live Archive Activity</b></a>'
+                '<a class="tile" href="/hunter-universe-spotlight"><span>🌠</span><b>Universe Spotlight</b></a>'
+            )
+            response = response.replace('<div class="grid">', '<div class="grid">' + pulse_links, 1)
+            response = response.replace('V24.0 // RIVALRY UNIVERSE HUB', 'V24.1 // RIVALRY PULSE + LIVE ARCHIVE + SPOTLIGHT', 1)
+        return response
+    app.view_functions['hunter_rivalry_universe_page'] = _V241_universe_with_pulse
+
+if 'hunter_feud_analytics_page' in app.view_functions:
+    _V240_analytics_view_v241 = app.view_functions['hunter_feud_analytics_page']
+    def _V241_analytics_with_pulse():
+        response = _V240_analytics_view_v241()
+        if isinstance(response, str) and '/hunter-rivalry-pulse' not in response:
+            response = response.replace(
+                'RIVALRY UNIVERSE</a> ·',
+                'RIVALRY UNIVERSE</a> · <a style="color:#ffd66b" href="/hunter-rivalry-pulse">RIVALRY PULSE</a> ·',
+                1
+            )
+        return response
+    app.view_functions['hunter_feud_analytics_page'] = _V241_analytics_with_pulse
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🌌 BL3 ARENA V24.0 // RIVALRY UNIVERSE HUB + ETERNAL RECORDS DASHBOARD + FEUD ANALYTICS")
+    print("⚡ BL3 ARENA V24.1 // RIVALRY PULSE + LIVE ARCHIVE ACTIVITY + UNIVERSE SPOTLIGHT")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("⚡ Rivalry Pulse + Live Archive Activity + Universe Spotlight enabled")
     print("🌌 Rivalry Universe Hub + Eternal Records Dashboard + Feud Analytics enabled")
     print("🔎 Archive Search + Era Compare + Season Champion Hall enabled")
     print("🏆 Feud Era Awards + Rivalry Season Champions + Eternal Archive Index enabled")
