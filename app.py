@@ -25799,16 +25799,216 @@ if 'hunter_hall_of_legends_page' in app.view_functions:
         return response
     app.view_functions['hunter_hall_of_legends_page']=_V230_hall_legends_with_global
 
+
+# ===== V23.1 GLOBAL LEGEND PROFILES + RECORD HOLDERS + HALL SEARCH =====
+def _global_legend_profile_snapshot(username):
+    username = str(username or '').strip()
+    if not username:
+        return {'success': False, 'message': 'Hunter username required.'}
+
+    hall = _global_hall_of_fame_snapshot(250)
+    hunter = next((h for h in hall.get('hall_of_fame') or [] if str(h.get('username') or '').lower() == username.lower()), None)
+    if not hunter:
+        return {'success': False, 'message': 'Hunter is not ranked in the Global Hall of Fame.'}
+
+    _ensure_season_award_schema()
+    _ensure_circle_reward_schema()
+    conn = db()
+    circle_rows = conn.execute("""
+        SELECT p.circle_id,c.name AS circle_name,c.emoji AS circle_emoji,c.owner AS circle_owner,
+               SUM(p.amount) AS progress,COUNT(*) AS updates,
+               COUNT(DISTINCT p.challenge_id) AS challenges_helped,
+               COUNT(DISTINCT sc.season_id) AS seasons_played
+        FROM hunter_circle_challenge_progress p
+        LEFT JOIN hunter_social_circles c ON c.id=p.circle_id
+        LEFT JOIN hunter_circle_season_challenges sc ON sc.challenge_id=p.challenge_id
+        WHERE lower(p.contributor)=lower(?)
+        GROUP BY p.circle_id,c.name,c.emoji,c.owner
+        ORDER BY progress DESC,challenges_helped DESC,p.circle_id ASC
+    """, (username,)).fetchall()
+    award_rows = conn.execute("""
+        SELECT a.id,a.season_id,a.circle_id,a.award_icon,a.award_title,a.metric_value,a.metric_label,a.detail,a.awarded_at,
+               s.name AS season_name,c.name AS circle_name,c.emoji AS circle_emoji
+        FROM hunter_circle_season_awards a
+        LEFT JOIN hunter_circle_seasons s ON s.id=a.season_id
+        LEFT JOIN hunter_social_circles c ON c.id=a.circle_id
+        WHERE lower(a.winner)=lower(?)
+        ORDER BY a.id DESC LIMIT 100
+    """, (username,)).fetchall()
+    trophy_rows = conn.execute("""
+        SELECT t.id,t.circle_id,t.challenge_id,t.trophy_icon,t.trophy_title,t.trophy_description,
+               t.mvp_amount,t.total_progress,t.awarded_at,c.name AS circle_name,ch.title AS challenge_title
+        FROM hunter_circle_trophies t
+        LEFT JOIN hunter_social_circles c ON c.id=t.circle_id
+        LEFT JOIN hunter_circle_challenges ch ON ch.id=t.challenge_id
+        WHERE lower(t.mvp_username)=lower(?)
+        ORDER BY t.id DESC LIMIT 100
+    """, (username,)).fetchall()
+    recent_rows = conn.execute("""
+        SELECT p.id,p.circle_id,p.challenge_id,p.amount,p.note,p.created_at,
+               c.name AS circle_name,ch.title AS challenge_title
+        FROM hunter_circle_challenge_progress p
+        LEFT JOIN hunter_social_circles c ON c.id=p.circle_id
+        LEFT JOIN hunter_circle_challenges ch ON ch.id=p.challenge_id
+        WHERE lower(p.contributor)=lower(?)
+        ORDER BY p.id DESC LIMIT 80
+    """, (username,)).fetchall()
+    conn.close()
+
+    record_holds = [r for r in (hall.get('eternal_records') or []) if str(r.get('winner') or '').lower() == username.lower()]
+    payload = {
+        'success': True,
+        'hunter': hunter,
+        'record_holds': record_holds,
+        'circles': [{
+            'circle_id': int(r['circle_id'] or 0),'circle_name': str(r['circle_name'] or 'Circle'),
+            'circle_emoji': str(r['circle_emoji'] or '🫂'),'circle_owner': str(r['circle_owner'] or ''),
+            'progress': int(r['progress'] or 0),'updates': int(r['updates'] or 0),
+            'challenges_helped': int(r['challenges_helped'] or 0),'seasons_played': int(r['seasons_played'] or 0),
+            'legacy_url': '/hunter-circles/{}/legacy'.format(int(r['circle_id'] or 0)),
+        } for r in circle_rows],
+        'season_awards': [{
+            'id': int(r['id'] or 0),'season_id': int(r['season_id'] or 0),'circle_id': int(r['circle_id'] or 0),
+            'icon': str(r['award_icon'] or '🏅'),'title': str(r['award_title'] or ''),
+            'metric_value': int(r['metric_value'] or 0),'metric_label': str(r['metric_label'] or ''),
+            'detail': str(r['detail'] or ''),'awarded_at': str(r['awarded_at'] or ''),
+            'season_name': str(r['season_name'] or ''),'circle_name': str(r['circle_name'] or ''),
+            'circle_emoji': str(r['circle_emoji'] or '🫂'),
+        } for r in award_rows],
+        'trophy_mvp_history': [{
+            'id': int(r['id'] or 0),'circle_id': int(r['circle_id'] or 0),'challenge_id': int(r['challenge_id'] or 0),
+            'icon': str(r['trophy_icon'] or '🏆'),'title': str(r['trophy_title'] or ''),
+            'description': str(r['trophy_description'] or ''),'mvp_amount': int(r['mvp_amount'] or 0),
+            'total_progress': int(r['total_progress'] or 0),'awarded_at': str(r['awarded_at'] or ''),
+            'circle_name': str(r['circle_name'] or ''),'challenge_title': str(r['challenge_title'] or ''),
+        } for r in trophy_rows],
+        'recent_progress': [{
+            'id': int(r['id'] or 0),'circle_id': int(r['circle_id'] or 0),'challenge_id': int(r['challenge_id'] or 0),
+            'amount': int(r['amount'] or 0),'note': str(r['note'] or ''),'created_at': str(r['created_at'] or ''),
+            'circle_name': str(r['circle_name'] or ''),'challenge_title': str(r['challenge_title'] or ''),
+        } for r in recent_rows],
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': 'Global Legend Profiles and Record Holder labels summarize recorded BL3 in-app data only. They are deterministic historical displays, not financial, predictive, or universal skill rankings.'
+    }
+    payload['global_legend_digest'] = hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+def _global_hall_search_snapshot(query='', eternal_class='', record_only=False, limit=100):
+    query = str(query or '').strip().lower()
+    eternal_class = str(eternal_class or '').strip().upper()
+    record_only = bool(record_only)
+    limit = max(1,min(int(limit or 100),250))
+    hall = _global_hall_of_fame_snapshot(250)
+    record_holders = {str(r.get('winner') or '').lower() for r in hall.get('eternal_records') or []}
+    if eternal_class not in {'VETERAN','ELITE','LEGEND','IMMORTAL','ETERNAL'}:
+        eternal_class = ''
+    results = []
+    for row in hall.get('hall_of_fame') or []:
+        name = str(row.get('username') or '')
+        if query and query not in name.lower():
+            continue
+        if eternal_class and str(row.get('eternal_class') or '').upper() != eternal_class:
+            continue
+        is_record_holder = name.lower() in record_holders
+        if record_only and not is_record_holder:
+            continue
+        out = dict(row)
+        out['is_record_holder'] = is_record_holder
+        out['global_legend_url'] = '/hunter-global-legends/{}'.format(urllib.parse.quote(name,safe=''))
+        results.append(out)
+        if len(results) >= limit:
+            break
+    payload = {
+        'query': query,'eternal_class': eternal_class,'record_only': record_only,'results': results,
+        'counts': {'results': len(results),'total_ranked': int((hall.get('counts') or {}).get('ranked_hunters') or 0),'record_holders': len(record_holders)},
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds')+'Z','policy': hall.get('policy') or ''
+    }
+    payload['search_digest'] = hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/global-hall-search')
+def hunter_global_hall_search_api():
+    try: limit = int(request.args.get('limit') or 100)
+    except Exception: limit = 100
+    record_only = str(request.args.get('record_only') or '').strip().lower() in {'1','true','yes','on'}
+    return jsonify({'success': True, **_global_hall_search_snapshot(request.args.get('q') or '',request.args.get('class') or '',record_only,limit)})
+
+
+@app.route('/hunter-global-hall-search.json')
+def hunter_global_hall_search_json():
+    record_only = str(request.args.get('record_only') or '').strip().lower() in {'1','true','yes','on'}
+    return jsonify(_global_hall_search_snapshot(request.args.get('q') or '',request.args.get('class') or '',record_only,250))
+
+
+@app.route('/hunter-global-legends/<path:username>.json')
+def hunter_global_legend_profile_json(username):
+    data = _global_legend_profile_snapshot(urllib.parse.unquote(username))
+    return jsonify(data), (200 if data.get('success') else 404)
+
+
+@app.route('/api/hunter/global-legends/<path:username>')
+def hunter_global_legend_profile_api(username):
+    data = _global_legend_profile_snapshot(urllib.parse.unquote(username))
+    return jsonify(data), (200 if data.get('success') else 404)
+
+
+@app.route('/hunter-global-legends/<path:username>')
+def hunter_global_legend_profile_page(username):
+    data = _global_legend_profile_snapshot(urllib.parse.unquote(username))
+    if not data.get('success'):
+        return """<!doctype html><meta charset='utf-8'><body style='margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:40px'><h1>Legend not found.</h1><a style='color:#ffd66b' href='/hunter-global-hall-of-fame'>Global Hall of Fame</a></body>""",404
+    esc=html.escape
+    h=data.get('hunter') or {}
+    medals=''.join('<span class="medal">{icon} {title}</span>'.format(icon=esc(str(m.get('icon') or '🏅')),title=esc(str(m.get('title') or 'Medal'))) for m in h.get('medals') or []) or '<span class="meta">No medals yet.</span>'
+    records=''.join('<article class="record"><b>{icon} {title}</b><span>{value} {label}</span></article>'.format(icon=esc(str(r.get('icon') or '🏆')),title=esc(str(r.get('title') or 'Record')),value=int(r.get('value') or 0),label=esc(str(r.get('label') or ''))) for r in data.get('record_holds') or []) or '<div class="meta">No Eternal Record currently held.</div>'
+    circles=''.join('<article class="row"><div><b>{emoji} {name}</b><small>{progress} progress · {challenges} challenges · {seasons} seasons</small></div><a href="{href}">LEGACY</a></article>'.format(emoji=esc(str(c.get('circle_emoji') or '🫂')),name=esc(str(c.get('circle_name') or 'Circle')),progress=int(c.get('progress') or 0),challenges=int(c.get('challenges_helped') or 0),seasons=int(c.get('seasons_played') or 0),href=esc(str(c.get('legacy_url') or '#'))) for c in data.get('circles') or []) or '<div class="meta">No Circle history recorded.</div>'
+    awards=''.join('<article class="row"><div><b>{icon} {title}</b><small>{circle} · {season} · {value} {label}</small></div></article>'.format(icon=esc(str(a.get('icon') or '🏅')),title=esc(str(a.get('title') or 'Award')),circle=esc(str(a.get('circle_name') or 'Circle')),season=esc(str(a.get('season_name') or 'Season')),value=int(a.get('metric_value') or 0),label=esc(str(a.get('metric_label') or ''))) for a in data.get('season_awards') or []) or '<div class="meta">No Season Awards recorded.</div>'
+    trophies=''.join('<article class="row"><div><b>{icon} {title}</b><small>{circle} · {challenge} · MVP {amount}</small></div></article>'.format(icon=esc(str(t.get('icon') or '🏆')),title=esc(str(t.get('title') or 'Trophy')),circle=esc(str(t.get('circle_name') or 'Circle')),challenge=esc(str(t.get('challenge_title') or 'Challenge')),amount=int(t.get('mvp_amount') or 0)) for t in data.get('trophy_mvp_history') or []) or '<div class="meta">No Trophy MVP history recorded.</div>'
+    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Global Legend Profile</title><style>*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 15% 0,#49145c,transparent 30%),radial-gradient(circle at 88% 0,#70460d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1120px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.class{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(46px,8vw,90px);line-height:.88;margin:10px 0}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat,.record{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span,.row small,.record span,.meta{{display:block;color:#9da1ad;font-size:10px;margin-top:4px}}.medals{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.medal{{border:1px solid #4a4130;border-radius:999px;padding:7px 10px;font-size:9px;font-weight:900}}.record-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.row{{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:15px;padding:13px;background:#090a0f;margin-top:8px}}a{{display:inline-block;color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats,.record-grid{{grid-template-columns:1fr 1fr}}.row{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V23.1 // GLOBAL LEGEND PROFILE</div><h1>@{esc(str(h.get('username') or ''))}</h1><div class='class'>{esc(str(h.get('eternal_class') or 'VETERAN'))} · GLOBAL RANK #{int(h.get('global_rank') or 0)}</div><div class='stats'><div class='stat'><b>{int(h.get('eternal_score') or 0)}</b><span>ETERNAL SCORE</span></div><div class='stat'><b>{int(h.get('total_progress') or 0)}</b><span>TOTAL PROGRESS</span></div><div class='stat'><b>{int(h.get('season_awards') or 0)}</b><span>SEASON AWARDS</span></div><div class='stat'><b>{int(h.get('trophy_mvp') or 0)}</b><span>TROPHY MVP</span></div></div><div class='medals'>{medals}</div><p><a href='/hunter-global-hall-of-fame'>GLOBAL HALL</a> <a href='/hunter-global-hall-search?q={urllib.parse.quote(str(h.get('username') or ''),safe='')}'>SEARCH</a> <a href='/hunter-global-legends/{urllib.parse.quote(str(h.get('username') or ''),safe='')}.json'>JSON</a></p></section><section class='panel'><div class='gold'>ETERNAL RECORDS HELD</div><div class='record-grid'>{records}</div></section><section class='panel'><div class='gold'>CIRCLE HISTORY</div>{circles}</section><section class='panel'><div class='gold'>SEASON AWARDS</div>{awards}</section><section class='panel'><div class='gold'>TROPHY MVP HISTORY</div>{trophies}</section><div class='digest'>GLOBAL LEGEND DIGEST // {esc(str(data.get('global_legend_digest') or ''))}</div><p class='meta'>{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+@app.route('/hunter-global-hall-search')
+def hunter_global_hall_search_page():
+    q=request.args.get('q') or ''
+    cls=request.args.get('class') or ''
+    record_only=str(request.args.get('record_only') or '').strip().lower() in {'1','true','yes','on'}
+    data=_global_hall_search_snapshot(q,cls,record_only,250)
+    esc=html.escape
+    cards=''.join('<article class="hunter"><div class="rank">#{rank}</div><div><b>@{name}</b><span>{cls}</span><small>{score} ETERNAL · {progress} PROGRESS · {awards} AWARDS {record}</small></div><a href="{href}">LEGEND PROFILE</a></article>'.format(rank=int(h.get('global_rank') or 0),name=esc(str(h.get('username') or '')),cls=esc(str(h.get('eternal_class') or 'VETERAN')),score=int(h.get('eternal_score') or 0),progress=int(h.get('total_progress') or 0),awards=int(h.get('season_awards') or 0),record=' · 🏆 RECORD HOLDER' if h.get('is_record_holder') else '',href=esc(str(h.get('global_legend_url') or '#'))) for h in data.get('results') or []) or '<div class="meta">No matching Hunters.</div>'
+    options=''.join('<option value="{value}" {selected}>{label}</option>'.format(value=value,selected='selected' if str(data.get('eternal_class') or '')==value else '',label=label) for value,label in [('', 'ALL CLASSES'),('VETERAN','VETERAN'),('ELITE','ELITE'),('LEGEND','LEGEND'),('IMMORTAL','IMMORTAL'),('ETERNAL','ETERNAL')])
+    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Global Hall Search</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1100px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.rank,.hunter span{{color:#ffd66b;font-weight:900}}h1{{font-size:clamp(46px,8vw,90px);line-height:.88;margin:10px 0}}form{{display:grid;grid-template-columns:1fr 180px auto auto;gap:10px;margin-top:16px}}input,select,button{{border:1px solid #393b44;border-radius:12px;background:#090a0f;color:#fff;padding:12px;font:inherit}}button{{font-size:10px;font-weight:900;cursor:pointer}}label{{display:flex;align-items:center;gap:7px;font-size:10px;color:#c4c7d0}}.hunter{{display:grid;grid-template-columns:70px 1fr auto;gap:12px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}.hunter small,.meta{{display:block;color:#9da1ad;font-size:10px;margin-top:4px}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:800px){{form,.hunter{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='gold'>V23.1 // GLOBAL HALL SEARCH</div><h1>FIND A LEGEND.</h1><form method='get' action='/hunter-global-hall-search'><input name='q' value='{esc(str(q))}' placeholder='Search Hunter username'><select name='class'>{options}</select><label><input type='checkbox' name='record_only' value='1' {'checked' if record_only else ''}> RECORD HOLDERS ONLY</label><button type='submit'>SEARCH</button></form><p><a href='/hunter-global-hall-of-fame'>GLOBAL HALL OF FAME</a> <a href='/hunter-global-hall-search.json?q={urllib.parse.quote(str(q),safe='')}'>JSON</a></p></section><section class='panel'><div class='gold'>RESULTS · {int((data.get('counts') or {}).get('results') or 0)}</div>{cards}</section><div class='digest'>SEARCH DIGEST // {esc(str(data.get('search_digest') or ''))}</div><p class='meta'>{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+if 'hunter_global_hall_of_fame_page' in app.view_functions:
+    _V230_global_hall_view=app.view_functions['hunter_global_hall_of_fame_page']
+    def _V231_global_hall_with_profiles_and_search():
+        response=_V230_global_hall_view()
+        if isinstance(response,str):
+            response=response.replace('V23.0 // GLOBAL HALL OF FAME','V23.1 // GLOBAL HALL + LEGEND PROFILES',1)
+            response=response.replace("<p><a href='/hunter-global-hall-of-fame.json'>JSON</a></p>","<p><a href='/hunter-global-hall-of-fame.json'>JSON</a> <a href='/hunter-global-hall-search'>HALL SEARCH</a></p>",1)
+            hall=_global_hall_of_fame_snapshot(120)
+            for hunter in hall.get('hall_of_fame') or []:
+                name=str(hunter.get('username') or '')
+                generic='/u/{}'.format(urllib.parse.quote(name,safe=''))
+                global_profile='/hunter-global-legends/{}'.format(urllib.parse.quote(name,safe=''))
+                response=response.replace('href="{}"'.format(generic),'href="{}"'.format(global_profile))
+                response=response.replace("href='{}'".format(generic),"href='{}'".format(global_profile))
+        return response
+    app.view_functions['hunter_global_hall_of_fame_page']=_V231_global_hall_with_profiles_and_search
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏆 BL3 ARENA V23.0 // LEGEND MEDALS + ETERNAL RECORDS + GLOBAL HALL OF FAME")
+    print("🔎 BL3 ARENA V23.1 // GLOBAL LEGEND PROFILES + RECORD HOLDERS + HALL SEARCH")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🔎 Global Legend Profiles + Record Holders + Hall Search enabled")
     print("🏆 Legend Medals + Eternal Records + Global Hall of Fame enabled")
     print("🌌 Legend Profiles + Legacy Timeline + Immortal Showcase enabled")
     print("🏛️ Legacy Milestones + Dynasty Badges + Hunter Hall of Legends enabled")
