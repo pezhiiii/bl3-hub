@@ -3639,14 +3639,8 @@ function hydrateChallenge(){
 }
 
 async function connectWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{const a=await ethereum.request({method:"eth_requestAccounts"});if(!a.length)return;document.getElementById("wallet").value=a[0];show("Wallet connected. Now sign the message.")}catch(e){show("Wallet connection cancelled.")}}
-async function signInWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{currentUser();if(username==="demo_user"){show("Enter your BL3 username first.");return}const a=await ethereum.request({method:"eth_requestAccounts"}),wallet=a[0];const n=await jsonFetch("/api/auth/nonce?wallet="+encodeURIComponent(wallet)+"&user="+encodeURIComponent(username));if(!n.success){show(n.message);return}const signature=await ethereum.request({method:"personal_sign",params:[n.message,wallet]});const d=await jsonFetch("/api/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({wallet,username,message:n.message,signature})});show(d.message||"Sign-in finished");if(d.success){document.getElementById("authStatus").innerText="Verified: "+wallet.slice(0,6)+"…"+wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED";await authStatus();await loadUser();await loadRivalFeed();await loadSignals()}}catch(e){show("Wallet sign-in cancelled or failed.")}}
-async function authStatus(){
- const d=await jsonFetch("/api/auth/status");
- window.bl3AuthState={authenticated:Boolean(d&&d.authenticated),username:String((d&&d.username)||""),wallet:String((d&&d.wallet)||"")};
- if(d.authenticated){document.getElementById("authStatus").innerText="Verified: "+d.wallet.slice(0,6)+"…"+d.wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED"}
- await refreshTrustBadge();
- return window.bl3AuthState;
-}
+async function signInWallet(){if(!window.ethereum){show("No browser wallet detected.");return}try{currentUser();if(username==="demo_user"){show("Enter your BL3 username first.");return}const a=await ethereum.request({method:"eth_requestAccounts"}),wallet=a[0];const n=await jsonFetch("/api/auth/nonce?wallet="+encodeURIComponent(wallet)+"&user="+encodeURIComponent(username));if(!n.success){show(n.message);return}const signature=await ethereum.request({method:"personal_sign",params:[n.message,wallet]});const d=await jsonFetch("/api/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({wallet,username,message:n.message,signature})});show(d.message||"Sign-in finished");if(d.success){document.getElementById("authStatus").innerText="Verified: "+wallet.slice(0,6)+"…"+wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED";await refreshTrustBadge();await loadUser()}}catch(e){show("Wallet sign-in cancelled or failed.")}}
+async function authStatus(){const d=await jsonFetch("/api/auth/status");if(d.authenticated){document.getElementById("authStatus").innerText="Verified: "+d.wallet.slice(0,6)+"…"+d.wallet.slice(-4);document.getElementById("navAuth").innerText="WALLET VERIFIED"}await refreshTrustBadge()}
 async function loadLeaderboard(){const d=await jsonFetch("/api/leaderboard");let h="";(Array.isArray(d)?d:[]).slice(0,10).forEach((u,i)=>h+='<div class="leader"><span>#'+(i+1)+' '+escapeHtml(u.username)+'</span><b>'+u.xp+' XP</b></div>');document.getElementById("leaderboard").innerHTML=h||'<div class="meta">No hunters yet.</div>';document.getElementById("totalHunters").innerText=Array.isArray(d)?d.length:0}
 async function claimStreakReward(){currentUser();const s=Number(document.getElementById("streak").innerText),p=await jsonFetch("/api/user/"+encodeURIComponent(username)),c=Array.isArray(p.claimed_milestones)?p.claimed_milestones.map(Number):[];let m=0;if(s>=3&&!c.includes(3))m=3;else if(s>=7&&!c.includes(7))m=7;else if(s>=30&&!c.includes(30))m=30;if(!m){show("No streak reward available yet.");return}const d=await jsonFetch("/api/streak/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:username,milestone:m})});show(d.message||"Claim finished");if(d.success)await loadUser()}
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
@@ -3702,12 +3696,6 @@ async function declineChallenge(id){
 async function loadSignals(){
  currentUser();
  const el=document.getElementById("signalCenter"),badge=document.getElementById("signalBadge");
- const auth=window.bl3AuthState||{authenticated:false,username:""};
- if(!auth.authenticated||auth.username!==username){
-   if(badge)badge.innerText="SIGNALS —";
-   if(el)el.innerHTML='<div class="meta">🔐 Verify this Hunter ID to load private signals.</div>';
-   return;
- }
  const d=await jsonFetch("/api/notifications/"+encodeURIComponent(username));
  if(!d.success){
    if(badge)badge.innerText="SIGNALS —";
@@ -3720,8 +3708,6 @@ async function loadSignals(){
 }
 async function markSignalsRead(){
  currentUser();
- const auth=window.bl3AuthState||{authenticated:false,username:""};
- if(!auth.authenticated||auth.username!==username){show("🔐 Verify this Hunter ID before changing private signals.");return}
  const d=await jsonFetch("/api/notifications/"+encodeURIComponent(username)+"/read-all",{method:"POST"});
  show(d.message||"Signals updated");
  if(d.success)await loadSignals();
@@ -3738,11 +3724,6 @@ async function loadRivalFeed(){
  currentUser();
  const el=document.getElementById("rivalFeed");
  if(!el)return;
- const auth=window.bl3AuthState||{authenticated:false,username:""};
- if(!auth.authenticated||auth.username!==username){
-   el.innerHTML='<div class="meta">🔐 Verify this Hunter ID to load private Rival Watch activity.</div>';
-   return;
- }
  const d=await jsonFetch("/api/rivals/"+encodeURIComponent(username)+"/activity?limit=16");
  if(!d.success){el.innerHTML='<div class="meta">'+escapeHtml(d.message||"Sign in with this Hunter ID to watch Rivals.")+'</div>';return}
  const items=Array.isArray(d.events)?d.events:[];
@@ -30918,7 +30899,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V24.9"
+V248_SECURITY_VERSION = "V24.8"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31058,18 +31039,18 @@ def v248_build_attestation_page():
         <h1>🧬 Build Attestation</h1><p>Admin authentication is required.</p>
         <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
     data = _v248_attestation_snapshot(); esc=lambda v: html.escape(str(v if v is not None else ""))
-    manifest=data.get("manifest") or {{}}; latest=data.get("latest_attestation") or {{}}; sig=data.get("current_signature") or {{}}
+    manifest=data.get("manifest") or {}; latest=data.get("latest_attestation") or {}; sig=data.get("current_signature") or {}
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V24.9 Build Attestation</title><style>
+    <title>BL3 V24.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V24.9 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V24.8 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31122,22 +31103,17 @@ try:
 except Exception:
     pass
 
-# ===== V24.9 AUTH-AWARE PRIVATE FEEDS + 401 GUARD =====
-# Client-side private feed loaders now honor /api/auth/status before calling
-# authenticated notifications/rival endpoints. Server-side authorization remains unchanged.
-
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🛡️ BL3 ARENA V24.9 // AUTH-AWARE PRIVATE FEEDS + 401 GUARD")
+    print("🧬 BL3 ARENA V24.8 // OWNERSHIP MANIFEST + BUILD ATTESTATION + TAMPER LEDGER")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
     print("🧬 Ownership Manifest + Build Attestation + Tamper Ledger enabled")
-    print("🛡️ Auth-aware private feeds + 401 request guard enabled")
     print("🔐 Project Vault + Deployment Lock + Secret Isolation enabled")
     print("🏆 Hunter Profile + Achievements + Trophy Cabinet enabled")
     print("⚡ Mission XP + Hunter Rank + Daily Reward Chest enabled")
