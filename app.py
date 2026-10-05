@@ -27401,16 +27401,181 @@ if 'hunter_global_rivalry_milestones_page' in app.view_functions:
         return response
     app.view_functions['hunter_global_rivalry_milestones_page']=_V236_milestones_with_hall
 
+
+
+# ===== V23.7 FEUD SEASONS + RIVALRY ERAS + IMMORTAL FEUD ARCHIVE =====
+def _v237_parse_ts(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace('Z', '+00:00'))
+    except Exception:
+        try:
+            return datetime.strptime(raw[:19], '%Y-%m-%dT%H:%M:%S')
+        except Exception:
+            return None
+
+
+def _v237_feud_seasons_and_eras(feud):
+    timeline = list(feud.get('timeline') or [])
+    timeline.sort(key=lambda x: str(x.get('recorded_at') or ''))
+    seasons_map = {}
+    for item in timeline:
+        dt = _v237_parse_ts(item.get('recorded_at'))
+        if dt is None:
+            season_key, season_label = 'UNKNOWN', 'Undated Archive'
+        else:
+            quarter = ((dt.month - 1) // 3) + 1
+            season_key, season_label = f'{dt.year}-Q{quarter}', f'{dt.year} · Quarter {quarter}'
+        bucket = seasons_map.setdefault(season_key, {
+            'season_key': season_key, 'label': season_label, 'snapshots': 0,
+            'avg_intensity': 0, 'peak_intensity': 0, 'classic_snapshots': 0,
+            'heated_snapshots': 0, 'leaders': {},
+            'first_recorded_at': str(item.get('recorded_at') or ''),
+            'last_recorded_at': str(item.get('recorded_at') or ''), '_intensity_sum': 0,
+        })
+        intensity = int(item.get('intensity') or 0)
+        state = str(item.get('state') or '')
+        leader = str(item.get('leader') or 'EVEN')
+        bucket['snapshots'] += 1
+        bucket['_intensity_sum'] += intensity
+        bucket['peak_intensity'] = max(bucket['peak_intensity'], intensity)
+        bucket['classic_snapshots'] += 1 if state == 'CLASSIC' else 0
+        bucket['heated_snapshots'] += 1 if state == 'HEATED' else 0
+        bucket['leaders'][leader] = bucket['leaders'].get(leader, 0) + 1
+        bucket['last_recorded_at'] = str(item.get('recorded_at') or bucket['last_recorded_at'])
+    seasons = []
+    for bucket in seasons_map.values():
+        bucket['avg_intensity'] = round(bucket['_intensity_sum'] / max(1, bucket['snapshots']), 2)
+        bucket['dominant_leader'] = max(bucket['leaders'].items(), key=lambda kv: (kv[1], kv[0]))[0] if bucket['leaders'] else 'EVEN'
+        bucket.pop('_intensity_sum', None)
+        seasons.append(bucket)
+    seasons.sort(key=lambda x: x.get('season_key') or '')
+
+    eras, current = [], None
+    for item in timeline:
+        state = str(item.get('state') or 'DISTANT')
+        leader = str(item.get('leader') or 'EVEN')
+        intensity = int(item.get('intensity') or 0)
+        recorded_at = str(item.get('recorded_at') or '')
+        if current is None or current['state'] != state:
+            if current is not None:
+                eras.append(current)
+            current = {'era_index': len(eras)+1, 'state': state, 'started_at': recorded_at,
+                       'ended_at': recorded_at, 'snapshots': 1, 'peak_intensity': intensity,
+                       'leader_counts': {leader:1}, '_intensity_sum': intensity}
+        else:
+            current['ended_at'] = recorded_at
+            current['snapshots'] += 1
+            current['peak_intensity'] = max(current['peak_intensity'], intensity)
+            current['_intensity_sum'] += intensity
+            current['leader_counts'][leader] = current['leader_counts'].get(leader, 0)+1
+    if current is not None:
+        eras.append(current)
+    for era in eras:
+        era['avg_intensity'] = round(float(era.get('_intensity_sum') or 0) / max(1, int(era.get('snapshots') or 0)), 2)
+        era['dominant_leader'] = max(era['leader_counts'].items(), key=lambda kv: (kv[1], kv[0]))[0] if era.get('leader_counts') else 'EVEN'
+        era.pop('_intensity_sum', None); era.pop('leader_counts', None)
+        era['era_title'] = {'CLASSIC':'Classic Era','HEATED':'Heat Era','ACTIVE':'Active Era','DISTANT':'Distant Era'}.get(era['state'], f"{era['state'].title()} Era")
+    return seasons, eras
+
+
+def _v237_feud_archive_snapshot(username=''):
+    hall = _v236_feud_hall_snapshot(username)
+    archive=[]
+    for feud in hall.get('hall') or []:
+        seasons, eras = _v237_feud_seasons_and_eras(feud)
+        x=dict(feud)
+        x['feud_seasons']=seasons; x['rivalry_eras']=eras
+        x['season_count']=len(seasons); x['era_count']=len(eras)
+        x['archive_class']='IMMORTAL ARCHIVE' if x.get('hall_class')=='IMMORTAL FEUD' else 'LEGENDARY ARCHIVE' if x.get('hall_class')=='LEGENDARY FEUD' else 'HISTORIC ARCHIVE'
+        x['archive_url']='/hunter-immortal-feud-archive?pair='+urllib.parse.quote(str(x.get('pair_key') or ''),safe='')
+        archive.append(x)
+    archive.sort(key=lambda x:(1 if x.get('hall_class')=='IMMORTAL FEUD' else 0,int(x.get('hall_score') or 0),int(x.get('records') or 0),int(x.get('era_count') or 0)),reverse=True)
+    payload={'success':True,'username_filter':str(username or '').strip(),'archive':archive,
+             'counts':{'feuds':len(archive),'immortal':sum(1 for x in archive if x.get('hall_class')=='IMMORTAL FEUD'),
+                       'legendary_or_higher':sum(1 for x in archive if x.get('hall_class') in {'LEGENDARY FEUD','IMMORTAL FEUD'}),
+                       'seasons':sum(int(x.get('season_count') or 0) for x in archive),'eras':sum(int(x.get('era_count') or 0) for x in archive)},
+             'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+             'policy':'Feud Seasons are calendar-quarter groupings and Rivalry Eras are contiguous runs of the same recorded state. Only stored BL3 rivalry snapshots are used; no missing history is inferred or backfilled.'}
+    payload['archive_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+
+def _v237_immortal_feud_profile_snapshot(pair_key):
+    pair_key=str(pair_key or '').strip(); data=_v237_feud_archive_snapshot('')
+    feud=next((x for x in data.get('archive') or [] if str(x.get('pair_key') or '')==pair_key),None)
+    if not feud: return {'success':False,'message':'Recorded feud archive not found.'}
+    payload={'success':True,'pair_key':pair_key,'hunter_a':str(feud.get('hunter_a') or ''),'hunter_b':str(feud.get('hunter_b') or ''),
+             'hall_rank':int(feud.get('hall_rank') or 0),'hall_score':int(feud.get('hall_score') or 0),'hall_class':str(feud.get('hall_class') or ''),
+             'archive_class':str(feud.get('archive_class') or ''),'feud':feud.get('feud') or {},'achievements':feud.get('achievements') or [],
+             'milestones':feud.get('milestones') or [],'feud_seasons':feud.get('feud_seasons') or [],'rivalry_eras':feud.get('rivalry_eras') or [],
+             'timeline':feud.get('timeline') or [],'records':int(feud.get('records') or 0),'compare_url':str(feud.get('compare_url') or '#'),
+             'legendary_profile_url':str(feud.get('profile_url') or '#'),'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+             'policy':'Immortal Feud Archive profiles preserve only recorded BL3 rivalry snapshots and deterministic historical groupings.'}
+    payload['archive_profile_digest']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False,default=str).encode('utf-8')).hexdigest()
+    return payload
+
+@app.route('/api/hunter/feud-archive')
+def hunter_feud_archive_api(): return jsonify(_v237_feud_archive_snapshot(request.args.get('username') or ''))
+@app.route('/hunter-feud-archive.json')
+def hunter_feud_archive_json(): return jsonify(_v237_feud_archive_snapshot(request.args.get('username') or ''))
+@app.route('/api/hunter/immortal-feud-archive')
+def hunter_immortal_feud_archive_api():
+    d=_v237_immortal_feud_profile_snapshot(request.args.get('pair') or ''); return jsonify(d),(200 if d.get('success') else 404)
+@app.route('/hunter-immortal-feud-archive.json')
+def hunter_immortal_feud_archive_json():
+    d=_v237_immortal_feud_profile_snapshot(request.args.get('pair') or ''); return jsonify(d),(200 if d.get('success') else 404)
+
+@app.route('/hunter-feud-archive')
+def hunter_feud_archive_page():
+    username=str(request.args.get('username') or '').strip(); data=_v237_feud_archive_snapshot(username); esc=html.escape
+    cards=''.join('<article style="border:1px solid #30323b;border-radius:16px;padding:14px;margin:10px 0;background:#090a0f"><b style="color:#ffd66b">#{rank} · {cls}</b><h2>@{a} VS @{b}</h2><p>{records} snapshots · {seasons} feud seasons · {eras} rivalry eras · Hall Score {score}</p><a style="color:#ffd66b" href="{href}">OPEN ARCHIVE</a></article>'.format(rank=int(r.get('hall_rank') or 0),cls=esc(str(r.get('archive_class') or '')),a=esc(str(r.get('hunter_a') or '')),b=esc(str(r.get('hunter_b') or '')),records=int(r.get('records') or 0),seasons=int(r.get('season_count') or 0),eras=int(r.get('era_count') or 0),score=int(r.get('hall_score') or 0),href=esc(str(r.get('archive_url') or '#'))) for r in data.get('archive') or []) or '<p>No recorded feuds yet.</p>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Immortal Feud Archive</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1100px;margin:auto"><h4 style="color:#ffd66b">V23.7 // FEUD SEASONS + RIVALRY ERAS</h4><h1 style="font-size:64px;margin:8px 0">IMMORTAL ARCHIVE.</h1><form><input name="username" value="{}" placeholder="Hunter username" style="padding:10px;background:#090a0f;color:#fff;border:1px solid #333;border-radius:10px"><button style="padding:10px;margin-left:8px">FILTER</button></form><p><a style="color:#ffd66b" href="/hunter-feud-hall-of-fame">FEUD HALL</a> · <a style="color:#ffd66b" href="/hunter-eternal-rivalry-records">ETERNAL RECORDS</a></p>{}<p style="color:#777;font:10px monospace">ARCHIVE DIGEST // {}</p></main></body>'.format(esc(username),cards,esc(str(data.get('archive_digest') or '')))
+
+@app.route('/hunter-immortal-feud-archive')
+def hunter_immortal_feud_archive_page():
+    data=_v237_immortal_feud_profile_snapshot(request.args.get('pair') or ''); esc=html.escape
+    if not data.get('success'): return '<!doctype html><body style="background:#05060a;color:#fff;font-family:system-ui;padding:30px"><h1>Feud archive not found.</h1></body>',404
+    seasons=''.join('<li><b>{}</b> — {} snapshots · avg intensity {} · peak {} · leader {}</li>'.format(esc(str(s.get('label') or '')),int(s.get('snapshots') or 0),esc(str(s.get('avg_intensity') or 0)),int(s.get('peak_intensity') or 0),esc(str(s.get('dominant_leader') or 'EVEN'))) for s in data.get('feud_seasons') or []) or '<li>No dated Feud Seasons yet.</li>'
+    eras=''.join('<li><b>Era {} · {}</b> — {} → {} · {} snapshots · peak {} · leader {}</li>'.format(int(e.get('era_index') or 0),esc(str(e.get('era_title') or '')),esc(str(e.get('started_at') or '')),esc(str(e.get('ended_at') or '')),int(e.get('snapshots') or 0),int(e.get('peak_intensity') or 0),esc(str(e.get('dominant_leader') or 'EVEN'))) for e in data.get('rivalry_eras') or []) or '<li>No recorded eras yet.</li>'
+    return '<!doctype html><meta charset="utf-8"><title>BL3 Immortal Feud Archive</title><body style="margin:0;background:#05060a;color:#fff;font-family:system-ui;padding:24px"><main style="max-width:1000px;margin:auto"><h4 style="color:#ffd66b">V23.7 // IMMORTAL FEUD ARCHIVE</h4><h1 style="font-size:58px">@{} VS @{}</h1><p>{} · {} · Hall Rank #{} · Hall Score {}</p><p><a style="color:#ffd66b" href="{}">HEAD-TO-HEAD</a> · <a style="color:#ffd66b" href="{}">LEGENDARY FEUD PROFILE</a> · <a style="color:#ffd66b" href="/hunter-feud-archive">BACK TO ARCHIVE</a></p><h2>Feud Seasons</h2><ul>{}</ul><h2>Rivalry Eras</h2><ul>{}</ul><p style="color:#777;font:10px monospace">ARCHIVE PROFILE DIGEST // {}</p></main></body>'.format(esc(data.get('hunter_a') or ''),esc(data.get('hunter_b') or ''),esc(str(data.get('archive_class') or '')),esc(str(data.get('hall_class') or '')),int(data.get('hall_rank') or 0),int(data.get('hall_score') or 0),esc(str(data.get('compare_url') or '#')),esc(str(data.get('legendary_profile_url') or '#')),seasons,eras,esc(str(data.get('archive_profile_digest') or '')))
+
+if 'hunter_feud_hall_of_fame_page' in app.view_functions:
+    _V236_hall_view_v237=app.view_functions['hunter_feud_hall_of_fame_page']
+    def _V237_hall_with_archive():
+        response=_V236_hall_view_v237()
+        if isinstance(response,str) and '/hunter-feud-archive' not in response:
+            response=response.replace('</form>','</form><p><a style="color:#ffd66b" href="/hunter-feud-archive">IMMORTAL FEUD ARCHIVE</a></p>',1)
+            response=response.replace('V23.6 // FEUD HALL OF FAME','V23.7 // FEUD HALL + IMMORTAL ARCHIVE',1)
+        return response
+    app.view_functions['hunter_feud_hall_of_fame_page']=_V237_hall_with_archive
+
+if 'hunter_feud_profile_page' in app.view_functions:
+    _V236_profile_view_v237=app.view_functions['hunter_feud_profile_page']
+    def _V237_profile_with_archive():
+        response=_V236_profile_view_v237()
+        if isinstance(response,str):
+            pair=str(request.args.get('pair') or '')
+            link='<a style="color:#ffd66b" href="/hunter-immortal-feud-archive?pair={}">IMMORTAL ARCHIVE</a>'.format(urllib.parse.quote(pair,safe=''))
+            if '/hunter-immortal-feud-archive' not in response:
+                response=response.replace('FEUD HALL</a></p>','FEUD HALL</a> · '+link+'</p>',1)
+                response=response.replace('V23.6 // LEGENDARY FEUD PROFILE','V23.7 // LEGENDARY FEUD + ARCHIVE',1)
+        return response
+    app.view_functions['hunter_feud_profile_page']=_V237_profile_with_archive
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("🏛️ BL3 ARENA V23.6 // RIVALRY ACHIEVEMENTS + FEUD HALL OF FAME + LEGENDARY FEUD PROFILES")
+    print("🌌 BL3 ARENA V23.7 // FEUD SEASONS + RIVALRY ERAS + IMMORTAL FEUD ARCHIVE")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("🌌 Feud Seasons + Rivalry Eras + Immortal Feud Archive enabled")
     print("🏛️ Rivalry Achievements + Feud Hall of Fame + Legendary Feud Profiles enabled")
     print("🏆 Rivalry Milestones + Feud Titles + Eternal Rivalry Records enabled")
     print("📜 Rivalry Streaks + Nemesis Evolution + Historic Rivalry Timeline enabled")
