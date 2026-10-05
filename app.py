@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V25.5"
+V247_SECURITY_VERSION = "V25.6"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V25.5"
+V248_SECURITY_VERSION = "V25.6"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,14 +31062,14 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.5 Build Attestation</title><style>
+    <title>BL3 V25.6 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
     .card{{background:#08070c;border:1px solid #30203d;border-radius:18px;padding:16px}}.label{{font-size:11px;letter-spacing:2px;color:#9e82ad;font-weight:900}}.value{{font-size:23px;font-weight:1000;margin-top:7px}}.ok{{color:#63e6a2}}.bad{{color:#ff6685}}.warn{{color:#ffd166}}
     code{{word-break:break-all;color:#d8b7ff}}.row{{padding:10px 0;border-bottom:1px solid #251a2e}}.row:last-child{{border:0}}.btn{{display:inline-block;border:0;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;cursor:pointer;margin:7px 7px 0 0}}
     </style></head><body><div class='wrap'><section class='hero'>
-    <div class='eyebrow'>BL3 V25.5 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
+    <div class='eyebrow'>BL3 V25.6 // OWNERSHIP MANIFEST</div><div class='title'>🧬 BUILD ATTESTATION</div>
     <div class='sub'>Record a trusted deployment fingerprint and detect later source drift. No secret values are shown or stored.</div>
     <div class='grid'><div class='card'><div class='label'>STATE</div><div class='value {cls}'>{state}</div></div>
     <div class='card'><div class='label'>PROJECT ID</div><div class='value'>{project}</div></div>
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V25.5"
+V250_VERSION = "V25.6"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31326,7 +31326,7 @@ def v250_release_readiness_page():
     warnings = d.get("secret_warnings") or []
     warnings_html = "".join("<div class='warning'>⚠️ {}</div>".format(esc(w)) for w in warnings) or "<div class='muted'>No secret-posture warnings.</div>"
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.5 Release Sentinel</title><style>
+    <title>BL3 V25.6 Release Sentinel</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#221039 0,#09070d 44%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1080px;margin:auto;padding:34px 18px 80px}}.hero,.panel{{background:#0d0a12eb;border:1px solid #43245d;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0009}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#c487ff}}h1{{font-size:44px;margin:8px 0}}.muted,.check p{{color:#aaa;line-height:1.55;margin:5px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:18px}}
@@ -31334,7 +31334,7 @@ def v250_release_readiness_page():
     .ok{{color:#66efaa}}.warn{{color:#ffd166}}.bad{{color:#ff6785}}.check{{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #251a2e}}.check:last-child{{border-bottom:0}}.icon{{font-size:24px}}
     .pill{{font-size:10px;font-weight:1000;letter-spacing:1px;background:#1c1425;border:1px solid #4d2c68;border-radius:999px;padding:8px 10px}}.btn{{display:inline-block;border-radius:999px;padding:12px 16px;background:#8b3dff;color:#fff;font-weight:1000;text-decoration:none;margin:6px 7px 0 0}}.warning{{padding:10px 0;color:#ffd166;border-bottom:1px solid #251a2e}}code{{color:#d8b7ff;word-break:break-all;font-size:11px}}
     </style></head><body><div class='wrap'>
-    <section class='hero'><div class='eyebrow'>BL3 V25.5 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
+    <section class='hero'><div class='eyebrow'>BL3 V25.6 // RELEASE SENTINEL</div><h1>LAUNCH READINESS GATE.</h1><p class='muted'>One admin view for health, trusted source, deployment lock, secrets posture and authentication readiness.</p>
     <div class='grid'><div class='card'><div class='label'>STATE</div><b class='{state_cls}'>{state}</b></div><div class='card'><div class='label'>SCORE</div><b>{score}%</b></div><div class='card'><div class='label'>BLOCKERS</div><b>{blocking}</b></div><div class='card'><div class='label'>ATTESTATION</div><b>{attestation}</b></div></div></section>
     <section class='panel'><div class='eyebrow'>READINESS CHECKS</div>{checks}</section>
     <section class='panel'><div class='eyebrow'>SECRET POSTURE</div>{warnings}</section>
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V25.5"
+V253_VERSION = "V25.6"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31525,7 +31525,7 @@ def v253_integrity_watch_page():
     warnings = "".join("<li>{}</li>".format(esc(x)) for x in (data.get("warnings") or [])) or "<li>None</li>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.5 Integrity Watch</title>
+    <title>BL3 V25.6 Integrity Watch</title>
     <style>
     *{{box-sizing:border-box}} body{{margin:0;background:radial-gradient(circle at top,#211035 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}} .panel{{background:#0c0a11e8;border:1px solid #43275d;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31537,7 +31537,7 @@ def v253_integrity_watch_page():
     ul{{line-height:1.7}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.5 // RUNTIME TRUST</div>
+        <div class='eyebrow'>BL3 V25.6 // RUNTIME TRUST</div>
         <h1>🛡️ INTEGRITY WATCH</h1>
         <p>Live integrity posture + trusted attestation timeline. No secret values are displayed.</p>
         <div class='grid'>
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V25.5"
+V254_VERSION = "V25.6"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31798,7 +31798,7 @@ def v254_integrity_incidents_page():
         rows.append("<tr><td colspan='6'>No integrity incidents recorded.</td></tr>")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.5 Integrity Incident Journal</title>
+    <title>BL3 V25.6 Integrity Incident Journal</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1020 0,#09070b 52%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0d0a10ea;border:1px solid #56304c;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -31808,7 +31808,7 @@ def v254_integrity_incidents_page():
     th{{color:#d9aec8}}button,a.btn{{background:#1b1018;color:#fff;border:1px solid #76405f;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.5 // SECURITY OPERATIONS</div>
+        <div class='eyebrow'>BL3 V25.6 // SECURITY OPERATIONS</div>
         <h1>🚨 INTEGRITY INCIDENT JOURNAL</h1>
         <p>Record and acknowledge runtime integrity findings without exposing secret values.</p>
         <div class='grid'>
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V25.5"
+V255_VERSION = "V25.6"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32097,7 +32097,7 @@ def v255_security_timeline_page():
     latest_cls = "ok" if latest_state == "SECURE" else ("warn" if latest_state == "REVIEW" else "bad")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V25.5 Security Event Timeline</title>
+    <title>BL3 V25.6 Security Event Timeline</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13203d 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1220px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11eb;border:1px solid #334b76;border-radius:22px;padding:22px;margin-bottom:16px}}
@@ -32107,7 +32107,7 @@ def v255_security_timeline_page():
     th{{color:#b4c9e9}}button,a.btn{{background:#101827;color:#fff;border:1px solid #48689a;border-radius:10px;padding:9px 12px;text-decoration:none;cursor:pointer}}
     </style></head><body><div class='wrap'>
       <div class='panel'>
-        <div class='eyebrow'>BL3 V25.5 // SECURITY OBSERVABILITY</div>
+        <div class='eyebrow'>BL3 V25.6 // SECURITY OBSERVABILITY</div>
         <h1>🕓 SECURITY EVENT TIMELINE</h1>
         <p>Automatic snapshots are written only when integrity posture changes.</p>
         <div class='grid'>
@@ -32176,6 +32176,265 @@ try:
                 )
             return response
         app.view_functions["v253_integrity_watch_page"] = _v255_integrity_with_timeline
+except Exception:
+    pass
+
+
+# ===== V25.6 CHANGE DIFF VIEWER + SNAPSHOT COMPARE =====
+# Compares one integrity snapshot with its immediately previous snapshot.
+# Admin-only; no secret values are read or exposed.
+
+V256_VERSION = "V25.6"
+V256_DIFF_FIELDS = [
+    ("integrity_state", "Integrity state"),
+    ("attestation_state", "Attestation"),
+    ("project_id", "Project ID"),
+    ("owner_id", "Owner ID"),
+    ("app_version", "Version"),
+    ("build_fingerprint", "Build fingerprint"),
+    ("source_sha256", "Source SHA-256"),
+    ("signature_alg", "Signature"),
+    ("deployment_lock_enabled", "Deployment lock enabled"),
+    ("deployment_lock_valid", "Deployment lock valid"),
+    ("environment", "Environment"),
+]
+
+
+def _v256_snapshot_by_id(snapshot_id):
+    _v255_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM integrity_snapshots WHERE id=?",
+            (int(snapshot_id),)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v256_previous_snapshot(snapshot_id):
+    _v255_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT * FROM integrity_snapshots
+               WHERE id < ?
+               ORDER BY id DESC LIMIT 1""",
+            (int(snapshot_id),)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v256_latest_snapshot():
+    _v255_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM integrity_snapshots ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v256_normalize_value(field, value):
+    if field in ("deployment_lock_enabled", "deployment_lock_valid"):
+        return bool(int(value or 0))
+    return value
+
+
+def _v256_diff_snapshot(snapshot_id=None):
+    current = _v256_snapshot_by_id(snapshot_id) if snapshot_id else _v256_latest_snapshot()
+    if not current:
+        return {
+            "success": False,
+            "error": "snapshot_not_found",
+            "version": V256_VERSION,
+            "changes": [],
+            "change_count": 0,
+        }
+
+    previous = _v256_previous_snapshot(current.get("id"))
+    changes = []
+
+    for field, label in V256_DIFF_FIELDS:
+        before = _v256_normalize_value(field, previous.get(field) if previous else None)
+        after = _v256_normalize_value(field, current.get(field))
+        changed = before != after
+        changes.append({
+            "field": field,
+            "label": label,
+            "before": before,
+            "after": after,
+            "changed": bool(changed),
+        })
+
+    changed_rows = [x for x in changes if x["changed"]]
+    return {
+        "success": True,
+        "version": V256_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "snapshot": current,
+        "previous_snapshot": previous,
+        "changes": changes,
+        "changed_fields": changed_rows,
+        "change_count": len(changed_rows),
+        "transition": {
+            "from": str((previous or {}).get("integrity_state") or "NONE"),
+            "to": str(current.get("integrity_state") or "NONE"),
+        },
+        "policy": (
+            "Diff Viewer compares integrity metadata stored in Security Timeline snapshots. "
+            "It never accesses or displays deployment keys, admin tokens, or session secrets."
+        ),
+    }
+
+
+@app.route("/api/admin/security-diff")
+def v256_security_diff_api():
+    if not _admin_ok():
+        return jsonify({"success": False, "error": "admin_required"}), 403
+    raw_id = request.args.get("snapshot_id", "").strip()
+    snapshot_id = int(raw_id) if raw_id.isdigit() else None
+    data = _v256_diff_snapshot(snapshot_id)
+    return jsonify(data), (200 if data.get("success") else 404)
+
+
+@app.route("/admin/security-diff")
+def v256_security_diff_page():
+    if not _admin_ok():
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Change Diff Viewer</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🔬 Change Diff Viewer</h1><p>Admin authentication is required.</p>
+        <a style='color:#b56cff' href='/admin/control-center'>ADMIN CONTROL CENTER</a></body>""", 403
+
+    raw_id = request.args.get("snapshot_id", "").strip()
+    snapshot_id = int(raw_id) if raw_id.isdigit() else None
+    data = _v256_diff_snapshot(snapshot_id)
+    if not data.get("success"):
+        return """<!doctype html><meta charset='utf-8'><body style='background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🔬 Change Diff Viewer</h1><p>No integrity snapshot was found.</p>
+        <a style='color:#9cc3ff' href='/admin/security-timeline'>BACK TO SECURITY TIMELINE</a></body>""", 404
+
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    current = data.get("snapshot") or {}
+    previous = data.get("previous_snapshot") or {}
+    changed = data.get("changed_fields") or []
+
+    def short(v, n=28):
+        s = str(v if v is not None else "")
+        return s if len(s) <= n else s[:n] + "…"
+
+    rows = []
+    for item in data.get("changes") or []:
+        cls = "changed" if item.get("changed") else "same"
+        marker = "CHANGED" if item.get("changed") else "SAME"
+        rows.append(
+            "<tr class='{}'><td>{}</td><td><code>{}</code></td><td><code>{}</code></td><td><span class='pill {}'>{}</span></td></tr>".format(
+                cls,
+                esc(item.get("label")),
+                esc(short(item.get("before"), 44)),
+                esc(short(item.get("after"), 44)),
+                cls,
+                marker,
+            )
+        )
+
+    from_state = str((data.get("transition") or {}).get("from") or "NONE")
+    to_state = str((data.get("transition") or {}).get("to") or "NONE")
+    to_cls = "ok" if to_state == "SECURE" else ("warn" if to_state == "REVIEW" else "bad")
+
+    prev_id = previous.get("id")
+    next_hint = ""
+    if prev_id:
+        next_hint = "<a class='btn' href='/admin/security-diff?snapshot_id={}'>← COMPARE PREVIOUS SNAPSHOT</a>".format(int(prev_id))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V25.6 Change Diff Viewer</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1a183a 0,#08070b 50%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:34px 18px 72px}}.panel{{background:#0b0a11ec;border:1px solid #454377;border-radius:22px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#a9a6ff;font-weight:800;letter-spacing:2px;font-size:13px}}h1{{font-size:42px;margin:12px 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}}
+    .card{{background:#08070c;border:1px solid #31305d;border-radius:18px;padding:18px}}.k{{color:#aaa8cf;font-size:12px;font-weight:800;letter-spacing:1px}}.v{{font-size:25px;font-weight:900;margin-top:8px;word-break:break-word}}
+    .ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff718f}}code{{color:#b8c6ff;word-break:break-all}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:12px 10px;border-bottom:1px solid #292844;text-align:left;font-size:13px}}
+    th{{color:#bbb9e8}}tr.changed{{background:#241425}}tr.same{{opacity:.70}}.pill{{display:inline-block;padding:5px 8px;border-radius:999px;font-size:11px;font-weight:900}}
+    .pill.changed{{background:#5a1e41;color:#ffb2d6}}.pill.same{{background:#143b31;color:#8cf5cf}}a.btn{{display:inline-block;background:#111226;color:#fff;border:1px solid #555398;border-radius:10px;padding:9px 12px;text-decoration:none;margin:4px 5px 0 0}}
+    </style></head><body><div class='wrap'>
+      <div class='panel'>
+        <div class='eyebrow'>BL3 V25.6 // SNAPSHOT INTELLIGENCE</div>
+        <h1>🔬 CHANGE DIFF VIEWER</h1>
+        <p>Compare one security snapshot against the immediately previous snapshot.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>TRANSITION</div><div class='v'>{from_state} → <span class='{to_cls}'>{to_state}</span></div></div>
+          <div class='card'><div class='k'>CHANGED FIELDS</div><div class='v'>{change_count}</div></div>
+          <div class='card'><div class='k'>CURRENT SNAPSHOT</div><div class='v'>#{current_id}</div></div>
+          <div class='card'><div class='k'>PREVIOUS SNAPSHOT</div><div class='v'>{previous_id}</div></div>
+        </div>
+        <p>
+          <a class='btn' href='/admin/security-timeline'>🕓 SECURITY TIMELINE</a>
+          <a class='btn' href='/admin/integrity-watch'>🛡️ INTEGRITY WATCH</a>
+          <a class='btn' href='/admin/integrity-incidents'>🚨 INCIDENT JOURNAL</a>
+          {next_hint}
+        </p>
+      </div>
+      <div class='panel'>
+        <h2>Snapshot metadata</h2>
+        <p><b>Current created:</b> {current_created}<br>
+        <b>Previous created:</b> {previous_created}<br>
+        <b>Current fingerprint:</b><br><code>{current_fp}</code><br><br>
+        <b>Previous fingerprint:</b><br><code>{previous_fp}</code></p>
+      </div>
+      <div class='panel'>
+        <h2>Field-by-field diff</h2>
+        <div style='overflow:auto'><table><thead><tr><th>Field</th><th>Before</th><th>After</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div>
+      </div>
+    </div></body></html>""".format(
+        from_state=esc(from_state), to_state=esc(to_state), to_cls=to_cls,
+        change_count=esc(data.get("change_count")),
+        current_id=esc(current.get("id")),
+        previous_id=esc(previous.get("id") if previous else "NONE"),
+        current_created=esc(current.get("created_at")),
+        previous_created=esc(previous.get("created_at") if previous else "NONE"),
+        current_fp=esc(current.get("build_fingerprint")),
+        previous_fp=esc(previous.get("build_fingerprint") if previous else "NONE"),
+        rows="".join(rows),
+        next_hint=next_hint,
+    )
+
+
+# Add Diff Viewer links to Security Timeline and Control Center.
+try:
+    _v256_prev_timeline = app.view_functions.get("v255_security_timeline_page")
+    if _v256_prev_timeline:
+        def _v256_timeline_with_diff(*args, **kwargs):
+            response = _v256_prev_timeline(*args, **kwargs)
+            if isinstance(response, str) and "/admin/security-diff" not in response:
+                response = response.replace(
+                    "</body>",
+                    "<div style='max-width:1220px;margin:0 auto 30px;padding:0 18px'><a href='/admin/security-diff' style='color:#fff;text-decoration:none;border:1px solid #555398;border-radius:12px;padding:10px 14px'>🔬 CHANGE DIFF VIEWER</a></div></body>",
+                    1
+                )
+            return response
+        app.view_functions["v255_security_timeline_page"] = _v256_timeline_with_diff
+except Exception:
+    pass
+
+try:
+    _v256_prev_control = app.view_functions.get("admin_control_center_page")
+    if _v256_prev_control:
+        def _v256_control_with_diff(*args, **kwargs):
+            response = _v256_prev_control(*args, **kwargs)
+            if isinstance(response, str) and "/admin/security-diff" not in response:
+                link = "<a href='/admin/security-diff' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #555398;border-radius:10px;color:#fff;text-decoration:none'>🔬 CHANGE DIFF VIEWER</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["admin_control_center_page"] = _v256_control_with_diff
 except Exception:
     pass
 
