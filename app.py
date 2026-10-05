@@ -26398,16 +26398,544 @@ if 'hunter_global_hall_search_page' in app.view_functions:
 
     app.view_functions['hunter_global_hall_search_page'] = _V232_global_search_with_rivalries
 
+
+
+# ===== V23.3 RIVALRY HISTORY + NEMESIS SYSTEM + LEGENDARY MATCHUPS =====
+def _ensure_global_rivalry_history_schema():
+    conn = db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_global_rivalry_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pair_key TEXT NOT NULL,
+            hunter_a TEXT NOT NULL,
+            hunter_b TEXT NOT NULL,
+            intensity INTEGER NOT NULL DEFAULT 0,
+            rivalry_state TEXT NOT NULL DEFAULT 'DISTANT',
+            wins_a INTEGER NOT NULL DEFAULT 0,
+            wins_b INTEGER NOT NULL DEFAULT 0,
+            ties INTEGER NOT NULL DEFAULT 0,
+            leader TEXT NOT NULL DEFAULT 'EVEN',
+            shared_circles INTEGER NOT NULL DEFAULT 0,
+            eternal_score_gap INTEGER NOT NULL DEFAULT 0,
+            global_rank_gap INTEGER NOT NULL DEFAULT 0,
+            state_hash TEXT NOT NULL,
+            snapshot_digest TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL,
+            UNIQUE(pair_key, state_hash)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_global_rivalry_pair ON hunter_global_rivalry_history(pair_key, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_global_rivalry_a ON hunter_global_rivalry_history(hunter_a, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_global_rivalry_b ON hunter_global_rivalry_history(hunter_b, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_global_rivalry_state ON hunter_global_rivalry_history(rivalry_state, intensity DESC)")
+    conn.commit()
+    conn.close()
+
+
+def _rivalry_pair_key(username_a, username_b):
+    a = str(username_a or '').strip()
+    b = str(username_b or '').strip()
+    ordered = sorted([a, b], key=lambda x: x.lower())
+    return '{}::{}'.format(ordered[0].lower(), ordered[1].lower())
+
+
+def _record_global_rivalry_snapshot(data):
+    if not isinstance(data, dict) or not data.get('success'):
+        return None
+
+    a = data.get('a') or {}
+    b = data.get('b') or {}
+    username_a = str(a.get('username') or '').strip()
+    username_b = str(b.get('username') or '').strip()
+    if not username_a or not username_b or username_a.lower() == username_b.lower():
+        return None
+
+    rivalry = data.get('rivalry') or {}
+    scorecard = data.get('scorecard') or {}
+    pair_key = _rivalry_pair_key(username_a, username_b)
+
+    state_payload = {
+        'pair_key': pair_key,
+        'a': {
+            'username': username_a,
+            'eternal_score': int(a.get('eternal_score') or 0),
+            'global_rank': int(a.get('global_rank') or 0),
+            'eternal_class': str(a.get('eternal_class') or ''),
+            'total_progress': int(a.get('total_progress') or 0),
+            'season_awards': int(a.get('season_awards') or 0),
+            'trophy_mvp': int(a.get('trophy_mvp') or 0),
+        },
+        'b': {
+            'username': username_b,
+            'eternal_score': int(b.get('eternal_score') or 0),
+            'global_rank': int(b.get('global_rank') or 0),
+            'eternal_class': str(b.get('eternal_class') or ''),
+            'total_progress': int(b.get('total_progress') or 0),
+            'season_awards': int(b.get('season_awards') or 0),
+            'trophy_mvp': int(b.get('trophy_mvp') or 0),
+        },
+        'intensity': int(rivalry.get('intensity') or 0),
+        'state': str(rivalry.get('state') or 'DISTANT'),
+        'wins_a': int(scorecard.get('wins_a') or 0),
+        'wins_b': int(scorecard.get('wins_b') or 0),
+        'ties': int(scorecard.get('ties') or 0),
+        'leader': str(scorecard.get('leader') or 'EVEN'),
+        'shared_circles': int(rivalry.get('shared_circle_count') or 0),
+        'eternal_score_gap': int(rivalry.get('eternal_score_gap') or 0),
+        'global_rank_gap': int(rivalry.get('rank_gap') or 0),
+    }
+    state_hash = hashlib.sha256(
+        json.dumps(state_payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+    ).hexdigest()
+
+    _ensure_global_rivalry_history_schema()
+    conn = db()
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    cur = conn.execute(
+        """INSERT OR IGNORE INTO hunter_global_rivalry_history
+           (pair_key,hunter_a,hunter_b,intensity,rivalry_state,wins_a,wins_b,ties,leader,
+            shared_circles,eternal_score_gap,global_rank_gap,state_hash,snapshot_digest,recorded_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            pair_key,
+            username_a,
+            username_b,
+            int(rivalry.get('intensity') or 0),
+            str(rivalry.get('state') or 'DISTANT'),
+            int(scorecard.get('wins_a') or 0),
+            int(scorecard.get('wins_b') or 0),
+            int(scorecard.get('ties') or 0),
+            str(scorecard.get('leader') or 'EVEN'),
+            int(rivalry.get('shared_circle_count') or 0),
+            int(rivalry.get('eternal_score_gap') or 0),
+            int(rivalry.get('rank_gap') or 0),
+            state_hash,
+            str(data.get('compare_digest') or ''),
+            now,
+        )
+    )
+    inserted = int(cur.rowcount or 0) > 0
+    conn.commit()
+    conn.close()
+    return {'inserted': inserted, 'pair_key': pair_key, 'state_hash': state_hash}
+
+
+# Wrap the V23.2 comparison snapshot so every changed Head-to-Head state becomes
+# an auditable rivalry-history record. Identical historical states are deduplicated.
+_V232_global_legend_compare_snapshot = _global_legend_compare_snapshot
+
+def _global_legend_compare_snapshot(username_a, username_b):
+    data = _V232_global_legend_compare_snapshot(username_a, username_b)
+    try:
+        _record_global_rivalry_snapshot(data)
+    except Exception:
+        pass
+    return data
+
+
+def _global_rivalry_history_snapshot(username='', limit=200):
+    username = str(username or '').strip()
+    limit = max(1, min(int(limit or 200), 500))
+    _ensure_global_rivalry_history_schema()
+    conn = db()
+
+    if username:
+        rows = conn.execute(
+            """SELECT id,pair_key,hunter_a,hunter_b,intensity,rivalry_state,wins_a,wins_b,ties,leader,
+                      shared_circles,eternal_score_gap,global_rank_gap,state_hash,snapshot_digest,recorded_at
+               FROM hunter_global_rivalry_history
+               WHERE lower(hunter_a)=lower(?) OR lower(hunter_b)=lower(?)
+               ORDER BY id DESC
+               LIMIT ?""",
+            (username, username, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT id,pair_key,hunter_a,hunter_b,intensity,rivalry_state,wins_a,wins_b,ties,leader,
+                      shared_circles,eternal_score_gap,global_rank_gap,state_hash,snapshot_digest,recorded_at
+               FROM hunter_global_rivalry_history
+               ORDER BY id DESC
+               LIMIT ?""",
+            (limit,)
+        ).fetchall()
+
+    history = [
+        {
+            'id': int(r['id'] or 0),
+            'pair_key': str(r['pair_key'] or ''),
+            'hunter_a': str(r['hunter_a'] or ''),
+            'hunter_b': str(r['hunter_b'] or ''),
+            'intensity': int(r['intensity'] or 0),
+            'state': str(r['rivalry_state'] or 'DISTANT'),
+            'wins_a': int(r['wins_a'] or 0),
+            'wins_b': int(r['wins_b'] or 0),
+            'ties': int(r['ties'] or 0),
+            'leader': str(r['leader'] or 'EVEN'),
+            'shared_circles': int(r['shared_circles'] or 0),
+            'eternal_score_gap': int(r['eternal_score_gap'] or 0),
+            'global_rank_gap': int(r['global_rank_gap'] or 0),
+            'state_hash': str(r['state_hash'] or ''),
+            'snapshot_digest': str(r['snapshot_digest'] or ''),
+            'recorded_at': str(r['recorded_at'] or ''),
+            'compare_url': '/hunter-global-legend-compare?a={}&b={}'.format(
+                urllib.parse.quote(str(r['hunter_a'] or ''), safe=''),
+                urllib.parse.quote(str(r['hunter_b'] or ''), safe='')
+            ),
+        }
+        for r in rows
+    ]
+
+    pair_rows = conn.execute(
+        """SELECT pair_key,
+                  MIN(hunter_a) AS hunter_a,
+                  MIN(hunter_b) AS hunter_b,
+                  COUNT(*) AS meetings,
+                  ROUND(AVG(intensity),1) AS avg_intensity,
+                  MAX(intensity) AS max_intensity,
+                  SUM(CASE WHEN rivalry_state='CLASSIC' THEN 1 ELSE 0 END) AS classic_states,
+                  SUM(CASE WHEN rivalry_state='HEATED' THEN 1 ELSE 0 END) AS heated_states,
+                  SUM(shared_circles) AS shared_circle_observations,
+                  MAX(recorded_at) AS last_seen
+           FROM hunter_global_rivalry_history
+           GROUP BY pair_key
+           ORDER BY max_intensity DESC, meetings DESC, avg_intensity DESC
+           LIMIT 100"""
+    ).fetchall()
+    conn.close()
+
+    legendary_matchups = []
+    for row in pair_rows:
+        avg_intensity = float(row['avg_intensity'] or 0)
+        max_intensity = int(row['max_intensity'] or 0)
+        meetings = int(row['meetings'] or 0)
+        classic_states = int(row['classic_states'] or 0)
+        heated_states = int(row['heated_states'] or 0)
+        matchup_score = min(100, max_intensity + min(20, (meetings - 1) * 5) + min(10, classic_states * 3 + heated_states))
+        if matchup_score < 50:
+            continue
+        a = str(row['hunter_a'] or '')
+        b = str(row['hunter_b'] or '')
+        legendary_matchups.append({
+            'pair_key': str(row['pair_key'] or ''),
+            'hunter_a': a,
+            'hunter_b': b,
+            'meetings': meetings,
+            'avg_intensity': avg_intensity,
+            'max_intensity': max_intensity,
+            'classic_states': classic_states,
+            'heated_states': heated_states,
+            'shared_circle_observations': int(row['shared_circle_observations'] or 0),
+            'last_seen': str(row['last_seen'] or ''),
+            'matchup_score': matchup_score,
+            'tier': 'ICONIC' if matchup_score >= 90 else 'LEGENDARY' if matchup_score >= 75 else 'NOTABLE',
+            'compare_url': '/hunter-global-legend-compare?a={}&b={}'.format(
+                urllib.parse.quote(a, safe=''), urllib.parse.quote(b, safe='')
+            ),
+        })
+
+    payload = {
+        'success': True,
+        'username_filter': username,
+        'history': history,
+        'legendary_matchups': legendary_matchups,
+        'counts': {
+            'history_records': len(history),
+            'legendary_matchups': len(legendary_matchups),
+            'classic_records': sum(1 for h in history if h.get('state') == 'CLASSIC'),
+            'heated_records': sum(1 for h in history if h.get('state') == 'HEATED'),
+        },
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Rivalry History stores only observed BL3 Head-to-Head states after a comparison is generated. '
+            'It does not fabricate past meetings. Legendary Matchups summarize those recorded states.'
+        ),
+    }
+    payload['history_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+def _global_nemesis_snapshot(username):
+    username = str(username or '').strip()
+    if not username:
+        return {'success': False, 'message': 'Hunter username required.'}
+
+    _ensure_global_rivalry_history_schema()
+    conn = db()
+    rows = conn.execute(
+        """SELECT * FROM hunter_global_rivalry_history
+           WHERE lower(hunter_a)=lower(?) OR lower(hunter_b)=lower(?)
+           ORDER BY id DESC""",
+        (username, username)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return {
+            'success': True,
+            'username': username,
+            'nemesis': None,
+            'opponents': [],
+            'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'policy': 'Nemesis status requires recorded BL3 rivalry-history states and is never inferred from missing history.',
+        }
+
+    opponents = {}
+    for r in rows:
+        a = str(r['hunter_a'] or '')
+        b = str(r['hunter_b'] or '')
+        is_a = a.lower() == username.lower()
+        opponent = b if is_a else a
+        key = opponent.lower()
+        bucket = opponents.setdefault(key, {
+            'username': opponent,
+            'meetings': 0,
+            'intensity_total': 0,
+            'max_intensity': 0,
+            'classic_states': 0,
+            'heated_states': 0,
+            'metric_wins': 0,
+            'metric_losses': 0,
+            'metric_ties': 0,
+            'shared_circle_observations': 0,
+            'last_seen': '',
+        })
+        bucket['meetings'] += 1
+        intensity = int(r['intensity'] or 0)
+        bucket['intensity_total'] += intensity
+        bucket['max_intensity'] = max(bucket['max_intensity'], intensity)
+        bucket['classic_states'] += 1 if str(r['rivalry_state'] or '') == 'CLASSIC' else 0
+        bucket['heated_states'] += 1 if str(r['rivalry_state'] or '') == 'HEATED' else 0
+        bucket['shared_circle_observations'] += int(r['shared_circles'] or 0)
+        bucket['last_seen'] = max(bucket['last_seen'], str(r['recorded_at'] or ''))
+
+        own_wins = int(r['wins_a'] or 0) if is_a else int(r['wins_b'] or 0)
+        opp_wins = int(r['wins_b'] or 0) if is_a else int(r['wins_a'] or 0)
+        bucket['metric_wins'] += own_wins
+        bucket['metric_losses'] += opp_wins
+        bucket['metric_ties'] += int(r['ties'] or 0)
+
+    opponent_list = []
+    for bucket in opponents.values():
+        meetings = int(bucket['meetings'] or 0)
+        avg_intensity = round(bucket['intensity_total'] / max(1, meetings), 1)
+        nemesis_score = min(
+            100,
+            int(bucket['max_intensity'] or 0)
+            + min(20, max(0, meetings - 1) * 5)
+            + min(10, int(bucket['classic_states'] or 0) * 3 + int(bucket['heated_states'] or 0))
+        )
+        bucket['avg_intensity'] = avg_intensity
+        bucket['nemesis_score'] = nemesis_score
+        bucket['tier'] = 'ARCHNEMESIS' if nemesis_score >= 90 else 'NEMESIS' if nemesis_score >= 75 else 'RIVAL'
+        bucket['compare_url'] = '/hunter-global-legend-compare?a={}&b={}'.format(
+            urllib.parse.quote(username, safe=''),
+            urllib.parse.quote(str(bucket['username'] or ''), safe='')
+        )
+        opponent_list.append(bucket)
+
+    opponent_list.sort(
+        key=lambda x: (
+            int(x.get('nemesis_score') or 0),
+            int(x.get('meetings') or 0),
+            float(x.get('avg_intensity') or 0),
+        ),
+        reverse=True
+    )
+    nemesis = opponent_list[0] if opponent_list else None
+
+    payload = {
+        'success': True,
+        'username': username,
+        'nemesis': nemesis,
+        'opponents': opponent_list,
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'policy': (
+            'Nemesis is the strongest recorded BL3 rivalry-history pairing for this Hunter. '
+            'It is based only on stored Head-to-Head states and does not predict future outcomes.'
+        ),
+    }
+    payload['nemesis_digest'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str).encode('utf-8')
+    ).hexdigest()
+    return payload
+
+
+@app.route('/api/hunter/global-rivalry-history')
+def hunter_global_rivalry_history_api():
+    try:
+        limit = int(request.args.get('limit') or 200)
+    except Exception:
+        limit = 200
+    return jsonify(_global_rivalry_history_snapshot(request.args.get('username') or '', limit))
+
+
+@app.route('/hunter-global-rivalry-history.json')
+def hunter_global_rivalry_history_json():
+    return jsonify(_global_rivalry_history_snapshot(request.args.get('username') or '', 500))
+
+
+@app.route('/api/hunter/global-nemesis/<username>')
+def hunter_global_nemesis_api(username):
+    return jsonify(_global_nemesis_snapshot(username))
+
+
+@app.route('/hunter-global-nemesis/<username>.json')
+def hunter_global_nemesis_json(username):
+    return jsonify(_global_nemesis_snapshot(username))
+
+
+@app.route('/hunter-global-rivalry-history')
+def hunter_global_rivalry_history_page():
+    username = str(request.args.get('username') or '').strip()
+    data = _global_rivalry_history_snapshot(username, 250)
+    esc = html.escape
+
+    matchup_cards = ''.join(
+        '<article class="matchup"><div class="score"><b>{score}</b><small>{tier}</small></div>'
+        '<div><h3>@{a} <span>VS</span> @{b}</h3><p>{meetings} recorded states · avg {avg} · max {maxi} · {classic} classic · {heated} heated</p></div>'
+        '<a href="{href}">HEAD-TO-HEAD</a></article>'.format(
+            score=int(m.get('matchup_score') or 0),
+            tier=esc(str(m.get('tier') or '')),
+            a=esc(str(m.get('hunter_a') or '')),
+            b=esc(str(m.get('hunter_b') or '')),
+            meetings=int(m.get('meetings') or 0),
+            avg=esc(str(m.get('avg_intensity') or 0)),
+            maxi=int(m.get('max_intensity') or 0),
+            classic=int(m.get('classic_states') or 0),
+            heated=int(m.get('heated_states') or 0),
+            href=esc(str(m.get('compare_url') or '#')),
+        )
+        for m in data.get('legendary_matchups') or []
+    ) or '<div class="empty">Generate some Head-to-Head comparisons to begin recording rivalry history.</div>'
+
+    history_rows = ''.join(
+        '<article class="history"><div><b>@{a} vs @{b}</b><small>{when}</small></div>'
+        '<span>{state}</span><strong>{intensity}</strong><div class="meta">{wa}-{wb}-{ties} · leader {leader} · shared {shared}</div>'
+        '<a href="{href}">VIEW</a></article>'.format(
+            a=esc(str(h.get('hunter_a') or '')),
+            b=esc(str(h.get('hunter_b') or '')),
+            when=esc(str(h.get('recorded_at') or '')),
+            state=esc(str(h.get('state') or '')),
+            intensity=int(h.get('intensity') or 0),
+            wa=int(h.get('wins_a') or 0),
+            wb=int(h.get('wins_b') or 0),
+            ties=int(h.get('ties') or 0),
+            leader=esc(str(h.get('leader') or 'EVEN')),
+            shared=int(h.get('shared_circles') or 0),
+            href=esc(str(h.get('compare_url') or '#')),
+        )
+        for h in data.get('history') or []
+    ) or '<div class="empty">No recorded rivalry history yet.</div>'
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Rivalry History</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#51115f,transparent 30%),radial-gradient(circle at 88% 0,#70460d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1180px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.matchup h3 span,.history>span,.score b{{color:#ffd66b}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}}.stat{{border:1px solid #30323b;border-radius:16px;padding:14px;background:#090a0f}}.stat b{{display:block;font-size:22px}}.stat span,.meta,.matchup p,small{{color:#9da1ad;font-size:10px}}form{{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:16px}}input,button{{border:1px solid #383b46;border-radius:12px;background:#090a0f;color:#fff;padding:12px;font:inherit}}button{{background:#ffd66b;color:#160f03;border-color:#ffd66b;font-size:10px;font-weight:900}}.matchup{{display:grid;grid-template-columns:90px 1fr auto;gap:14px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}.score{{text-align:center}}.score b{{display:block;font-size:30px}}.history{{display:grid;grid-template-columns:1fr 110px 70px 1fr auto;gap:12px;align-items:center;border-top:1px solid #252730;padding:12px 0}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:14px;color:#9da1ad}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.stats{{grid-template-columns:1fr 1fr}}.matchup,.history,form{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V23.3 // RIVALRY HISTORY + LEGENDARY MATCHUPS</div><h1>RIVALRY ARCHIVE.</h1><p class="meta">Only actual BL3 Head-to-Head states generated after V23.3 are stored here. No missing past is invented.</p><form method="get"><input name="username" value="{esc(username)}" placeholder="Filter by Hunter username"><button type="submit">FILTER</button></form><p><a href="/hunter-global-rivalries">GLOBAL RIVALRIES</a> <a href="/hunter-global-legend-compare">COMPARE LEGENDS</a></p><div class="stats"><div class="stat"><b>{int((data.get('counts') or {}).get('history_records') or 0)}</b><span>HISTORY RECORDS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('legendary_matchups') or 0)}</b><span>LEGENDARY MATCHUPS</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('classic_records') or 0)}</b><span>CLASSIC STATES</span></div><div class="stat"><b>{int((data.get('counts') or {}).get('heated_records') or 0)}</b><span>HEATED STATES</span></div></div></section><section class="panel"><div class="gold">LEGENDARY MATCHUPS</div>{matchup_cards}</section><section class="panel"><div class="gold">RECORDED RIVALRY HISTORY</div>{history_rows}</section><div class="digest">HISTORY DIGEST // {esc(str(data.get('history_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+@app.route('/hunter-global-nemesis/<username>')
+def hunter_global_nemesis_page(username):
+    data = _global_nemesis_snapshot(username)
+    esc = html.escape
+    nemesis = data.get('nemesis') or {}
+
+    cards = ''.join(
+        '<article class="rival"><div class="score"><b>{score}</b><small>{tier}</small></div><div><h3>@{name}</h3>'
+        '<p>{meetings} recorded states · avg intensity {avg} · max {maxi} · metric score {wins}-{losses}-{ties}</p></div>'
+        '<a href="{href}">COMPARE</a></article>'.format(
+            score=int(r.get('nemesis_score') or 0),
+            tier=esc(str(r.get('tier') or 'RIVAL')),
+            name=esc(str(r.get('username') or '')),
+            meetings=int(r.get('meetings') or 0),
+            avg=esc(str(r.get('avg_intensity') or 0)),
+            maxi=int(r.get('max_intensity') or 0),
+            wins=int(r.get('metric_wins') or 0),
+            losses=int(r.get('metric_losses') or 0),
+            ties=int(r.get('metric_ties') or 0),
+            href=esc(str(r.get('compare_url') or '#')),
+        )
+        for r in data.get('opponents') or []
+    ) or '<div class="empty">No recorded rivalry history for this Hunter yet.</div>'
+
+    nemesis_box = (
+        '<div class="nemesis"><span>TOP NEMESIS</span><h2>@{name}</h2><b>{score}</b><small>{tier}</small></div>'.format(
+            name=esc(str(nemesis.get('username') or '')),
+            score=int(nemesis.get('nemesis_score') or 0),
+            tier=esc(str(nemesis.get('tier') or '')),
+        ) if nemesis else '<div class="nemesis"><span>TOP NEMESIS</span><h2>NONE YET</h2><small>Generate recorded Head-to-Head states first.</small></div>'
+    )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 Nemesis System</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0,#51115f,transparent 30%),radial-gradient(circle at 88% 0,#70460d,transparent 28%),#05060a;color:#fff;font-family:Inter,system-ui;padding:24px}}.wrap{{max-width:1100px;margin:auto}}.hero,.panel{{border:1px solid #393b44;border-radius:28px;background:#0b0c11;padding:24px;margin-bottom:18px}}.gold,.score b,.nemesis b{{color:#ffd66b}}h1{{font-size:clamp(48px,8vw,92px);line-height:.88;margin:10px 0}}.nemesis{{border:1px solid #584a2d;border-radius:24px;background:linear-gradient(145deg,rgba(255,214,107,.10),rgba(139,92,255,.05));padding:24px;text-align:center;margin-top:18px}}.nemesis h2{{font-size:34px;margin:7px 0}}.nemesis b{{display:block;font-size:64px}}small,.rival p,.meta{{color:#9da1ad}}.rival{{display:grid;grid-template-columns:90px 1fr auto;gap:14px;align-items:center;border:1px solid #2e3038;border-radius:16px;padding:14px;background:#090a0f;margin-top:9px}}.score{{text-align:center}}.score b{{display:block;font-size:30px}}a{{color:#fff;text-decoration:none;border:1px solid #393b44;border-radius:10px;padding:9px 11px;font-size:9px;font-weight:900}}.empty{{border:1px dashed #474a56;border-radius:14px;padding:14px;color:#9da1ad}}.digest{{margin-top:14px;color:#777a87;font:9px ui-monospace,monospace;word-break:break-all}}@media(max-width:850px){{.rival{{grid-template-columns:1fr}}}}
+</style></head><body><div class="wrap"><section class="hero"><div class="gold">V23.3 // NEMESIS SYSTEM</div><h1>@{esc(str(data.get('username') or username))}</h1><p class="meta">The strongest recorded BL3 rivalry-history pairing for this Hunter.</p>{nemesis_box}<p><a href="/hunter-global-rivalry-history?username={urllib.parse.quote(str(data.get('username') or username), safe='')}">RIVALRY HISTORY</a> <a href="/hunter-global-rivalries">GLOBAL RIVALRIES</a></p></section><section class="panel"><div class="gold">ALL RECORDED RIVALS</div>{cards}</section><div class="digest">NEMESIS DIGEST // {esc(str(data.get('nemesis_digest') or ''))}</div><p class="meta">{esc(str(data.get('policy') or ''))}</p></div></body></html>"""
+
+
+# Add V23.3 navigation to rivalry, compare, and global legend profile surfaces.
+if 'hunter_global_rivalries_page' in app.view_functions:
+    _V232_global_rivalries_page_history = app.view_functions['hunter_global_rivalries_page']
+
+    def _V233_global_rivalries_with_history():
+        response = _V232_global_rivalries_page_history()
+        if isinstance(response, str):
+            history_link = '<a href="/hunter-global-rivalry-history">RIVALRY HISTORY</a>'
+            if history_link not in response:
+                response = response.replace(
+                    '<a href="/hunter-global-legend-compare">COMPARE LEGENDS</a>',
+                    '<a href="/hunter-global-legend-compare">COMPARE LEGENDS</a> ' + history_link,
+                    1
+                )
+            response = response.replace('V23.2 // GLOBAL RIVALRIES', 'V23.3 // GLOBAL RIVALRIES + HISTORY', 1)
+        return response
+
+    app.view_functions['hunter_global_rivalries_page'] = _V233_global_rivalries_with_history
+
+
+if 'hunter_global_legend_compare_page' in app.view_functions:
+    _V232_compare_page_history = app.view_functions['hunter_global_legend_compare_page']
+
+    def _V233_compare_page_with_history():
+        response = _V232_compare_page_history()
+        if isinstance(response, str):
+            history_link = '<a class="nav" href="/hunter-global-rivalry-history">RIVALRY HISTORY</a>'
+            if history_link not in response:
+                response = response.replace(
+                    '<a class="nav" href="/hunter-global-rivalries">GLOBAL RIVALRIES</a>',
+                    '<a class="nav" href="/hunter-global-rivalries">GLOBAL RIVALRIES</a>' + history_link,
+                    1
+                )
+            response = response.replace('V23.2 // ETERNAL HEAD-TO-HEAD', 'V23.3 // ETERNAL HEAD-TO-HEAD + HISTORY', 1)
+        return response
+
+    app.view_functions['hunter_global_legend_compare_page'] = _V233_compare_page_with_history
+
+
+if 'hunter_global_legend_profile_page' in app.view_functions:
+    _V231_global_profile_page_nemesis = app.view_functions['hunter_global_legend_profile_page']
+
+    def _V233_global_profile_with_nemesis(username):
+        response = _V231_global_profile_page_nemesis(username)
+        if isinstance(response, str):
+            nemesis_link = '<a href="/hunter-global-nemesis/{u}">NEMESIS</a>'.format(
+                u=urllib.parse.quote(str(username or ''), safe='')
+            )
+            if nemesis_link not in response:
+                response = response.replace('</section>', nemesis_link + '</section>', 1)
+        return response
+
+    app.view_functions['hunter_global_legend_profile_page'] = _V233_global_profile_with_nemesis
+
 if __name__ == "__main__":
 
     init_db()
 
     print("")
-    print("⚔️ BL3 ARENA V23.2 // GLOBAL RIVALRIES + LEGEND COMPARE + ETERNAL HEAD-TO-HEAD")
+    print("😈 BL3 ARENA V23.3 // RIVALRY HISTORY + NEMESIS SYSTEM + LEGENDARY MATCHUPS")
     print("🧬 Hunter Identity Showcase + Equipped Public Loadout enabled")
     print("💌 Hunter Guestbook + Kudos Wall enabled")
     print("✨ Interactive Kudos Composer + Live Guestbook enabled")
     print("✏️ Guestbook Edit + Reply Back + JSON/CSV Export enabled")
+    print("😈 Rivalry History + Nemesis System + Legendary Matchups enabled")
     print("⚔️ Global Rivalries + Legend Compare + Eternal Head-to-Head enabled")
     print("🔎 Global Legend Profiles + Record Holders + Hall Search enabled")
     print("🏆 Legend Medals + Eternal Records + Global Hall of Fame enabled")
