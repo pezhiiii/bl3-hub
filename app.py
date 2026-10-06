@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V27.3"
+V247_SECURITY_VERSION = "V27.4"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V27.3"
+V248_SECURITY_VERSION = "V27.4"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.3 Build Attestation</title><style>
+    <title>BL3 V27.4 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V27.3"
+V250_VERSION = "V27.4"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V27.3"
+V253_VERSION = "V27.4"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V27.3"
+V254_VERSION = "V27.4"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V27.3"
+V255_VERSION = "V27.4"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V27.3"
+V256_VERSION = "V27.4"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V27.3"
+V257_VERSION = "V27.4"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V27.3"
+V258_VERSION = "V27.4"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.3 Hunter Command Deck</title>
+    <title>BL3 V27.4 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V27.3"
+V259_VERSION = "V27.4"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V27.3"
+V260_VERSION = "V27.4"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V27.3"
+V261_VERSION = "V27.4"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V27.3"
+V262_VERSION = "V27.4"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V27.3"
+V263_VERSION = "V27.4"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V27.3"
+V264_VERSION = "V27.4"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V27.3"
+V265_VERSION = "V27.4"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V27.3"
+V266_VERSION = "V27.4"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V27.3"
+V267_VERSION = "V27.4"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V27.3"
+V268_VERSION = "V27.4"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V27.3"
+V269_VERSION = "V27.4"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V27.3"
+V270_VERSION = "V27.4"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V27.3"
+V271_VERSION = "V27.4"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V27.3"
+V272_VERSION = "V27.4"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V27.3"
+V273_VERSION = "V27.4"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36816,7 +36816,7 @@ def v273_commitment_board_page():
     .actions{{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:9px}}button,a{{border:1px solid #47775b;border-radius:10px;padding:9px 11px;background:#0d1711;color:#fff;text-decoration:none;cursor:pointer;font-weight:800}}.msg{{font-size:12px;color:#9ad9af}}.empty{{color:#9bad9f}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.3 // CLOSE THE LOOP</div>
+        <div class='eyebrow'>BL3 V27.4 // CLOSE THE LOOP</div>
         <h1>✅ COMMITMENT OUTCOMES</h1>
         <p class='muted'>{username}, track each Reflection → Action commitment from idea to outcome.</p>
         <div class='grid'>
@@ -36863,6 +36863,351 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v271_progress_journal_page"] = _v273_journal_with_board
+except Exception:
+    pass
+
+
+# ===== V27.4 COMMITMENT EXECUTION SYNC + AUTO-CLOSURE =====
+# Links Reflection commitments to Focus Queue items and Focus Runs so the
+# Action Board can close the loop automatically when a linked run finishes.
+
+V274_VERSION = "V27.4"
+
+def _v274_ensure_schema():
+    _v273_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_commitment_execution_links (
+                checkpoint_id INTEGER PRIMARY KEY,
+                username TEXT NOT NULL,
+                queue_id INTEGER,
+                run_id INTEGER,
+                linked_at TEXT NOT NULL,
+                run_started_at TEXT,
+                run_completed_at TEXT,
+                run_cancelled_at TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commit_exec_user "
+            "ON hunter_commitment_execution_links(username, checkpoint_id DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commit_exec_queue "
+            "ON hunter_commitment_execution_links(username, queue_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commit_exec_run "
+            "ON hunter_commitment_execution_links(username, run_id)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v274_response_payload(response):
+    try:
+        obj = response[0] if isinstance(response, tuple) else response
+        if hasattr(obj, "get_json"):
+            return obj.get_json(silent=True) or {}
+    except Exception:
+        pass
+    return {}
+
+
+def _v274_link_queue(username, checkpoint_id, queue_id):
+    _v274_ensure_schema()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_commitment_execution_links
+               (checkpoint_id, username, queue_id, run_id, linked_at,
+                run_started_at, run_completed_at, run_cancelled_at)
+               VALUES (?, ?, ?, NULL, ?, NULL, NULL, NULL)
+               ON CONFLICT(checkpoint_id) DO UPDATE SET
+                 username=excluded.username,
+                 queue_id=excluded.queue_id,
+                 run_id=NULL,
+                 linked_at=excluded.linked_at,
+                 run_started_at=NULL,
+                 run_completed_at=NULL,
+                 run_cancelled_at=NULL""",
+            (int(checkpoint_id), username, int(queue_id), now)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v274_link_run_from_queue(username, queue_id, run_id, started_at=None):
+    _v274_ensure_schema()
+    started_at = str(started_at or datetime.utcnow().isoformat(timespec="seconds") + "Z")
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """UPDATE hunter_commitment_execution_links
+               SET run_id=?, run_started_at=?
+               WHERE username=? AND queue_id=?""",
+            (int(run_id), started_at, username, int(queue_id))
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+    finally:
+        conn.close()
+
+
+def _v274_finish_linked_commitment(username, run_id, completed=False, cancelled=False):
+    _v274_ensure_schema()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT checkpoint_id FROM hunter_commitment_execution_links
+               WHERE username=? AND run_id=? LIMIT 1""",
+            (username, int(run_id))
+        ).fetchone()
+        if not row:
+            return {"linked": False}
+
+        checkpoint_id = int(row["checkpoint_id"])
+        if completed:
+            conn.execute(
+                """UPDATE hunter_commitment_execution_links
+                   SET run_completed_at=?, run_cancelled_at=NULL
+                   WHERE checkpoint_id=? AND username=?""",
+                (now, checkpoint_id, username)
+            )
+            conn.execute(
+                """UPDATE hunter_progress_commitments
+                   SET status='DONE',
+                       outcome_note=CASE
+                         WHEN TRIM(COALESCE(outcome_note,''))='' THEN 'Completed through linked Focus Run.'
+                         ELSE outcome_note
+                       END,
+                       closed_at=?, updated_at=?
+                   WHERE checkpoint_id=? AND username=?""",
+                (now, now, checkpoint_id, username)
+            )
+            conn.commit()
+            return {
+                "linked": True,
+                "checkpoint_id": checkpoint_id,
+                "commitment_status": "DONE",
+                "synced_at": now,
+            }
+
+        if cancelled:
+            conn.execute(
+                """UPDATE hunter_commitment_execution_links
+                   SET run_cancelled_at=?, run_completed_at=NULL
+                   WHERE checkpoint_id=? AND username=?""",
+                (now, checkpoint_id, username)
+            )
+            conn.execute(
+                """UPDATE hunter_progress_commitments
+                   SET status='OPEN',
+                       outcome_note=CASE
+                         WHEN TRIM(COALESCE(outcome_note,''))='' THEN 'Linked Focus Run was cancelled; commitment reopened.'
+                         ELSE outcome_note
+                       END,
+                       closed_at=NULL, updated_at=?
+                   WHERE checkpoint_id=? AND username=?""",
+                (now, checkpoint_id, username)
+            )
+            conn.commit()
+            return {
+                "linked": True,
+                "checkpoint_id": checkpoint_id,
+                "commitment_status": "OPEN",
+                "synced_at": now,
+            }
+
+        return {"linked": True, "checkpoint_id": checkpoint_id}
+    finally:
+        conn.close()
+
+
+def _v274_execution_links(username):
+    _v274_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT l.checkpoint_id, l.queue_id, l.run_id, l.linked_at,
+                      l.run_started_at, l.run_completed_at, l.run_cancelled_at,
+                      c.commitment, c.status, c.outcome_note
+               FROM hunter_commitment_execution_links l
+               LEFT JOIN hunter_progress_commitments c
+                 ON c.checkpoint_id=l.checkpoint_id AND c.username=l.username
+               WHERE l.username=?
+               ORDER BY l.checkpoint_id DESC""",
+            (username,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.route("/api/hunter-commitment-execution-links")
+def v274_commitment_execution_links_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({
+        "success": True,
+        "version": V274_VERSION,
+        "username": username,
+        "items": _v274_execution_links(username),
+        "policy": "Execution links are private workflow metadata for the signed-in Hunter."
+    })
+
+
+# Capture the queue_id returned when a Reflection commitment enters Focus Queue.
+try:
+    _v274_prev_commitment_queue = app.view_functions.get("v272_progress_commitment_queue_api")
+    if _v274_prev_commitment_queue:
+        def _v274_commitment_queue_with_link(checkpoint_id, *args, **kwargs):
+            response = _v274_prev_commitment_queue(checkpoint_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success") and payload.get("queue_id"):
+                username = str(session.get("authenticated_username") or "").strip()
+                if username:
+                    _v274_link_queue(username, int(checkpoint_id), int(payload["queue_id"]))
+            return response
+        app.view_functions["v272_progress_commitment_queue_api"] = _v274_commitment_queue_with_link
+except Exception:
+    pass
+
+
+# Wrap the manual Start Next route. Remember the first queue ID before it is deleted,
+# then bind it to the newly-created Focus Run.
+try:
+    _v274_prev_start_next_route = app.view_functions.get("v261_focus_queue_start_next_api")
+    if _v274_prev_start_next_route:
+        def _v274_start_next_route_with_link(*args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            before = _v261_queue_rows(username) if username else []
+            queue_id = int(before[0].get("id") or 0) if before else 0
+
+            response = _v274_prev_start_next_route(*args, **kwargs)
+            payload = _v274_response_payload(response)
+            if username and queue_id and payload.get("success") and payload.get("run_id"):
+                _v274_link_run_from_queue(
+                    username,
+                    queue_id,
+                    int(payload["run_id"]),
+                    payload.get("started_at")
+                )
+            return response
+        app.view_functions["v261_focus_queue_start_next_api"] = _v274_start_next_route_with_link
+except Exception:
+    pass
+
+
+# Wrap the internal Auto-Advance starter too. This ensures a commitment remains
+# linked when V26.2 starts the next queued item automatically.
+try:
+    _V274_ORIGINAL_START_NEXT_QUEUED = _v262_start_next_queued
+    def _v262_start_next_queued(username):
+        before = _v261_queue_rows(username)
+        queue_id = int(before[0].get("id") or 0) if before else 0
+        result = _V274_ORIGINAL_START_NEXT_QUEUED(username)
+        if queue_id and result.get("started") and result.get("run_id"):
+            _v274_link_run_from_queue(
+                username,
+                queue_id,
+                int(result["run_id"]),
+                result.get("started_at")
+            )
+        return result
+except Exception:
+    pass
+
+
+# Sync normal Focus completion to Commitment DONE.
+try:
+    _v274_prev_complete = app.view_functions.get("v260_hunter_focus_complete_api")
+    if _v274_prev_complete:
+        def _v274_complete_with_commitment_sync(run_id, *args, **kwargs):
+            response = _v274_prev_complete(run_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success"):
+                username = str(session.get("authenticated_username") or "").strip()
+                sync = _v274_finish_linked_commitment(username, int(run_id), completed=True)
+                if sync.get("linked") and hasattr(response, "get_json"):
+                    pass
+            return response
+        app.view_functions["v260_hunter_focus_complete_api"] = _v274_complete_with_commitment_sync
+except Exception:
+    pass
+
+
+# Sync chain-aware completion (the endpoint used by the Focus page in V26.2+).
+try:
+    _v274_prev_complete_chain = app.view_functions.get("v262_hunter_focus_complete_chain_api")
+    if _v274_prev_complete_chain:
+        def _v274_complete_chain_with_commitment_sync(run_id, *args, **kwargs):
+            response = _v274_prev_complete_chain(run_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success"):
+                username = str(session.get("authenticated_username") or "").strip()
+                _v274_finish_linked_commitment(username, int(run_id), completed=True)
+            return response
+        app.view_functions["v262_hunter_focus_complete_chain_api"] = _v274_complete_chain_with_commitment_sync
+except Exception:
+    pass
+
+
+# If a linked Focus Run is cancelled, reopen its commitment instead of silently
+# leaving the Action Board in QUEUED state.
+try:
+    _v274_prev_cancel = app.view_functions.get("v260_hunter_focus_cancel_api")
+    if _v274_prev_cancel:
+        def _v274_cancel_with_commitment_sync(run_id, *args, **kwargs):
+            response = _v274_prev_cancel(run_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success"):
+                username = str(session.get("authenticated_username") or "").strip()
+                _v274_finish_linked_commitment(username, int(run_id), cancelled=True)
+            return response
+        app.view_functions["v260_hunter_focus_cancel_api"] = _v274_cancel_with_commitment_sync
+except Exception:
+    pass
+
+
+# Add execution-link visibility to the private Commitment Board without exposing it publicly.
+try:
+    _v274_prev_board = app.view_functions.get("v273_commitment_board_page")
+    if _v274_prev_board:
+        def _v274_board_with_sync_status(*args, **kwargs):
+            response = _v274_prev_board(*args, **kwargs)
+            if not isinstance(response, str) or "V27.4 EXECUTION SYNC" in response:
+                return response
+
+            username = str(session.get("authenticated_username") or "").strip()
+            if not username:
+                return response
+
+            links = _v274_execution_links(username)
+            active_links = sum(1 for x in links if x.get("run_id") and not x.get("run_completed_at") and not x.get("run_cancelled_at"))
+            completed_links = sum(1 for x in links if x.get("run_completed_at"))
+
+            panel = """
+            <section style='max-width:1000px;margin:0 auto 16px;padding:0 24px'>
+              <div style='background:#09110ded;border:1px solid #3d7457;border-radius:20px;padding:16px;color:#fff;font-family:Arial'>
+                <div style='font-size:11px;letter-spacing:1.6px;color:#8fe0b0;font-weight:900'>V27.4 EXECUTION SYNC</div>
+                <div style='margin-top:7px'><b>{total}</b> linked commitment(s) · <b>{active}</b> active run(s) · <b>{done}</b> auto-closed run(s)</div>
+                <div style='color:#9fb4a8;font-size:12px;margin-top:6px'>Completing a linked Focus Run now marks its commitment DONE automatically. Cancelling it reopens the commitment.</div>
+              </div>
+            </section>
+            """.format(total=len(links), active=active_links, done=completed_links)
+
+            return response.replace("</body>", panel + "</body>", 1)
+
+        app.view_functions["v273_commitment_board_page"] = _v274_board_with_sync_status
 except Exception:
     pass
 
