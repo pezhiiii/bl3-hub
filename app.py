@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V27.6"
+V247_SECURITY_VERSION = "V27.7"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V27.6"
+V248_SECURITY_VERSION = "V27.7"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.6 Build Attestation</title><style>
+    <title>BL3 V27.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V27.6"
+V250_VERSION = "V27.7"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V27.6"
+V253_VERSION = "V27.7"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V27.6"
+V254_VERSION = "V27.7"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V27.6"
+V255_VERSION = "V27.7"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V27.6"
+V256_VERSION = "V27.7"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V27.6"
+V257_VERSION = "V27.7"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V27.6"
+V258_VERSION = "V27.7"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.6 Hunter Command Deck</title>
+    <title>BL3 V27.7 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V27.6"
+V259_VERSION = "V27.7"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V27.6"
+V260_VERSION = "V27.7"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V27.6"
+V261_VERSION = "V27.7"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V27.6"
+V262_VERSION = "V27.7"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V27.6"
+V263_VERSION = "V27.7"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V27.6"
+V264_VERSION = "V27.7"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V27.6"
+V265_VERSION = "V27.7"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V27.6"
+V266_VERSION = "V27.7"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V27.6"
+V267_VERSION = "V27.7"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V27.6"
+V268_VERSION = "V27.7"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V27.6"
+V269_VERSION = "V27.7"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V27.6"
+V270_VERSION = "V27.7"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V27.6"
+V271_VERSION = "V27.7"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V27.6"
+V272_VERSION = "V27.7"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V27.6"
+V273_VERSION = "V27.7"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V27.6"
+V274_VERSION = "V27.7"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V27.6"
+V275_VERSION = "V27.7"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V27.6"
+V276_VERSION = "V27.7"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37672,7 +37672,7 @@ def v276_execution_recovery_page():
     .buttons{{display:flex;gap:8px;flex-wrap:wrap}}a,button{{border:1px solid #755f31;border-radius:10px;padding:10px 12px;background:#171208;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}}.msg{{color:#9bd8ab;font-size:12px;margin-top:10px}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.6 // PRIVATE EXECUTION COACH</div>
+        <div class='eyebrow'>BL3 V27.7 // PRIVATE EXECUTION COACH</div>
         <h1>🧭 EXECUTION RECOVERY PLAN</h1>
         <p class='muted'>{username}, BL3 uses your private commitment funnel to suggest the smallest useful correction.</p>
         <div class='hero'>{headline}</div>
@@ -37721,6 +37721,330 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v275_commitment_analytics_page"] = _v276_analytics_with_recovery
+except Exception:
+    pass
+
+
+# ===== V27.7 RECOVERY EXPERIMENTS + EFFECTIVENESS =====
+# Stores each queued Recovery Coach action with a private baseline snapshot,
+# then compares later funnel metrics against that baseline.
+
+V277_VERSION = "V27.7"
+V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
+V277_MAX_NOTE = 300
+
+def _v277_ensure_schema():
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_recovery_experiments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                queue_id INTEGER,
+                action_kind TEXT NOT NULL,
+                action_title TEXT NOT NULL,
+                baseline_state TEXT NOT NULL,
+                baseline_queue_rate REAL NOT NULL DEFAULT 0,
+                baseline_completion_rate REAL NOT NULL DEFAULT 0,
+                baseline_overall_conversion REAL NOT NULL DEFAULT 0,
+                outcome TEXT NOT NULL DEFAULT 'PENDING',
+                outcome_note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                reviewed_at TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recovery_experiments_user "
+            "ON hunter_recovery_experiments(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v277_create_experiment(username, queue_id, action_kind, action_title):
+    baseline = _v275_commitment_funnel_snapshot(username)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v277_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """INSERT INTO hunter_recovery_experiments
+               (username, queue_id, action_kind, action_title, baseline_state,
+                baseline_queue_rate, baseline_completion_rate, baseline_overall_conversion,
+                outcome, outcome_note, created_at, reviewed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', '', ?, NULL)""",
+            (
+                username,
+                int(queue_id) if queue_id else None,
+                str(action_kind or "RECOVERY")[:40],
+                str(action_title or "Recovery Action")[:180],
+                str(baseline.get("state") or "NO DATA"),
+                float(baseline.get("queue_rate") or 0.0),
+                float(baseline.get("completion_rate") or 0.0),
+                float(baseline.get("overall_conversion") or 0.0),
+                now,
+            )
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def _v277_experiment_rows(username):
+    _v277_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_recovery_experiments
+               WHERE username=? ORDER BY id DESC LIMIT 40""",
+            (username,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v277_experiment_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V277_VERSION}
+
+    current = _v275_commitment_funnel_snapshot(username)
+    rows = _v277_experiment_rows(username)
+
+    for row in rows:
+        row["delta_queue_rate"] = round(
+            float(current.get("queue_rate") or 0.0) - float(row.get("baseline_queue_rate") or 0.0), 1
+        )
+        row["delta_completion_rate"] = round(
+            float(current.get("completion_rate") or 0.0) - float(row.get("baseline_completion_rate") or 0.0), 1
+        )
+        row["delta_overall_conversion"] = round(
+            float(current.get("overall_conversion") or 0.0) - float(row.get("baseline_overall_conversion") or 0.0), 1
+        )
+
+    counts = {k: 0 for k in V277_ALLOWED_OUTCOMES}
+    for row in rows:
+        outcome = str(row.get("outcome") or "PENDING").upper()
+        counts[outcome] = counts.get(outcome, 0) + 1
+
+    helpful_rate = round(
+        (counts.get("HELPFUL", 0) / max(1, len([r for r in rows if str(r.get("outcome") or "") != "PENDING"]))) * 100,
+        1
+    ) if any(str(r.get("outcome") or "") != "PENDING" for r in rows) else 0.0
+
+    return {
+        "success": True,
+        "version": V277_VERSION,
+        "username": username,
+        "current": current,
+        "items": rows,
+        "counts": counts,
+        "reviewed_helpful_rate": helpful_rate,
+        "policy": "Recovery experiment history is private BL3 workflow data and has no monetary value."
+    }
+
+
+@app.route("/api/hunter-recovery-experiments")
+def v277_recovery_experiments_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v277_experiment_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-recovery-experiments/<int:experiment_id>/review", methods=["POST"])
+def v277_recovery_experiment_review_api(experiment_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    outcome = str(payload.get("outcome") or "").strip().upper()
+    note = str(payload.get("outcome_note") or "").strip()
+
+    if outcome not in V277_ALLOWED_OUTCOMES:
+        return jsonify({"success": False, "error": "invalid_outcome"}), 400
+    if len(note) > V277_MAX_NOTE:
+        return jsonify({"success": False, "error": "note_too_long", "max": V277_MAX_NOTE}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    reviewed_at = None if outcome == "PENDING" else now
+
+    _v277_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """UPDATE hunter_recovery_experiments
+               SET outcome=?, outcome_note=?, reviewed_at=?
+               WHERE id=? AND username=?""",
+            (outcome, note, reviewed_at, int(experiment_id), username)
+        )
+        conn.commit()
+        if cur.rowcount < 1:
+            return jsonify({"success": False, "error": "experiment_not_found"}), 404
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "experiment_id": int(experiment_id),
+        "outcome": outcome,
+        "reviewed_at": reviewed_at
+    })
+
+
+# Record every Recovery Coach action that is successfully queued.
+try:
+    _v277_prev_recovery_queue = app.view_functions.get("v276_execution_recovery_queue_api")
+    if _v277_prev_recovery_queue:
+        def _v277_recovery_queue_with_experiment(*args, **kwargs):
+            payload_in = request.get_json(silent=True) or {}
+            response = _v277_prev_recovery_queue(*args, **kwargs)
+            try:
+                payload_out = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+            except Exception:
+                payload_out = {}
+
+            if payload_out and payload_out.get("success") and payload_out.get("queue_id"):
+                username = str(session.get("authenticated_username") or "").strip()
+                if username:
+                    exp_id = _v277_create_experiment(
+                        username,
+                        payload_out.get("queue_id"),
+                        payload_in.get("kind"),
+                        payload_in.get("title")
+                    )
+                    payload_out["experiment_id"] = exp_id
+                    return jsonify(payload_out)
+
+            return response
+
+        app.view_functions["v276_execution_recovery_queue_api"] = _v277_recovery_queue_with_experiment
+except Exception:
+    pass
+
+
+@app.route("/hunter-recovery-experiments")
+def v277_recovery_experiments_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Recovery Experiments</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧪 Recovery Experiments</h1><p>Sign in to review your private recovery history.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v277_experiment_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    counts = data.get("counts") or {}
+    items = []
+
+    def d(v):
+        try:
+            x = float(v)
+        except Exception:
+            x = 0.0
+        return ("+" if x > 0 else "") + str(round(x, 1))
+
+    for row in data.get("items") or []:
+        eid = int(row.get("id") or 0)
+        items.append(
+            """<article class='exp'>
+              <div class='top'>
+                <div><div class='meta'>Experiment #{eid} · {created}</div><h3>{title}</h3></div>
+                <span class='pill'>{outcome}</span>
+              </div>
+              <div class='baseline'>Baseline: {state} · Queue {bq}% · Completion {bc}% · Overall {bo}%</div>
+              <div class='delta'>Current delta: Queue {dq} · Completion {dc} · Overall {do}</div>
+              <textarea id='n{eid}' maxlength='{max_note}' placeholder='What happened? Was this recovery action useful?'>{note}</textarea>
+              <div class='actions'>
+                <button onclick="reviewExp({eid},'HELPFUL')">HELPFUL</button>
+                <button onclick="reviewExp({eid},'NO_CHANGE')">NO CHANGE</button>
+                <button onclick="reviewExp({eid},'NOT_HELPFUL')">NOT HELPFUL</button>
+                <button onclick="reviewExp({eid},'PENDING')">RESET</button>
+                <span id='m{eid}' class='msg'></span>
+              </div>
+            </article>""".format(
+                eid=eid,
+                created=esc(row.get("created_at")),
+                title=esc(row.get("action_title")),
+                outcome=esc(row.get("outcome")),
+                state=esc(row.get("baseline_state")),
+                bq=esc(row.get("baseline_queue_rate")),
+                bc=esc(row.get("baseline_completion_rate")),
+                bo=esc(row.get("baseline_overall_conversion")),
+                dq=esc(d(row.get("delta_queue_rate"))),
+                dc=esc(d(row.get("delta_completion_rate"))),
+                do=esc(d(row.get("delta_overall_conversion"))),
+                max_note=V277_MAX_NOTE,
+                note=esc(row.get("outcome_note")),
+            )
+        )
+
+    if not items:
+        items.append("<div class='empty'>No recovery experiments yet. Queue an action from Execution Recovery first.</div>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V27.7 Recovery Experiments</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#261b35 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1000px;margin:auto}}.panel{{background:#0d0a12ed;border:1px solid #5c4273;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#d29cff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#b5a8bf}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}.card{{background:#0a0710;border:1px solid #49365a;border-radius:16px;padding:16px}}.k{{font-size:11px;color:#c3a9d0;font-weight:900}}.v{{font-size:28px;font-weight:950;margin-top:7px}}
+    .exp{{background:#0a0710;border:1px solid #49365a;border-radius:18px;padding:17px;margin:12px 0}}.top{{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}}.meta{{font-size:10px;color:#a998b1}}h3{{margin:5px 0}}.pill{{border:1px solid #765397;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900}}.baseline,.delta{{font-size:12px;margin-top:8px}}.baseline{{color:#b2a4ba}}.delta{{color:#9edbb2}}
+    textarea{{width:100%;min-height:80px;margin-top:12px;border:1px solid #5b4370;border-radius:12px;background:#08060b;color:#fff;padding:11px;resize:vertical}}.actions{{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:9px}}button,a{{border:1px solid #745690;border-radius:10px;padding:9px 11px;background:#150d1c;color:#fff;text-decoration:none;cursor:pointer;font-weight:800}}.msg{{font-size:12px;color:#9edbb2}}.empty{{color:#a99cb2}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V27.7 // RECOVERY LEARNING LOOP</div>
+        <h1>🧪 RECOVERY EXPERIMENTS</h1>
+        <p class='muted'>{username}, test Recovery Coach actions and review whether they actually improved your execution loop.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>PENDING</div><div class='v'>{pending}</div></div>
+          <div class='card'><div class='k'>HELPFUL</div><div class='v'>{helpful}</div></div>
+          <div class='card'><div class='k'>NO CHANGE</div><div class='v'>{no_change}</div></div>
+          <div class='card'><div class='k'>NOT HELPFUL</div><div class='v'>{not_helpful}</div></div>
+          <div class='card'><div class='k'>REVIEWED HELPFUL RATE</div><div class='v'>{helpful_rate}%</div></div>
+        </div>
+        <p><a href='/hunter-execution-recovery'>🧭 RECOVERY PLAN</a><a href='/hunter-commitment-analytics'>📊 ANALYTICS</a></p>
+      </section>
+      <section class='panel'>{items}</section>
+    </div>
+    <script>
+    async function reviewExp(id,outcome){{
+      const note=document.getElementById('n'+id).value;
+      const msg=document.getElementById('m'+id);
+      const r=await fetch('/api/hunter-recovery-experiments/'+id+'/review',{{
+        method:'POST',headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify({{outcome:outcome,outcome_note:note}})
+      }});
+      const j=await r.json();
+      msg.textContent=j.success?'Saved '+j.outcome:(j.error||'Failed');
+      if(j.success)setTimeout(()=>location.reload(),450);
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        pending=esc(counts.get("PENDING",0)),
+        helpful=esc(counts.get("HELPFUL",0)),
+        no_change=esc(counts.get("NO_CHANGE",0)),
+        not_helpful=esc(counts.get("NOT_HELPFUL",0)),
+        helpful_rate=esc(data.get("reviewed_helpful_rate")),
+        items="".join(items),
+    )
+
+
+# Surface experiment history from Execution Recovery.
+try:
+    _v277_prev_recovery = app.view_functions.get("v276_execution_recovery_page")
+    if _v277_prev_recovery:
+        def _v277_recovery_with_history(*args, **kwargs):
+            response = _v277_prev_recovery(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-recovery-experiments" not in response:
+                link = "<a href='/hunter-recovery-experiments' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #745690;border-radius:10px;color:#fff;text-decoration:none'>🧪 RECOVERY EXPERIMENTS</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v276_execution_recovery_page"] = _v277_recovery_with_history
 except Exception:
     pass
 
