@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V29.1"
+V247_SECURITY_VERSION = "V29.2"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V29.1"
+V248_SECURITY_VERSION = "V29.2"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.1 Build Attestation</title><style>
+    <title>BL3 V29.2 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V29.1"
+V250_VERSION = "V29.2"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V29.1"
+V253_VERSION = "V29.2"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V29.1"
+V254_VERSION = "V29.2"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V29.1"
+V255_VERSION = "V29.2"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V29.1"
+V256_VERSION = "V29.2"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V29.1"
+V257_VERSION = "V29.2"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V29.1"
+V258_VERSION = "V29.2"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.1 Hunter Command Deck</title>
+    <title>BL3 V29.2 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V29.1"
+V259_VERSION = "V29.2"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V29.1"
+V260_VERSION = "V29.2"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V29.1"
+V261_VERSION = "V29.2"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V29.1"
+V262_VERSION = "V29.2"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V29.1"
+V263_VERSION = "V29.2"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V29.1"
+V264_VERSION = "V29.2"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V29.1"
+V265_VERSION = "V29.2"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V29.1"
+V266_VERSION = "V29.2"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V29.1"
+V267_VERSION = "V29.2"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V29.1"
+V268_VERSION = "V29.2"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V29.1"
+V269_VERSION = "V29.2"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V29.1"
+V270_VERSION = "V29.2"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V29.1"
+V271_VERSION = "V29.2"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V29.1"
+V272_VERSION = "V29.2"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V29.1"
+V273_VERSION = "V29.2"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V29.1"
+V274_VERSION = "V29.2"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V29.1"
+V275_VERSION = "V29.2"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V29.1"
+V276_VERSION = "V29.2"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V29.1"
+V277_VERSION = "V29.2"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V29.1"
+V278_VERSION = "V29.2"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V29.1"
+V279_VERSION = "V29.2"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V29.1"
+V280_VERSION = "V29.2"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V29.1"
+V281_VERSION = "V29.2"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V29.1"
+V282_VERSION = "V29.2"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V29.1"
+V283_VERSION = "V29.2"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V29.1"
+V284_VERSION = "V29.2"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V29.1"
+V285_VERSION = "V29.2"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V29.1"
+V286_VERSION = "V29.2"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V29.1"
+V287_VERSION = "V29.2"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V29.1"
+V288_VERSION = "V29.2"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V29.1"
+V289_VERSION = "V29.2"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V29.1"
+V290_VERSION = "V29.2"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -41648,7 +41648,7 @@ def v291_command_learning_page():
     a{{display:inline-block;border:1px solid #4c806d;border-radius:10px;padding:10px 13px;background:#0d1814;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V29.1 // RECENCY-WEIGHTED LEARNING</div>
+        <div class='eyebrow'>BL3 V29.2 // RECENCY-WEIGHTED LEARNING</div>
         <h1>🧠 COMMAND LEARNING</h1>
         <p class='muted'>{username}, recent results now matter more than old results.</p>
         <div class='hero'>
@@ -41686,6 +41686,369 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v290_command_policy_page"] = _v291_policy_with_learning
+except Exception:
+    pass
+
+
+# ===== V29.2 FOCUS EXIT REVIEW + FRICTION MEMORY =====
+# Captures a short structured review after Focus Run completion/cancellation.
+# This gives BL3 explicit Hunter feedback about WHY work succeeded or failed,
+# without guessing from timestamps alone.
+
+V292_VERSION = "V29.2"
+V292_FRICTION_CHOICES = {
+    "NONE": "No friction",
+    "TOO_BIG": "Scope was too big",
+    "UNCLEAR": "Action was unclear",
+    "BLOCKED": "Blocked by dependency",
+    "LOW_PRIORITY": "Wrong priority",
+    "DISTRACTED": "Lost focus",
+    "TECHNICAL": "Technical issue",
+    "OTHER": "Other",
+}
+
+def _v292_ensure_schema():
+    _v260_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_focus_exit_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                run_id INTEGER NOT NULL,
+                outcome TEXT NOT NULL,
+                friction TEXT NOT NULL DEFAULT 'NONE',
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                reviewed_at TEXT,
+                UNIQUE(username, run_id)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_focus_exit_reviews_user "
+            "ON hunter_focus_exit_reviews(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v292_create_pending_review(username, run_id, outcome):
+    username = str(username or "").strip()
+    if not username:
+        return
+    _v292_ensure_schema()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO hunter_focus_exit_reviews
+               (username, run_id, outcome, friction, note, created_at, reviewed_at)
+               VALUES (?, ?, ?, 'NONE', '', ?, NULL)""",
+            (username, int(run_id), str(outcome or "UNKNOWN").upper(), now)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v292_reviews_snapshot(username, limit=60):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V292_VERSION}
+
+    _v292_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT r.id, r.run_id, r.outcome, r.friction, r.note,
+                      r.created_at, r.reviewed_at,
+                      f.action_kind, f.action_title, f.priority, f.score
+               FROM hunter_focus_exit_reviews r
+               LEFT JOIN hunter_focus_runs f
+                 ON f.id=r.run_id AND f.username=r.username
+               WHERE r.username=?
+               ORDER BY r.id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 60), 100)))
+        ).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    pending = [x for x in items if not x.get("reviewed_at")]
+    reviewed = [x for x in items if x.get("reviewed_at")]
+
+    friction_counts = {}
+    cancelled_reviewed = 0
+    for item in reviewed:
+        friction = str(item.get("friction") or "NONE").upper()
+        friction_counts[friction] = friction_counts.get(friction, 0) + 1
+        if str(item.get("outcome") or "").upper() == "CANCELLED":
+            cancelled_reviewed += 1
+
+    dominant = "NONE"
+    if friction_counts:
+        dominant = max(friction_counts, key=friction_counts.get)
+
+    return {
+        "success": True,
+        "version": V292_VERSION,
+        "username": username,
+        "items": items,
+        "pending": pending,
+        "pending_count": len(pending),
+        "reviewed_count": len(reviewed),
+        "friction_counts": friction_counts,
+        "dominant_friction": dominant,
+        "dominant_friction_label": V292_FRICTION_CHOICES.get(dominant, dominant),
+        "cancelled_reviewed": cancelled_reviewed,
+        "choices": V292_FRICTION_CHOICES,
+        "policy": (
+            "Focus Exit Review stores only explicit in-app feedback supplied by the Hunter. "
+            "BL3 does not infer private reasons for success or failure."
+        )
+    }
+
+
+@app.route("/api/hunter-focus-exit-reviews")
+def v292_focus_exit_reviews_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v292_reviews_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-focus-exit-reviews/<int:review_id>", methods=["POST"])
+def v292_submit_focus_exit_review_api(review_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    friction = str(payload.get("friction") or "NONE").strip().upper()
+    note = " ".join(str(payload.get("note") or "").strip().split())
+
+    if friction not in V292_FRICTION_CHOICES:
+        return jsonify({"success": False, "error": "invalid_friction"}), 400
+    if len(note) > 300:
+        return jsonify({"success": False, "error": "note_too_long", "max": 300}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v292_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """UPDATE hunter_focus_exit_reviews
+               SET friction=?, note=?, reviewed_at=?
+               WHERE id=? AND username=? AND reviewed_at IS NULL""",
+            (friction, note, now, int(review_id), username)
+        )
+        conn.commit()
+        if cur.rowcount < 1:
+            return jsonify({"success": False, "error": "review_not_found_or_already_submitted"}), 404
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V292_VERSION,
+        "review_id": int(review_id),
+        "friction": friction,
+        "friction_label": V292_FRICTION_CHOICES.get(friction),
+        "reviewed_at": now
+    })
+
+
+# Attach exit-review creation to both completion paths and cancellation path.
+try:
+    _v292_prev_complete_base = app.view_functions.get("v260_hunter_focus_complete_api")
+    if _v292_prev_complete_base:
+        def _v292_complete_base_with_review(run_id, *args, **kwargs):
+            response = _v292_prev_complete_base(run_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success"):
+                username = str(session.get("authenticated_username") or "").strip()
+                _v292_create_pending_review(username, int(run_id), "COMPLETED")
+            return response
+        app.view_functions["v260_hunter_focus_complete_api"] = _v292_complete_base_with_review
+except Exception:
+    pass
+
+try:
+    _v292_prev_complete_chain = app.view_functions.get("v262_hunter_focus_complete_chain_api")
+    if _v292_prev_complete_chain:
+        def _v292_complete_chain_with_review(run_id, *args, **kwargs):
+            response = _v292_prev_complete_chain(run_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success"):
+                username = str(session.get("authenticated_username") or "").strip()
+                _v292_create_pending_review(username, int(run_id), "COMPLETED")
+            return response
+        app.view_functions["v262_hunter_focus_complete_chain_api"] = _v292_complete_chain_with_review
+except Exception:
+    pass
+
+try:
+    _v292_prev_cancel = app.view_functions.get("v260_hunter_focus_cancel_api")
+    if _v292_prev_cancel:
+        def _v292_cancel_with_review(run_id, *args, **kwargs):
+            response = _v292_prev_cancel(run_id, *args, **kwargs)
+            payload = _v274_response_payload(response)
+            if payload.get("success"):
+                username = str(session.get("authenticated_username") or "").strip()
+                _v292_create_pending_review(username, int(run_id), "CANCELLED")
+            return response
+        app.view_functions["v260_hunter_focus_cancel_api"] = _v292_cancel_with_review
+except Exception:
+    pass
+
+
+@app.route("/hunter-focus-exit-review")
+def v292_focus_exit_review_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Focus Exit Review</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📝 Focus Exit Review</h1><p>Sign in to review completed or cancelled Focus Runs.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v292_reviews_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    pending_cards = []
+    options = "".join(
+        "<option value='{k}'>{v}</option>".format(k=esc(k), v=esc(v))
+        for k, v in V292_FRICTION_CHOICES.items()
+    )
+
+    for item in data.get("pending") or []:
+        rid = int(item.get("id") or 0)
+        pending_cards.append(
+            """<article class='review'>
+              <div class='top'>
+                <div>
+                  <div class='meta'>Run #{run_id} · {outcome}</div>
+                  <h3>{title}</h3>
+                </div>
+                <span class='pill'>NEEDS REVIEW</span>
+              </div>
+              <label>What affected this run?</label>
+              <select id='f{rid}'>{options}</select>
+              <textarea id='n{rid}' maxlength='300' placeholder='Optional note...'></textarea>
+              <div class='actions'>
+                <button onclick='submitReview({rid})'>SAVE REVIEW</button>
+                <span id='m{rid}' class='msg'></span>
+              </div>
+            </article>""".format(
+                run_id=esc(item.get("run_id")),
+                outcome=esc(item.get("outcome")),
+                title=esc(item.get("action_title") or "Focus Run"),
+                rid=rid,
+                options=options
+            )
+        )
+
+    if not pending_cards:
+        pending_cards.append("<div class='empty'>No pending Focus exit reviews.</div>")
+
+    friction_rows = []
+    for key, count in sorted(
+        (data.get("friction_counts") or {}).items(),
+        key=lambda kv: kv[1],
+        reverse=True
+    ):
+        friction_rows.append(
+            "<div class='memory'><b>{label}</b><span>{count}</span></div>".format(
+                label=esc(V292_FRICTION_CHOICES.get(key, key)),
+                count=esc(count)
+            )
+        )
+    if not friction_rows:
+        friction_rows.append("<div class='empty'>Friction memory will appear after reviews are submitted.</div>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V29.2 Focus Exit Review</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2a1a31 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1000px;margin:auto}}.panel{{background:#0d0912ed;border:1px solid #694777;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#dda3ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}.muted{{color:#b9abc1}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}}.card{{background:#0a0710;border:1px solid #4a3657;border-radius:16px;padding:15px}}.k{{font-size:10px;color:#c7add4;font-weight:900}}.v{{font-size:28px;font-weight:950;margin-top:6px}}
+    .review{{background:#09060d;border:1px solid #51385f;border-radius:18px;padding:17px;margin:12px 0}}.top{{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}}.meta{{font-size:10px;color:#a692af}}h3{{margin:5px 0}}.pill{{border:1px solid #745187;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900}}
+    select,textarea{{width:100%;border:1px solid #634773;border-radius:10px;background:#0a0710;color:#fff;padding:10px;margin:7px 0}}textarea{{min-height:72px;resize:vertical}}
+    button,a{{display:inline-block;border:1px solid #76568a;border-radius:10px;padding:10px 13px;background:#17101d;color:#fff;text-decoration:none;font-weight:850;cursor:pointer;margin:4px 4px 0 0}}.msg{{font-size:12px;color:#9edbb2}}
+    .memory{{display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid #30243a}}.empty{{color:#9d90a4;padding:12px}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V29.2 // EXPLICIT FRICTION MEMORY</div>
+        <h1>📝 FOCUS EXIT REVIEW</h1>
+        <p class='muted'>{username}, tell BL3 what actually affected the run instead of forcing the system to guess.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>PENDING REVIEWS</div><div class='v'>{pending}</div></div>
+          <div class='card'><div class='k'>REVIEWED</div><div class='v'>{reviewed}</div></div>
+          <div class='card'><div class='k'>DOMINANT FRICTION</div><div class='v'>{dominant}</div></div>
+        </div>
+        <p><a href='/hunter-focus'>🎯 FOCUS RUNS</a><a href='/hunter-command-learning'>🧠 COMMAND LEARNING</a><a href='/hunter-command-policy'>⚙️ COMMAND POLICY</a></p>
+      </section>
+
+      <section class='panel'>
+        <div class='eyebrow'>PENDING</div>
+        {pending_cards}
+      </section>
+
+      <section class='panel'>
+        <div class='eyebrow'>FRICTION MEMORY</div>
+        {friction_rows}
+      </section>
+    </div>
+    <script>
+    async function submitReview(id){{
+      const friction=document.getElementById('f'+id).value;
+      const note=document.getElementById('n'+id).value;
+      const msg=document.getElementById('m'+id);
+      const r=await fetch('/api/hunter-focus-exit-reviews/'+id,{{
+        method:'POST',
+        headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify({{friction:friction,note:note}})
+      }});
+      const j=await r.json();
+      msg.textContent=j.success?'Review saved':(j.error||'Failed');
+      if(j.success)setTimeout(()=>location.reload(),500);
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        pending=esc(data.get("pending_count")),
+        reviewed=esc(data.get("reviewed_count")),
+        dominant=esc(data.get("dominant_friction_label")),
+        pending_cards="".join(pending_cards),
+        friction_rows="".join(friction_rows),
+    )
+
+
+# Surface exit-review access from Focus and Command Learning.
+try:
+    _v292_prev_focus_page = app.view_functions.get("v260_hunter_focus_page")
+    if _v292_prev_focus_page:
+        def _v292_focus_with_exit_review(*args, **kwargs):
+            response = _v292_prev_focus_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-exit-review" not in response:
+                link = "<a href='/hunter-focus-exit-review' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #76568a;border-radius:10px;color:#fff;text-decoration:none'>📝 EXIT REVIEWS</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v260_hunter_focus_page"] = _v292_focus_with_exit_review
+except Exception:
+    pass
+
+try:
+    _v292_prev_learning_page = app.view_functions.get("v291_command_learning_page")
+    if _v292_prev_learning_page:
+        def _v292_learning_with_exit_review(*args, **kwargs):
+            response = _v292_prev_learning_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-exit-review" not in response:
+                link = "<a href='/hunter-focus-exit-review' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #76568a;border-radius:10px;color:#fff;text-decoration:none'>📝 FRICTION MEMORY</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v291_command_learning_page"] = _v292_learning_with_exit_review
 except Exception:
     pass
 
