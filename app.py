@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V28.4"
+V247_SECURITY_VERSION = "V28.5"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V28.4"
+V248_SECURITY_VERSION = "V28.5"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.4 Build Attestation</title><style>
+    <title>BL3 V28.5 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V28.4"
+V250_VERSION = "V28.5"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V28.4"
+V253_VERSION = "V28.5"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V28.4"
+V254_VERSION = "V28.5"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V28.4"
+V255_VERSION = "V28.5"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V28.4"
+V256_VERSION = "V28.5"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V28.4"
+V257_VERSION = "V28.5"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V28.4"
+V258_VERSION = "V28.5"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.4 Hunter Command Deck</title>
+    <title>BL3 V28.5 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V28.4"
+V259_VERSION = "V28.5"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V28.4"
+V260_VERSION = "V28.5"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V28.4"
+V261_VERSION = "V28.5"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V28.4"
+V262_VERSION = "V28.5"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V28.4"
+V263_VERSION = "V28.5"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V28.4"
+V264_VERSION = "V28.5"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V28.4"
+V265_VERSION = "V28.5"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V28.4"
+V266_VERSION = "V28.5"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V28.4"
+V267_VERSION = "V28.5"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V28.4"
+V268_VERSION = "V28.5"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V28.4"
+V269_VERSION = "V28.5"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V28.4"
+V270_VERSION = "V28.5"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V28.4"
+V271_VERSION = "V28.5"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V28.4"
+V272_VERSION = "V28.5"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V28.4"
+V273_VERSION = "V28.5"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V28.4"
+V274_VERSION = "V28.5"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V28.4"
+V275_VERSION = "V28.5"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V28.4"
+V276_VERSION = "V28.5"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V28.4"
+V277_VERSION = "V28.5"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V28.4"
+V278_VERSION = "V28.5"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V28.4"
+V279_VERSION = "V28.5"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V28.4"
+V280_VERSION = "V28.5"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V28.4"
+V284_VERSION = "V28.5"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -39956,7 +39956,7 @@ def v284_rescue_loop_breaker_page():
     textarea{{width:100%;min-height:74px;border:1px solid #76562f;border-radius:12px;background:#0a0704;color:#fff;padding:11px;resize:vertical;margin-bottom:8px}}.actions{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}button,a{{border:1px solid #8d6739;border-radius:10px;padding:10px 12px;background:#1a1107;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}}.msg{{font-size:12px;color:#9edbb2}}.empty{{color:#ad9e87;padding:18px}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V28.4 // BREAK REPEATED STALE LOOPS</div>
+        <div class='eyebrow'>BL3 V28.5 // BREAK REPEATED STALE LOOPS</div>
         <h1>✂️ RESCUE LOOP BREAKER</h1>
         <p class='muted'>{username}, if the same commitment keeps becoming stale after rescue, shrink the action instead of recycling the same scope forever.</p>
         <p><b>{repeat_count}</b> repeated stale loop(s) detected at a threshold of <b>{threshold}</b> rescues.</p>
@@ -40011,6 +40011,258 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v280_stale_rescue_history_page"] = _v284_history_with_loop_breaker
+except Exception:
+    pass
+
+
+# ===== V28.5 REWRITE RELAUNCH + MICRO-ACTION EXECUTION =====
+# After a repeated stale commitment is rewritten smaller, BL3 can immediately
+# requeue it and start a Focus Run when safe. If another Focus Run is active,
+# the rewritten commitment is placed at the top of the queue without interruption.
+
+V285_VERSION = "V28.5"
+
+def _v285_response_payload(response):
+    try:
+        obj = response[0] if isinstance(response, tuple) else response
+        if hasattr(obj, "get_json"):
+            return obj.get_json(silent=True) or {}
+    except Exception:
+        pass
+    return {}
+
+
+def _v285_queue_rewritten_commitment(username, checkpoint_id, commitment):
+    rows = _v261_queue_rows(username)
+    if len(rows) >= V261_MAX_QUEUE:
+        return {"success": False, "error": "queue_full", "limit": V261_MAX_QUEUE}
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v261_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """INSERT INTO hunter_focus_queue
+               (username, action_kind, action_title, action_href, priority, score, position, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                username,
+                "REWRITE_RELAUNCH",
+                str(commitment or "")[:180],
+                "/hunter-commitment-board",
+                "HIGH",
+                92,
+                len(rows) + 1,
+                now
+            )
+        )
+        queue_id = int(cur.lastrowid)
+        conn.commit()
+    finally:
+        conn.close()
+
+    _v274_link_queue(username, int(checkpoint_id), queue_id)
+
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """UPDATE hunter_progress_commitments
+               SET status='QUEUED', queued_at=?, updated_at=?
+               WHERE checkpoint_id=? AND username=?""",
+            (now, now, int(checkpoint_id), username)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _v282_bump_queue_item(username, queue_id)
+    return {
+        "success": True,
+        "queue_id": queue_id,
+        "queued_at": now,
+    }
+
+
+@app.route("/api/hunter-rescue-loop-breaker/<int:checkpoint_id>/rewrite-and-launch", methods=["POST"])
+def v285_rewrite_and_launch_api(checkpoint_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    # Reuse the V28.4 rewrite validation and audit trail.
+    rewrite_response = v284_rewrite_commitment_api(checkpoint_id)
+    rewrite_payload = _v285_response_payload(rewrite_response)
+
+    if not rewrite_payload.get("success"):
+        return rewrite_response
+
+    commitment = str(rewrite_payload.get("commitment") or "").strip()
+    queued = _v285_queue_rewritten_commitment(
+        username=username,
+        checkpoint_id=checkpoint_id,
+        commitment=commitment
+    )
+
+    if not queued.get("success"):
+        return jsonify({
+            **rewrite_payload,
+            "version": V285_VERSION,
+            "queued": False,
+            "started": False,
+            "queue_error": queued.get("error"),
+            "message": "Rewrite saved, but Focus Queue is full."
+        }), 409
+
+    queue_id = int(queued.get("queue_id") or 0)
+    active = _v260_active_focus(username)
+
+    if active:
+        return jsonify({
+            **rewrite_payload,
+            "version": V285_VERSION,
+            "queued": True,
+            "queue_id": queue_id,
+            "started": False,
+            "start_reason": "active_focus_exists",
+            "active_run_id": int(active.get("id") or 0),
+            "message": "Rewrite saved and moved to the top of Focus Queue. Existing Focus Run was not interrupted."
+        })
+
+    started = _v262_start_next_queued(username)
+    if started.get("started"):
+        return jsonify({
+            **rewrite_payload,
+            "version": V285_VERSION,
+            "queued": True,
+            "queue_id": queue_id,
+            "started": True,
+            "run_id": int(started.get("run_id") or 0),
+            "run_title": started.get("title"),
+            "started_at": started.get("started_at"),
+            "message": "Rewrite saved, requeued, and launched as the active Focus Run."
+        })
+
+    return jsonify({
+        **rewrite_payload,
+        "version": V285_VERSION,
+        "queued": True,
+        "queue_id": queue_id,
+        "started": False,
+        "start_reason": started.get("reason") or "start_failed",
+        "message": "Rewrite saved and queued, but Focus Run did not start."
+    })
+
+
+@app.route("/hunter-rewrite-relaunch")
+def v285_rewrite_relaunch_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Rewrite Relaunch</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚡ Rewrite Relaunch</h1><p>Sign in to rewrite repeated stale commitments and relaunch execution.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v284_loop_breaker_snapshot(username)
+    active = _v260_active_focus(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data.get("items") or []:
+        if not item.get("repeat_stale"):
+            continue
+
+        cid = int(item.get("checkpoint_id") or 0)
+        cards.append(
+            """<article class='item'>
+              <div class='top'>
+                <div>
+                  <div class='meta'>Checkpoint #{cid} · {rescues} rescue(s)</div>
+                  <h3>{title}</h3>
+                </div>
+                <span class='pill'>REPEAT STALE</span>
+              </div>
+              <p>Rewrite this as the smallest action you can actually finish in one Focus Run.</p>
+              <textarea id='c{cid}' maxlength='{max_len}' placeholder='Example: Test one route and fix one failing response'></textarea>
+              <div class='actions'>
+                <button onclick='rewriteLaunch({cid})'>REWRITE + RELAUNCH</button>
+                <a href='/hunter-rescue-loop-breaker'>REWRITE ONLY</a>
+                <span id='m{cid}' class='msg'></span>
+              </div>
+            </article>""".format(
+                cid=cid,
+                rescues=esc(item.get("rescue_count")),
+                title=esc(item.get("commitment")),
+                max_len=V284_MAX_COMMITMENT_LEN
+            )
+        )
+
+    if not cards:
+        cards.append("<div class='empty'>No repeated stale loops need a rewrite relaunch.</div>")
+
+    active_text = (
+        "ACTIVE FOCUS: " + esc(active.get("action_title"))
+        if active else
+        "NO ACTIVE FOCUS — rewritten commitment can launch immediately."
+    )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V28.5 Rewrite Relaunch</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13302f 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:980px;margin:auto}}.panel{{background:#08110fed;border:1px solid #3b706a;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#7fe2d4;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#a6bbb7}}
+    .status{{padding:13px;border-radius:14px;background:#0c1917;border:1px solid #37635e;color:#c3ddd8;font-weight:800}}
+    .item{{background:#07100e;border:1px solid #31534f;border-radius:18px;padding:17px;margin:12px 0}}.top{{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}}.meta{{font-size:10px;color:#8ca9a4}}h3{{margin:5px 0}}p{{color:#a8bbb7;line-height:1.5}}.pill{{border:1px solid #4d8078;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900}}
+    textarea{{width:100%;min-height:80px;border:1px solid #47736d;border-radius:12px;background:#050a09;color:#fff;padding:11px;resize:vertical;margin:8px 0}}.actions{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}button,a{{border:1px solid #4d8078;border-radius:10px;padding:10px 12px;background:#0d1a17;color:#fff;text-decoration:none;cursor:pointer;font-weight:850}}.msg{{font-size:12px;color:#9edbb2}}.empty{{color:#9dafab;padding:18px}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V28.5 // SHRINK → QUEUE → FOCUS</div>
+        <h1>⚡ REWRITE RELAUNCH</h1>
+        <p class='muted'>{username}, repeated stale work can now be rewritten smaller and pushed straight back into execution.</p>
+        <div class='status'>{active_text}</div>
+        <p><a href='/hunter-rescue-loop-breaker'>✂️ LOOP BREAKER</a><a href='/hunter-focus'>🎯 FOCUS RUNS</a><a href='/hunter-focus-queue'>📋 FOCUS QUEUE</a></p>
+      </section>
+      <section class='panel'>{cards}</section>
+    </div>
+    <script>
+    async function rewriteLaunch(id){{
+      const field=document.getElementById('c'+id);
+      const msg=document.getElementById('m'+id);
+      const commitment=(field.value||'').trim();
+      if(!commitment){{msg.textContent='Enter a smaller commitment first';return;}}
+      const r=await fetch('/api/hunter-rescue-loop-breaker/'+id+'/rewrite-and-launch',{{
+        method:'POST',
+        headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify({{commitment:commitment}})
+      }});
+      const j=await r.json();
+      if(j.success && j.started){{
+        msg.textContent='Rewritten and Focus Run started';
+        setTimeout(()=>location.href='/hunter-focus',650);
+      }}else if(j.success){{
+        msg.textContent=j.message||'Rewritten and queued';
+        setTimeout(()=>location.href='/hunter-focus-queue',750);
+      }}else{{
+        msg.textContent=j.error||j.queue_error||'Failed';
+      }}
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        active_text=active_text,
+        cards="".join(cards),
+    )
+
+
+try:
+    _v285_prev_loop_page = app.view_functions.get("v284_rescue_loop_breaker_page")
+    if _v285_prev_loop_page:
+        def _v285_loop_page_with_relaunch(*args, **kwargs):
+            response = _v285_prev_loop_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-rewrite-relaunch" not in response:
+                link = "<a href='/hunter-rewrite-relaunch' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #4d8078;border-radius:10px;color:#fff;text-decoration:none'>⚡ REWRITE + RELAUNCH</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v284_rescue_loop_breaker_page"] = _v285_loop_page_with_relaunch
 except Exception:
     pass
 
