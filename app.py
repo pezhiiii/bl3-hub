@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V28.0"
+V247_SECURITY_VERSION = "V28.1"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V28.0"
+V248_SECURITY_VERSION = "V28.1"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.0 Build Attestation</title><style>
+    <title>BL3 V28.1 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V28.0"
+V250_VERSION = "V28.1"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V28.0"
+V253_VERSION = "V28.1"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V28.0"
+V254_VERSION = "V28.1"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V28.0"
+V255_VERSION = "V28.1"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V28.0"
+V256_VERSION = "V28.1"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V28.0"
+V257_VERSION = "V28.1"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V28.0"
+V258_VERSION = "V28.1"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.0 Hunter Command Deck</title>
+    <title>BL3 V28.1 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V28.0"
+V259_VERSION = "V28.1"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V28.0"
+V260_VERSION = "V28.1"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V28.0"
+V261_VERSION = "V28.1"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V28.0"
+V262_VERSION = "V28.1"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V28.0"
+V263_VERSION = "V28.1"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V28.0"
+V264_VERSION = "V28.1"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V28.0"
+V265_VERSION = "V28.1"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V28.0"
+V266_VERSION = "V28.1"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V28.0"
+V267_VERSION = "V28.1"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V28.0"
+V268_VERSION = "V28.1"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V28.0"
+V269_VERSION = "V28.1"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V28.0"
+V270_VERSION = "V28.1"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V28.0"
+V271_VERSION = "V28.1"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V28.0"
+V272_VERSION = "V28.1"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V28.0"
+V273_VERSION = "V28.1"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V28.0"
+V274_VERSION = "V28.1"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V28.0"
+V275_VERSION = "V28.1"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V28.0"
+V276_VERSION = "V28.1"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V28.0"
+V277_VERSION = "V28.1"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V28.0"
+V278_VERSION = "V28.1"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V28.0"
+V279_VERSION = "V28.1"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V28.0"
+V280_VERSION = "V28.1"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38808,7 +38808,7 @@ def v280_stale_rescue_history_page():
     a{{display:inline-block;border:1px solid #4e7b5f;border-radius:10px;padding:10px 13px;background:#0d1711;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V28.0 // RESCUE EFFECTIVENESS</div>
+        <div class='eyebrow'>BL3 V28.1 // RESCUE EFFECTIVENESS</div>
         <h1>🛟 STALE RESCUE HISTORY</h1>
         <p class='muted'>{username}, see what happened after each stale-work rescue decision.</p>
         <div class='grid'>
@@ -38852,6 +38852,221 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v279_stale_commitments_page"] = _v280_stale_page_with_history
+except Exception:
+    pass
+
+
+# ===== V28.1 ADAPTIVE RESCUE STRATEGY =====
+# Learns which stale-work rescue action works best for the signed-in Hunter
+# and adds a recommendation to each stale commitment.
+
+V281_VERSION = "V28.1"
+
+def _v281_rescue_strategy_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V281_VERSION}
+
+    history = _v280_rescue_history_snapshot(username)
+    items = history.get("items") or []
+
+    stats = {
+        "REQUEUE": {"attempts": 0, "progressed": 0, "completed": 0},
+        "REOPEN": {"attempts": 0, "progressed": 0, "completed": 0},
+        "DROP": {"attempts": 0, "progressed": 0, "completed": 0},
+    }
+
+    for item in items:
+        action = str(item.get("action") or "").upper()
+        if action not in stats:
+            continue
+        stats[action]["attempts"] += 1
+        if item.get("progressed"):
+            stats[action]["progressed"] += 1
+        if item.get("completed"):
+            stats[action]["completed"] += 1
+
+    def rate(n, d):
+        return round((float(n) / float(d)) * 100.0, 1) if d else 0.0
+
+    for action, bucket in stats.items():
+        attempts = int(bucket.get("attempts") or 0)
+        bucket["progress_rate"] = rate(bucket.get("progressed"), attempts)
+        bucket["completion_rate"] = rate(bucket.get("completed"), attempts)
+        # Completion is weighted more strongly than mere progress.
+        bucket["effectiveness_score"] = round(
+            (bucket["completion_rate"] * 0.7) + (bucket["progress_rate"] * 0.3),
+            1
+        ) if attempts else 0.0
+
+    actionable = ["REQUEUE", "REOPEN"]
+    ranked = sorted(
+        actionable,
+        key=lambda a: (
+            stats[a]["attempts"] > 0,
+            stats[a]["effectiveness_score"],
+            stats[a]["completion_rate"],
+            stats[a]["progress_rate"],
+        ),
+        reverse=True
+    )
+
+    if any(stats[a]["attempts"] > 0 for a in actionable):
+        preferred = ranked[0]
+        confidence = min(100, int(stats[preferred]["attempts"] * 20))
+        reason = (
+            "{} currently has the strongest rescue effectiveness for this Hunter "
+            "based on prior stale-work outcomes.".format(preferred)
+        )
+    else:
+        preferred = "REQUEUE"
+        confidence = 0
+        reason = "No personal rescue history yet; REQUEUE is the default execution-first option."
+
+    return {
+        "success": True,
+        "version": V281_VERSION,
+        "username": username,
+        "preferred_action": preferred,
+        "confidence": confidence,
+        "reason": reason,
+        "stats": stats,
+        "policy": (
+            "Adaptive Rescue Strategy uses only the Hunter's private BL3 rescue history. "
+            "It is a workflow recommendation, not a guarantee."
+        )
+    }
+
+
+_V281_ORIGINAL_STALE_SNAPSHOT = _v279_stale_commitments_snapshot
+
+def _v279_stale_commitments_snapshot(username):
+    data = _V281_ORIGINAL_STALE_SNAPSHOT(username)
+    if not data or not data.get("success"):
+        return data
+
+    strategy = _v281_rescue_strategy_snapshot(username)
+    preferred = strategy.get("preferred_action") or "REQUEUE"
+    confidence = int(strategy.get("confidence") or 0)
+
+    for item in data.get("items") or []:
+        status = str(item.get("status") or "").upper()
+
+        if status == "QUEUED":
+            # A queued item that stalled is better treated execution-first.
+            recommended = "REQUEUE"
+            why = "This commitment was already queued but stalled before active execution."
+        else:
+            recommended = preferred
+            why = strategy.get("reason")
+
+        item["recommended_rescue"] = recommended
+        item["recommendation_confidence"] = confidence
+        item["recommendation_reason"] = why
+
+    data["strategy"] = strategy
+    data["version"] = V281_VERSION
+    return data
+
+
+@app.route("/api/hunter-rescue-strategy")
+def v281_rescue_strategy_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v281_rescue_strategy_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-rescue-strategy")
+def v281_rescue_strategy_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Rescue Strategy</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧠 Rescue Strategy</h1><p>Sign in to view your private adaptive rescue strategy.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v281_rescue_strategy_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    stats = data.get("stats") or {}
+
+    def card(action):
+        s = stats.get(action) or {}
+        return """<div class='card'>
+          <div class='k'>{action}</div>
+          <div class='v'>{score}</div>
+          <div class='sub'>{attempts} attempt(s) · {progress}% progressed · {completion}% completed</div>
+        </div>""".format(
+            action=esc(action),
+            score=esc(s.get("effectiveness_score")),
+            attempts=esc(s.get("attempts")),
+            progress=esc(s.get("progress_rate")),
+            completion=esc(s.get("completion_rate")),
+        )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V28.1 Adaptive Rescue Strategy</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#222c16 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:960px;margin:auto}}.panel{{background:#0b0f08ed;border:1px solid #596c3a;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#c6e67d;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#b5bea1}}
+    .hero{{padding:17px;border-radius:17px;background:#111707;border:1px solid #586b38;font-size:18px;line-height:1.5}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}}
+    .card{{background:#090d06;border:1px solid #43542b;border-radius:17px;padding:16px}}.k{{font-size:11px;color:#bfd28a;font-weight:900}}.v{{font-size:30px;font-weight:950;margin-top:7px}}.sub{{color:#aeb79e;font-size:12px;margin-top:7px;line-height:1.5}}
+    a{{display:inline-block;border:1px solid #637943;border-radius:10px;padding:10px 13px;background:#111808;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V28.1 // ADAPTIVE RESCUE STRATEGY</div>
+        <h1>🧠 RESCUE STRATEGY</h1>
+        <p class='muted'>{username}, BL3 compares your past rescue outcomes and recommends the rescue path that has worked best for you.</p>
+        <div class='hero'>
+          Preferred action: <b>{preferred}</b><br>
+          Confidence: <b>{confidence}%</b><br>
+          <span class='muted'>{reason}</span>
+        </div>
+        <div class='grid'>{requeue_card}{reopen_card}{drop_card}</div>
+        <p><a href='/hunter-stale-commitments'>🚨 STALE RADAR</a><a href='/hunter-stale-rescue-history'>🛟 RESCUE HISTORY</a></p>
+      </section>
+    </div></body></html>""".format(
+        username=esc(username),
+        preferred=esc(data.get("preferred_action")),
+        confidence=esc(data.get("confidence")),
+        reason=esc(data.get("reason")),
+        requeue_card=card("REQUEUE"),
+        reopen_card=card("REOPEN"),
+        drop_card=card("DROP"),
+    )
+
+
+# Upgrade Stale Radar page with per-item adaptive recommendation.
+try:
+    _v281_prev_stale_page = app.view_functions.get("v279_stale_commitments_page")
+    if _v281_prev_stale_page:
+        def _v281_stale_page_with_strategy(*args, **kwargs):
+            response = _v281_prev_stale_page(*args, **kwargs)
+            if not isinstance(response, str):
+                return response
+
+            username = str(session.get("authenticated_username") or "").strip()
+            if not username or "/hunter-rescue-strategy" in response:
+                return response
+
+            strategy = _v281_rescue_strategy_snapshot(username)
+            banner = """
+            <section style='max-width:980px;margin:0 auto 16px;padding:0 24px'>
+              <div style='background:#0e1509;border:1px solid #637943;border-radius:18px;padding:15px;color:#fff;font-family:Arial'>
+                <div style='font-size:11px;letter-spacing:1.4px;color:#c6e67d;font-weight:900'>V28.1 ADAPTIVE RESCUE</div>
+                <div style='margin-top:7px'>Preferred rescue: <b>{preferred}</b> · Confidence <b>{confidence}%</b></div>
+                <div style='color:#aeb79e;font-size:12px;margin-top:6px'>{reason}</div>
+                <a href='/hunter-rescue-strategy' style='display:inline-block;margin-top:10px;padding:9px 11px;border:1px solid #637943;border-radius:9px;color:#fff;text-decoration:none'>🧠 VIEW RESCUE STRATEGY</a>
+              </div>
+            </section>
+            """.format(
+                preferred=html.escape(str(strategy.get("preferred_action") or "")),
+                confidence=html.escape(str(strategy.get("confidence") or 0)),
+                reason=html.escape(str(strategy.get("reason") or "")),
+            )
+            return response.replace("</body>", banner + "</body>", 1)
+
+        app.view_functions["v279_stale_commitments_page"] = _v281_stale_page_with_strategy
 except Exception:
     pass
 
