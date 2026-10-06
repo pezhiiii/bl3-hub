@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V27.4"
+V247_SECURITY_VERSION = "V27.5"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V27.4"
+V248_SECURITY_VERSION = "V27.5"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.4 Build Attestation</title><style>
+    <title>BL3 V27.5 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V27.4"
+V250_VERSION = "V27.5"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V27.4"
+V253_VERSION = "V27.5"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V27.4"
+V254_VERSION = "V27.5"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V27.4"
+V255_VERSION = "V27.5"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V27.4"
+V256_VERSION = "V27.5"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V27.4"
+V257_VERSION = "V27.5"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V27.4"
+V258_VERSION = "V27.5"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.4 Hunter Command Deck</title>
+    <title>BL3 V27.5 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V27.4"
+V259_VERSION = "V27.5"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V27.4"
+V260_VERSION = "V27.5"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V27.4"
+V261_VERSION = "V27.5"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V27.4"
+V262_VERSION = "V27.5"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V27.4"
+V263_VERSION = "V27.5"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V27.4"
+V264_VERSION = "V27.5"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V27.4"
+V265_VERSION = "V27.5"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V27.4"
+V266_VERSION = "V27.5"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V27.4"
+V267_VERSION = "V27.5"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V27.4"
+V268_VERSION = "V27.5"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V27.4"
+V269_VERSION = "V27.5"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V27.4"
+V270_VERSION = "V27.5"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V27.4"
+V271_VERSION = "V27.5"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V27.4"
+V272_VERSION = "V27.5"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V27.4"
+V273_VERSION = "V27.5"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36816,7 +36816,7 @@ def v273_commitment_board_page():
     .actions{{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:9px}}button,a{{border:1px solid #47775b;border-radius:10px;padding:9px 11px;background:#0d1711;color:#fff;text-decoration:none;cursor:pointer;font-weight:800}}.msg{{font-size:12px;color:#9ad9af}}.empty{{color:#9bad9f}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.4 // CLOSE THE LOOP</div>
+        <div class='eyebrow'>BL3 V27.5 // CLOSE THE LOOP</div>
         <h1>✅ COMMITMENT OUTCOMES</h1>
         <p class='muted'>{username}, track each Reflection → Action commitment from idea to outcome.</p>
         <div class='grid'>
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V27.4"
+V274_VERSION = "V27.5"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37208,6 +37208,232 @@ try:
             return response.replace("</body>", panel + "</body>", 1)
 
         app.view_functions["v273_commitment_board_page"] = _v274_board_with_sync_status
+except Exception:
+    pass
+
+
+# ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
+# Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
+
+V275_VERSION = "V27.5"
+
+def _v275_commitment_funnel_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V275_VERSION}
+
+    _v274_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        commitments = conn.execute(
+            """SELECT checkpoint_id, commitment, status, queued_at, closed_at, updated_at
+               FROM hunter_progress_commitments
+               WHERE username=?""",
+            (username,)
+        ).fetchall()
+
+        links = conn.execute(
+            """SELECT checkpoint_id, queue_id, run_id, linked_at, run_started_at,
+                      run_completed_at, run_cancelled_at
+               FROM hunter_commitment_execution_links
+               WHERE username=?""",
+            (username,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    commitments = [dict(r) for r in commitments]
+    links = [dict(r) for r in links]
+    link_by_checkpoint = {int(r.get("checkpoint_id") or 0): r for r in links}
+
+    created = len(commitments)
+    queued = 0
+    started = 0
+    completed = 0
+    cancelled_runs = 0
+    dropped = 0
+    open_count = 0
+    done_count = 0
+
+    for c in commitments:
+        cid = int(c.get("checkpoint_id") or 0)
+        link = link_by_checkpoint.get(cid) or {}
+        status = str(c.get("status") or "OPEN").upper()
+
+        if c.get("queued_at") or link.get("queue_id"):
+            queued += 1
+        if link.get("run_id") or link.get("run_started_at"):
+            started += 1
+        if link.get("run_completed_at"):
+            completed += 1
+        if link.get("run_cancelled_at"):
+            cancelled_runs += 1
+        if status == "DROPPED":
+            dropped += 1
+        if status == "OPEN":
+            open_count += 1
+        if status == "DONE":
+            done_count += 1
+
+    def pct(n, d):
+        return round((float(n) / float(d)) * 100.0, 1) if d else 0.0
+
+    queue_rate = pct(queued, created)
+    start_rate = pct(started, queued)
+    completion_rate = pct(completed, started)
+    overall_conversion = pct(done_count, created)
+
+    if created == 0:
+        state = "NO DATA"
+        insight = "Create a Reflection commitment to start measuring your execution loop."
+    elif overall_conversion >= 75 and created >= 4:
+        state = "STRONG"
+        insight = "Most commitments are closing successfully. Keep commitments concrete and queue size controlled."
+    elif overall_conversion >= 50:
+        state = "HEALTHY"
+        insight = "Your loop is converting. The biggest improvement now is reducing friction between commitment and Focus Run."
+    elif queue_rate < 50:
+        state = "IDEA HEAVY"
+        insight = "Many commitments are not reaching the queue. Make the next action smaller and easier to start."
+    elif completion_rate < 50 and started:
+        state = "EXECUTION GAP"
+        insight = "Actions are starting but not finishing often enough. Shorten Focus Runs or lower scope."
+    else:
+        state = "BUILDING"
+        insight = "The execution loop is forming. Keep one commitment moving at a time."
+
+    return {
+        "success": True,
+        "version": V275_VERSION,
+        "username": username,
+        "state": state,
+        "insight": insight,
+        "created": created,
+        "queued": queued,
+        "started": started,
+        "completed_runs": completed,
+        "done_commitments": done_count,
+        "open_commitments": open_count,
+        "dropped_commitments": dropped,
+        "cancelled_runs": cancelled_runs,
+        "queue_rate": queue_rate,
+        "start_rate": start_rate,
+        "completion_rate": completion_rate,
+        "overall_conversion": overall_conversion,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": "Execution Analytics is private BL3 workflow telemetry and has no monetary value."
+    }
+
+
+@app.route("/api/hunter-commitment-analytics")
+def v275_commitment_analytics_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v275_commitment_funnel_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-commitment-analytics")
+def v275_commitment_analytics_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Commitment Analytics</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📊 Commitment Analytics</h1><p>Sign in to view your private execution funnel.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v275_commitment_funnel_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    def width(v):
+        try:
+            return max(0, min(100, float(v)))
+        except Exception:
+            return 0
+
+    state = str(data.get("state") or "NO DATA")
+    state_cls = "ok" if state in ("STRONG", "HEALTHY") else ("warn" if state in ("BUILDING", "IDEA HEAVY") else "bad")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V27.5 Commitment Analytics</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#172738 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1050px;margin:auto}}.panel{{background:#0a0e14ed;border:1px solid #33546f;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#83cfff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#a7b4c0}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}.card{{background:#080c12;border:1px solid #2b4559;border-radius:17px;padding:16px}}.k{{font-size:11px;color:#9bbdd2;font-weight:900}}.v{{font-size:28px;font-weight:950;margin-top:7px}}
+    .ok{{color:#61f2b2}}.warn{{color:#ffd166}}.bad{{color:#ff7d95}}.funnel{{display:grid;gap:13px}}.step{{background:#080c12;border:1px solid #294456;border-radius:16px;padding:14px}}.bar{{height:12px;background:#142431;border-radius:999px;overflow:hidden;margin-top:8px}}.bar i{{display:block;height:100%;background:#62cfff;border-radius:999px}}
+    .insight{{padding:16px;border-radius:16px;background:#0d1620;border:1px solid #31536d;font-size:15px;line-height:1.6}}a{{display:inline-block;border:1px solid #426984;border-radius:10px;padding:10px 13px;background:#0d161e;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V27.5 // EXECUTION FUNNEL</div>
+        <h1>📊 COMMITMENT ANALYTICS</h1>
+        <p class='muted'>{username}, this private view measures how Reflection commitments move into execution.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>STATE</div><div class='v {state_cls}'>{state}</div></div>
+          <div class='card'><div class='k'>CREATED</div><div class='v'>{created}</div></div>
+          <div class='card'><div class='k'>DONE</div><div class='v'>{done}</div></div>
+          <div class='card'><div class='k'>OVERALL CONVERSION</div><div class='v'>{overall}%</div></div>
+        </div>
+        <p><a href='/hunter-commitment-board'>✅ COMMITMENT BOARD</a><a href='/hunter-progress-journal'>📝 JOURNAL</a><a href='/hunter-focus-queue'>📋 FOCUS QUEUE</a></p>
+      </section>
+
+      <section class='panel'>
+        <h2>REFLECTION → EXECUTION FUNNEL</h2>
+        <div class='funnel'>
+          <div class='step'><b>1. Commitments created — {created}</b><div class='bar'><i style='width:100%'></i></div></div>
+          <div class='step'><b>2. Sent to Focus Queue — {queued} ({queue_rate}%)</b><div class='bar'><i style='width:{queue_w}%'></i></div></div>
+          <div class='step'><b>3. Focus Runs started — {started} ({start_rate}% of queued)</b><div class='bar'><i style='width:{start_w}%'></i></div></div>
+          <div class='step'><b>4. Linked Runs completed — {completed} ({completion_rate}% of started)</b><div class='bar'><i style='width:{completion_w}%'></i></div></div>
+          <div class='step'><b>5. Commitments DONE — {done} ({overall}% overall)</b><div class='bar'><i style='width:{overall_w}%'></i></div></div>
+        </div>
+      </section>
+
+      <section class='panel'>
+        <h2>LOOP HEALTH</h2>
+        <div class='grid'>
+          <div class='card'><div class='k'>OPEN</div><div class='v'>{open_count}</div></div>
+          <div class='card'><div class='k'>DROPPED</div><div class='v'>{dropped}</div></div>
+          <div class='card'><div class='k'>CANCELLED RUNS</div><div class='v'>{cancelled}</div></div>
+          <div class='card'><div class='k'>QUEUE RATE</div><div class='v'>{queue_rate}%</div></div>
+        </div>
+      </section>
+
+      <section class='panel'><h2>EXECUTION INSIGHT</h2><div class='insight'>{insight}</div></section>
+    </div></body></html>""".format(
+        username=esc(username),
+        state_cls=state_cls,
+        state=esc(state),
+        created=esc(data.get("created")),
+        done=esc(data.get("done_commitments")),
+        overall=esc(data.get("overall_conversion")),
+        queued=esc(data.get("queued")),
+        queue_rate=esc(data.get("queue_rate")),
+        started=esc(data.get("started")),
+        start_rate=esc(data.get("start_rate")),
+        completed=esc(data.get("completed_runs")),
+        completion_rate=esc(data.get("completion_rate")),
+        open_count=esc(data.get("open_commitments")),
+        dropped=esc(data.get("dropped_commitments")),
+        cancelled=esc(data.get("cancelled_runs")),
+        queue_w=width(data.get("queue_rate")),
+        start_w=width(data.get("start_rate")),
+        completion_w=width(data.get("completion_rate")),
+        overall_w=width(data.get("overall_conversion")),
+        insight=esc(data.get("insight")),
+    )
+
+
+# Surface analytics from private Commitment Board.
+try:
+    _v275_prev_board = app.view_functions.get("v273_commitment_board_page")
+    if _v275_prev_board:
+        def _v275_board_with_analytics(*args, **kwargs):
+            response = _v275_prev_board(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-commitment-analytics" not in response:
+                link = "<a href='/hunter-commitment-analytics' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #426984;border-radius:10px;color:#fff;text-decoration:none'>📊 EXECUTION ANALYTICS</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v273_commitment_board_page"] = _v275_board_with_analytics
 except Exception:
     pass
 
