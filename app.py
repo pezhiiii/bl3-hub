@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V27.7"
+V247_SECURITY_VERSION = "V27.8"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V27.7"
+V248_SECURITY_VERSION = "V27.8"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.7 Build Attestation</title><style>
+    <title>BL3 V27.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V27.7"
+V250_VERSION = "V27.8"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V27.7"
+V253_VERSION = "V27.8"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V27.7"
+V254_VERSION = "V27.8"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V27.7"
+V255_VERSION = "V27.8"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V27.7"
+V256_VERSION = "V27.8"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V27.7"
+V257_VERSION = "V27.8"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V27.7"
+V258_VERSION = "V27.8"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.7 Hunter Command Deck</title>
+    <title>BL3 V27.8 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V27.7"
+V259_VERSION = "V27.8"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V27.7"
+V260_VERSION = "V27.8"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V27.7"
+V261_VERSION = "V27.8"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V27.7"
+V262_VERSION = "V27.8"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V27.7"
+V263_VERSION = "V27.8"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V27.7"
+V264_VERSION = "V27.8"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V27.7"
+V265_VERSION = "V27.8"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V27.7"
+V266_VERSION = "V27.8"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V27.7"
+V267_VERSION = "V27.8"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V27.7"
+V268_VERSION = "V27.8"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V27.7"
+V269_VERSION = "V27.8"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V27.7"
+V270_VERSION = "V27.8"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V27.7"
+V271_VERSION = "V27.8"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V27.7"
+V272_VERSION = "V27.8"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V27.7"
+V273_VERSION = "V27.8"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V27.7"
+V274_VERSION = "V27.8"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V27.7"
+V275_VERSION = "V27.8"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V27.7"
+V276_VERSION = "V27.8"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V27.7"
+V277_VERSION = "V27.8"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -37997,7 +37997,7 @@ def v277_recovery_experiments_page():
     textarea{{width:100%;min-height:80px;margin-top:12px;border:1px solid #5b4370;border-radius:12px;background:#08060b;color:#fff;padding:11px;resize:vertical}}.actions{{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:9px}}button,a{{border:1px solid #745690;border-radius:10px;padding:9px 11px;background:#150d1c;color:#fff;text-decoration:none;cursor:pointer;font-weight:800}}.msg{{font-size:12px;color:#9edbb2}}.empty{{color:#a99cb2}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.7 // RECOVERY LEARNING LOOP</div>
+        <div class='eyebrow'>BL3 V27.8 // RECOVERY LEARNING LOOP</div>
         <h1>🧪 RECOVERY EXPERIMENTS</h1>
         <p class='muted'>{username}, test Recovery Coach actions and review whether they actually improved your execution loop.</p>
         <div class='grid'>
@@ -38045,6 +38045,222 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v276_execution_recovery_page"] = _v277_recovery_with_history
+except Exception:
+    pass
+
+
+# ===== V27.8 ADAPTIVE RECOVERY COACH + LEARNING MEMORY =====
+# Feeds reviewed Recovery Experiments back into the Recovery Coach so action
+# kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
+# deprioritized. This is private per-Hunter learning memory.
+
+V278_VERSION = "V27.8"
+
+def _v278_recovery_memory(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V278_VERSION}
+
+    _v277_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT action_kind, outcome
+               FROM hunter_recovery_experiments
+               WHERE username=? AND outcome!='PENDING'""",
+            (username,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    memory = {}
+    for row in rows:
+        kind = str(row["action_kind"] or "RECOVERY").upper()
+        outcome = str(row["outcome"] or "PENDING").upper()
+        bucket = memory.setdefault(kind, {
+            "kind": kind,
+            "reviewed": 0,
+            "helpful": 0,
+            "no_change": 0,
+            "not_helpful": 0,
+            "preference_score": 0,
+        })
+        bucket["reviewed"] += 1
+        if outcome == "HELPFUL":
+            bucket["helpful"] += 1
+        elif outcome == "NO_CHANGE":
+            bucket["no_change"] += 1
+        elif outcome == "NOT_HELPFUL":
+            bucket["not_helpful"] += 1
+
+    for kind, bucket in memory.items():
+        reviewed = max(1, int(bucket.get("reviewed") or 0))
+        helpful = int(bucket.get("helpful") or 0)
+        no_change = int(bucket.get("no_change") or 0)
+        not_helpful = int(bucket.get("not_helpful") or 0)
+
+        # Conservative preference adjustment:
+        # helpful feedback boosts, no-change is neutral/slightly negative,
+        # not-helpful penalizes more heavily.
+        raw = (helpful * 12) - (no_change * 2) - (not_helpful * 14)
+        bucket["preference_score"] = max(-30, min(30, raw))
+        bucket["helpful_rate"] = round((helpful / reviewed) * 100.0, 1)
+
+    return {
+        "success": True,
+        "version": V278_VERSION,
+        "username": username,
+        "kinds": memory,
+        "reviewed_total": sum(int(v.get("reviewed") or 0) for v in memory.values()),
+        "policy": (
+            "Adaptive Recovery Memory uses only the Hunter's private reviewed recovery experiments. "
+            "It is a workflow preference signal, not a prediction or guarantee."
+        ),
+    }
+
+
+_V278_ORIGINAL_RECOVERY_PLAN = _v276_recovery_plan_snapshot
+
+def _v276_recovery_plan_snapshot(username):
+    data = _V278_ORIGINAL_RECOVERY_PLAN(username)
+    if not data or not data.get("success"):
+        return data
+
+    memory = _v278_recovery_memory(username)
+    kind_memory = memory.get("kinds") or {}
+
+    adjusted = []
+    for action in list(data.get("actions") or []):
+        item = dict(action)
+        kind = str(item.get("kind") or "RECOVERY").upper()
+        base_score = int(item.get("score") or 0)
+        mem = kind_memory.get(kind) or {}
+        adjustment = int(mem.get("preference_score") or 0)
+        item["base_score"] = base_score
+        item["memory_adjustment"] = adjustment
+        item["score"] = max(0, min(100, base_score + adjustment))
+        item["memory_reviewed"] = int(mem.get("reviewed") or 0)
+        item["memory_helpful_rate"] = float(mem.get("helpful_rate") or 0.0)
+
+        if adjustment > 0:
+            item["reason"] = str(item.get("reason") or "") + " Your past reviews favor this action type."
+        elif adjustment < 0:
+            item["reason"] = str(item.get("reason") or "") + " BL3 lowered this action type based on your past reviews."
+
+        adjusted.append(item)
+
+    adjusted.sort(key=lambda x: int(x.get("score") or 0), reverse=True)
+
+    data["actions"] = adjusted[:3]
+    data["adaptive_memory"] = memory
+    data["adaptive"] = True
+    data["version"] = V278_VERSION
+
+    if memory.get("reviewed_total"):
+        data["headline"] = str(data.get("headline") or "Keep one action moving.") + " Adapted from your reviewed recovery history."
+
+    return data
+
+
+@app.route("/api/hunter-recovery-memory")
+def v278_recovery_memory_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v278_recovery_memory(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-recovery-memory")
+def v278_recovery_memory_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Recovery Memory</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧠 Recovery Memory</h1><p>Sign in to view your private adaptive coach memory.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v278_recovery_memory(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    kinds = list((data.get("kinds") or {}).values())
+    kinds.sort(key=lambda x: int(x.get("preference_score") or 0), reverse=True)
+
+    rows = []
+    for item in kinds:
+        score = int(item.get("preference_score") or 0)
+        score_text = ("+" if score > 0 else "") + str(score)
+        rows.append(
+            """<tr>
+              <td>{kind}</td><td>{reviewed}</td><td>{helpful}</td><td>{no_change}</td>
+              <td>{not_helpful}</td><td>{rate}%</td><td>{score}</td>
+            </tr>""".format(
+                kind=esc(item.get("kind")),
+                reviewed=esc(item.get("reviewed")),
+                helpful=esc(item.get("helpful")),
+                no_change=esc(item.get("no_change")),
+                not_helpful=esc(item.get("not_helpful")),
+                rate=esc(item.get("helpful_rate")),
+                score=esc(score_text),
+            )
+        )
+
+    if not rows:
+        rows.append("<tr><td colspan='7'>No reviewed recovery experiments yet.</td></tr>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V27.8 Adaptive Recovery Memory</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#16243a 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:980px;margin:auto}}.panel{{background:#0a0d14ed;border:1px solid #385775;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#8dc9ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#a7b4c2}}
+    .hero{{padding:16px;border-radius:16px;background:#0c1520;border:1px solid #31526f;font-size:16px;line-height:1.6}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:11px 8px;border-bottom:1px solid #243648;text-align:left;font-size:13px}}th{{color:#aac7dd}}
+    a{{display:inline-block;border:1px solid #476d91;border-radius:10px;padding:10px 13px;background:#0d1721;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V27.8 // ADAPTIVE COACH MEMORY</div>
+        <h1>🧠 RECOVERY MEMORY</h1>
+        <p class='muted'>{username}, BL3 now adjusts Recovery Coach priorities using your reviewed experiments.</p>
+        <div class='hero'><b>{reviewed_total}</b> reviewed experiment(s) currently influence coach ranking. Positive scores boost an action kind; negative scores reduce it.</div>
+        <p><a href='/hunter-execution-recovery'>🧭 ADAPTIVE RECOVERY COACH</a><a href='/hunter-recovery-experiments'>🧪 EXPERIMENTS</a></p>
+      </section>
+      <section class='panel'>
+        <div style='overflow:auto'>
+          <table>
+            <thead><tr><th>Action Kind</th><th>Reviewed</th><th>Helpful</th><th>No Change</th><th>Not Helpful</th><th>Helpful Rate</th><th>Preference</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      </section>
+    </div></body></html>""".format(
+        username=esc(username),
+        reviewed_total=esc(data.get("reviewed_total")),
+        rows="".join(rows),
+    )
+
+
+# Surface Memory from Recovery Coach and Experiment History.
+try:
+    _v278_prev_recovery = app.view_functions.get("v276_execution_recovery_page")
+    if _v278_prev_recovery:
+        def _v278_recovery_with_memory(*args, **kwargs):
+            response = _v278_prev_recovery(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-recovery-memory" not in response:
+                link = "<a href='/hunter-recovery-memory' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #476d91;border-radius:10px;color:#fff;text-decoration:none'>🧠 RECOVERY MEMORY</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v276_execution_recovery_page"] = _v278_recovery_with_memory
+except Exception:
+    pass
+
+try:
+    _v278_prev_experiments = app.view_functions.get("v277_recovery_experiments_page")
+    if _v278_prev_experiments:
+        def _v278_experiments_with_memory(*args, **kwargs):
+            response = _v278_prev_experiments(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-recovery-memory" not in response:
+                link = "<a href='/hunter-recovery-memory' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #476d91;border-radius:10px;color:#fff;text-decoration:none'>🧠 ADAPTIVE MEMORY</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v277_recovery_experiments_page"] = _v278_experiments_with_memory
 except Exception:
     pass
 
