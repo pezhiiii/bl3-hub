@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V27.9"
+V247_SECURITY_VERSION = "V28.0"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V27.9"
+V248_SECURITY_VERSION = "V28.0"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.9 Build Attestation</title><style>
+    <title>BL3 V28.0 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V27.9"
+V250_VERSION = "V28.0"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V27.9"
+V253_VERSION = "V28.0"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V27.9"
+V254_VERSION = "V28.0"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V27.9"
+V255_VERSION = "V28.0"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V27.9"
+V256_VERSION = "V28.0"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V27.9"
+V257_VERSION = "V28.0"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V27.9"
+V258_VERSION = "V28.0"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V27.9 Hunter Command Deck</title>
+    <title>BL3 V28.0 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V27.9"
+V259_VERSION = "V28.0"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V27.9"
+V260_VERSION = "V28.0"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V27.9"
+V261_VERSION = "V28.0"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V27.9"
+V262_VERSION = "V28.0"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V27.9"
+V263_VERSION = "V28.0"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V27.9"
+V264_VERSION = "V28.0"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V27.9"
+V265_VERSION = "V28.0"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V27.9"
+V266_VERSION = "V28.0"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V27.9"
+V267_VERSION = "V28.0"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V27.9"
+V268_VERSION = "V28.0"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V27.9"
+V269_VERSION = "V28.0"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V27.9"
+V270_VERSION = "V28.0"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V27.9"
+V271_VERSION = "V28.0"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V27.9"
+V272_VERSION = "V28.0"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V27.9"
+V273_VERSION = "V28.0"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V27.9"
+V274_VERSION = "V28.0"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V27.9"
+V275_VERSION = "V28.0"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V27.9"
+V276_VERSION = "V28.0"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V27.9"
+V277_VERSION = "V28.0"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V27.9"
+V278_VERSION = "V28.0"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V27.9"
+V279_VERSION = "V28.0"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38527,7 +38527,7 @@ def v279_stale_commitments_page():
     .actions{{display:flex;gap:7px;flex-wrap:wrap;align-items:center}}button,a{{border:1px solid #8d555d;border-radius:10px;padding:9px 11px;background:#1a0d0f;color:#fff;text-decoration:none;cursor:pointer;font-weight:800}}.msg{{font-size:12px;color:#9edbb2}}.empty{{color:#b59fa2;padding:18px}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V27.9 // STALE WORK RESCUE</div>
+        <div class='eyebrow'>BL3 V28.0 // STALE WORK RESCUE</div>
         <h1>🚨 STALE COMMITMENT RADAR</h1>
         <p class='muted'>{username}, commitments inactive for {hours}+ hours appear here unless they already have an active Focus Run.</p>
         <p><a href='/hunter-commitment-board'>✅ COMMITMENT BOARD</a><a href='/hunter-focus-queue'>📋 FOCUS QUEUE</a><a href='/hunter-execution-recovery'>🧭 RECOVERY COACH</a></p>
@@ -38581,6 +38581,277 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v276_execution_recovery_page"] = _v279_recovery_with_stale_radar
+except Exception:
+    pass
+
+
+# ===== V28.0 RESCUE HISTORY + EFFECTIVENESS =====
+# Records stale-commitment rescue decisions and measures whether rescued items
+# later progressed to Focus Runs or completed commitments.
+
+V280_VERSION = "V28.0"
+
+def _v280_ensure_schema():
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_stale_rescue_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                checkpoint_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                previous_status TEXT,
+                resulting_status TEXT,
+                queue_id INTEGER,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stale_rescue_user "
+            "ON hunter_stale_rescue_events(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v280_record_rescue(username, checkpoint_id, action, previous_status, resulting_status, queue_id=None):
+    _v280_ensure_schema()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    conn = sqlite3.connect(DB)
+    try:
+        cur = conn.execute(
+            """INSERT INTO hunter_stale_rescue_events
+               (username, checkpoint_id, action, previous_status, resulting_status, queue_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                username,
+                int(checkpoint_id),
+                str(action or "")[:20],
+                str(previous_status or "")[:20],
+                str(resulting_status or "")[:20],
+                int(queue_id) if queue_id else None,
+                now,
+            )
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def _v280_rescue_history_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V280_VERSION}
+
+    _v280_ensure_schema()
+    _v274_ensure_schema()
+
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT e.id, e.checkpoint_id, e.action, e.previous_status, e.resulting_status,
+                      e.queue_id, e.created_at,
+                      c.commitment, c.status AS current_status, c.closed_at,
+                      l.run_id, l.run_started_at, l.run_completed_at, l.run_cancelled_at
+               FROM hunter_stale_rescue_events e
+               LEFT JOIN hunter_progress_commitments c
+                 ON c.checkpoint_id=e.checkpoint_id AND c.username=e.username
+               LEFT JOIN hunter_commitment_execution_links l
+                 ON l.checkpoint_id=e.checkpoint_id AND l.username=e.username
+               WHERE e.username=?
+               ORDER BY e.id DESC
+               LIMIT 60""",
+            (username,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        progressed = bool(item.get("run_started_at") or item.get("run_id"))
+        completed = bool(item.get("run_completed_at") or str(item.get("current_status") or "").upper() == "DONE")
+        item["progressed"] = progressed
+        item["completed"] = completed
+        items.append(item)
+
+    total = len(items)
+    requeues = sum(1 for x in items if str(x.get("action") or "").upper() == "REQUEUE")
+    reopens = sum(1 for x in items if str(x.get("action") or "").upper() == "REOPEN")
+    drops = sum(1 for x in items if str(x.get("action") or "").upper() == "DROP")
+    progressed = sum(1 for x in items if x.get("progressed"))
+    completed = sum(1 for x in items if x.get("completed"))
+
+    def pct(n, d):
+        return round((float(n) / float(d)) * 100.0, 1) if d else 0.0
+
+    rescue_progress_rate = pct(progressed, max(1, requeues + reopens))
+    rescue_completion_rate = pct(completed, max(1, requeues + reopens))
+
+    return {
+        "success": True,
+        "version": V280_VERSION,
+        "username": username,
+        "total_events": total,
+        "requeues": requeues,
+        "reopens": reopens,
+        "drops": drops,
+        "progressed_after_rescue": progressed,
+        "completed_after_rescue": completed,
+        "rescue_progress_rate": rescue_progress_rate,
+        "rescue_completion_rate": rescue_completion_rate,
+        "items": items,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Rescue History is private BL3 workflow telemetry. It measures only in-app "
+            "progress after rescue actions and does not infer off-platform outcomes."
+        )
+    }
+
+
+@app.route("/api/hunter-stale-rescue-history")
+def v280_stale_rescue_history_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v280_rescue_history_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+# Wrap the V27.9 rescue endpoint to record rescue decisions after successful actions.
+try:
+    _v280_prev_rescue = app.view_functions.get("v279_stale_commitment_rescue_api")
+    if _v280_prev_rescue:
+        def _v280_rescue_with_history(checkpoint_id, *args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+
+            previous_status = ""
+            if username:
+                _v273_ensure_schema()
+                conn = sqlite3.connect(DB)
+                try:
+                    row = conn.execute(
+                        """SELECT status FROM hunter_progress_commitments
+                           WHERE checkpoint_id=? AND username=?""",
+                        (int(checkpoint_id), username)
+                    ).fetchone()
+                    previous_status = str(row[0] if row else "")
+                finally:
+                    conn.close()
+
+            response = _v280_prev_rescue(checkpoint_id, *args, **kwargs)
+
+            try:
+                payload = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+            except Exception:
+                payload = {}
+
+            if username and payload and payload.get("success"):
+                _v280_record_rescue(
+                    username=username,
+                    checkpoint_id=checkpoint_id,
+                    action=payload.get("action"),
+                    previous_status=previous_status,
+                    resulting_status=payload.get("status"),
+                    queue_id=payload.get("queue_id"),
+                )
+
+            return response
+
+        app.view_functions["v279_stale_commitment_rescue_api"] = _v280_rescue_with_history
+except Exception:
+    pass
+
+
+@app.route("/hunter-stale-rescue-history")
+def v280_stale_rescue_history_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Rescue History</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🛟 Rescue History</h1><p>Sign in to view your private rescue effectiveness.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v280_rescue_history_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    rows = []
+    for item in data.get("items") or []:
+        state = "COMPLETED" if item.get("completed") else ("PROGRESSED" if item.get("progressed") else "WAITING")
+        rows.append(
+            """<tr>
+              <td>{created}</td><td>{action}</td><td>{commitment}</td>
+              <td>{previous}</td><td>{resulting}</td><td>{current}</td><td>{state}</td>
+            </tr>""".format(
+                created=esc(item.get("created_at")),
+                action=esc(item.get("action")),
+                commitment=esc(item.get("commitment")),
+                previous=esc(item.get("previous_status")),
+                resulting=esc(item.get("resulting_status")),
+                current=esc(item.get("current_status")),
+                state=esc(state),
+            )
+        )
+
+    if not rows:
+        rows.append("<tr><td colspan='7'>No stale rescue events recorded yet.</td></tr>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V28.0 Rescue History + Effectiveness</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#153124 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1100px;margin:auto}}.panel{{background:#09100ced;border:1px solid #3e694f;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#8fe0b0;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:42px;margin:10px 0}}.muted{{color:#a8b8ad}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}.card{{background:#07100b;border:1px solid #2f4f3b;border-radius:16px;padding:16px}}.k{{font-size:11px;color:#a5c8b1;font-weight:900}}.v{{font-size:28px;font-weight:950;margin-top:7px}}
+    table{{width:100%;border-collapse:collapse}}th,td{{padding:11px 8px;border-bottom:1px solid #23382d;text-align:left;font-size:12px}}th{{color:#a7c7b2}}
+    a{{display:inline-block;border:1px solid #4e7b5f;border-radius:10px;padding:10px 13px;background:#0d1711;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V28.0 // RESCUE EFFECTIVENESS</div>
+        <h1>🛟 STALE RESCUE HISTORY</h1>
+        <p class='muted'>{username}, see what happened after each stale-work rescue decision.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>TOTAL RESCUES</div><div class='v'>{total}</div></div>
+          <div class='card'><div class='k'>REQUEUES</div><div class='v'>{requeues}</div></div>
+          <div class='card'><div class='k'>REOPENS</div><div class='v'>{reopens}</div></div>
+          <div class='card'><div class='k'>DROPS</div><div class='v'>{drops}</div></div>
+          <div class='card'><div class='k'>PROGRESS RATE</div><div class='v'>{progress_rate}%</div></div>
+          <div class='card'><div class='k'>COMPLETION RATE</div><div class='v'>{completion_rate}%</div></div>
+        </div>
+        <p><a href='/hunter-stale-commitments'>🚨 STALE RADAR</a><a href='/hunter-commitment-board'>✅ COMMITMENT BOARD</a></p>
+      </section>
+      <section class='panel'>
+        <div style='overflow:auto'>
+          <table>
+            <thead><tr><th>Time</th><th>Action</th><th>Commitment</th><th>Before</th><th>After</th><th>Current</th><th>Outcome</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      </section>
+    </div></body></html>""".format(
+        username=esc(username),
+        total=esc(data.get("total_events")),
+        requeues=esc(data.get("requeues")),
+        reopens=esc(data.get("reopens")),
+        drops=esc(data.get("drops")),
+        progress_rate=esc(data.get("rescue_progress_rate")),
+        completion_rate=esc(data.get("rescue_completion_rate")),
+        rows="".join(rows),
+    )
+
+
+# Surface rescue history from the Stale Radar.
+try:
+    _v280_prev_stale_page = app.view_functions.get("v279_stale_commitments_page")
+    if _v280_prev_stale_page:
+        def _v280_stale_page_with_history(*args, **kwargs):
+            response = _v280_prev_stale_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-stale-rescue-history" not in response:
+                link = "<a href='/hunter-stale-rescue-history' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #4e7b5f;border-radius:10px;color:#fff;text-decoration:none'>🛟 RESCUE HISTORY</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v279_stale_commitments_page"] = _v280_stale_page_with_history
 except Exception:
     pass
 
