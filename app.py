@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V28.8"
+V247_SECURITY_VERSION = "V28.9"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V28.8"
+V248_SECURITY_VERSION = "V28.9"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.8 Build Attestation</title><style>
+    <title>BL3 V28.9 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V28.8"
+V250_VERSION = "V28.9"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V28.8"
+V253_VERSION = "V28.9"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V28.8"
+V254_VERSION = "V28.9"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V28.8"
+V255_VERSION = "V28.9"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V28.8"
+V256_VERSION = "V28.9"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V28.8"
+V257_VERSION = "V28.9"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V28.8"
+V258_VERSION = "V28.9"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.8 Hunter Command Deck</title>
+    <title>BL3 V28.9 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V28.8"
+V259_VERSION = "V28.9"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V28.8"
+V260_VERSION = "V28.9"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V28.8"
+V261_VERSION = "V28.9"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V28.8"
+V262_VERSION = "V28.9"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V28.8"
+V263_VERSION = "V28.9"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V28.8"
+V264_VERSION = "V28.9"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V28.8"
+V265_VERSION = "V28.9"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V28.8"
+V266_VERSION = "V28.9"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V28.8"
+V267_VERSION = "V28.9"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V28.8"
+V268_VERSION = "V28.9"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V28.8"
+V269_VERSION = "V28.9"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V28.8"
+V270_VERSION = "V28.9"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V28.8"
+V271_VERSION = "V28.9"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V28.8"
+V272_VERSION = "V28.9"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V28.8"
+V273_VERSION = "V28.9"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V28.8"
+V274_VERSION = "V28.9"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V28.8"
+V275_VERSION = "V28.9"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V28.8"
+V276_VERSION = "V28.9"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V28.8"
+V277_VERSION = "V28.9"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V28.8"
+V278_VERSION = "V28.9"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V28.8"
+V279_VERSION = "V28.9"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V28.8"
+V280_VERSION = "V28.9"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V28.8"
+V281_VERSION = "V28.9"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V28.8"
+V282_VERSION = "V28.9"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V28.8"
+V283_VERSION = "V28.9"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V28.8"
+V284_VERSION = "V28.9"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V28.8"
+V285_VERSION = "V28.9"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V28.8"
+V286_VERSION = "V28.9"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V28.8"
+V287_VERSION = "V28.9"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V28.8"
+V288_VERSION = "V28.9"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40924,7 +40924,7 @@ def v288_execution_receipts_page():
     a{{display:inline-block;border:1px solid #806f48;border-radius:10px;padding:10px 13px;background:#181309;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V28.8 // EXECUTION AUDIT TRAIL</div>
+        <div class='eyebrow'>BL3 V28.9 // EXECUTION AUDIT TRAIL</div>
         <h1>🧾 EXECUTION RECEIPTS</h1>
         <p class='muted'>{username}, every successful primary command executed from the Command Bar is recorded here.</p>
         <p><a href='/hunter-execution-command'>⚡ EXECUTION COMMAND</a><a href='/hunter-execution-console'>🧭 EXECUTION CONSOLE</a></p>
@@ -40967,6 +40967,229 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v286_execution_console_page"] = _v288_console_with_receipts
+except Exception:
+    pass
+
+
+# ===== V28.9 COMMAND OUTCOMES + EXECUTION SCORE =====
+# Evaluates what happened after recorded execution commands by resolving linked
+# Focus Run status. This closes the loop from "command executed" to "work completed".
+
+V289_VERSION = "V28.9"
+
+def _v289_receipt_outcomes_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V289_VERSION}
+
+    receipts = _v288_receipts_snapshot(username, 100)
+    items = list(receipts.get("items") or [])
+
+    _v260_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        for item in items:
+            run_id = item.get("run_id")
+            outcome = "EXECUTED"
+            run_status = ""
+            completed_at = ""
+            cancelled_at = ""
+
+            if run_id:
+                row = conn.execute(
+                    """SELECT status, completed_at, cancelled_at
+                       FROM hunter_focus_runs
+                       WHERE id=? AND username=?""",
+                    (int(run_id), username)
+                ).fetchone()
+
+                if row:
+                    run_status = str(row["status"] or "").upper()
+                    completed_at = str(row["completed_at"] or "")
+                    cancelled_at = str(row["cancelled_at"] or "")
+
+                    if run_status == "COMPLETED":
+                        outcome = "COMPLETED"
+                    elif run_status == "CANCELLED":
+                        outcome = "CANCELLED"
+                    elif run_status == "ACTIVE":
+                        outcome = "ACTIVE"
+                    else:
+                        outcome = "EXECUTED"
+
+            item["outcome"] = outcome
+            item["run_status"] = run_status
+            item["completed_at"] = completed_at
+            item["cancelled_at"] = cancelled_at
+    finally:
+        conn.close()
+
+    total = len(items)
+    launched = sum(1 for x in items if x.get("run_id"))
+    completed = sum(1 for x in items if x.get("outcome") == "COMPLETED")
+    cancelled = sum(1 for x in items if x.get("outcome") == "CANCELLED")
+    active = sum(1 for x in items if x.get("outcome") == "ACTIVE")
+
+    def pct(n, d):
+        return round((float(n) / float(d)) * 100.0, 1) if d else 0.0
+
+    completion_rate = pct(completed, launched)
+    cancellation_rate = pct(cancelled, launched)
+    launch_rate = pct(launched, total)
+
+    # Execution Score rewards commands that create/advance Focus Runs and finish.
+    score = 0.0
+    if total:
+        score = (
+            launch_rate * 0.30 +
+            completion_rate * 0.60 +
+            max(0.0, 100.0 - cancellation_rate) * 0.10
+        )
+    score = round(max(0.0, min(100.0, score)), 1)
+
+    if total == 0:
+        state = "NO DATA"
+    elif score >= 80:
+        state = "STRONG"
+    elif score >= 60:
+        state = "HEALTHY"
+    elif score >= 40:
+        state = "BUILDING"
+    else:
+        state = "LOW"
+
+    return {
+        "success": True,
+        "version": V289_VERSION,
+        "username": username,
+        "state": state,
+        "execution_score": score,
+        "total_commands": total,
+        "launched_runs": launched,
+        "completed_runs": completed,
+        "cancelled_runs": cancelled,
+        "active_runs": active,
+        "launch_rate": launch_rate,
+        "completion_rate": completion_rate,
+        "cancellation_rate": cancellation_rate,
+        "items": items,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "Command Outcomes measures only BL3 in-app execution receipts and linked Focus Run states. "
+            "It has no monetary value and does not infer off-platform outcomes."
+        )
+    }
+
+
+@app.route("/api/hunter-command-outcomes")
+def v289_command_outcomes_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v289_receipt_outcomes_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-command-outcomes")
+def v289_command_outcomes_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Command Outcomes</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📈 Command Outcomes</h1><p>Sign in to view your private execution outcomes.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v289_receipt_outcomes_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    rows = []
+    for item in data.get("items") or []:
+        rows.append(
+            """<tr>
+              <td>#{id}</td><td>{time}</td><td>{mode}</td><td>{action}</td>
+              <td>{run}</td><td>{outcome}</td><td>{done}</td>
+            </tr>""".format(
+                id=esc(item.get("id")),
+                time=esc(item.get("created_at")),
+                mode=esc(item.get("mode")),
+                action=esc(item.get("action")),
+                run=esc(item.get("run_id") or "—"),
+                outcome=esc(item.get("outcome")),
+                done=esc(item.get("completed_at") or item.get("cancelled_at") or "—"),
+            )
+        )
+
+    if not rows:
+        rows.append("<tr><td colspan='7'>No command outcomes yet.</td></tr>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V28.9 Command Outcomes</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#13283a 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1120px;margin:auto}}.panel{{background:#091019ed;border:1px solid #365c78;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#7fcaff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}.muted{{color:#a7b8c4}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}.card{{background:#07101a;border:1px solid #294863;border-radius:16px;padding:16px}}.k{{font-size:10px;color:#9cbfd7;font-weight:900}}.v{{font-size:29px;font-weight:950;margin-top:7px}}
+    table{{width:100%;border-collapse:collapse}}th,td{{padding:10px 8px;border-bottom:1px solid #23384b;text-align:left;font-size:12px}}th{{color:#9fc7e1}}
+    a{{display:inline-block;border:1px solid #48779b;border-radius:10px;padding:10px 13px;background:#0c1721;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V28.9 // COMMAND → OUTCOME</div>
+        <h1>📈 COMMAND OUTCOMES</h1>
+        <p class='muted'>{username}, this view measures whether executed primary commands actually turned into completed Focus Runs.</p>
+        <div class='grid'>
+          <div class='card'><div class='k'>EXECUTION SCORE</div><div class='v'>{score}</div></div>
+          <div class='card'><div class='k'>STATE</div><div class='v'>{state}</div></div>
+          <div class='card'><div class='k'>COMMANDS</div><div class='v'>{commands}</div></div>
+          <div class='card'><div class='k'>LAUNCHED</div><div class='v'>{launched}</div></div>
+          <div class='card'><div class='k'>COMPLETED</div><div class='v'>{completed}</div></div>
+          <div class='card'><div class='k'>COMPLETION RATE</div><div class='v'>{completion_rate}%</div></div>
+        </div>
+        <p><a href='/hunter-execution-command'>⚡ EXECUTION COMMAND</a><a href='/hunter-execution-receipts'>🧾 RECEIPTS</a><a href='/hunter-execution-console'>🧭 CONSOLE</a></p>
+      </section>
+
+      <section class='panel'>
+        <div style='overflow:auto'>
+          <table>
+            <thead><tr><th>ID</th><th>Time</th><th>Mode</th><th>Action</th><th>Run</th><th>Outcome</th><th>Resolved At</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      </section>
+    </div></body></html>""".format(
+        username=esc(username),
+        score=esc(data.get("execution_score")),
+        state=esc(data.get("state")),
+        commands=esc(data.get("total_commands")),
+        launched=esc(data.get("launched_runs")),
+        completed=esc(data.get("completed_runs")),
+        completion_rate=esc(data.get("completion_rate")),
+        rows="".join(rows),
+    )
+
+
+# Surface outcome quality from Receipts and Execution Console.
+try:
+    _v289_prev_receipts_page = app.view_functions.get("v288_execution_receipts_page")
+    if _v289_prev_receipts_page:
+        def _v289_receipts_with_outcomes(*args, **kwargs):
+            response = _v289_prev_receipts_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-command-outcomes" not in response:
+                link = "<a href='/hunter-command-outcomes' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #48779b;border-radius:10px;color:#fff;text-decoration:none'>📈 COMMAND OUTCOMES</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v288_execution_receipts_page"] = _v289_receipts_with_outcomes
+except Exception:
+    pass
+
+try:
+    _v289_prev_console_page = app.view_functions.get("v286_execution_console_page")
+    if _v289_prev_console_page:
+        def _v289_console_with_outcomes(*args, **kwargs):
+            response = _v289_prev_console_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-command-outcomes" not in response:
+                link = "<a href='/hunter-command-outcomes' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #48779b;border-radius:10px;color:#fff;text-decoration:none'>📈 EXECUTION SCORE</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v286_execution_console_page"] = _v289_console_with_outcomes
 except Exception:
     pass
 
