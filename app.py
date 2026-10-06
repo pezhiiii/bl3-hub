@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V28.6"
+V247_SECURITY_VERSION = "V28.7"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V28.6"
+V248_SECURITY_VERSION = "V28.7"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.6 Build Attestation</title><style>
+    <title>BL3 V28.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V28.6"
+V250_VERSION = "V28.7"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V28.6"
+V253_VERSION = "V28.7"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V28.6"
+V254_VERSION = "V28.7"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V28.6"
+V255_VERSION = "V28.7"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V28.6"
+V256_VERSION = "V28.7"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V28.6"
+V257_VERSION = "V28.7"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V28.6"
+V258_VERSION = "V28.7"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V28.6 Hunter Command Deck</title>
+    <title>BL3 V28.7 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V28.6"
+V259_VERSION = "V28.7"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V28.6"
+V260_VERSION = "V28.7"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V28.6"
+V261_VERSION = "V28.7"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V28.6"
+V262_VERSION = "V28.7"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V28.6"
+V263_VERSION = "V28.7"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V28.6"
+V264_VERSION = "V28.7"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V28.6"
+V265_VERSION = "V28.7"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V28.6"
+V266_VERSION = "V28.7"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V28.6"
+V267_VERSION = "V28.7"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V28.6"
+V268_VERSION = "V28.7"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V28.6"
+V269_VERSION = "V28.7"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V28.6"
+V270_VERSION = "V28.7"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V28.6"
+V271_VERSION = "V28.7"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V28.6"
+V272_VERSION = "V28.7"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V28.6"
+V273_VERSION = "V28.7"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V28.6"
+V274_VERSION = "V28.7"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V28.6"
+V275_VERSION = "V28.7"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V28.6"
+V276_VERSION = "V28.7"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V28.6"
+V277_VERSION = "V28.7"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V28.6"
+V278_VERSION = "V28.7"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V28.6"
+V279_VERSION = "V28.7"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V28.6"
+V280_VERSION = "V28.7"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V28.1"
+V281_VERSION = "V28.7"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V28.2"
+V282_VERSION = "V28.7"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V28.3"
+V283_VERSION = "V28.7"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V28.6"
+V284_VERSION = "V28.7"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V28.6"
+V285_VERSION = "V28.7"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V28.6"
+V286_VERSION = "V28.7"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40426,7 +40426,7 @@ def v286_execution_console_page():
     .nav a{{display:inline-block;border:1px solid #445c89;border-radius:10px;padding:9px 11px;background:#0d1421;color:#fff;text-decoration:none;font-weight:800;margin:4px 4px 0 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V28.6 // UNIFIED EXECUTION WORKSPACE</div>
+        <div class='eyebrow'>BL3 V28.7 // UNIFIED EXECUTION WORKSPACE</div>
         <div class='hero'>
           <div class='heroCopy'>
             <span class='mode'>{mode}</span>
@@ -40515,6 +40515,241 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v260_hunter_focus_page"] = _v286_focus_with_console
+except Exception:
+    pass
+
+
+# ===== V28.7 EXECUTION COMMAND BAR + PRIMARY ACTION =====
+# Turns the unified Execution Console into an action surface. Instead of only
+# navigating to the next tool, the Hunter can execute the current primary move
+# directly when it is safe to do so.
+
+V287_VERSION = "V28.7"
+
+def _v287_primary_action(username):
+    console = _v286_execution_console_snapshot(username)
+    if not console.get("success"):
+        return console
+
+    mode = str(console.get("mode") or "PLAN").upper()
+
+    if mode == "FOCUS":
+        return {
+            "success": True,
+            "version": V287_VERSION,
+            "mode": mode,
+            "action": "OPEN_ACTIVE_FOCUS",
+            "label": "OPEN ACTIVE FOCUS",
+            "executable": False,
+            "href": "/hunter-focus",
+            "reason": "An active Focus Run already exists and should not be interrupted."
+        }
+
+    if mode == "QUEUE_READY":
+        return {
+            "success": True,
+            "version": V287_VERSION,
+            "mode": mode,
+            "action": "START_NEXT",
+            "label": "START NEXT QUEUED",
+            "executable": True,
+            "href": "/hunter-focus",
+            "reason": "No Focus Run is active and the queue already has a next action."
+        }
+
+    if mode == "RESCUE":
+        stale = _v279_stale_commitments_snapshot(username)
+        first = (stale.get("items") or [None])[0]
+        if first:
+            return {
+                "success": True,
+                "version": V287_VERSION,
+                "mode": mode,
+                "action": "SMART_RESCUE_START",
+                "label": "RESCUE + START",
+                "executable": True,
+                "checkpoint_id": int(first.get("checkpoint_id") or 0),
+                "href": "/hunter-smart-rescue-launch",
+                "reason": "A stale commitment can be rescued and launched without extra navigation."
+            }
+
+    if mode == "LOOP_BREAKER":
+        return {
+            "success": True,
+            "version": V287_VERSION,
+            "mode": mode,
+            "action": "REWRITE_REQUIRED",
+            "label": "REWRITE + RELAUNCH",
+            "executable": False,
+            "href": "/hunter-rewrite-relaunch",
+            "reason": "Repeated stale work needs new wording from the Hunter before BL3 can relaunch it."
+        }
+
+    return {
+        "success": True,
+        "version": V287_VERSION,
+        "mode": mode,
+        "action": "PLAN_NEXT",
+        "label": "GET NEXT ACTION",
+        "executable": False,
+        "href": "/hunter-execution-recovery",
+        "reason": "Execution lane is clear; choose the next useful action from Recovery Coach."
+    }
+
+
+@app.route("/api/hunter-execution-console/primary")
+def v287_execution_console_primary_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify(_v287_primary_action(username))
+
+
+@app.route("/api/hunter-execution-console/execute-primary", methods=["POST"])
+def v287_execution_console_execute_primary_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    primary = _v287_primary_action(username)
+    if not primary.get("success"):
+        return jsonify(primary), 409
+
+    action = str(primary.get("action") or "").upper()
+
+    if action == "START_NEXT":
+        started = _v262_start_next_queued(username)
+        if started.get("started"):
+            return jsonify({
+                "success": True,
+                "version": V287_VERSION,
+                "action": action,
+                "started": True,
+                "run_id": int(started.get("run_id") or 0),
+                "run_title": started.get("title"),
+                "started_at": started.get("started_at"),
+                "redirect": "/hunter-focus",
+                "message": "Next queued action started as the active Focus Run."
+            })
+        return jsonify({
+            "success": False,
+            "error": started.get("reason") or "start_failed"
+        }), 409
+
+    if action == "SMART_RESCUE_START":
+        checkpoint_id = int(primary.get("checkpoint_id") or 0)
+        if not checkpoint_id:
+            return jsonify({"success": False, "error": "stale_checkpoint_missing"}), 409
+
+        response = v283_apply_and_start_recommended_api(checkpoint_id)
+        payload = _v285_response_payload(response)
+
+        if payload.get("success"):
+            return jsonify({
+                **payload,
+                "version": V287_VERSION,
+                "action": action,
+                "redirect": "/hunter-focus" if payload.get("started") else "/hunter-focus-queue"
+            })
+        return response
+
+    return jsonify({
+        "success": False,
+        "error": "primary_action_requires_input_or_navigation",
+        "action": action,
+        "href": primary.get("href"),
+        "message": primary.get("reason")
+    }), 409
+
+
+@app.route("/hunter-execution-command")
+def v287_execution_command_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Execution Command</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚡ Execution Command</h1><p>Sign in to execute your current primary move.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    console = _v286_execution_console_snapshot(username)
+    primary = _v287_primary_action(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    queue = console.get("queue") or []
+    next_title = esc(queue[0].get("action_title")) if queue else "No queued action"
+
+    if primary.get("executable"):
+        button = "<button onclick='executePrimary()'>{}</button>".format(esc(primary.get("label")))
+    else:
+        button = "<a class='btn' href='{}'>{}</a>".format(
+            esc(primary.get("href") or "/hunter-execution-console"),
+            esc(primary.get("label"))
+        )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V28.7 Execution Command</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2c1a32 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:900px;margin:auto}}.panel{{background:#0d0912ed;border:1px solid #684777;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#e0a7ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}.muted{{color:#bcaec2}}
+    .command{{background:#120c18;border:1px solid #74548a;border-radius:20px;padding:20px;margin-top:16px}}.mode{{display:inline-block;border:1px solid #815e98;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900}}h2{{font-size:30px;margin:10px 0}}.next{{color:#c9b6d2;font-size:13px;margin-top:10px}}
+    button,.btn,a.nav{{display:inline-block;border:1px solid #835fa0;border-radius:12px;padding:12px 15px;background:#1b1023;color:#fff;text-decoration:none;font-weight:900;cursor:pointer;margin:6px 5px 0 0}}.msg{{margin-top:12px;color:#9edbb2;font-size:13px}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V28.7 // EXECUTE THE NEXT MOVE</div>
+        <h1>⚡ EXECUTION COMMAND</h1>
+        <p class='muted'>{username}, BL3 resolves the current execution mode into one primary action.</p>
+
+        <div class='command'>
+          <span class='mode'>{mode}</span>
+          <h2>{label}</h2>
+          <p>{reason}</p>
+          <div class='next'>Queue front: <b>{next_title}</b></div>
+          <div>{button}</div>
+          <div id='msg' class='msg'></div>
+        </div>
+
+        <p>
+          <a class='nav' href='/hunter-execution-console'>🧭 EXECUTION CONSOLE</a>
+          <a class='nav' href='/hunter-focus'>🎯 FOCUS</a>
+          <a class='nav' href='/hunter-focus-queue'>📋 QUEUE</a>
+        </p>
+      </section>
+    </div>
+    <script>
+    async function executePrimary(){{
+      const msg=document.getElementById('msg');
+      msg.textContent='Executing...';
+      const r=await fetch('/api/hunter-execution-console/execute-primary',{{method:'POST'}});
+      const j=await r.json();
+      if(j.success){{
+        msg.textContent=j.message||'Primary action executed';
+        setTimeout(()=>location.href=(j.redirect||'/hunter-execution-console'),600);
+      }}else{{
+        msg.textContent=j.message||j.error||'Failed';
+      }}
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        mode=esc(primary.get("mode")),
+        label=esc(primary.get("label")),
+        reason=esc(primary.get("reason")),
+        next_title=next_title,
+        button=button,
+    )
+
+
+# Surface the command bar from the unified console.
+try:
+    _v287_prev_console_page = app.view_functions.get("v286_execution_console_page")
+    if _v287_prev_console_page:
+        def _v287_console_with_command(*args, **kwargs):
+            response = _v287_prev_console_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-execution-command" not in response:
+                link = "<a href='/hunter-execution-command' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #835fa0;border-radius:10px;color:#fff;text-decoration:none'>⚡ EXECUTE PRIMARY ACTION</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v286_execution_console_page"] = _v287_console_with_command
 except Exception:
     pass
 
