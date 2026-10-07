@@ -56302,6 +56302,388 @@ except Exception:
 
 
 
+# ===== V32.8 REVISION VALIDATION + PROMOTION GATE =====
+# Gives ACTIVE V32.7 revision overlays their own evidence cycle. Hunters record
+# structured observations, finalize an evidence-backed revision outcome, and may
+# explicitly PROMOTE a VALIDATED overlay into an approved execution baseline.
+# Promotion is non-destructive: it never edits the base successor or deletes the
+# overlay/history; it only records explicit approval for the active overlay.
+
+V328_VERSION = "V32.8"
+V328_SIGNAL_STATES = {"POSITIVE", "MIXED", "NEGATIVE", "INCONCLUSIVE"}
+V328_CHECKPOINT_KINDS = {"EXECUTION", "QUALITY", "STABILITY", "MANUAL"}
+V328_OUTCOMES = {"VALIDATED", "ADJUST_REQUIRED", "ROLLBACK_RECOMMENDED"}
+V328_MIN_OBSERVATIONS = 2
+
+
+def _v328_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_revision_trial_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            revision_id INTEGER NOT NULL,
+            checkpoint_kind TEXT NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v328_revision_obs_user_revision
+        ON hunter_revision_trial_observations(username, revision_id, id DESC)
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_revision_trial_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            revision_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, revision_id)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_revision_promotions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            revision_id INTEGER NOT NULL,
+            outcome_id INTEGER NOT NULL,
+            successor_id INTEGER NOT NULL,
+            strategy TEXT NOT NULL,
+            directive_type TEXT NOT NULL,
+            approval_note TEXT,
+            promoted_at TEXT NOT NULL,
+            UNIQUE(username, revision_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v328_promotions_user_time
+        ON hunter_revision_promotions(username, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v328_init()
+except Exception:
+    pass
+
+
+def _v328_revision(username, revision_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE id=? AND username=?
+        """, (int(revision_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v328_observations(username, revision_id=None, limit=400):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if revision_id is None:
+            rows = con.execute("""
+                SELECT * FROM hunter_revision_trial_observations
+                WHERE username=? ORDER BY id DESC LIMIT ?
+            """, (username, int(limit))).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT * FROM hunter_revision_trial_observations
+                WHERE username=? AND revision_id=? ORDER BY id DESC LIMIT ?
+            """, (username, int(revision_id), int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v328_outcome(username, revision_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_trial_outcomes
+            WHERE username=? AND revision_id=?
+        """, (username, int(revision_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v328_promotion(username, revision_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_promotions
+            WHERE username=? AND revision_id=?
+        """, (username, int(revision_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v328_add_observation(username, revision_id, checkpoint_kind, signal_state, evidence_note=""):
+    revision = _v328_revision(username, revision_id)
+    if not revision:
+        return False, "revision_not_found", None
+    if str(revision.get("revision_state") or "") != "ACTIVE":
+        return False, "revision_not_active", None
+    kind = str(checkpoint_kind or "MANUAL").strip().upper()
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if kind not in V328_CHECKPOINT_KINDS:
+        return False, "invalid_checkpoint_kind", None
+    if signal not in V328_SIGNAL_STATES:
+        return False, "invalid_signal_state", None
+    if _v328_outcome(username, revision_id):
+        return False, "revision_outcome_already_finalized", None
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_revision_trial_observations
+            (username, revision_id, checkpoint_kind, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (username, int(revision_id), kind, signal, str(evidence_note or "").strip()[:2400], now))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+    return True, None, oid
+
+
+def _v328_finalize_outcome(username, revision_id, outcome, outcome_note=""):
+    revision = _v328_revision(username, revision_id)
+    if not revision:
+        return False, "revision_not_found", None
+    if str(revision.get("revision_state") or "") != "ACTIVE":
+        return False, "revision_not_active", None
+    requested = str(outcome or "").strip().upper()
+    if requested not in V328_OUTCOMES:
+        return False, "invalid_outcome", None
+    existing = _v328_outcome(username, revision_id)
+    if existing:
+        return False, "outcome_already_finalized", int(existing["id"])
+    obs = _v328_observations(username, revision_id, 200)
+    if len(obs) < V328_MIN_OBSERVATIONS:
+        return False, "insufficient_observations", None
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_revision_trial_outcomes
+            (username, revision_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (username, int(revision_id), requested, str(outcome_note or "").strip()[:2400], now))
+        outcome_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+    try:
+        _v316_log_event(
+            username, str(revision.get("strategy") or ""), "REVISION_TRIAL_OUTCOME",
+            detail="V32.8 revision #%s finalized as %s after %s observations; no routing state changed automatically." % (
+                int(revision_id), requested, len(obs)
+            )
+        )
+    except Exception:
+        pass
+    return True, None, outcome_id
+
+
+def _v328_promote(username, revision_id, approval_note=""):
+    revision = _v328_revision(username, revision_id)
+    if not revision:
+        return False, "revision_not_found", None
+    if str(revision.get("revision_state") or "") != "ACTIVE":
+        return False, "revision_not_active", None
+    outcome = _v328_outcome(username, revision_id)
+    if not outcome or str(outcome.get("outcome") or "") != "VALIDATED":
+        return False, "validated_outcome_required", None
+    existing = _v328_promotion(username, revision_id)
+    if existing:
+        return False, "revision_already_promoted", int(existing["id"])
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_revision_promotions
+            (username, revision_id, outcome_id, successor_id, strategy, directive_type, approval_note, promoted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(revision_id), int(outcome["id"]), int(revision["successor_id"]),
+            str(revision.get("strategy") or ""), str(revision.get("directive_type") or ""),
+            str(approval_note or "").strip()[:2400], now
+        ))
+        pid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+    try:
+        _v316_log_event(
+            username, str(revision.get("strategy") or ""), "REVISION_PROMOTED",
+            detail="V32.8 revision #%s explicitly promoted as approved execution baseline; base successor remained immutable." % int(revision_id)
+        )
+    except Exception:
+        pass
+    return True, None, pid
+
+
+def _v328_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        revisions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+        outcomes = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_revision_trial_outcomes
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+        promotions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_revision_promotions
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+    obs = _v328_observations(username, None, 800)
+    obs_by = {}
+    for row in obs:
+        obs_by.setdefault(int(row["revision_id"]), []).append(row)
+    outcome_by = {int(r["revision_id"]): r for r in outcomes}
+    promo_by = {int(r["revision_id"]): r for r in promotions}
+    items=[]
+    for r in revisions:
+        rid=int(r["id"])
+        rows=obs_by.get(rid, [])
+        outcome=outcome_by.get(rid)
+        promo=promo_by.get(rid)
+        item=dict(r)
+        item["observations"]=rows[:20]
+        item["observation_count"]=len(rows)
+        item["signals"]={k:sum(1 for x in rows if str(x.get("signal_state"))==k) for k in V328_SIGNAL_STATES}
+        item["outcome"]=outcome
+        item["promotion"]=promo
+        item["ready_for_outcome"]=str(r.get("revision_state") or "")=="ACTIVE" and len(rows)>=V328_MIN_OBSERVATIONS and not outcome
+        item["ready_for_promotion"]=str(r.get("revision_state") or "")=="ACTIVE" and bool(outcome) and str(outcome.get("outcome") or "")=="VALIDATED" and not promo
+        items.append(item)
+    return {
+        "version": V328_VERSION,
+        "minimum_observations": V328_MIN_OBSERVATIONS,
+        "counts": {
+            "revisions": len(revisions),
+            "active": sum(1 for r in revisions if str(r.get("revision_state") or "")=="ACTIVE"),
+            "observations": len(obs),
+            "ready": sum(1 for i in items if i["ready_for_outcome"]),
+            "finalized": len(outcomes),
+            "promoted": len(promotions),
+        },
+        "revisions": items,
+        "policy": "Validation and promotion are explicit, auditable records. Promotion never rewrites the immutable base successor."
+    }
+
+
+@app.route("/api/hunter-revision-validation")
+def v328_revision_validation_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v328_snapshot(username)})
+
+
+@app.route("/api/hunter-revision-validation/<int:revision_id>/observe", methods=["POST"])
+def v328_revision_observe_api(revision_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, oid = _v328_add_observation(username, revision_id, payload.get("checkpoint_kind"), payload.get("signal_state"), payload.get("evidence_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "observation_id": oid}), 400
+    return jsonify({"success": True, "observation_id": oid})
+
+
+@app.route("/api/hunter-revision-validation/<int:revision_id>/outcome", methods=["POST"])
+def v328_revision_outcome_api(revision_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, oid = _v328_finalize_outcome(username, revision_id, payload.get("outcome"), payload.get("outcome_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-revision-validation/<int:revision_id>/promote", methods=["POST"])
+def v328_revision_promote_api(revision_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, pid = _v328_promote(username, revision_id, payload.get("approval_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "promotion_id": pid}), 400
+    return jsonify({"success": True, "promotion_id": pid})
+
+
+@app.route("/hunter-revision-validation")
+def v328_revision_validation_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Revision Validation</title><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧪 Revision Validation</h1><p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+    data=_v328_snapshot(username); esc=lambda v: html.escape(str(v if v is not None else "")); cards=[]
+    for r in data["revisions"]:
+        rid=int(r.get("id") or 0); state=str(r.get("revision_state") or ""); outcome=r.get("outcome") or {}; promo=r.get("promotion") or {}; obs=r.get("observations") or []
+        obs_html="".join("<div class='obs'><b>{}</b> · <span class='{}'>{}</span><br><small>{}</small></div>".format(esc(o.get("checkpoint_kind")),esc(str(o.get("signal_state") or "").lower()),esc(o.get("signal_state")),esc(o.get("evidence_note"))) for o in obs[:8]) or "<div class='muted'>No observations yet.</div>"
+        controls=""
+        if state=="ACTIVE" and not outcome:
+            controls += """<form action='/api/hunter-revision-validation/{rid}/observe' onsubmit='return v328submit(this,event,false)'><label>CHECKPOINT</label><select name='checkpoint_kind'><option>EXECUTION</option><option>QUALITY</option><option>STABILITY</option><option>MANUAL</option></select><label>SIGNAL</label><select name='signal_state'><option>POSITIVE</option><option>MIXED</option><option>NEGATIVE</option><option>INCONCLUSIVE</option></select><label>EVIDENCE NOTE</label><textarea name='evidence_note' rows='2'></textarea><button type='submit'>ADD OBSERVATION</button></form>""".format(rid=rid)
+            if r.get("ready_for_outcome"):
+                controls += """<form action='/api/hunter-revision-validation/{rid}/outcome' onsubmit='return v328submit(this,event,true)'><label>FINAL OUTCOME</label><select name='outcome'><option>VALIDATED</option><option>ADJUST_REQUIRED</option><option>ROLLBACK_RECOMMENDED</option></select><label>OUTCOME NOTE</label><textarea name='outcome_note' rows='2'></textarea><button class='finalize' type='submit'>FINALIZE REVISION OUTCOME</button></form>""".format(rid=rid)
+            else:
+                controls += "<div class='gate'>Need at least %s observations before outcome finalization.</div>" % V328_MIN_OBSERVATIONS
+        elif outcome:
+            controls += "<div class='final'><b>OUTCOME: {}</b><br><small>{}</small></div>".format(esc(outcome.get("outcome")),esc(outcome.get("outcome_note")))
+            if r.get("ready_for_promotion"):
+                controls += """<form action='/api/hunter-revision-validation/{rid}/promote' onsubmit='return v328submit(this,event,true)'><label>APPROVAL NOTE</label><textarea name='approval_note' rows='2' placeholder='Why should this validated overlay become the approved baseline?'></textarea><button class='promote' type='submit'>PROMOTE VALIDATED REVISION</button></form>""".format(rid=rid)
+        if promo:
+            controls += "<div class='promoted'><b>✅ PROMOTED BASELINE</b><br><small>{}</small></div>".format(esc(promo.get("approval_note")))
+        cards.append("""<article class='card'><div class='eyebrow'>REVISION #{rid} · SUCCESSOR #{sid}</div><h3>{strategy}</h3><div class='base'>OVERLAY: <b>{dtype}</b> · {state}</div><div class='history'>{obs}</div>{controls}</article>""".format(rid=rid,sid=esc(r.get("successor_id")),strategy=esc(r.get("strategy")),dtype=esc(r.get("directive_type")),state=esc(state),obs=obs_html,controls=controls))
+    c=data["counts"]
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V32.8 Revision Validation</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#172635 0,#080a0d 44%,#020304 100%);color:#f4f8fb;font-family:Arial,sans-serif}}.wrap{{max-width:1140px;margin:auto;padding:32px 18px 80px}}.hero,.card{{background:#091018ed;border:1px solid #24445c;border-radius:24px;padding:22px;box-shadow:0 24px 70px #0008}}.hero{{margin-bottom:16px}}.eyebrow{{font-size:11px;font-weight:900;letter-spacing:2px;color:#75d8ff}}h1{{font-size:42px;margin:7px 0}}h3{{margin:8px 0 12px}}.sub,.muted{{color:#a9bdc9;line-height:1.6}}.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:18px 0}}.stat{{border:1px solid #24445c;border-radius:15px;padding:12px;background:#07111a}}.num{{font-size:27px;font-weight:1000}}.nav a{{color:#81ddff;text-decoration:none;font-weight:900;margin-right:14px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:14px}}.base,.obs,.gate,.final,.promoted{{padding:11px;border-radius:13px;margin:9px 0;border:1px solid #263d4e;background:#0c1720}}.gate{{border-color:#6d5921;color:#ffe39a;background:#171307}}.final{{border-color:#1e7357;color:#9ff1ce;background:#09251c}}.promoted{{border-color:#4c7d22;color:#caff9b;background:#102009}}.positive{{color:#79f0b9}}.mixed{{color:#ffd66f}}.negative{{color:#ff91a0}}.inconclusive{{color:#c3d1d8}}form{{border-top:1px solid #23313b;margin-top:13px;padding-top:13px}}label{{display:block;font-size:10px;letter-spacing:1.4px;color:#75d8ff;font-weight:900;margin:7px 0}}select,textarea{{width:100%;background:#04080c;color:#fff;border:1px solid #314957;border-radius:11px;padding:10px}}button{{margin-top:9px;border:0;border-radius:999px;background:#65d4ff;color:#041018;font-weight:1000;padding:11px 15px;cursor:pointer}}button.finalize{{background:#83f1c3}}button.promote{{background:#c8ff76}}.rule{{margin-top:16px;padding:12px;border-left:3px solid #75d8ff;background:#07131c;color:#afd0e1;line-height:1.6}}small{{color:#7e929f}}@media(max-width:640px){{h1{{font-size:32px}}.grid{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V32.8 // REVISION VALIDATION + PROMOTION GATE</div><h1>🧪 REVISION VALIDATION</h1><div class='sub'>Test ACTIVE revision overlays, finalize an evidence-backed outcome, then explicitly promote only validated revisions. The immutable base successor is never rewritten.</div><div class='stats'><div class='stat'><div class='eyebrow'>REVISIONS</div><div class='num'>{revisions}</div></div><div class='stat'><div class='eyebrow'>ACTIVE</div><div class='num'>{active}</div></div><div class='stat'><div class='eyebrow'>OBSERVATIONS</div><div class='num'>{obs}</div></div><div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div><div class='stat'><div class='eyebrow'>FINALIZED</div><div class='num'>{finalized}</div></div><div class='stat'><div class='eyebrow'>PROMOTED</div><div class='num'>{promoted}</div></div></div><div class='nav'><a href='/hunter-revision-workshop'>🧬 REVISION WORKSHOP</a><a href='/hunter-successor-trials'>🧪 SUCCESSOR TRIALS</a><a href='/api/hunter-revision-validation'>JSON</a></div><div class='rule'><b>V32.8 rule:</b> evidence comes before approval. Validation never mutates routing; promotion is a separate explicit record and the base successor remains immutable.</div></section><section class='grid'>{cards}</section></div><script>
+    async function v328submit(form,e,confirmAction=false){{e.preventDefault();if(confirmAction&&!confirm('Confirm this evidence state change?'))return false;const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(revisions=esc(c.get("revisions",0)),active=esc(c.get("active",0)),obs=esc(c.get("observations",0)),ready=esc(c.get("ready",0)),finalized=esc(c.get("finalized",0)),promoted=esc(c.get("promoted",0)),cards="".join(cards) if cards else "<article class='card'><p>No revisions yet. Stage one from Revision Workshop first.</p></article>")
+
+
+# Surface V32.8 directly from the V32.7 Revision Workshop.
+try:
+    _v328_prev_workshop_page = app.view_functions.get("v327_revision_workshop_page")
+    if _v328_prev_workshop_page:
+        def _v328_workshop_with_validation(*args, **kwargs):
+            response = _v328_prev_workshop_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-revision-validation" not in response:
+                anchor = "<a href='/api/hunter-revision-workshop'>JSON</a>"
+                link = "<a href='/hunter-revision-validation'>🧪 REVISION VALIDATION</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+            return response
+        app.view_functions["v327_revision_workshop_page"] = _v328_workshop_with_validation
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
