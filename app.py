@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.8 Build Attestation</title><style>
+    <title>BL3 V31.9 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.8 Hunter Command Deck</title>
+    <title>BL3 V31.9 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -51847,7 +51847,7 @@ def v317_retests_page():
 
     c = snap.get("counts") or {}
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.8 Recalibration Retests</title>
+    <title>BL3 V31.9 Recalibration Retests</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#241735,#07080d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0c14ef;border:1px solid #59446f;border-radius:24px;padding:24px}}
@@ -51860,7 +51860,7 @@ def v317_retests_page():
     .rule{{border-left:4px solid #c283ff;padding:11px 14px;background:#17101f;border-radius:8px}}.small{{margin-top:10px;color:#8c7f98;font-size:11px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.8 // RETEST REPLICATION + EVIDENCE CONFIDENCE</div>
+      <div class='eyebrow'>BL3 V31.9 // CONTEXT-DIVERSE RETEST REPLICATION</div>
       <h1>🧪 RECALIBRATION RETESTS</h1>
       <p>{username}, RETEST_ONLY is no longer just a warning. It now has a concrete evidence loop: declare the hypothesis, run the retest, record the outcome, and only then can BL3 recommend whether closure is justified.</p>
 
@@ -52403,7 +52403,7 @@ def v318_confidence_page():
         ))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.8 Retest Confidence</title>
+    <title>BL3 V31.9 Retest Confidence</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1c2438,#07080d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0c14ef;border:1px solid #475a7a;border-radius:24px;padding:24px}}
@@ -52418,7 +52418,7 @@ def v318_confidence_page():
     .rule{{border-left:4px solid #7fb4ff;padding:11px 14px;background:#111a28;border-radius:8px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.8 // RETEST REPLICATION + EVIDENCE CONFIDENCE</div>
+      <div class='eyebrow'>BL3 V31.9 // CONTEXT-DIVERSE RETEST REPLICATION</div>
       <h1>📈 EVIDENCE CONFIDENCE</h1>
       <p>{username}, one successful retest can still be enough under the default SINGLE policy. If a decision matters more, you can explicitly switch that directive to REPLICATED and require consistent evidence before closure.</p>
 
@@ -52473,6 +52473,429 @@ try:
                 )
             return response
         app.view_functions["v317_retests_page"] = _v318_retests_page_with_confidence
+except Exception:
+    pass
+
+# ===== V31.9 CONTEXT-DIVERSITY REPLICATION GATE =====
+# Tightens REPLICATED evidence so repeated tests in the same context do not
+# masquerade as independent replication. SINGLE behavior remains unchanged.
+
+V319_VERSION = "V31.9"
+V319_MIN_DISTINCT_CONTEXTS = 2
+
+
+def _v319_normalize_context(value):
+    value = str(value or "").strip().lower()
+    value = " ".join(value.split())
+    return value[:120]
+
+
+def _v319_context_coverage(completed_retests):
+    labels = []
+    missing = 0
+    by_context = {}
+
+    for r in completed_retests or []:
+        raw = str(r.get("context_label") or "").strip()
+        norm = _v319_normalize_context(raw)
+        if not norm:
+            missing += 1
+            continue
+
+        if norm not in by_context:
+            by_context[norm] = {
+                "label": raw[:120],
+                "count": 0,
+                "scores": [],
+            }
+            labels.append(norm)
+
+        by_context[norm]["count"] += 1
+        try:
+            by_context[norm]["scores"].append(int(r.get("outcome_score")))
+        except Exception:
+            pass
+
+    rows = []
+    for key in labels:
+        item = by_context[key]
+        scores = item["scores"]
+        rows.append({
+            "context": item["label"],
+            "count": item["count"],
+            "average_score": (
+                round(sum(scores) / len(scores), 1) if scores else None
+            ),
+            "min_score": min(scores) if scores else None,
+            "max_score": max(scores) if scores else None,
+        })
+
+    return {
+        "distinct_contexts": len(labels),
+        "missing_context_labels": missing,
+        "context_rows": rows,
+        "diverse_enough": len(labels) >= V319_MIN_DISTINCT_CONTEXTS,
+    }
+
+
+# Extend V31.8 confidence with context-independence checks.
+try:
+    _v319_v318_confidence = _v318_confidence
+
+    def _v319_confidence(username, directive_id):
+        base = _v319_v318_confidence(username, directive_id)
+        directive = base.get("directive")
+        if not directive:
+            return base
+
+        completed = _v318_completed_retests(username, directive_id)
+        coverage = _v319_context_coverage(completed)
+
+        base["context_coverage"] = coverage
+        base["distinct_contexts"] = coverage.get("distinct_contexts", 0)
+        base["missing_context_labels"] = coverage.get("missing_context_labels", 0)
+
+        policy = str(base.get("policy") or V318_POLICY_SINGLE)
+
+        # SINGLE remains exactly as before.
+        if policy != V318_POLICY_REPLICATED:
+            base["context_gate_applied"] = False
+            return base
+
+        base["context_gate_applied"] = True
+        old_ready = bool(base.get("replicated_ready"))
+        context_ready = bool(coverage.get("diverse_enough"))
+
+        base["replicated_ready"] = bool(old_ready and context_ready)
+
+        if old_ready and not context_ready:
+            base["confidence_state"] = "CONTEXT_REPLICATION_REQUIRED"
+            base["reason"] = (
+                "Scores are strong, but REPLICATED policy requires evidence from "
+                "at least two distinct labeled contexts."
+            )
+            base["confidence_score"] = min(
+                int(base.get("confidence_score") or 0), 72
+            )
+        elif base.get("replicated_ready"):
+            base["confidence_state"] = "CONTEXT_DIVERSE_REPLICATED"
+            base["reason"] = (
+                "Strong replicated evidence is supported across multiple distinct contexts."
+            )
+            base["confidence_score"] = min(
+                100, int(base.get("confidence_score") or 0) + 4
+            )
+
+        return base
+
+    _v318_confidence = _v319_confidence
+except Exception:
+    pass
+
+
+def _v319_context_gap_plan(username, directive_id):
+    confidence = _v318_confidence(username, directive_id)
+    directive = confidence.get("directive") or {}
+    coverage = confidence.get("context_coverage") or {}
+
+    contexts = coverage.get("context_rows") or []
+    existing = [str(x.get("context") or "") for x in contexts]
+
+    if str(directive.get("directive_type")) != "RETEST_ONLY":
+        return {
+            "needed": False,
+            "reason": "directive_not_retest_only",
+            "suggested_context": None,
+            "suggested_hypothesis": None,
+            "existing_contexts": existing,
+        }
+
+    if str(confidence.get("policy")) != V318_POLICY_REPLICATED:
+        return {
+            "needed": False,
+            "reason": "replicated_policy_not_enabled",
+            "suggested_context": None,
+            "suggested_hypothesis": None,
+            "existing_contexts": existing,
+        }
+
+    if confidence.get("replicated_ready"):
+        return {
+            "needed": False,
+            "reason": "replicated_context_gate_satisfied",
+            "suggested_context": None,
+            "suggested_hypothesis": None,
+            "existing_contexts": existing,
+        }
+
+    strategy = str(directive.get("strategy") or "this strategy").strip()
+
+    if not existing:
+        suggested_context = "baseline-context"
+        suggested_hypothesis = (
+            "Test whether %s produces a strong outcome in a clearly labeled baseline context."
+            % strategy
+        )
+        reason = "No labeled context evidence exists yet."
+    elif len(existing) == 1:
+        suggested_context = "contrasting-context"
+        suggested_hypothesis = (
+            "Retest %s in a meaningfully different context from '%s' to verify "
+            "that the result is not context-specific."
+            % (strategy, existing[0])
+        )
+        reason = "A second distinct context is required for replicated closure confidence."
+    else:
+        suggested_context = "variance-check-context"
+        suggested_hypothesis = (
+            "Retest %s in the context most likely to explain the current evidence variance."
+            % strategy
+        )
+        reason = "Context diversity exists, but evidence is still variable or conflicting."
+
+    return {
+        "needed": True,
+        "reason": reason,
+        "suggested_context": suggested_context,
+        "suggested_hypothesis": suggested_hypothesis[:1000],
+        "existing_contexts": existing,
+    }
+
+
+def _v319_snapshot(username):
+    base = _v318_snapshot(username)
+    items = []
+
+    for item in base.get("items") or []:
+        directive = item.get("directive") or {}
+        did = int(directive.get("id"))
+        item = dict(item)
+        item["context_gap_plan"] = _v319_context_gap_plan(username, did)
+        items.append(item)
+
+    base["version"] = V319_VERSION
+    base["items"] = items
+    base["context_policy"] = {
+        "minimum_distinct_contexts": V319_MIN_DISTINCT_CONTEXTS,
+        "applies_to": "REPLICATED policy only",
+        "rule": (
+            "Two strong retests from the same labeled context do not count as "
+            "independent replication. At least two distinct non-empty context labels are required."
+        ),
+        "single_policy_unchanged": True,
+    }
+    return base
+
+
+@app.route("/api/hunter-retest-context-diversity")
+def v319_context_diversity_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    snap = _v319_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-retest-context-diversity/<int:directive_id>")
+def v319_context_diversity_detail_api(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    confidence = _v318_confidence(username, directive_id)
+    if not confidence.get("directive"):
+        return jsonify({"success": False, "error": "directive_not_found"}), 404
+
+    return jsonify({
+        "success": True,
+        "version": V319_VERSION,
+        "confidence": confidence,
+        "context_gap_plan": _v319_context_gap_plan(username, directive_id),
+        "closure_evidence": _v317_closure_evidence(username, directive_id),
+    })
+
+
+@app.route("/hunter-retest-context-diversity")
+def v319_context_diversity_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Context Diversity</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧭 Context Diversity</h1><p>Sign in to inspect replicated evidence coverage.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v319_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    cards = []
+    for item in snap.get("items") or []:
+        d = item.get("directive") or {}
+        coverage = item.get("context_coverage") or {}
+        plan = item.get("context_gap_plan") or {}
+        closure = _v317_closure_evidence(username, int(d.get("id")))
+
+        context_chips = []
+        for row in coverage.get("context_rows") or []:
+            context_chips.append(
+                "<span class='chip'>%s · n=%s · avg=%s</span>" % (
+                    esc(row.get("context")),
+                    esc(row.get("count")),
+                    esc(row.get("average_score")),
+                )
+            )
+
+        plan_html = ""
+        if plan.get("needed"):
+            plan_html = """
+            <div class='plan'>
+              <strong>Next context gap:</strong> {reason}<br>
+              <strong>Suggested label:</strong> {label}<br>
+              <strong>Suggested hypothesis:</strong> {hypothesis}
+            </div>
+            """.format(
+                reason=esc(plan.get("reason")),
+                label=esc(plan.get("suggested_context")),
+                hypothesis=esc(plan.get("suggested_hypothesis")),
+            )
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div>
+              <span class='eyebrow'>DIRECTIVE #{id}</span>
+              <h3>{strategy}</h3>
+            </div>
+            <span class='pill'>{state}</span>
+          </div>
+
+          <div class='grid'>
+            <div><span>POLICY</span><b>{policy}</b></div>
+            <div><span>DISTINCT CONTEXTS</span><b>{contexts}</b></div>
+            <div><span>MISSING LABELS</span><b>{missing}</b></div>
+            <div><span>REPLICATION READY</span><b>{ready}</b></div>
+            <div><span>CONFIDENCE</span><b>{confidence}/100</b></div>
+            <div><span>COMPLETED RETESTS</span><b>{completed}</b></div>
+            <div><span>AVERAGE</span><b>{average}</b></div>
+            <div><span>CLOSURE</span><b>{closure}</b></div>
+          </div>
+
+          <p>{reason}</p>
+          <div class='contexts'>{contexts_html}</div>
+          {plan_html}
+
+          <a href='/hunter-recalibration-retests'>🧪 RUN RETEST</a>
+          <a href='/hunter-retest-confidence'>📈 CONFIDENCE</a>
+        </article>
+        """.format(
+            id=int(d.get("id")),
+            strategy=esc(d.get("strategy")),
+            state=esc(item.get("confidence_state")),
+            policy=esc(item.get("policy")),
+            contexts=esc(coverage.get("distinct_contexts", 0)),
+            missing=esc(coverage.get("missing_context_labels", 0)),
+            ready="YES" if item.get("replicated_ready") else "NO",
+            confidence=esc(item.get("confidence_score", 0)),
+            completed=esc(item.get("completed_count", 0)),
+            average=esc(item.get("average_score")),
+            closure="ELIGIBLE" if closure.get("eligible") else "BLOCKED",
+            reason=esc(item.get("reason")),
+            contexts_html=(
+                "".join(context_chips)
+                if context_chips
+                else "<span class='muted'>No labeled retest contexts yet.</span>"
+            ),
+            plan_html=plan_html,
+        ))
+
+    replicated_items = [
+        x for x in snap.get("items") or []
+        if str(x.get("policy")) == V318_POLICY_REPLICATED
+    ]
+    ready_count = sum(1 for x in replicated_items if x.get("replicated_ready"))
+    gap_count = sum(
+        1 for x in replicated_items
+        if (x.get("context_gap_plan") or {}).get("needed")
+    )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.9 Context Diversity Gate</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#17314a,#07090d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0f16ef;border:1px solid #426982;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#83d6ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0}}
+    p{{color:#d7e3ea;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#101923;border:1px solid #31556c;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#8faebf;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:18px;overflow-wrap:anywhere}}.card{{background:#0f1720;border:1px solid #31556c;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #4e86a7;border-radius:999px;padding:6px 9px}}
+    .chip{{display:inline-block;font-size:10px;padding:6px 8px;margin:3px;border:1px solid #365d75;border-radius:999px;background:#101c27}}.muted{{color:#7890a0}}
+    .rule{{border-left:4px solid #62c8ff;padding:11px 14px;background:#10202c;border-radius:8px}}.plan{{margin-top:12px;padding:12px;background:#142332;border:1px solid #3d6a86;border-radius:12px;line-height:1.6}}
+    a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #497895;border-radius:10px;background:#111d27;color:#fff;text-decoration:none;font-weight:900}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.9 // CONTEXT-DIVERSE RETEST REPLICATION</div>
+      <h1>🧭 CONTEXT DIVERSITY GATE</h1>
+      <p>{username}, V31.8 proved that evidence should be replicated. V31.9 asks the next question: was it really replicated independently, or was the same test repeated in essentially the same context?</p>
+
+      <div class='hero'>
+        <div><span>REPLICATED DIRECTIVES</span><b>{replicated}</b></div>
+        <div><span>CONTEXT-DIVERSE READY</span><b>{ready}</b></div>
+        <div><span>CONTEXT GAPS</span><b>{gaps}</b></div>
+        <div><span>MIN DISTINCT CONTEXTS</span><b>{minimum}</b></div>
+      </div>
+
+      <div class='rule'><strong>New V31.9 rule:</strong> under REPLICATED policy, two strong retests in the same context are not enough. At least two distinct non-empty context labels are required. SINGLE policy remains unchanged.</div>
+
+      <a href='/hunter-retest-confidence'>📈 EVIDENCE CONFIDENCE</a>
+      <a href='/hunter-recalibration-retests'>🧪 RETEST RUNS</a>
+      <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>
+
+      {cards}
+    </section></div></body></html>""".format(
+        username=esc(username),
+        replicated=esc(len(replicated_items)),
+        ready=esc(ready_count),
+        gaps=esc(gap_count),
+        minimum=V319_MIN_DISTINCT_CONTEXTS,
+        cards="".join(cards) if cards else "<p>No active RETEST_ONLY directives.</p>",
+    )
+
+
+# Surface V31.9 from V31.8 confidence page.
+try:
+    _v319_prev_confidence_page = app.view_functions.get("v318_confidence_page")
+    if _v319_prev_confidence_page:
+        def _v319_confidence_page_with_context_gate(*args, **kwargs):
+            response = _v319_prev_confidence_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-retest-context-diversity" not in response:
+                link = "<a href='/hunter-retest-context-diversity'>🧭 CONTEXT DIVERSITY</a>"
+                response = response.replace(
+                    "<a href='/hunter-recalibration-retests'>🧪 RETEST RUNS</a>",
+                    "<a href='/hunter-recalibration-retests'>🧪 RETEST RUNS</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v318_confidence_page"] = _v319_confidence_page_with_context_gate
+except Exception:
+    pass
+
+
+# Surface V31.9 from the retest workflow too.
+try:
+    _v319_prev_retests_page = app.view_functions.get("v317_retests_page")
+    if _v319_prev_retests_page:
+        def _v319_retests_page_with_context_gate(*args, **kwargs):
+            response = _v319_prev_retests_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-retest-context-diversity" not in response:
+                link = "<a href='/hunter-retest-context-diversity'>🧭 CONTEXT DIVERSITY</a>"
+                response = response.replace(
+                    "<a href='/hunter-retest-confidence'>📈 EVIDENCE CONFIDENCE</a>",
+                    "<a href='/hunter-retest-confidence'>📈 EVIDENCE CONFIDENCE</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v317_retests_page"] = _v319_retests_page_with_context_gate
 except Exception:
     pass
 
