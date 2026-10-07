@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.5 Build Attestation</title><style>
+    <title>BL3 V30.6 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.5 Hunter Command Deck</title>
+    <title>BL3 V30.6 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -46304,7 +46304,7 @@ def v304_playbook_challenger_page():
         </div>""".format(id=esc(active.get("id")))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.5 Playbook Challenger Lab</title>
+    <title>BL3 V30.6 Playbook Challenger Lab</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#3c2515 0,#0b0907 48%,#030302 100%);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1050px;margin:auto}}.panel{{background:#100d09ee;border:1px solid #745335;border-radius:24px;padding:22px}}.eyebrow{{color:#f1bd7e;font-size:11px;font-weight:900;letter-spacing:1.5px}}
@@ -46732,7 +46732,7 @@ def v305_playbook_decision_page():
     history_html = "".join(rows) or "<tr><td colspan='6'>No playbook decisions recorded yet.</td></tr>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.5 Playbook Decision Arena</title>
+    <title>BL3 V30.6 Playbook Decision Arena</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2d2518,#0b0906 52%,#030302);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1100px;margin:auto}}.panel{{background:#100d09ee;border:1px solid #6f5737;border-radius:24px;padding:22px}}
@@ -46788,6 +46788,480 @@ for _endpoint in ("v303_playbook_monitor_page", "v304_playbook_challenger_page",
                     return response
                 return _wrapped
             app.view_functions[_endpoint] = _v305_wrap_decision(_prev)
+    except Exception:
+        pass
+
+
+# ===== V30.6 DECISION OUTCOME VERIFICATION =====
+# Verify what happened AFTER a KEEP or SWITCH decision using new verified completion receipts.
+# No automatic strategy changes. Evidence is anchored to the decision moment.
+
+V306_VERSION = "V30.6"
+V306_MIN_SAMPLE = 3
+V306_MAX_SAMPLE = 5
+
+
+def _v306_ensure_schema():
+    _v305_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cols = {str(r[1]) for r in conn.execute(
+            "PRAGMA table_info(hunter_playbook_decisions)"
+        ).fetchall()}
+        additions = {
+            "anchor_receipt_id": "INTEGER",
+            "selected_strategy": "TEXT",
+        }
+        for name, sql_type in additions.items():
+            if name not in cols:
+                conn.execute(
+                    "ALTER TABLE hunter_playbook_decisions ADD COLUMN %s %s"
+                    % (name, sql_type)
+                )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_playbook_decision_verifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                decision_id INTEGER NOT NULL,
+                decision TEXT NOT NULL,
+                selected_strategy TEXT,
+                reference_signal REAL NOT NULL DEFAULT 0,
+                realized_signal REAL NOT NULL DEFAULT 0,
+                realized_delta REAL NOT NULL DEFAULT 0,
+                sample_count INTEGER NOT NULL DEFAULT 0,
+                state TEXT NOT NULL,
+                hunter_review TEXT NOT NULL,
+                note TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_verifications_user "
+            "ON hunter_playbook_decision_verifications(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v306_max_receipt_id(username):
+    conn = sqlite3.connect(DB)
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(id),0) FROM hunter_focus_completion_receipts WHERE username=?",
+            (username,)
+        ).fetchone()
+        return int((row or [0])[0] or 0)
+    finally:
+        conn.close()
+
+
+def _v306_latest_decision(username):
+    _v306_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT * FROM hunter_playbook_decisions
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT 1""",
+            (username,)
+        ).fetchone()
+        data = dict(row) if row else None
+    finally:
+        conn.close()
+
+    if data and not data.get("selected_strategy"):
+        decision = str(data.get("decision") or "").upper()
+        data["selected_strategy"] = (
+            str(data.get("challenger_strategy") or "").upper()
+            if decision == "SWITCH"
+            else str(data.get("current_strategy") or "").upper()
+        )
+    return data
+
+
+def _v306_verification_history(username, limit=12):
+    _v306_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_playbook_decision_verifications
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 12), 50)))
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v306_outcome_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V306_VERSION}
+
+    decision = _v306_latest_decision(username)
+    if not decision:
+        return {
+            "success": True,
+            "version": V306_VERSION,
+            "username": username,
+            "state": "NO_DECISION",
+            "decision": None,
+            "history": _v306_verification_history(username),
+            "message": "No KEEP or SWITCH decision has been recorded yet.",
+        }
+
+    anchor = decision.get("anchor_receipt_id")
+    if anchor is None:
+        # Legacy V30.5 decisions were not anchored. We refuse to pretend later receipts
+        # cleanly represent post-decision evidence.
+        return {
+            "success": True,
+            "version": V306_VERSION,
+            "username": username,
+            "state": "LEGACY_UNANCHORED",
+            "decision": decision,
+            "history": _v306_verification_history(username),
+            "message": (
+                "This decision predates V30.6 and has no receipt anchor. "
+                "Make the next KEEP/SWITCH decision in V30.6 to begin clean post-decision verification."
+            ),
+        }
+
+    outcomes = _v301_recent_receipts(
+        username,
+        after_id=int(anchor or 0),
+        limit=V306_MAX_SAMPLE,
+    )
+    sample_count = len(outcomes)
+    realized_signal = (
+        round(sum(float(x.get("outcome_signal") or 0) for x in outcomes) / sample_count, 1)
+        if sample_count else 0
+    )
+    reference_signal = round(float(decision.get("current_signal") or 0), 1)
+    realized_delta = round(realized_signal - reference_signal, 1) if sample_count else 0
+
+    if sample_count < V306_MIN_SAMPLE:
+        state = "LEARNING"
+    elif realized_delta >= 5:
+        state = "VALIDATED"
+    elif realized_delta > -5:
+        state = "NEUTRAL"
+    else:
+        state = "RECONSIDER"
+
+    selected_strategy = str(decision.get("selected_strategy") or "").upper()
+    strategy_meta = V301_STRATEGIES.get(selected_strategy, {})
+
+    return {
+        "success": True,
+        "version": V306_VERSION,
+        "username": username,
+        "state": state,
+        "decision": decision,
+        "selected_strategy": selected_strategy,
+        "strategy_meta": strategy_meta,
+        "reference_signal": reference_signal,
+        "realized_signal": realized_signal,
+        "realized_delta": realized_delta,
+        "sample_count": sample_count,
+        "minimum_sample": V306_MIN_SAMPLE,
+        "maximum_sample": V306_MAX_SAMPLE,
+        "post_decision_outcomes": outcomes,
+        "history": _v306_verification_history(username),
+        "policy": (
+            "Decision verification is advisory. BL3 measures new verified outcomes after the exact "
+            "KEEP/SWITCH moment, but never changes the active playbook automatically."
+        ),
+    }
+
+
+# Wrap the V30.5 decision endpoint so every new decision is anchored to the exact
+# completion-receipt frontier that existed BEFORE the decision was applied.
+try:
+    _v306_prev_decision_apply = app.view_functions.get("v305_playbook_decision_apply_api")
+    if _v306_prev_decision_apply:
+        def _v306_decision_apply_with_anchor(*args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            anchor = _v306_max_receipt_id(username) if username else 0
+
+            response = _v306_prev_decision_apply(*args, **kwargs)
+            body = response.get_json() if hasattr(response, "get_json") else None
+
+            if body and body.get("success") and username:
+                _v306_ensure_schema()
+                selected = str(body.get("active_strategy") or "").upper()
+                conn = sqlite3.connect(DB)
+                try:
+                    row = conn.execute(
+                        """SELECT id FROM hunter_playbook_decisions
+                           WHERE username=?
+                           ORDER BY id DESC LIMIT 1""",
+                        (username,)
+                    ).fetchone()
+                    if row:
+                        conn.execute(
+                            """UPDATE hunter_playbook_decisions
+                               SET anchor_receipt_id=?, selected_strategy=?
+                               WHERE id=? AND username=?""",
+                            (anchor, selected, int(row[0]), username)
+                        )
+                        conn.commit()
+                        body["decision_anchor_receipt_id"] = anchor
+                        body["outcome_verification"] = "/hunter-playbook-decision-outcome"
+                        return jsonify(body)
+
+                finally:
+                    conn.close()
+
+            return response
+
+        app.view_functions["v305_playbook_decision_apply_api"] = _v306_decision_apply_with_anchor
+except Exception:
+    pass
+
+
+@app.route("/api/hunter-playbook-decision-outcome")
+def v306_decision_outcome_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v306_outcome_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-playbook-decision-outcome/review", methods=["POST"])
+def v306_decision_outcome_review_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    hunter_review = str(payload.get("review") or "").strip().upper()
+    note = str(payload.get("note") or "").strip()[:500]
+
+    if hunter_review not in {"CONFIRM", "CONTINUE", "RECONSIDER"}:
+        return jsonify({"success": False, "error": "invalid_review"}), 400
+
+    snap = _v306_outcome_snapshot(username)
+    decision = snap.get("decision")
+    state = str(snap.get("state") or "")
+
+    if not decision:
+        return jsonify({"success": False, "error": "no_decision"}), 409
+    if state in {"LEGACY_UNANCHORED", "NO_DECISION"}:
+        return jsonify({"success": False, "error": "decision_not_verifiable"}), 409
+    if int(snap.get("sample_count") or 0) < V306_MIN_SAMPLE:
+        return jsonify({
+            "success": False,
+            "error": "sample_not_ready",
+            "message": "At least %s new verified outcomes are required before recording a review." % V306_MIN_SAMPLE
+        }), 409
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v306_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_playbook_decision_verifications
+               (username, decision_id, decision, selected_strategy,
+                reference_signal, realized_signal, realized_delta, sample_count,
+                state, hunter_review, note, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                username,
+                int(decision.get("id") or 0),
+                str(decision.get("decision") or ""),
+                str(snap.get("selected_strategy") or ""),
+                float(snap.get("reference_signal") or 0),
+                float(snap.get("realized_signal") or 0),
+                float(snap.get("realized_delta") or 0),
+                int(snap.get("sample_count") or 0),
+                state,
+                hunter_review,
+                note,
+                now,
+            )
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V306_VERSION,
+        "review": hunter_review,
+        "state": state,
+        "redirect": "/hunter-playbook-decision-outcome",
+        "message": "Decision outcome review recorded. No playbook change was made automatically.",
+    })
+
+
+@app.route("/hunter-playbook-decision-outcome")
+def v306_decision_outcome_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Decision Outcome Verification</title><body style='margin:0;background:#06080b;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧪 Decision Outcome Verification</h1><p>Sign in to verify what happened after your last KEEP or SWITCH decision.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v306_outcome_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    state = str(data.get("state") or "")
+    decision = data.get("decision") or {}
+    meta = data.get("strategy_meta") or {}
+
+    if state == "NO_DECISION":
+        body = """
+        <div class='empty'><h2>No decision yet.</h2>
+        <p>Use Playbook Decision Arena first. V30.6 will anchor the next KEEP/SWITCH decision to the exact receipt frontier.</p></div>
+        """
+        controls = ""
+    elif state == "LEGACY_UNANCHORED":
+        body = """
+        <div class='empty'><h2>Legacy decision detected.</h2>
+        <p>{msg}</p></div>
+        """.format(msg=esc(data.get("message")))
+        controls = ""
+    else:
+        outcomes = data.get("post_decision_outcomes") or []
+        outcome_rows = "".join(
+            "<tr><td>#{id}</td><td>{sig}</td><td>{when}</td></tr>".format(
+                id=esc(x.get("id")),
+                sig=esc(x.get("outcome_signal")),
+                when=esc(x.get("created_at")),
+            )
+            for x in outcomes
+        ) or "<tr><td colspan='3'>No new verified outcomes yet.</td></tr>"
+
+        body = """
+        <div class='grid'>
+          <div class='card'><div class='k'>DECISION</div><div class='v small'>{decision}</div></div>
+          <div class='card'><div class='k'>SELECTED STRATEGY</div><div class='v small'>{strategy}</div></div>
+          <div class='card'><div class='k'>REFERENCE SIGNAL</div><div class='v'>{reference}</div></div>
+          <div class='card'><div class='k'>REALIZED SIGNAL</div><div class='v'>{realized}</div></div>
+          <div class='card'><div class='k'>REALIZED Δ</div><div class='v'>{delta}</div></div>
+          <div class='card'><div class='k'>SAMPLE</div><div class='v'>{count}/{maximum}</div></div>
+        </div>
+        <div class='result {stateclass}'>
+          <div class='k'>POST-DECISION STATE</div><h2>{state}</h2>
+          <p>{detail}</p>
+        </div>
+        <h2>New verified outcomes after decision anchor #{anchor}</h2>
+        <table><thead><tr><th>RECEIPT</th><th>OUTCOME SIGNAL</th><th>CREATED</th></tr></thead>
+        <tbody>{rows}</tbody></table>
+        """.format(
+            decision=esc(decision.get("decision")),
+            strategy=esc(meta.get("title") or data.get("selected_strategy")),
+            reference=esc(data.get("reference_signal")),
+            realized=esc(data.get("realized_signal")),
+            delta=esc(data.get("realized_delta")),
+            count=esc(data.get("sample_count")),
+            maximum=esc(data.get("maximum_sample")),
+            stateclass=esc(state.lower()),
+            state=esc(state),
+            detail=esc({
+                "LEARNING": "Collect more new verified outcomes before judging the decision.",
+                "VALIDATED": "The realized signal is materially stronger than the pre-decision reference.",
+                "NEUTRAL": "The decision is holding roughly in line with the pre-decision reference.",
+                "RECONSIDER": "The realized signal is materially weaker; review the evidence before your next explicit decision.",
+            }.get(state, "")),
+            anchor=esc(decision.get("anchor_receipt_id")),
+            rows=outcome_rows,
+        )
+
+        ready = int(data.get("sample_count") or 0) >= V306_MIN_SAMPLE
+        controls = """
+        <div class='review'>
+          <div class='k'>HUNTER REVIEW</div>
+          <p>Recording a review never changes the playbook automatically.</p>
+          <textarea id='note' placeholder='Optional verification note'></textarea><br>
+          <button {disabled} onclick="recordReview('CONFIRM')">CONFIRM DECISION</button>
+          <button {disabled} onclick="recordReview('CONTINUE')">CONTINUE LEARNING</button>
+          <button {disabled} onclick="recordReview('RECONSIDER')">MARK FOR RECONSIDERATION</button>
+        </div>
+        """.format(disabled="" if ready else "disabled")
+
+    history_rows = []
+    for item in data.get("history") or []:
+        history_rows.append("""
+        <tr><td>{when}</td><td>#{decision_id}</td><td>{decision}</td><td>{strategy}</td>
+        <td>{state}</td><td>{review}</td><td>{delta}</td></tr>
+        """.format(
+            when=esc(item.get("created_at")),
+            decision_id=esc(item.get("decision_id")),
+            decision=esc(item.get("decision")),
+            strategy=esc(item.get("selected_strategy")),
+            state=esc(item.get("state")),
+            review=esc(item.get("hunter_review")),
+            delta=esc(item.get("realized_delta")),
+        ))
+    history_html = "".join(history_rows) or "<tr><td colspan='7'>No verification reviews recorded yet.</td></tr>"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.6 Decision Outcome Verification</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#102231,#070b10 55%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1080px;margin:auto}}.panel{{background:#081018ee;border:1px solid #28516b;border-radius:24px;padding:22px}}
+    .k{{color:#83d5ff;font-size:11px;font-weight:900;letter-spacing:1.3px}}h1{{font-size:43px;margin:10px 0}}p{{color:#b7c8d2;line-height:1.5}}
+    .grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.card,.result,.review,.empty{{background:#071018;border:1px solid #21465f;border-radius:17px;padding:16px;margin-top:14px}}
+    .v{{font-size:31px;font-weight:950;color:#8bdcff;margin-top:7px}}.v.small{{font-size:19px}}.result h2{{font-size:36px;margin:8px 0}}
+    .validated{{border-color:#2c7259}}.reconsider{{border-color:#7f4538}}.neutral{{border-color:#70613b}}
+    textarea{{width:100%;min-height:78px;background:#03070a;color:#fff;border:1px solid #29536c;border-radius:10px;padding:10px}}
+    button,a{{display:inline-block;margin:7px 5px 0 0;padding:10px 13px;border:1px solid #2f6c91;border-radius:10px;background:#0b1b25;color:#fff;text-decoration:none;font-weight:850;cursor:pointer}}button:disabled{{opacity:.35;cursor:not-allowed}}
+    table{{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}}th,td{{border-bottom:1px solid #18303f;padding:9px;text-align:left}}th{{color:#7dd2ff}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='k'>BL3 V30.6 // VERIFY THE DECISION, NOT JUST THE EXPERIMENT</div>
+      <h1>🧪 DECISION OUTCOME VERIFICATION</h1>
+      <p>{username}, this page measures only outcomes created after the exact KEEP/SWITCH receipt anchor.</p>
+      {body}
+      {controls}
+      <p><a href='/hunter-playbook-decision'>⚖️ DECISION ARENA</a><a href='/hunter-playbook-monitor'>📈 PLAYBOOK MONITOR</a><a href='/hunter-playbook-challenger'>⚔️ CHALLENGER LAB</a></p>
+      <h2>Verification History</h2>
+      <table><thead><tr><th>TIME</th><th>DECISION ID</th><th>DECISION</th><th>STRATEGY</th><th>STATE</th><th>REVIEW</th><th>Δ</th></tr></thead>
+      <tbody>{history}</tbody></table>
+    </section></div>
+    <script>
+    async function recordReview(review){{
+      const note=document.getElementById('note')?.value||'';
+      const r=await fetch('/api/hunter-playbook-decision-outcome/review',{{
+        method:'POST',
+        headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify({{review,note}})
+      }});
+      const j=await r.json();
+      if(j.success) location.href=j.redirect||'/hunter-playbook-decision-outcome';
+      else alert(j.message||j.error||'Review failed');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        body=body,
+        controls=controls,
+        history=history_html,
+    )
+
+
+# Surface V30.6 from the decision arena and playbook monitor.
+for _endpoint in ("v305_playbook_decision_page", "v303_playbook_monitor_page"):
+    try:
+        _prev = app.view_functions.get(_endpoint)
+        if _prev:
+            def _v306_wrap_outcome_link(prev):
+                def _wrapped(*args, **kwargs):
+                    response = prev(*args, **kwargs)
+                    if isinstance(response, str) and "/hunter-playbook-decision-outcome" not in response:
+                        link = "<a href='/hunter-playbook-decision-outcome' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #2f6c91;border-radius:10px;color:#fff;text-decoration:none'>🧪 VERIFY DECISION OUTCOME</a>"
+                        response = response.replace("</body>", link + "</body>", 1)
+                    return response
+                return _wrapped
+            app.view_functions[_endpoint] = _v306_wrap_outcome_link(_prev)
     except Exception:
         pass
 
