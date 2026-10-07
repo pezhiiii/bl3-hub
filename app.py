@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V29.7"
+V247_SECURITY_VERSION = "V29.8"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V29.7"
+V248_SECURITY_VERSION = "V29.8"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.7 Build Attestation</title><style>
+    <title>BL3 V29.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V29.7"
+V250_VERSION = "V29.8"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V29.7"
+V253_VERSION = "V29.8"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V29.7"
+V254_VERSION = "V29.8"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V29.7"
+V255_VERSION = "V29.8"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V29.7"
+V256_VERSION = "V29.8"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V29.7"
+V257_VERSION = "V29.8"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V29.7"
+V258_VERSION = "V29.8"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.7 Hunter Command Deck</title>
+    <title>BL3 V29.8 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V29.7"
+V259_VERSION = "V29.8"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V29.7"
+V260_VERSION = "V29.8"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V29.7"
+V261_VERSION = "V29.8"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V29.7"
+V262_VERSION = "V29.8"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V29.7"
+V263_VERSION = "V29.8"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V29.7"
+V264_VERSION = "V29.8"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V29.7"
+V265_VERSION = "V29.8"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V29.7"
+V266_VERSION = "V29.8"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V29.7"
+V267_VERSION = "V29.8"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V29.7"
+V268_VERSION = "V29.8"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V29.7"
+V269_VERSION = "V29.8"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V29.7"
+V270_VERSION = "V29.8"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V29.7"
+V271_VERSION = "V29.8"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V29.7"
+V272_VERSION = "V29.8"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V29.7"
+V273_VERSION = "V29.8"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V29.7"
+V274_VERSION = "V29.8"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V29.7"
+V275_VERSION = "V29.8"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V29.7"
+V276_VERSION = "V29.8"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V29.7"
+V277_VERSION = "V29.8"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V29.7"
+V278_VERSION = "V29.8"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V29.7"
+V279_VERSION = "V29.8"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V29.7"
+V280_VERSION = "V29.8"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V29.7"
+V281_VERSION = "V29.8"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V29.7"
+V282_VERSION = "V29.8"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V29.7"
+V283_VERSION = "V29.8"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V29.7"
+V284_VERSION = "V29.8"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V29.7"
+V285_VERSION = "V29.8"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V29.7"
+V286_VERSION = "V29.8"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V29.7"
+V287_VERSION = "V29.8"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V29.7"
+V288_VERSION = "V29.8"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V29.7"
+V289_VERSION = "V29.8"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V29.7"
+V290_VERSION = "V29.8"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -43498,6 +43498,351 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v294_focus_preflight_page"] = _v297_preflight_with_contract
+except Exception:
+    pass
+
+
+# ===== V29.8 FOCUS FINISH CHECK + CONTRACT EVIDENCE =====
+# Adds a lightweight verification step before a Hunter considers an active Focus Run "done".
+# The Hunter explicitly checks the preflight DONE definition, records confidence, and can attach
+# a short evidence/note. This creates a clean bridge from live execution -> completion -> exit review.
+
+V298_VERSION = "V29.8"
+V298_ALLOWED_CONFIDENCE = {1, 2, 3, 4, 5}
+
+def _v298_ensure_schema():
+    _v294_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_focus_finish_checks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                run_id INTEGER NOT NULL,
+                done_met INTEGER NOT NULL DEFAULT 0,
+                confidence INTEGER NOT NULL DEFAULT 3,
+                evidence TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(username, run_id)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_focus_finish_checks_user "
+            "ON hunter_focus_finish_checks(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v298_finish_check_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V298_VERSION}
+
+    contract = _v297_active_focus_contract(username)
+    if not contract.get("active"):
+        return {
+            "success": True,
+            "version": V298_VERSION,
+            "username": username,
+            "active": False,
+            "run": None,
+            "contract": None,
+            "finish_check": None,
+            "ready_to_complete": False,
+            "message": "No active Focus Run."
+        }
+
+    c = contract.get("contract") or {}
+    run_id = int(c.get("run_id") or 0)
+
+    _v298_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT id, run_id, done_met, confidence, evidence, created_at, updated_at
+               FROM hunter_focus_finish_checks
+               WHERE username=? AND run_id=?
+               LIMIT 1""",
+            (username, run_id)
+        ).fetchone()
+        check = dict(row) if row else None
+    finally:
+        conn.close()
+
+    if check:
+        check["done_met"] = bool(check.get("done_met"))
+
+    ready = bool(check and check.get("done_met") and int(check.get("confidence") or 0) >= 3)
+
+    return {
+        "success": True,
+        "version": V298_VERSION,
+        "username": username,
+        "active": True,
+        "run": contract.get("run"),
+        "contract": c,
+        "finish_check": check,
+        "ready_to_complete": ready,
+        "policy": (
+            "V29.8 does not auto-complete Focus Runs. The Hunter explicitly verifies the DONE "
+            "definition and records confidence/evidence before returning to the normal completion flow."
+        )
+    }
+
+
+@app.route("/api/hunter-focus-finish-check")
+def v298_focus_finish_check_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v298_finish_check_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-focus-finish-check", methods=["POST"])
+def v298_focus_finish_check_save_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    contract = _v297_active_focus_contract(username)
+    if not contract.get("active"):
+        return jsonify({"success": False, "error": "no_active_focus"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    done_met = bool(payload.get("done_met"))
+    evidence = " ".join(str(payload.get("evidence") or "").strip().split())
+
+    try:
+        confidence = int(payload.get("confidence") or 3)
+    except Exception:
+        confidence = 3
+
+    if confidence not in V298_ALLOWED_CONFIDENCE:
+        return jsonify({
+            "success": False,
+            "error": "invalid_confidence",
+            "allowed": sorted(V298_ALLOWED_CONFIDENCE)
+        }), 400
+
+    if len(evidence) > 500:
+        return jsonify({"success": False, "error": "evidence_too_long", "max": 500}), 400
+
+    c = contract.get("contract") or {}
+    run_id = int(c.get("run_id") or 0)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    _v298_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_focus_finish_checks
+               (username, run_id, done_met, confidence, evidence, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(username, run_id) DO UPDATE SET
+                 done_met=excluded.done_met,
+                 confidence=excluded.confidence,
+                 evidence=excluded.evidence,
+                 updated_at=excluded.updated_at""",
+            (
+                username,
+                run_id,
+                1 if done_met else 0,
+                confidence,
+                evidence,
+                now,
+                now,
+            )
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    ready = bool(done_met and confidence >= 3)
+
+    return jsonify({
+        "success": True,
+        "version": V298_VERSION,
+        "run_id": run_id,
+        "done_met": done_met,
+        "confidence": confidence,
+        "ready_to_complete": ready,
+        "next": "/hunter-focus" if ready else "/hunter-active-focus-contract",
+        "message": (
+            "Finish check saved. Return to Focus Run to complete it."
+            if ready else
+            "Finish check saved. Keep working against the DONE definition."
+        )
+    })
+
+
+@app.route("/api/hunter-focus-finish-history")
+def v298_focus_finish_history_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    _v298_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT c.id, c.run_id, c.done_met, c.confidence, c.evidence,
+                      c.created_at, c.updated_at,
+                      f.action_title, f.status, f.completed_at, f.cancelled_at
+               FROM hunter_focus_finish_checks c
+               LEFT JOIN hunter_focus_runs f
+                 ON f.id=c.run_id AND f.username=c.username
+               WHERE c.username=?
+               ORDER BY c.id DESC
+               LIMIT 50""",
+            (username,)
+        ).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    for item in items:
+        item["done_met"] = bool(item.get("done_met"))
+
+    return jsonify({
+        "success": True,
+        "version": V298_VERSION,
+        "username": username,
+        "count": len(items),
+        "items": items
+    })
+
+
+@app.route("/hunter-focus-finish-check")
+def v298_focus_finish_check_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Focus Finish Check</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>✅ Focus Finish Check</h1><p>Sign in to verify your active Focus Run.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v298_finish_check_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    if not data.get("active"):
+        return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 V29.8 Focus Finish Check</title>
+        <style>body{{margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px}}a{{color:#8fe0ae}}</style></head>
+        <body><h1>✅ FOCUS FINISH CHECK</h1><p>No active Focus Run.</p>
+        <a href='/hunter-focus-preflight'>Prepare the next Focus Run</a></body></html>"""
+
+    c = data.get("contract") or {}
+    check = data.get("finish_check") or {}
+    selected_conf = int(check.get("confidence") or 3)
+    confidence_options = "".join(
+        "<option value='{n}' {selected}>{n} / 5</option>".format(
+            n=n, selected="selected" if n == selected_conf else ""
+        )
+        for n in sorted(V298_ALLOWED_CONFIDENCE)
+    )
+
+    done_checked = "checked" if check.get("done_met") else ""
+    evidence = esc(check.get("evidence") or "")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V29.8 Focus Finish Check</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#163022 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:900px;margin:auto}}.panel{{background:#09120ded;border:1px solid #44705a;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#9fe6bc;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}h2{{margin:8px 0}}.muted{{color:#afc0b6}}
+    .done{{background:#0c1b12;border:1px solid #417158;border-radius:18px;padding:18px;margin:15px 0}}.done .k{{font-size:10px;color:#9ad8b2;font-weight:900}}.done .v{{font-size:24px;font-weight:900;line-height:1.45;margin-top:6px}}
+    .check{{background:#0a110d;border:1px solid #365544;border-radius:18px;padding:18px;margin-top:14px}}
+    label{{display:block;font-size:11px;font-weight:900;color:#a4cfb4;margin-top:12px}}textarea,select{{width:100%;border:1px solid #4f775f;border-radius:11px;background:#07100b;color:#fff;padding:11px;margin:7px 0}}textarea{{min-height:92px;resize:vertical}}
+    .donebox{{display:flex;align-items:center;gap:10px;padding:13px;border:1px solid #466b56;border-radius:13px;background:#0d1811;margin:12px 0}}.donebox input{{width:20px;height:20px}}
+    button,a{{display:inline-block;border:1px solid #5d8b6d;border-radius:10px;padding:11px 14px;background:#102018;color:#fff;text-decoration:none;font-weight:900;cursor:pointer;margin:5px 5px 0 0}}.msg{{font-size:12px;color:#a2e1ba;margin-top:10px}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V29.8 // VERIFY BEFORE COMPLETE</div>
+        <h1>✅ FOCUS FINISH CHECK</h1>
+        <p class='muted'>{username}, compare the result against the contract you wrote before calling the run done.</p>
+
+        <h2>{title}</h2>
+
+        <div class='done'>
+          <div class='k'>DONE MEANS</div>
+          <div class='v'>{done_definition}</div>
+        </div>
+
+        <div class='check'>
+          <div class='donebox'>
+            <input id='doneMet' type='checkbox' {done_checked}>
+            <label for='doneMet' style='margin:0'>Yes — the DONE definition is actually met.</label>
+          </div>
+
+          <label>CONFIDENCE</label>
+          <select id='confidence'>{confidence_options}</select>
+
+          <label>EVIDENCE / RESULT NOTE <span style='font-weight:400'>(optional)</span></label>
+          <textarea id='evidence' maxlength='500' placeholder='What changed, what was produced, or what proves the result?'>{evidence}</textarea>
+
+          <button onclick='saveCheck()'>SAVE FINISH CHECK</button>
+          <div id='msg' class='msg'></div>
+        </div>
+
+        <p><a href='/hunter-active-focus-contract'>⏱️ LIVE CONTRACT</a><a href='/hunter-focus'>🔥 FOCUS RUN</a><a href='/hunter-focus-exit-review'>📝 EXIT REVIEW</a></p>
+      </section>
+    </div>
+    <script>
+    async function saveCheck(){{
+      const done=document.getElementById('doneMet').checked;
+      const confidence=parseInt(document.getElementById('confidence').value||'3');
+      const evidence=(document.getElementById('evidence').value||'').trim();
+      const msg=document.getElementById('msg');
+      msg.textContent='Saving...';
+      const r=await fetch('/api/hunter-focus-finish-check',{{
+        method:'POST',
+        headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify({{done_met:done,confidence:confidence,evidence:evidence}})
+      }});
+      const j=await r.json();
+      msg.textContent=j.message||j.error||'Saved';
+      if(j.success && j.ready_to_complete){{
+        setTimeout(()=>location.href=(j.next||'/hunter-focus'),800);
+      }}
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        title=esc(c.get("action_title")),
+        done_definition=esc(c.get("done_definition")),
+        done_checked=done_checked,
+        confidence_options=confidence_options,
+        evidence=evidence,
+    )
+
+
+# Surface Finish Check from the live contract and Focus Run pages.
+try:
+    _v298_prev_contract_page = app.view_functions.get("v297_active_focus_contract_page")
+    if _v298_prev_contract_page:
+        def _v298_contract_with_finish_check(*args, **kwargs):
+            response = _v298_prev_contract_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-finish-check" not in response:
+                link = "<a href='/hunter-focus-finish-check' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #5d8b6d;border-radius:10px;color:#fff;text-decoration:none'>✅ FINISH CHECK</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v297_active_focus_contract_page"] = _v298_contract_with_finish_check
+except Exception:
+    pass
+
+try:
+    _v298_prev_focus_page = app.view_functions.get("v260_hunter_focus_page")
+    if _v298_prev_focus_page:
+        def _v298_focus_with_finish_check(*args, **kwargs):
+            response = _v298_prev_focus_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-focus-finish-check" not in response:
+                link = "<a href='/hunter-focus-finish-check' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #5d8b6d;border-radius:10px;color:#fff;text-decoration:none'>✅ VERIFY DONE</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v260_hunter_focus_page"] = _v298_focus_with_finish_check
 except Exception:
     pass
 
