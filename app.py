@@ -58564,6 +58564,637 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.2 REMEDIATION VERIFICATION + RECOVERY GATE =====
+# V33.1 can stage remediation plans. V33.2 requires evidence before a remediation
+# can be declared effective and introduces explicit recovery decisions.
+# No canonical routing or rollback is changed automatically.
+
+V332_VERSION = "V33.2"
+V332_SIGNALS = {"IMPROVED", "UNCHANGED", "REGRESSED", "INCONCLUSIVE"}
+V332_OUTCOMES = {"RECOVERED", "CONTINUE_MONITORING", "ESCALATE_ROLLBACK"}
+V332_MIN_CHECKS = 2
+
+
+def _v332_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_remediation_verification_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            plan_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v332_checks_incident
+        ON hunter_remediation_verification_checks(username, incident_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_remediation_verification_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL UNIQUE,
+            plan_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v332_outcomes_user
+        ON hunter_remediation_verification_outcomes(username, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recovery_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL UNIQUE,
+            verification_outcome_id INTEGER NOT NULL,
+            decision_state TEXT NOT NULL DEFAULT 'STAGED',
+            decision_type TEXT NOT NULL,
+            decision_note TEXT,
+            staged_at TEXT NOT NULL,
+            executed_at TEXT,
+            execution_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v332_recovery_state
+        ON hunter_recovery_decisions(username, decision_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v332_init()
+except Exception:
+    pass
+
+
+def _v332_checks(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_remediation_verification_checks
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC
+        """, (username, int(incident_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v332_outcome(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_remediation_verification_outcomes
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(incident_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v332_decision(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recovery_decisions
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(incident_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v332_add_check(username, incident_id, signal_state, evidence_note=""):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+
+    plan = _v331_plan(username, incident_id)
+    if not plan:
+        return False, "remediation_plan_required", None
+    if str(plan.get("plan_state") or "") != "STAGED":
+        return False, "remediation_not_staged", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V332_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_remediation_verification_checks
+            (username, incident_id, plan_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(incident_id), int(plan["id"]), signal,
+            str(evidence_note or "").strip()[:2400], now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "REMEDIATION_VERIFICATION_CHECK",
+            detail="V33.2 incident #%s remediation verification recorded as %s." % (
+                int(incident_id), signal
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, cid
+
+
+def _v332_finalize_outcome(username, incident_id, requested_outcome, note=""):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+
+    plan = _v331_plan(username, incident_id)
+    if not plan or str(plan.get("plan_state") or "") != "STAGED":
+        return False, "staged_remediation_required", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V332_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    checks = _v332_checks(username, incident_id)
+    if len(checks) < V332_MIN_CHECKS:
+        return False, "not_enough_verification_checks", None
+
+    existing = _v332_outcome(username, incident_id)
+    if existing:
+        return False, "verification_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_remediation_verification_outcomes
+            (username, incident_id, plan_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(incident_id), int(plan["id"]), requested,
+            str(note or "").strip()[:2400], now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "REMEDIATION_VERIFICATION_OUTCOME",
+            detail="V33.2 incident #%s verification finalized as %s. No routing change executed automatically." % (
+                int(incident_id), requested
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, oid
+
+
+def _v332_stage_decision(username, incident_id, decision_type, note=""):
+    outcome = _v332_outcome(username, incident_id)
+    if not outcome:
+        return False, "verification_outcome_required", None
+
+    outcome_name = str(outcome.get("outcome") or "")
+    requested = str(decision_type or "").strip().upper()
+
+    allowed = {
+        "RECOVERED": {"CLOSE_INCIDENT"},
+        "CONTINUE_MONITORING": {"KEEP_OPEN"},
+        "ESCALATE_ROLLBACK": {"ESCALATE_ROLLBACK"},
+    }
+    if requested not in allowed.get(outcome_name, set()):
+        return False, "decision_not_allowed_for_outcome", None
+
+    existing = _v332_decision(username, incident_id)
+    if existing:
+        return False, "recovery_decision_already_staged", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recovery_decisions
+            (username, incident_id, verification_outcome_id, decision_state,
+             decision_type, decision_note, staged_at)
+            VALUES (?, ?, ?, 'STAGED', ?, ?, ?)
+        """, (
+            username, int(incident_id), int(outcome["id"]), requested,
+            str(note or "").strip()[:2400], now
+        ))
+        did = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, did
+
+
+def _v332_execute_decision(username, decision_id, execution_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recovery_decisions
+            WHERE id=? AND username=?
+        """, (int(decision_id), username)).fetchone()
+        decision = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not decision:
+        return False, "decision_not_found", None
+    if str(decision.get("decision_state") or "") != "STAGED":
+        return False, "decision_not_staged", int(decision["id"])
+
+    dtype = str(decision.get("decision_type") or "")
+    incident_id = int(decision.get("incident_id") or 0)
+
+    if dtype == "CLOSE_INCIDENT":
+        ok, error, _ = _v331_resolve_incident(
+            username,
+            incident_id,
+            execution_note or "V33.2 remediation verified as recovered.",
+            False
+        )
+        if not ok:
+            return False, error or "incident_close_failed", int(decision["id"])
+
+    elif dtype == "KEEP_OPEN":
+        # Governance record only. Keep incident state as-is.
+        pass
+
+    elif dtype == "ESCALATE_ROLLBACK":
+        incident = _v331_incident(username, incident_id)
+        if not incident:
+            return False, "incident_not_found", int(decision["id"])
+        adoption_id = int(incident.get("adoption_id") or 0)
+
+        # If V33.0 already has a rollback recommendation, use its staged rollback path.
+        watch_outcome = _v330_outcome(username, adoption_id)
+        if not watch_outcome or str(watch_outcome.get("outcome") or "") != "ROLLBACK_RECOMMENDED":
+            return False, "rollback_recommendation_required", int(decision["id"])
+
+        existing_rb = _v330_rollback_request(username, adoption_id)
+        if not existing_rb:
+            ok, error, _ = _v330_stage_rollback(
+                username,
+                adoption_id,
+                execution_note or "V33.2 remediation verification escalated to rollback."
+            )
+            if not ok:
+                return False, error or "rollback_stage_failed", int(decision["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_recovery_decisions
+            SET decision_state='EXECUTED', executed_at=?, execution_note=?
+            WHERE id=? AND username=? AND decision_state='STAGED'
+        """, (
+            now,
+            str(execution_note or "").strip()[:2400],
+            int(decision["id"]),
+            username,
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "REMEDIATION_RECOVERY_DECISION_EXECUTED",
+            detail="V33.2 recovery decision #%s executed as %s." % (
+                int(decision["id"]), dtype
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(decision["id"])
+
+
+def _v332_snapshot(username):
+    base = _v331_snapshot(username)
+    items = []
+
+    for incident in base.get("incidents", []):
+        iid = int(incident.get("id") or 0)
+        plan = incident.get("plan") or {}
+        checks = _v332_checks(username, iid)
+        outcome = _v332_outcome(username, iid)
+        decision = _v332_decision(username, iid)
+
+        item = dict(incident)
+        item["verification_checks"] = checks[:20]
+        item["verification_count"] = len(checks)
+        item["verification_outcome"] = outcome
+        item["recovery_decision"] = decision
+        item["ready_for_verification"] = (
+            bool(plan)
+            and str(plan.get("plan_state") or "") == "STAGED"
+            and str(incident.get("incident_state") or "") not in ("RESOLVED", "DISMISSED")
+        )
+        item["ready_for_outcome"] = (
+            item["ready_for_verification"]
+            and len(checks) >= V332_MIN_CHECKS
+            and not outcome
+        )
+        item["ready_for_decision"] = bool(outcome) and not decision
+        item["ready_to_execute"] = bool(decision) and str(decision.get("decision_state") or "") == "STAGED"
+        items.append(item)
+
+    return {
+        "version": V332_VERSION,
+        "minimum_checks": V332_MIN_CHECKS,
+        "counts": {
+            "verification_cases": sum(1 for i in items if i["ready_for_verification"]),
+            "checks": sum(int(i.get("verification_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "decisions_staged": sum(1 for i in items if i["ready_to_execute"]),
+        },
+        "items": items,
+        "policy": "Verification outcomes do not change routing. Recovery and rollback escalation remain explicit staged decisions."
+    }
+
+
+@app.route("/api/hunter-remediation-verification")
+def v332_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v332_snapshot(username)})
+
+
+@app.route("/api/hunter-remediation-verification/<int:incident_id>/check", methods=["POST"])
+def v332_check_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, check_id = _v332_add_check(
+        username,
+        incident_id,
+        payload.get("signal_state") or "INCONCLUSIVE",
+        payload.get("evidence_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "check_id": check_id}), 400
+    return jsonify({"success": True, "check_id": check_id})
+
+
+@app.route("/api/hunter-remediation-verification/<int:incident_id>/outcome", methods=["POST"])
+def v332_outcome_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, outcome_id = _v332_finalize_outcome(
+        username,
+        incident_id,
+        payload.get("outcome") or "",
+        payload.get("outcome_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": outcome_id}), 400
+    return jsonify({"success": True, "outcome_id": outcome_id})
+
+
+@app.route("/api/hunter-remediation-verification/<int:incident_id>/decision/stage", methods=["POST"])
+def v332_stage_decision_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, decision_id = _v332_stage_decision(
+        username,
+        incident_id,
+        payload.get("decision_type") or "",
+        payload.get("decision_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "decision_id": decision_id}), 400
+    return jsonify({"success": True, "decision_id": decision_id})
+
+
+@app.route("/api/hunter-remediation-verification/decision/<int:decision_id>/execute", methods=["POST"])
+def v332_execute_decision_api(decision_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, did = _v332_execute_decision(
+        username, decision_id, payload.get("execution_note") or payload.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "decision_id": did}), 400
+    return jsonify({"success": True, "decision_id": did})
+
+
+@app.route("/hunter-remediation-verification")
+def v332_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Remediation Verification</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧭 Remediation Verification</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v332_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        if not item.get("ready_for_verification") and not item.get("verification_checks") and not item.get("verification_outcome"):
+            continue
+
+        iid = int(item.get("id") or 0)
+        checks = item.get("verification_checks") or []
+        outcome = item.get("verification_outcome") or {}
+        decision = item.get("recovery_decision") or {}
+
+        checks_html = "".join(
+            "<div class='checkrow'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at")),
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No verification checks yet.</div>"
+
+        actions = ""
+        if item.get("ready_for_verification") and not outcome:
+            actions += """
+            <form action='/api/hunter-remediation-verification/{iid}/check' onsubmit='return v332submit(this,event)'>
+              <select name='signal_state'>
+                <option>IMPROVED</option><option>UNCHANGED</option><option>REGRESSED</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Verification evidence'></textarea>
+              <button type='submit'>ADD VERIFICATION CHECK</button>
+            </form>
+            """.format(iid=iid)
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-remediation-verification/{iid}/outcome' onsubmit='return v332submit(this,event)'>
+              <select name='outcome'>
+                <option value='RECOVERED'>RECOVERED</option>
+                <option value='CONTINUE_MONITORING'>CONTINUE_MONITORING</option>
+                <option value='ESCALATE_ROLLBACK'>ESCALATE_ROLLBACK</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Why this verification outcome is supported'></textarea>
+              <button type='submit'>FINALIZE VERIFICATION OUTCOME</button>
+            </form>
+            """.format(iid=iid)
+        elif outcome:
+            actions += "<div class='final'>OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")), esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_for_decision"):
+            out = str(outcome.get("outcome") or "")
+            mapping = {
+                "RECOVERED": ("CLOSE_INCIDENT", "CLOSE INCIDENT"),
+                "CONTINUE_MONITORING": ("KEEP_OPEN", "KEEP INCIDENT OPEN"),
+                "ESCALATE_ROLLBACK": ("ESCALATE_ROLLBACK", "ESCALATE TO ROLLBACK"),
+            }
+            dtype, label = mapping.get(out, ("", ""))
+            if dtype:
+                actions += """
+                <form action='/api/hunter-remediation-verification/{iid}/decision/stage' onsubmit='return v332submit(this,event)'>
+                  <input type='hidden' name='decision_type' value='{dtype}'>
+                  <textarea name='decision_note' rows='2' placeholder='Operator decision note'></textarea>
+                  <button class='warn' type='submit'>STAGE {label}</button>
+                </form>
+                """.format(iid=iid, dtype=dtype, label=label)
+
+        if item.get("ready_to_execute"):
+            actions += """
+            <form action='/api/hunter-remediation-verification/decision/{did}/execute' onsubmit='return v332submit(this,event)'>
+              <textarea name='execution_note' rows='2' placeholder='Final execution note'></textarea>
+              <button class='safe' type='submit'>EXECUTE DECISION</button>
+            </form>
+            """.format(did=int(decision.get("id") or 0))
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Incident #{iid}</span><span class='pill'>{state}</span></div>
+          <h2>{title}</h2>
+          <p><b>Watch outcome:</b> {watch}</p>
+          <div class='signals'>Verification checks: <b>{count}</b></div>
+          {actions}
+          <div class='history'>{checks}</div>
+        </article>
+        """.format(
+            iid=esc(iid),
+            state=esc(item.get("incident_state")),
+            title=esc(item.get("title")),
+            watch=esc(item.get("watch_outcome")),
+            count=esc(item.get("verification_count")),
+            actions=actions,
+            checks=checks_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.2 Remediation Verification</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1120px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#b9ff72;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#b9ff72}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #365a2a;border-radius:999px;padding:6px 9px;color:#b9ff72;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.safe{{background:#8bf0c8}} .checkrow{{border-top:1px solid #15313f;padding:10px 0}}
+    .checkrow b{{color:#b9ff72;display:block}} .checkrow span{{display:block;margin:5px 0;color:#d7e8ef}}
+    .final{{margin-top:10px;background:#0e2a21;border:1px solid #216c52;color:#9bf2cb;border-radius:12px;padding:10px}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #b9ff72;padding:12px;background:#0d1608;color:#cfe7c0;line-height:1.6}}
+    @media(max-width:720px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.2 // REMEDIATION VERIFICATION + RECOVERY GATE</div>
+        <h1>🧭 VERIFY RECOVERY</h1>
+        <div class='sub'>A staged remediation is not considered effective until evidence is recorded, a verification outcome is finalized, and an operator stages the next recovery decision.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>CASES</div><div class='num'>{cases}</div></div>
+          <div class='stat'><div class='eyebrow'>CHECKS</div><div class='num'>{checks}</div></div>
+          <div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div>
+          <div class='stat'><div class='eyebrow'>DECISIONS STAGED</div><div class='num'>{decisions}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-canonical-incidents'>🚨 INCIDENT REVIEW</a><a href='/hunter-canonical-watch'>🛰️ CANONICAL WATCH</a><a href='/api/hunter-remediation-verification'>JSON</a></div>
+        <div class='rule'><strong>V33.2 rule:</strong> remediation verification is evidence-first. Recovery closure, continued monitoring and rollback escalation all require explicit staged operator decisions.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v332submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        cases=esc(c.get("verification_cases",0)),
+        checks=esc(c.get("checks",0)),
+        ready=esc(c.get("ready_for_outcome",0)),
+        decisions=esc(c.get("decisions_staged",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No staged remediations are ready for verification.</p></article>"
+    )
+
+
+# Surface V33.2 from V33.1 incident workspace.
+try:
+    _v332_prev_incident_page = app.view_functions.get("v331_incidents_page")
+    if _v332_prev_incident_page:
+        def _v332_incidents_with_verification(*args, **kwargs):
+            response = _v332_prev_incident_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-remediation-verification" not in response:
+                anchor = "<a href='/api/hunter-canonical-incidents'>JSON</a>"
+                link = "<a href='/hunter-remediation-verification'>🧭 VERIFY RECOVERY</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v331_incidents_page"] = _v332_incidents_with_verification
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
