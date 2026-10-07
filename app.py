@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.0 Build Attestation</title><style>
+    <title>BL3 V32.1 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.0 Hunter Command Deck</title>
+    <title>BL3 V32.1 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -51860,7 +51860,7 @@ def v317_retests_page():
     .rule{{border-left:4px solid #c283ff;padding:11px 14px;background:#17101f;border-radius:8px}}.small{{margin-top:10px;color:#8c7f98;font-size:11px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
+      <div class='eyebrow'>BL3 V32.1 // POST-CLOSURE VERIFICATION + REGRESSION WATCH</div>
       <h1>🧪 RECALIBRATION RETESTS</h1>
       <p>{username}, RETEST_ONLY is no longer just a warning. It now has a concrete evidence loop: declare the hypothesis, run the retest, record the outcome, and only then can BL3 recommend whether closure is justified.</p>
 
@@ -52418,7 +52418,7 @@ def v318_confidence_page():
     .rule{{border-left:4px solid #7fb4ff;padding:11px 14px;background:#111a28;border-radius:8px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
+      <div class='eyebrow'>BL3 V32.1 // POST-CLOSURE VERIFICATION + REGRESSION WATCH</div>
       <h1>📈 EVIDENCE CONFIDENCE</h1>
       <p>{username}, one successful retest can still be enough under the default SINGLE policy. If a decision matters more, you can explicitly switch that directive to REPLICATED and require consistent evidence before closure.</p>
 
@@ -52834,7 +52834,7 @@ def v319_context_diversity_page():
     a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #497895;border-radius:10px;background:#111d27;color:#fff;text-decoration:none;font-weight:900}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
+      <div class='eyebrow'>BL3 V32.1 // POST-CLOSURE VERIFICATION + REGRESSION WATCH</div>
       <h1>🧭 CONTEXT DIVERSITY GATE</h1>
       <p>{username}, V31.8 proved that evidence should be replicated. V31.9 asks the next question: was it really replicated independently, or was the same test repeated in essentially the same context?</p>
 
@@ -53251,7 +53251,7 @@ def v320_closure_adjudication_page():
                 blocked_count += 1
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.0 Closure Adjudication</title>
+    <title>BL3 V32.1 Closure Adjudication</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2f2438,#09080c 58%,#020203);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0d0c12ef;border:1px solid #735889;border-radius:24px;padding:24px}}
@@ -53264,7 +53264,7 @@ def v320_closure_adjudication_page():
     a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #6f5680;border-radius:10px;background:#18131d;color:#fff;text-decoration:none;font-weight:900}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
+      <div class='eyebrow'>BL3 V32.1 // POST-CLOSURE VERIFICATION + REGRESSION WATCH</div>
       <h1>⚖️ CLOSURE ADJUDICATION</h1>
       <p>{username}, the evidence loop now finishes with a durable decision trail. BL3 does not close anything automatically. It explains whether closure is justified, and when you explicitly close an eligible RETEST_ONLY directive, V32.0 records the exact evidence state that supported that decision.</p>
 
@@ -53331,6 +53331,455 @@ try:
                 )
             return response
         app.view_functions["v316_governance_page"] = _v320_governance_page_with_receipts
+except Exception:
+    pass
+
+# ===== V32.1 POST-CLOSURE VERIFICATION + REGRESSION WATCH =====
+# Adds an explicit, human-controlled verification layer after a RETEST_ONLY
+# directive has been closed. Nothing is automatically reopened.
+# Hunters can record whether the closed strategy is HOLDING, REGRESSING,
+# UNCERTAIN, or NEEDS_REVIEW, creating a durable post-closure trail.
+
+V321_VERSION = "V32.1"
+V321_ALLOWED_STATES = {"HOLDING", "REGRESSION", "UNCERTAIN", "NEEDS_REVIEW"}
+
+
+def _v321_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_closure_verifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                receipt_id INTEGER NOT NULL,
+                directive_id INTEGER NOT NULL,
+                verification_state TEXT NOT NULL,
+                observed_score INTEGER,
+                note TEXT,
+                verified_at TEXT NOT NULL
+            )
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_v321_verifications_user_receipt
+            ON hunter_closure_verifications(username, receipt_id, id DESC)
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_v321_verifications_user_directive
+            ON hunter_closure_verifications(username, directive_id, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v321_init()
+except Exception:
+    pass
+
+
+def _v321_receipt(username, receipt_id):
+    _v320_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT *
+            FROM hunter_recalibration_closure_receipts
+            WHERE username=? AND id=?
+            LIMIT 1
+        """, (username, int(receipt_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v321_verifications(username, receipt_id=None, limit=100):
+    _v321_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if receipt_id is None:
+            rows = con.execute("""
+                SELECT *
+                FROM hunter_closure_verifications
+                WHERE username=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (username, int(limit))).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT *
+                FROM hunter_closure_verifications
+                WHERE username=? AND receipt_id=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (username, int(receipt_id), int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v321_latest_by_receipt(username):
+    latest = {}
+    for row in _v321_verifications(username, limit=500):
+        rid = int(row.get("receipt_id") or 0)
+        if rid and rid not in latest:
+            latest[rid] = row
+    return latest
+
+
+def _v321_record_verification(username, receipt_id, state, observed_score=None, note=""):
+    receipt = _v321_receipt(username, receipt_id)
+    if not receipt:
+        return False, "receipt_not_found", None
+
+    state = str(state or "").strip().upper()
+    if state not in V321_ALLOWED_STATES:
+        return False, "invalid_verification_state", None
+
+    score = None
+    if observed_score not in (None, ""):
+        try:
+            score = int(observed_score)
+        except Exception:
+            return False, "invalid_observed_score", None
+        if score < 0 or score > 100:
+            return False, "observed_score_out_of_range", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_closure_verifications (
+                username, receipt_id, directive_id,
+                verification_state, observed_score, note, verified_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(receipt_id),
+            int(receipt.get("directive_id") or 0),
+            state,
+            score,
+            str(note or "")[:2000],
+            now,
+        ))
+        con.commit()
+        verification_id = int(cur.lastrowid)
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(receipt.get("strategy") or ""),
+            "POST_CLOSURE_VERIFICATION_%s" % state,
+            directive_id=int(receipt.get("directive_id") or 0),
+            detail=(
+                "V32.1 post-closure verification #%s for receipt #%s"
+                % (verification_id, receipt_id)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, verification_id
+
+
+def _v321_watch_snapshot(username):
+    receipts = _v320_receipts(username, limit=200)
+    latest = _v321_latest_by_receipt(username)
+
+    items = []
+    holding = regression = uncertain = review = unverified = 0
+
+    for receipt in receipts:
+        rid = int(receipt.get("id") or 0)
+        verification = latest.get(rid)
+
+        if not verification:
+            state = "UNVERIFIED"
+            unverified += 1
+        else:
+            state = str(verification.get("verification_state") or "UNVERIFIED")
+            if state == "HOLDING":
+                holding += 1
+            elif state == "REGRESSION":
+                regression += 1
+            elif state == "UNCERTAIN":
+                uncertain += 1
+            elif state == "NEEDS_REVIEW":
+                review += 1
+
+        items.append({
+            "receipt": receipt,
+            "latest_verification": verification,
+            "watch_state": state,
+            "history": _v321_verifications(username, receipt_id=rid, limit=20),
+        })
+
+    return {
+        "version": V321_VERSION,
+        "items": items,
+        "counts": {
+            "total_receipts": len(receipts),
+            "holding": holding,
+            "regression": regression,
+            "uncertain": uncertain,
+            "needs_review": review,
+            "unverified": unverified,
+        },
+        "automatic_reopen": False,
+    }
+
+
+@app.route("/api/hunter-closure-verification")
+def v321_closure_verification_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    snap = _v321_watch_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-closure-verification/<int:receipt_id>")
+def v321_closure_verification_detail_api(receipt_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    receipt = _v321_receipt(username, receipt_id)
+    if not receipt:
+        return jsonify({"success": False, "error": "receipt_not_found"}), 404
+
+    return jsonify({
+        "success": True,
+        "version": V321_VERSION,
+        "receipt": receipt,
+        "verifications": _v321_verifications(username, receipt_id=receipt_id, limit=100),
+        "automatic_reopen": False,
+    })
+
+
+@app.route("/api/hunter-closure-verification/<int:receipt_id>/record", methods=["POST"])
+def v321_record_verification_api(receipt_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err, verification_id = _v321_record_verification(
+        username,
+        receipt_id,
+        payload.get("verification_state") or payload.get("state"),
+        payload.get("observed_score"),
+        payload.get("note"),
+    )
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+
+    return jsonify({
+        "success": True,
+        "version": V321_VERSION,
+        "verification_id": verification_id,
+        "receipt_id": receipt_id,
+        "verifications": _v321_verifications(username, receipt_id=receipt_id, limit=100),
+        "automatic_reopen": False,
+    })
+
+
+@app.route("/hunter-closure-verification")
+def v321_closure_verification_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Post-Closure Verification</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🔎 Post-Closure Verification</h1><p>Sign in to verify closed RETEST_ONLY decisions.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+    snap = _v321_watch_snapshot(username)
+    counts = snap.get("counts") or {}
+
+    cards = []
+    for item in snap.get("items") or []:
+        r = item.get("receipt") or {}
+        latest = item.get("latest_verification") or {}
+        state = item.get("watch_state") or "UNVERIFIED"
+        receipt_id = int(r.get("id") or 0)
+
+        history_html = []
+        for h in item.get("history") or []:
+            history_html.append(
+                "<span class='chip'>%s · score %s · %s</span>" % (
+                    esc(h.get("verification_state")),
+                    esc(h.get("observed_score")),
+                    esc(h.get("verified_at")),
+                )
+            )
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div>
+              <span class='eyebrow'>DECISION RECEIPT #{rid} · DIRECTIVE #{did}</span>
+              <h3>{strategy}</h3>
+            </div>
+            <span class='pill {stateclass}'>{state}</span>
+          </div>
+
+          <div class='grid'>
+            <div><span>CLOSURE POLICY</span><b>{policy}</b></div>
+            <div><span>CLOSURE CONFIDENCE</span><b>{confidence}/100</b></div>
+            <div><span>CLOSURE AVG SCORE</span><b>{average}</b></div>
+            <div><span>CLOSURE CONTEXTS</span><b>{contexts}</b></div>
+            <div><span>LATEST VERIFY SCORE</span><b>{verify_score}</b></div>
+            <div><span>LATEST VERIFIED</span><b>{verified_at}</b></div>
+          </div>
+
+          <p><strong>Closure evidence:</strong> {reason}</p>
+          <p><strong>Latest verification note:</strong> {note}</p>
+
+          <form method='post' action='/api/hunter-closure-verification/{rid}/record' onsubmit='return v321submit(this,event)'>
+            <label>Verification state</label>
+            <select name='verification_state'>
+              <option value='HOLDING'>HOLDING</option>
+              <option value='REGRESSION'>REGRESSION</option>
+              <option value='UNCERTAIN'>UNCERTAIN</option>
+              <option value='NEEDS_REVIEW'>NEEDS_REVIEW</option>
+            </select>
+
+            <label>Observed score (optional 0-100)</label>
+            <input type='number' min='0' max='100' name='observed_score' placeholder='e.g. 82'>
+
+            <label>Verification note</label>
+            <textarea name='note' rows='3' placeholder='What happened after closure?'></textarea>
+
+            <button type='submit'>RECORD VERIFICATION</button>
+          </form>
+
+          <div class='history'>{history}</div>
+        </article>
+        """.format(
+            rid=esc(receipt_id),
+            did=esc(r.get("directive_id")),
+            strategy=esc(r.get("strategy")),
+            state=esc(state),
+            stateclass=esc(str(state).lower()),
+            policy=esc(r.get("evidence_policy")),
+            confidence=esc(r.get("confidence_score")),
+            average=esc(r.get("average_score")),
+            contexts=esc(r.get("distinct_contexts")),
+            verify_score=esc(latest.get("observed_score")),
+            verified_at=esc(latest.get("verified_at")),
+            reason=esc(r.get("evidence_reason")),
+            note=esc(latest.get("note") or "—"),
+            history="".join(history_html) if history_html else "<span class='chip'>NO VERIFICATION HISTORY</span>",
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.1 Post-Closure Verification</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24313a,#090b0e 58%,#020203);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c1115ef;border:1px solid #47636f;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#91d7ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0}}
+    p{{color:#dce8ed;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#101a20;border:1px solid #385763;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#98afb8;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:17px;overflow-wrap:anywhere}}.card{{background:#10171c;border:1px solid #3f5f6b;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #5d7983;border-radius:999px;padding:6px 9px}}
+    .pill.holding{{border-color:#4d9b6c}}.pill.regression{{border-color:#c05e64}}.pill.uncertain{{border-color:#b99455}}.pill.needs_review{{border-color:#9e6ec8}}
+    .rule{{border-left:4px solid #78d2ff;padding:11px 14px;background:#111c22;border-radius:8px}}
+    a,button{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #456873;border-radius:10px;background:#121d22;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    form{{margin-top:14px;padding-top:12px;border-top:1px solid #2c444d}}label{{display:block;margin-top:9px;color:#a9c2cb;font-size:10px;font-weight:900}}
+    input,select,textarea{{width:100%;margin-top:5px;background:#0a1014;color:#fff;border:1px solid #37535d;border-radius:10px;padding:10px}}
+    .history{{margin-top:12px}}.chip{{display:inline-block;margin:3px;padding:6px 8px;border:1px solid #395864;border-radius:999px;font-size:10px;color:#bfd7df}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style>
+    <script>
+    async function v321submit(form,event){{
+      event.preventDefault();
+      const fd=new FormData(form);
+      const body={{
+        verification_state:fd.get('verification_state'),
+        observed_score:fd.get('observed_score'),
+        note:fd.get('note')
+      }};
+      const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(body)}});
+      const data=await res.json();
+      if(data.success){{location.reload();return false;}}
+      alert('Verification failed: '+(data.error||'unknown_error'));
+      return false;
+    }}
+    </script></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V32.1 // POST-CLOSURE VERIFICATION + REGRESSION WATCH</div>
+      <h1>🔎 POST-CLOSURE VERIFICATION</h1>
+      <p>{username}, closing a directive is no longer the end of the evidence trail. V32.1 lets you explicitly verify whether the closed decision is still holding in the real workflow. A regression can be recorded without silently reopening or mutating the original decision.</p>
+
+      <div class='hero'>
+        <div><span>TOTAL RECEIPTS</span><b>{total}</b></div>
+        <div><span>HOLDING</span><b>{holding}</b></div>
+        <div><span>REGRESSION</span><b>{regression}</b></div>
+        <div><span>UNCERTAIN / REVIEW</span><b>{uncertain_review}</b></div>
+        <div><span>UNVERIFIED</span><b>{unverified}</b></div>
+      </div>
+
+      <div class='rule'><strong>V32.1 rule:</strong> a post-closure verification is evidence, not an automatic command. Even a REGRESSION does not auto-reopen the directive. The Hunter stays in control and gets a durable verification history for every closure receipt.</div>
+
+      <a href='/hunter-closure-adjudication'>⚖️ CLOSURE ADJUDICATION</a>
+      <a href='/hunter-recalibration-retests'>🧪 RETESTS</a>
+      <a href='/hunter-retest-confidence'>📈 CONFIDENCE</a>
+      <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>
+
+      {cards}
+    </section></div></body></html>""".format(
+        username=esc(username),
+        total=esc(counts.get("total_receipts")),
+        holding=esc(counts.get("holding")),
+        regression=esc(counts.get("regression")),
+        uncertain_review=esc(int(counts.get("uncertain") or 0) + int(counts.get("needs_review") or 0)),
+        unverified=esc(counts.get("unverified")),
+        cards="".join(cards) if cards else "<p>No closure receipts yet. Close an eligible RETEST_ONLY directive first.</p>",
+    )
+
+
+# Surface the post-closure verification loop from the adjudication page.
+try:
+    _v321_prev_adjudication_page = app.view_functions.get("v320_closure_adjudication_page")
+    if _v321_prev_adjudication_page:
+        def _v321_adjudication_page_with_watch(*args, **kwargs):
+            response = _v321_prev_adjudication_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-closure-verification" not in response:
+                link = "<a href='/hunter-closure-verification'>🔎 POST-CLOSURE VERIFICATION</a>"
+                response = response.replace(
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>",
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v320_closure_adjudication_page"] = _v321_adjudication_page_with_watch
+except Exception:
+    pass
+
+
+# Also surface V32.1 from governance.
+try:
+    _v321_prev_governance_page = app.view_functions.get("v316_governance_page")
+    if _v321_prev_governance_page:
+        def _v321_governance_page_with_post_closure_watch(*args, **kwargs):
+            response = _v321_prev_governance_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-closure-verification" not in response:
+                link = "<a href='/hunter-closure-verification'>🔎 POST-CLOSURE VERIFICATION</a>"
+                response = response.replace(
+                    "<a href='/hunter-closure-adjudication'>⚖️ CLOSURE ADJUDICATION</a>",
+                    "<a href='/hunter-closure-adjudication'>⚖️ CLOSURE ADJUDICATION</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v316_governance_page"] = _v321_governance_page_with_post_closure_watch
 except Exception:
     pass
 
