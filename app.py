@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.6 Build Attestation</title><style>
+    <title>BL3 V30.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.6 Hunter Command Deck</title>
+    <title>BL3 V30.7 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -47205,7 +47205,7 @@ def v306_decision_outcome_page():
     history_html = "".join(history_rows) or "<tr><td colspan='7'>No verification reviews recorded yet.</td></tr>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.6 Decision Outcome Verification</title>
+    <title>BL3 V30.7 Decision Outcome Verification</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#102231,#070b10 55%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1080px;margin:auto}}.panel{{background:#081018ee;border:1px solid #28516b;border-radius:24px;padding:22px}}
@@ -47264,6 +47264,460 @@ for _endpoint in ("v305_playbook_decision_page", "v303_playbook_monitor_page"):
             app.view_functions[_endpoint] = _v306_wrap_outcome_link(_prev)
     except Exception:
         pass
+
+
+# ===== V30.7 DECISION LEARNING MEMORY =====
+# Turn verified KEEP/SWITCH outcome reviews into a durable learning layer.
+# BL3 summarizes evidence by strategy and decision type, but never changes a playbook automatically.
+
+V307_VERSION = "V30.7"
+V307_MIN_CONFIDENCE_SAMPLES = 3
+
+
+def _v307_ensure_schema():
+    _v306_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_playbook_learning_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                strategy TEXT,
+                decision_type TEXT,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_playbook_learning_notes_user "
+            "ON hunter_playbook_learning_notes(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v307_verification_rows(username, limit=250):
+    _v307_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_playbook_decision_verifications
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 250), 500)))
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v307_learning_notes(username, limit=30):
+    _v307_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_playbook_learning_notes
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 30), 100)))
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v307_bucket(rows, key):
+    buckets = {}
+    for row in rows:
+        label = str(row.get(key) or "UNKNOWN").upper()
+        buckets.setdefault(label, []).append(row)
+    return buckets
+
+
+def _v307_summary_for_rows(rows):
+    n = len(rows)
+    if not n:
+        return {
+            "samples": 0,
+            "avg_delta": 0.0,
+            "validated": 0,
+            "neutral": 0,
+            "reconsider": 0,
+            "confirm_reviews": 0,
+            "continue_reviews": 0,
+            "reconsider_reviews": 0,
+            "confidence": "INSUFFICIENT",
+            "confidence_score": 0,
+            "trend": "NO_DATA",
+        }
+
+    deltas = [float(r.get("realized_delta") or 0) for r in rows]
+    avg_delta = round(sum(deltas) / n, 1)
+    validated = sum(1 for r in rows if str(r.get("state") or "").upper() == "VALIDATED")
+    neutral = sum(1 for r in rows if str(r.get("state") or "").upper() == "NEUTRAL")
+    reconsider = sum(1 for r in rows if str(r.get("state") or "").upper() == "RECONSIDER")
+
+    confirm_reviews = sum(1 for r in rows if str(r.get("hunter_review") or "").upper() == "CONFIRM")
+    continue_reviews = sum(1 for r in rows if str(r.get("hunter_review") or "").upper() == "CONTINUE")
+    reconsider_reviews = sum(1 for r in rows if str(r.get("hunter_review") or "").upper() == "RECONSIDER")
+
+    # Confidence here means "how much verified history exists", not certainty of future performance.
+    evidence_factor = min(1.0, n / 8.0)
+    consistency_factor = max(0.0, 1.0 - (min(25.0, (max(deltas) - min(deltas))) / 25.0)) if n > 1 else 0.35
+    confidence_score = int(round((evidence_factor * 70) + (consistency_factor * 30)))
+
+    if n < V307_MIN_CONFIDENCE_SAMPLES:
+        confidence = "INSUFFICIENT"
+    elif confidence_score >= 75:
+        confidence = "STRONG"
+    elif confidence_score >= 50:
+        confidence = "MODERATE"
+    else:
+        confidence = "FRAGILE"
+
+    recent = deltas[:3]
+    older = deltas[3:6]
+    if len(recent) < 2:
+        trend = "LEARNING"
+    else:
+        recent_avg = sum(recent) / len(recent)
+        older_avg = (sum(older) / len(older)) if older else recent_avg
+        gap = recent_avg - older_avg
+        if gap >= 4:
+            trend = "IMPROVING"
+        elif gap <= -4:
+            trend = "WEAKENING"
+        else:
+            trend = "STABLE"
+
+    return {
+        "samples": n,
+        "avg_delta": avg_delta,
+        "validated": validated,
+        "neutral": neutral,
+        "reconsider": reconsider,
+        "confirm_reviews": confirm_reviews,
+        "continue_reviews": continue_reviews,
+        "reconsider_reviews": reconsider_reviews,
+        "confidence": confidence,
+        "confidence_score": confidence_score,
+        "trend": trend,
+    }
+
+
+def _v307_learning_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V307_VERSION}
+
+    rows = _v307_verification_rows(username)
+    by_strategy = _v307_bucket(rows, "selected_strategy")
+    by_decision = _v307_bucket(rows, "decision")
+
+    strategy_summaries = []
+    for strategy, subset in sorted(by_strategy.items(), key=lambda kv: len(kv[1]), reverse=True):
+        summary = _v307_summary_for_rows(subset)
+        meta = V301_STRATEGIES.get(strategy, {})
+        strategy_summaries.append({
+            "strategy": strategy,
+            "title": meta.get("title") or strategy,
+            **summary,
+        })
+
+    decision_summaries = []
+    for decision_type, subset in sorted(by_decision.items(), key=lambda kv: len(kv[1]), reverse=True):
+        decision_summaries.append({
+            "decision_type": decision_type,
+            **_v307_summary_for_rows(subset),
+        })
+
+    overall = _v307_summary_for_rows(rows)
+
+    # Conservative, evidence-only learning headline.
+    if overall["samples"] == 0:
+        headline = "NO VERIFIED LEARNING YET"
+        guidance = "Record V30.6 outcome reviews first. BL3 will only learn from verified, post-decision evidence."
+    elif overall["samples"] < V307_MIN_CONFIDENCE_SAMPLES:
+        headline = "EARLY LEARNING"
+        guidance = "There is not enough verified history to form a durable pattern yet."
+    elif overall["trend"] == "IMPROVING":
+        headline = "RECENT DECISIONS ARE IMPROVING"
+        guidance = "Recent realized deltas are stronger than the older comparison window."
+    elif overall["trend"] == "WEAKENING":
+        headline = "RECENT DECISIONS ARE WEAKENING"
+        guidance = "Recent realized deltas are weaker. Review the underlying evidence before the next explicit decision."
+    else:
+        headline = "DECISION QUALITY IS STABLE"
+        guidance = "Recent verified outcomes are broadly in line with the prior comparison window."
+
+    strongest = None
+    if strategy_summaries:
+        eligible = [x for x in strategy_summaries if x["samples"] >= V307_MIN_CONFIDENCE_SAMPLES]
+        pool = eligible or strategy_summaries
+        strongest = max(pool, key=lambda x: (x["avg_delta"], x["samples"]))
+
+    return {
+        "success": True,
+        "version": V307_VERSION,
+        "username": username,
+        "overall": overall,
+        "headline": headline,
+        "guidance": guidance,
+        "strategy_summaries": strategy_summaries,
+        "decision_summaries": decision_summaries,
+        "strongest_observed_strategy": strongest,
+        "recent_verifications": rows[:12],
+        "learning_notes": _v307_learning_notes(username),
+        "policy": (
+            "Learning Memory summarizes verified history only. It does not predict guaranteed future results "
+            "and it never changes the active playbook automatically."
+        ),
+    }
+
+
+@app.route("/api/hunter-playbook-learning")
+def v307_playbook_learning_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v307_learning_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-playbook-learning/note", methods=["POST"])
+def v307_playbook_learning_note_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    strategy = str(payload.get("strategy") or "").strip().upper()[:80]
+    decision_type = str(payload.get("decision_type") or "").strip().upper()[:20]
+    note = str(payload.get("note") or "").strip()[:700]
+
+    if not note:
+        return jsonify({"success": False, "error": "note_required"}), 400
+
+    if strategy and strategy not in V301_STRATEGIES:
+        # Custom/legacy labels can still be noted if they already exist in verification history.
+        known = {str(x.get("selected_strategy") or "").upper() for x in _v307_verification_rows(username)}
+        if strategy not in known:
+            return jsonify({"success": False, "error": "unknown_strategy"}), 400
+
+    if decision_type and decision_type not in {"KEEP", "SWITCH"}:
+        return jsonify({"success": False, "error": "invalid_decision_type"}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v307_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_playbook_learning_notes
+               (username, strategy, decision_type, note, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (username, strategy or None, decision_type or None, note, now)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V307_VERSION,
+        "message": "Learning note saved.",
+        "redirect": "/hunter-playbook-learning",
+    })
+
+
+@app.route("/hunter-playbook-learning")
+def v307_playbook_learning_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Decision Learning Memory</title><body style='margin:0;background:#05080c;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧠 Decision Learning Memory</h1><p>Sign in to build a verified learning history from your KEEP/SWITCH decisions.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v307_learning_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    overall = data.get("overall") or {}
+    strongest = data.get("strongest_observed_strategy") or {}
+
+    strategy_cards = []
+    for item in data.get("strategy_summaries") or []:
+        strategy_cards.append("""
+        <div class='strategy-card'>
+          <div class='k'>STRATEGY</div><h3>{title}</h3>
+          <div class='mini-grid'>
+            <div><span>SAMPLES</span><b>{samples}</b></div>
+            <div><span>AVG Δ</span><b>{avg}</b></div>
+            <div><span>CONFIDENCE</span><b>{confidence}</b></div>
+            <div><span>TREND</span><b>{trend}</b></div>
+          </div>
+          <p>Validated {validated} · Neutral {neutral} · Reconsider {reconsider}</p>
+        </div>
+        """.format(
+            title=esc(item.get("title")),
+            samples=esc(item.get("samples")),
+            avg=esc(item.get("avg_delta")),
+            confidence=esc(item.get("confidence")),
+            trend=esc(item.get("trend")),
+            validated=esc(item.get("validated")),
+            neutral=esc(item.get("neutral")),
+            reconsider=esc(item.get("reconsider")),
+        ))
+    strategy_html = "".join(strategy_cards) or "<div class='empty'>No strategy learning yet.</div>"
+
+    decision_rows = []
+    for item in data.get("decision_summaries") or []:
+        decision_rows.append("""
+        <tr>
+          <td>{decision}</td><td>{samples}</td><td>{avg}</td><td>{confidence}</td>
+          <td>{trend}</td><td>{confirm}</td><td>{continue_}</td><td>{reconsider}</td>
+        </tr>
+        """.format(
+            decision=esc(item.get("decision_type")),
+            samples=esc(item.get("samples")),
+            avg=esc(item.get("avg_delta")),
+            confidence=esc(item.get("confidence")),
+            trend=esc(item.get("trend")),
+            confirm=esc(item.get("confirm_reviews")),
+            continue_=esc(item.get("continue_reviews")),
+            reconsider=esc(item.get("reconsider_reviews")),
+        ))
+    decision_html = "".join(decision_rows) or "<tr><td colspan='8'>No decision learning yet.</td></tr>"
+
+    notes_rows = []
+    for item in data.get("learning_notes") or []:
+        notes_rows.append("""
+        <tr><td>{when}</td><td>{strategy}</td><td>{decision}</td><td>{note}</td></tr>
+        """.format(
+            when=esc(item.get("created_at")),
+            strategy=esc(item.get("strategy") or "—"),
+            decision=esc(item.get("decision_type") or "—"),
+            note=esc(item.get("note")),
+        ))
+    notes_html = "".join(notes_rows) or "<tr><td colspan='4'>No learning notes saved yet.</td></tr>"
+
+    strategy_options = "<option value=''>ALL / GENERAL</option>"
+    for item in data.get("strategy_summaries") or []:
+        strategy_options += "<option value='{v}'>{t}</option>".format(
+            v=esc(item.get("strategy")), t=esc(item.get("title"))
+        )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.7 Decision Learning Memory</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#151f32,#070a10 56%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1120px;margin:auto}}.panel{{background:#081019ee;border:1px solid #2d4c70;border-radius:24px;padding:22px}}
+    .k{{color:#8bdcff;font-size:11px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:44px;margin:10px 0}}h2{{margin-top:28px}}p{{color:#b6c5d4;line-height:1.5}}
+    .hero-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{background:#071019;border:1px solid #214565;border-radius:17px;padding:15px}}
+    .metric b{{display:block;font-size:28px;color:#94e3ff;margin-top:6px}}.strategy-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}}
+    .strategy-card,.empty,.note-box{{background:#071019;border:1px solid #214565;border-radius:17px;padding:16px;margin-top:12px}}.strategy-card h3{{margin:7px 0 12px}}
+    .mini-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}}.mini-grid div{{background:#050b11;border-radius:10px;padding:10px}}
+    .mini-grid span{{display:block;color:#7fa0b6;font-size:10px;font-weight:800}}.mini-grid b{{display:block;margin-top:4px}}
+    table{{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}}th,td{{border-bottom:1px solid #1a3143;padding:9px;text-align:left}}th{{color:#7fd4ff}}
+    textarea,select{{width:100%;background:#03070a;color:#fff;border:1px solid #2c5470;border-radius:10px;padding:10px;margin-top:8px}}textarea{{min-height:84px}}
+    button,a{{display:inline-block;margin:8px 5px 0 0;padding:10px 13px;border:1px solid #326f96;border-radius:10px;background:#0b1b25;color:#fff;text-decoration:none;font-weight:850;cursor:pointer}}
+    .headline{{margin-top:14px;padding:18px;border:1px solid #2e657f;border-radius:17px;background:#08141d}}.headline h2{{margin:5px 0}}
+    @media(max-width:820px){{.hero-grid{{grid-template-columns:1fr 1fr}}.strategy-grid{{grid-template-columns:1fr}}.mini-grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='k'>BL3 V30.7 // VERIFIED DECISION MEMORY</div>
+      <h1>🧠 DECISION LEARNING MEMORY</h1>
+      <p>{username}, BL3 now remembers what happened across verified KEEP/SWITCH decisions instead of treating every decision as isolated.</p>
+
+      <div class='hero-grid'>
+        <div class='metric'><div class='k'>VERIFIED REVIEWS</div><b>{samples}</b></div>
+        <div class='metric'><div class='k'>AVG REALIZED Δ</div><b>{avg}</b></div>
+        <div class='metric'><div class='k'>CONFIDENCE</div><b>{confidence}</b></div>
+        <div class='metric'><div class='k'>RECENT TREND</div><b>{trend}</b></div>
+      </div>
+
+      <div class='headline'>
+        <div class='k'>LEARNING HEADLINE</div><h2>{headline}</h2><p>{guidance}</p>
+        <p><strong>Strongest observed strategy:</strong> {strongest}</p>
+      </div>
+
+      <h2>Strategy Memory</h2>
+      <div class='strategy-grid'>{strategy_html}</div>
+
+      <h2>KEEP vs SWITCH Learning</h2>
+      <table><thead><tr><th>DECISION</th><th>SAMPLES</th><th>AVG Δ</th><th>CONFIDENCE</th><th>TREND</th><th>CONFIRM</th><th>CONTINUE</th><th>RECONSIDER</th></tr></thead>
+      <tbody>{decision_html}</tbody></table>
+
+      <div class='note-box'>
+        <div class='k'>SAVE HUNTER LEARNING NOTE</div>
+        <select id='strategy'>{strategy_options}</select>
+        <select id='decision_type'>
+          <option value=''>ALL / GENERAL</option>
+          <option value='KEEP'>KEEP</option>
+          <option value='SWITCH'>SWITCH</option>
+        </select>
+        <textarea id='note' placeholder='What did you learn from the verified evidence?'></textarea>
+        <button onclick='saveNote()'>SAVE LEARNING NOTE</button>
+      </div>
+
+      <h2>Learning Notes</h2>
+      <table><thead><tr><th>TIME</th><th>STRATEGY</th><th>DECISION</th><th>NOTE</th></tr></thead>
+      <tbody>{notes_html}</tbody></table>
+
+      <p>
+        <a href='/hunter-playbook-decision-outcome'>🧪 OUTCOME VERIFICATION</a>
+        <a href='/hunter-playbook-decision'>⚖️ DECISION ARENA</a>
+        <a href='/hunter-playbook-monitor'>📈 PLAYBOOK MONITOR</a>
+      </p>
+      <p>{policy}</p>
+    </section></div>
+    <script>
+    async function saveNote(){{
+      const payload={{
+        strategy:document.getElementById('strategy').value,
+        decision_type:document.getElementById('decision_type').value,
+        note:document.getElementById('note').value
+      }};
+      const r=await fetch('/api/hunter-playbook-learning/note',{{
+        method:'POST',
+        headers:{{'Content-Type':'application/json'}},
+        body:JSON.stringify(payload)
+      }});
+      const j=await r.json();
+      if(j.success) location.href=j.redirect||'/hunter-playbook-learning';
+      else alert(j.message||j.error||'Save failed');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        samples=esc(overall.get("samples")),
+        avg=esc(overall.get("avg_delta")),
+        confidence=esc(overall.get("confidence")),
+        trend=esc(overall.get("trend")),
+        headline=esc(data.get("headline")),
+        guidance=esc(data.get("guidance")),
+        strongest=esc(strongest.get("title") or strongest.get("strategy") or "Not enough evidence yet"),
+        strategy_html=strategy_html,
+        decision_html=decision_html,
+        strategy_options=strategy_options,
+        notes_html=notes_html,
+        policy=esc(data.get("policy")),
+    )
+
+
+# Surface V30.7 from the outcome-verification page.
+try:
+    _v307_prev_outcome_page = app.view_functions.get("v306_decision_outcome_page")
+    if _v307_prev_outcome_page:
+        def _v307_outcome_page_with_learning_link(*args, **kwargs):
+            response = _v307_prev_outcome_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-playbook-learning" not in response:
+                link = "<a href='/hunter-playbook-learning' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #2f6c91;border-radius:10px;color:#fff;text-decoration:none'>🧠 DECISION LEARNING MEMORY</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v306_decision_outcome_page"] = _v307_outcome_page_with_learning_link
+except Exception:
+    pass
 
 
 if __name__ == "__main__":
