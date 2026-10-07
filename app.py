@@ -59195,6 +59195,587 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.3 RECOVERY STABILITY SEAL + REOPEN GATE =====
+# V33.2 can close an incident after verified recovery or escalate rollback.
+# V33.3 adds a post-recovery stability window and immutable recovery seal.
+# A recovered case is not considered "sealed" until stability checks pass.
+# Reopen is explicit and evidence-backed; no routing changes happen automatically.
+
+V333_VERSION = "V33.3"
+V333_SIGNALS = {"STABLE", "MIXED", "REGRESSED", "INCONCLUSIVE"}
+V333_OUTCOMES = {"SEALED_RECOVERY", "EXTEND_WATCH", "REOPEN_RECOMMENDED"}
+V333_MIN_CHECKS = 2
+
+
+def _v333_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recovery_stability_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            decision_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v333_stability_checks_incident
+        ON hunter_recovery_stability_checks(username, incident_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recovery_stability_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL UNIQUE,
+            decision_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v333_stability_outcome_user
+        ON hunter_recovery_stability_outcomes(username, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recovery_seals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL UNIQUE,
+            stability_outcome_id INTEGER NOT NULL,
+            seal_state TEXT NOT NULL DEFAULT 'SEALED',
+            seal_note TEXT,
+            sealed_at TEXT NOT NULL,
+            reopened_at TEXT,
+            reopen_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v333_seal_user_state
+        ON hunter_recovery_seals(username, seal_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v333_init()
+except Exception:
+    pass
+
+
+def _v333_checks(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_recovery_stability_checks
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC
+        """, (username, int(incident_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v333_outcome(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recovery_stability_outcomes
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(incident_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v333_seal(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recovery_seals
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(incident_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v333_recovery_decision(username, incident_id):
+    decision = _v332_decision(username, incident_id)
+    if not decision:
+        return None
+    if str(decision.get("decision_state") or "") != "EXECUTED":
+        return None
+    if str(decision.get("decision_type") or "") != "CLOSE_INCIDENT":
+        return None
+    return decision
+
+
+def _v333_add_check(username, incident_id, signal_state, evidence_note=""):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+
+    decision = _v333_recovery_decision(username, incident_id)
+    if not decision:
+        return False, "executed_recovery_decision_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V333_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recovery_stability_checks
+            (username, incident_id, decision_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(incident_id), int(decision["id"]), signal,
+            str(evidence_note or "").strip()[:2400], now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "RECOVERY_STABILITY_CHECK",
+            detail="V33.3 incident #%s post-recovery stability check recorded as %s." % (
+                int(incident_id), signal
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, cid
+
+
+def _v333_finalize_outcome(username, incident_id, requested_outcome, note=""):
+    decision = _v333_recovery_decision(username, incident_id)
+    if not decision:
+        return False, "executed_recovery_decision_required", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V333_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    checks = _v333_checks(username, incident_id)
+    if len(checks) < V333_MIN_CHECKS:
+        return False, "not_enough_stability_checks", None
+
+    existing = _v333_outcome(username, incident_id)
+    if existing:
+        return False, "stability_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recovery_stability_outcomes
+            (username, incident_id, decision_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(incident_id), int(decision["id"]), requested,
+            str(note or "").strip()[:2400], now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "RECOVERY_STABILITY_OUTCOME",
+            detail="V33.3 incident #%s stability outcome finalized as %s." % (
+                int(incident_id), requested
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, oid
+
+
+def _v333_create_seal(username, incident_id, seal_note=""):
+    outcome = _v333_outcome(username, incident_id)
+    if not outcome:
+        return False, "stability_outcome_required", None
+    if str(outcome.get("outcome") or "") != "SEALED_RECOVERY":
+        return False, "sealed_recovery_outcome_required", None
+
+    existing = _v333_seal(username, incident_id)
+    if existing:
+        return False, "recovery_already_sealed", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recovery_seals
+            (username, incident_id, stability_outcome_id, seal_state, seal_note, sealed_at)
+            VALUES (?, ?, ?, 'SEALED', ?, ?)
+        """, (
+            username, int(incident_id), int(outcome["id"]),
+            str(seal_note or "").strip()[:2400], now
+        ))
+        sid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "RECOVERY_SEALED",
+            detail="V33.3 incident #%s recovery sealed after stability verification." % int(incident_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, sid
+
+
+def _v333_reopen_seal(username, incident_id, note=""):
+    seal = _v333_seal(username, incident_id)
+    if not seal:
+        return False, "recovery_seal_not_found", None
+    if str(seal.get("seal_state") or "") != "SEALED":
+        return False, "recovery_not_sealed", int(seal["id"])
+
+    outcome = _v333_outcome(username, incident_id)
+    if not outcome or str(outcome.get("outcome") or "") != "REOPEN_RECOMMENDED":
+        return False, "reopen_recommendation_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_recovery_seals
+            SET seal_state='REOPENED', reopened_at=?, reopen_note=?
+            WHERE id=? AND username=? AND seal_state='SEALED'
+        """, (
+            now,
+            str(note or "Explicit V33.3 recovery reopen.").strip()[:2400],
+            int(seal["id"]),
+            username,
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "RECOVERY_SEAL_REOPENED",
+            detail="V33.3 recovery seal #%s reopened explicitly for incident #%s." % (
+                int(seal["id"]), int(incident_id)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(seal["id"])
+
+
+def _v333_snapshot(username):
+    base = _v332_snapshot(username)
+    items = []
+
+    for incident in base.get("items", []):
+        iid = int(incident.get("id") or 0)
+        decision = _v333_recovery_decision(username, iid)
+        if not decision:
+            continue
+
+        checks = _v333_checks(username, iid)
+        outcome = _v333_outcome(username, iid)
+        seal = _v333_seal(username, iid)
+
+        item = dict(incident)
+        item["stability_checks"] = checks[:20]
+        item["stability_count"] = len(checks)
+        item["stability_outcome"] = outcome
+        item["recovery_seal"] = seal
+        item["ready_for_outcome"] = len(checks) >= V333_MIN_CHECKS and not outcome
+        item["ready_to_seal"] = bool(outcome) and str(outcome.get("outcome") or "") == "SEALED_RECOVERY" and not seal
+        item["ready_to_reopen"] = (
+            bool(outcome)
+            and str(outcome.get("outcome") or "") == "REOPEN_RECOMMENDED"
+            and bool(seal)
+            and str(seal.get("seal_state") or "") == "SEALED"
+        )
+        items.append(item)
+
+    return {
+        "version": V333_VERSION,
+        "minimum_checks": V333_MIN_CHECKS,
+        "counts": {
+            "recovery_cases": len(items),
+            "checks": sum(int(i.get("stability_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "sealed": sum(1 for i in items if i.get("recovery_seal") and str(i["recovery_seal"].get("seal_state") or "") == "SEALED"),
+        },
+        "items": items,
+        "policy": "Recovery closure is not final until post-recovery stability is verified and explicitly sealed."
+    }
+
+
+@app.route("/api/hunter-recovery-stability")
+def v333_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v333_snapshot(username)})
+
+
+@app.route("/api/hunter-recovery-stability/<int:incident_id>/check", methods=["POST"])
+def v333_check_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, check_id = _v333_add_check(
+        username,
+        incident_id,
+        payload.get("signal_state") or "INCONCLUSIVE",
+        payload.get("evidence_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "check_id": check_id}), 400
+    return jsonify({"success": True, "check_id": check_id})
+
+
+@app.route("/api/hunter-recovery-stability/<int:incident_id>/outcome", methods=["POST"])
+def v333_outcome_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, outcome_id = _v333_finalize_outcome(
+        username,
+        incident_id,
+        payload.get("outcome") or "",
+        payload.get("outcome_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": outcome_id}), 400
+    return jsonify({"success": True, "outcome_id": outcome_id})
+
+
+@app.route("/api/hunter-recovery-stability/<int:incident_id>/seal", methods=["POST"])
+def v333_seal_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, seal_id = _v333_create_seal(
+        username, incident_id, payload.get("seal_note") or payload.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "seal_id": seal_id}), 400
+    return jsonify({"success": True, "seal_id": seal_id})
+
+
+@app.route("/api/hunter-recovery-stability/<int:incident_id>/reopen", methods=["POST"])
+def v333_reopen_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, seal_id = _v333_reopen_seal(
+        username, incident_id, payload.get("reopen_note") or payload.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "seal_id": seal_id}), 400
+    return jsonify({"success": True, "seal_id": seal_id})
+
+
+@app.route("/hunter-recovery-stability")
+def v333_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Recovery Stability</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧷 Recovery Stability</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v333_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        iid = int(item.get("id") or 0)
+        checks = item.get("stability_checks") or []
+        outcome = item.get("stability_outcome") or {}
+        seal = item.get("recovery_seal") or {}
+
+        checks_html = "".join(
+            "<div class='checkrow'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at")),
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No stability checks yet.</div>"
+
+        actions = ""
+        if not outcome:
+            actions += """
+            <form action='/api/hunter-recovery-stability/{iid}/check' onsubmit='return v333submit(this,event)'>
+              <select name='signal_state'>
+                <option>STABLE</option><option>MIXED</option><option>REGRESSED</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Post-recovery stability evidence'></textarea>
+              <button type='submit'>ADD STABILITY CHECK</button>
+            </form>
+            """.format(iid=iid)
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-recovery-stability/{iid}/outcome' onsubmit='return v333submit(this,event)'>
+              <select name='outcome'>
+                <option value='SEALED_RECOVERY'>SEALED_RECOVERY</option>
+                <option value='EXTEND_WATCH'>EXTEND_WATCH</option>
+                <option value='REOPEN_RECOMMENDED'>REOPEN_RECOMMENDED</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Why this stability outcome is supported'></textarea>
+              <button type='submit'>FINALIZE STABILITY OUTCOME</button>
+            </form>
+            """.format(iid=iid)
+        elif outcome:
+            actions += "<div class='final'>STABILITY OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")), esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_seal"):
+            actions += """
+            <form action='/api/hunter-recovery-stability/{iid}/seal' onsubmit='return v333submit(this,event)'>
+              <textarea name='seal_note' rows='2' placeholder='Final recovery seal note'></textarea>
+              <button class='safe' type='submit'>SEAL RECOVERY</button>
+            </form>
+            """.format(iid=iid)
+
+        if item.get("ready_to_reopen"):
+            actions += """
+            <form action='/api/hunter-recovery-stability/{iid}/reopen' onsubmit='return v333submit(this,event)'>
+              <textarea name='reopen_note' rows='2' placeholder='Reason for reopening recovery case'></textarea>
+              <button class='danger' type='submit'>REOPEN RECOVERY CASE</button>
+            </form>
+            """.format(iid=iid)
+
+        seal_html = ""
+        if seal:
+            seal_html = "<div class='seal'>RECOVERY SEAL: <b>{}</b><br><small>{}</small></div>".format(
+                esc(seal.get("seal_state")), esc(seal.get("sealed_at"))
+            )
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Incident #{iid}</span><span class='pill'>POST-RECOVERY</span></div>
+          <h2>{title}</h2>
+          <p><b>Stability checks:</b> {count}</p>
+          {seal_html}
+          {actions}
+          <div class='history'>{checks}</div>
+        </article>
+        """.format(
+            iid=esc(iid),
+            title=esc(item.get("title")),
+            count=esc(item.get("stability_count")),
+            seal_html=seal_html,
+            actions=actions,
+            checks=checks_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.3 Recovery Stability</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1120px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#7fd7ff;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#7fd7ff}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #31596a;border-radius:999px;padding:6px 9px;color:#7fd7ff;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.safe{{background:#8bf0c8}} button.danger{{background:#ff8797}} .checkrow{{border-top:1px solid #15313f;padding:10px 0}}
+    .checkrow b{{color:#7fd7ff;display:block}} .checkrow span{{display:block;margin:5px 0;color:#d7e8ef}}
+    .final,.seal{{margin-top:10px;background:#0e2a21;border:1px solid #216c52;color:#9bf2cb;border-radius:12px;padding:10px}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #7fd7ff;padding:12px;background:#07131a;color:#bddbe8;line-height:1.6}}
+    @media(max-width:720px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.3 // RECOVERY STABILITY SEAL + REOPEN GATE</div>
+        <h1>🧷 SEAL RECOVERY</h1>
+        <div class='sub'>A closed incident is only considered fully recovered after post-recovery stability evidence is collected and an explicit recovery seal is issued.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>RECOVERY CASES</div><div class='num'>{cases}</div></div>
+          <div class='stat'><div class='eyebrow'>CHECKS</div><div class='num'>{checks}</div></div>
+          <div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div>
+          <div class='stat'><div class='eyebrow'>SEALED</div><div class='num'>{sealed}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-remediation-verification'>🧭 VERIFY RECOVERY</a><a href='/hunter-canonical-incidents'>🚨 INCIDENT REVIEW</a><a href='/api/hunter-recovery-stability'>JSON</a></div>
+        <div class='rule'><strong>V33.3 rule:</strong> recovery is not final merely because an incident was closed. Stability must be verified and explicitly sealed; reopening remains a separate evidence-backed action.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v333submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        cases=esc(c.get("recovery_cases",0)),
+        checks=esc(c.get("checks",0)),
+        ready=esc(c.get("ready_for_outcome",0)),
+        sealed=esc(c.get("sealed",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No executed recovery closures are waiting for stability verification.</p></article>"
+    )
+
+
+# Surface V33.3 from V33.2 recovery verification workspace.
+try:
+    _v333_prev_page = app.view_functions.get("v332_page")
+    if _v333_prev_page:
+        def _v333_verification_with_stability(*args, **kwargs):
+            response = _v333_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-recovery-stability" not in response:
+                anchor = "<a href='/api/hunter-remediation-verification'>JSON</a>"
+                link = "<a href='/hunter-recovery-stability'>🧷 SEAL RECOVERY</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v332_page"] = _v333_verification_with_stability
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
