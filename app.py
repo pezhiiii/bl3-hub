@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.3 Build Attestation</title><style>
+    <title>BL3 V32.4 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.3 Hunter Command Deck</title>
+    <title>BL3 V32.4 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -54724,6 +54724,370 @@ try:
                 )
             return response
         app.view_functions["v322_regression_triage_page"] = _v323_triage_with_cases
+except Exception:
+    pass
+
+
+# ===== V32.4 REOPEN ACTIVATION + SUCCESSOR DIRECTIVE CHAIN =====
+# CONFIRMED_REOPEN cases can now activate a new successor directive without
+# mutating the historical closed directive. The successor becomes the active
+# execution guard for its playbook while preserving the original lineage.
+
+V324_VERSION = "V32.4"
+V324_ALLOWED_TYPES = {"RETEST_ONLY", "NARROW_CONTEXT", "CONTROLLED_REUSE", "OBSERVE_ONLY"}
+
+
+def _v324_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_reopen_successor_directives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            case_id INTEGER NOT NULL,
+            parent_directive_id INTEGER NOT NULL,
+            playbook_id INTEGER,
+            strategy TEXT NOT NULL,
+            directive_type TEXT NOT NULL,
+            directive_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            activation_note TEXT,
+            created_at TEXT NOT NULL,
+            closed_at TEXT,
+            close_note TEXT,
+            UNIQUE(username, case_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v324_successor_user_state
+        ON hunter_reopen_successor_directives(username, directive_state, playbook_id, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v324_init()
+except Exception:
+    pass
+
+
+def _v324_successors(username, limit=120):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, case_id, parent_directive_id, playbook_id, strategy,
+                   directive_type, directive_state, activation_note,
+                   created_at, closed_at, close_note
+            FROM hunter_reopen_successor_directives
+            WHERE username=?
+            ORDER BY CASE directive_state WHEN 'ACTIVE' THEN 0 ELSE 1 END, id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v324_activate_case(username, case_id, directive_type="", activation_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        case = con.execute("""
+            SELECT id, proposal_id, directive_id, strategy, case_state, outcome,
+                   reevaluation_note, resolved_at
+            FROM hunter_reopen_cases
+            WHERE id=? AND username=?
+        """, (int(case_id), username)).fetchone()
+        if not case:
+            return False, "case_not_found", None
+        if str(case["case_state"] or "") != "RESOLVED":
+            return False, "case_must_be_resolved", None
+        if str(case["outcome"] or "") != "CONFIRMED_REOPEN":
+            return False, "case_outcome_must_be_confirmed_reopen", None
+
+        existing = con.execute("""
+            SELECT id FROM hunter_reopen_successor_directives
+            WHERE username=? AND case_id=?
+        """, (username, int(case_id))).fetchone()
+        if existing:
+            return False, "case_already_activated", int(existing[0])
+
+        parent = con.execute("""
+            SELECT id, review_id, playbook_id, strategy, directive_type,
+                   directive_state, source_learning_state, rationale
+            FROM hunter_playbook_recalibration_directives
+            WHERE id=? AND username=?
+        """, (int(case["directive_id"]), username)).fetchone()
+        if not parent:
+            return False, "parent_directive_not_found", None
+        if str(parent["directive_state"] or "") != "CLOSED":
+            return False, "parent_directive_must_remain_closed", None
+
+        requested = str(directive_type or "").strip().upper()
+        if not requested:
+            requested = str(parent["directive_type"] or "OBSERVE_ONLY").upper()
+        if requested not in V324_ALLOWED_TYPES:
+            return False, "invalid_directive_type", None
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = con.execute("""
+            INSERT INTO hunter_reopen_successor_directives
+            (username, case_id, parent_directive_id, playbook_id, strategy,
+             directive_type, directive_state, activation_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+        """, (
+            username, int(case_id), int(parent["id"]), parent["playbook_id"],
+            str(case["strategy"] or parent["strategy"] or ""), requested,
+            str(activation_note or case["reevaluation_note"] or "Confirmed reopen activated.")[:3000],
+            now,
+        ))
+        successor_id = int(cur.lastrowid)
+        con.commit()
+        strategy = str(case["strategy"] or parent["strategy"] or "")
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username, strategy, "REOPEN_SUCCESSOR_ACTIVATED",
+            directive_id=int(case["directive_id"]),
+            detail="V32.4 successor #%s activated from reopen case #%s; historical directive #%s remains CLOSED." % (
+                successor_id, int(case_id), int(case["directive_id"])
+            )
+        )
+    except Exception:
+        pass
+    return True, None, successor_id
+
+
+def _v324_close_successor(username, successor_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, strategy, parent_directive_id, directive_state
+            FROM hunter_reopen_successor_directives
+            WHERE id=? AND username=?
+        """, (int(successor_id), username)).fetchone()
+        if not row:
+            return False, "successor_not_found"
+        if str(row["directive_state"] or "") != "ACTIVE":
+            return False, "successor_not_active"
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        con.execute("""
+            UPDATE hunter_reopen_successor_directives
+            SET directive_state='CLOSED', closed_at=?, close_note=?
+            WHERE id=? AND username=? AND directive_state='ACTIVE'
+        """, (now, str(note or "")[:3000], int(successor_id), username))
+        con.commit()
+        strategy = str(row["strategy"] or "")
+        parent_id = int(row["parent_directive_id"])
+    finally:
+        con.close()
+    try:
+        _v316_log_event(
+            username, strategy, "REOPEN_SUCCESSOR_CLOSED",
+            directive_id=parent_id,
+            detail="V32.4 successor #%s closed. %s" % (int(successor_id), str(note or "")[:1200])
+        )
+    except Exception:
+        pass
+    return True, None
+
+
+def _v324_active_successor_for_playbook(username, playbook_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, case_id, parent_directive_id, playbook_id, strategy,
+                   directive_type, directive_state, activation_note, created_at
+            FROM hunter_reopen_successor_directives
+            WHERE username=? AND playbook_id=? AND directive_state='ACTIVE'
+            ORDER BY id DESC
+            LIMIT 1
+        """, (username, int(playbook_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        # Match the shape expected by the existing execution guard.
+        d["review_id"] = None
+        d["source_learning_state"] = "REOPEN_CONFIRMED"
+        d["rationale"] = d.get("activation_note") or "Confirmed reopen successor directive."
+        d["successor_directive"] = True
+        return d
+    finally:
+        con.close()
+
+
+# Let the existing execution guard prefer an ACTIVE V32.4 successor directive.
+try:
+    _v324_prev_active_directive_for_playbook = _v316_active_directive_for_playbook
+    def _v316_active_directive_for_playbook(username, playbook_id):
+        successor = _v324_active_successor_for_playbook(username, playbook_id)
+        if successor:
+            return successor
+        return _v324_prev_active_directive_for_playbook(username, playbook_id)
+except Exception:
+    pass
+
+
+def _v324_snapshot(username):
+    successors = _v324_successors(username, 160)
+    confirmed_cases = [c for c in _v323_cases(username, 200)
+                       if str(c.get("case_state") or "") == "RESOLVED"
+                       and str(c.get("outcome") or "") == "CONFIRMED_REOPEN"]
+    activated_case_ids = {int(s.get("case_id")) for s in successors if s.get("case_id") is not None}
+    ready = [c for c in confirmed_cases if int(c.get("id")) not in activated_case_ids]
+    counts = {
+        "total_successors": len(successors),
+        "active": sum(1 for s in successors if str(s.get("directive_state") or "") == "ACTIVE"),
+        "closed": sum(1 for s in successors if str(s.get("directive_state") or "") == "CLOSED"),
+        "ready_to_activate": len(ready),
+    }
+    return {"version": V324_VERSION, "counts": counts, "ready_cases": ready, "successors": successors,
+            "historical_mutation": False}
+
+
+@app.route("/api/hunter-reopen-activation")
+def v324_reopen_activation_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v324_snapshot(username)})
+
+
+@app.route("/api/hunter-reopen-activation/<int:case_id>/activate", methods=["POST"])
+def v324_reopen_activate_api(case_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, successor_id = _v324_activate_case(
+        username, case_id,
+        payload.get("directive_type") or "",
+        payload.get("activation_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "successor_id": successor_id}), 400
+    return jsonify({"success": True, "successor_id": successor_id})
+
+
+@app.route("/api/hunter-reopen-activation/<int:successor_id>/close", methods=["POST"])
+def v324_reopen_close_api(successor_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error = _v324_close_successor(username, successor_id, payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-reopen-activation")
+def v324_reopen_activation_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Reopen Activation</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🔁 Reopen Activation</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v324_snapshot(username)
+    c = data["counts"]
+    ready_cards = []
+    for case in data["ready_cases"]:
+        cid = int(case.get("id"))
+        ready_cards.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>CASE #{cid} · PARENT DIRECTIVE #{did}</span><h3>{strategy}</h3></div><span class='pill ready'>READY</span></div>
+          <p><strong>Re-evaluation:</strong> {note}</p>
+          <form action='/api/hunter-reopen-activation/{cid}/activate' onsubmit='return v324activate(this,event)'>
+            <label>SUCCESSOR DIRECTIVE TYPE</label>
+            <select name='directive_type'>
+              <option value=''>INHERIT PARENT TYPE</option>
+              <option value='RETEST_ONLY'>RETEST_ONLY</option>
+              <option value='NARROW_CONTEXT'>NARROW_CONTEXT</option>
+              <option value='CONTROLLED_REUSE'>CONTROLLED_REUSE</option>
+              <option value='OBSERVE_ONLY'>OBSERVE_ONLY</option>
+            </select>
+            <label>ACTIVATION NOTE</label>
+            <textarea name='activation_note' rows='3' placeholder='Why this successor directive should govern the new cycle'></textarea>
+            <button type='submit'>ACTIVATE SUCCESSOR</button>
+          </form>
+        </article>
+        """.format(cid=cid, did=esc(case.get("directive_id")), strategy=esc(case.get("strategy")), note=esc(case.get("reevaluation_note"))))
+
+    successor_cards = []
+    for s in data["successors"]:
+        sid = int(s.get("id"))
+        state = str(s.get("directive_state") or "")
+        close_form = ""
+        if state == "ACTIVE":
+            close_form = """
+            <form action='/api/hunter-reopen-activation/{sid}/close' onsubmit='return v324close(this,event)'>
+              <label>CLOSE NOTE</label><textarea name='note' rows='2'></textarea>
+              <button type='submit'>CLOSE SUCCESSOR</button>
+            </form>""".format(sid=sid)
+        successor_cards.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>SUCCESSOR #{sid} · CASE #{cid} · PARENT #{pid}</span><h3>{strategy}</h3></div><span class='pill {stateclass}'>{state}</span></div>
+          <div class='grid'>
+            <div><span>TYPE</span><b>{dtype}</b></div><div><span>PLAYBOOK</span><b>{playbook}</b></div>
+            <div><span>CREATED</span><b>{created}</b></div><div><span>PARENT MUTATION</span><b>OFF</b></div>
+          </div>
+          <p><strong>Activation note:</strong> {note}</p>{close_form}
+        </article>
+        """.format(
+            sid=esc(sid), cid=esc(s.get("case_id")), pid=esc(s.get("parent_directive_id")),
+            strategy=esc(s.get("strategy")), state=esc(state), stateclass=esc(state.lower()),
+            dtype=esc(s.get("directive_type")), playbook=esc(s.get("playbook_id")),
+            created=esc(s.get("created_at")), note=esc(s.get("activation_note")), close_form=close_form,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.4 Reopen Activation</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#26314b,#0a0d14 58%,#020203);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c1119ef;border:1px solid #4b5f8c;border-radius:24px;padding:24px}}.eyebrow{{color:#9bb8ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}
+    h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0}}p{{color:#dce5f6;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#121827;border:1px solid #3d4d74;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#a8b4d0;font-size:9px;font-weight:900}}.hero b,.grid b{{display:block;margin-top:6px;font-size:17px;overflow-wrap:anywhere}}
+    .card{{background:#101625;border:1px solid #42547e;border-radius:18px;padding:17px;margin:12px 0}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #6176a9;border-radius:999px;padding:6px 9px}}
+    .pill.active,.pill.ready{{border-color:#6d9cff}}.pill.closed{{border-color:#758095}}.rule{{border-left:4px solid #7aa7ff;padding:11px 14px;background:#111a2b;border-radius:8px}}a,button{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #4b638f;border-radius:10px;background:#111a2a;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    form{{margin-top:14px;padding-top:12px;border-top:1px solid #33415e}}label{{display:block;margin-top:9px;color:#afbdd7;font-size:10px;font-weight:900}}select,textarea{{width:100%;margin-top:5px;background:#09101d;color:#fff;border:1px solid #405375;border-radius:10px;padding:10px}}.section{{margin-top:28px;padding-top:18px;border-top:1px solid #2a3853}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style><script>
+    async function v324activate(form,event){{event.preventDefault();const fd=new FormData(form);const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{directive_type:fd.get('directive_type'),activation_note:fd.get('activation_note')}})}});const data=await res.json();if(data.success){{location.reload();return false;}}alert(data.error||'activation_failed');return false;}}
+    async function v324close(form,event){{event.preventDefault();const fd=new FormData(form);const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{note:fd.get('note')}})}});const data=await res.json();if(data.success){{location.reload();return false;}}alert(data.error||'close_failed');return false;}}
+    </script></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V32.4 // REOPEN ACTIVATION + SUCCESSOR DIRECTIVE CHAIN</div><h1>🔁 SUCCESSOR DIRECTIVES</h1>
+      <p>{username}, a CONFIRMED_REOPEN case can now start a new directive cycle. The old directive stays CLOSED forever; the successor is a new, auditable execution guard linked to the case and parent directive.</p>
+      <div class='hero'><div><span>TOTAL SUCCESSORS</span><b>{total}</b></div><div><span>ACTIVE</span><b>{active}</b></div><div><span>CLOSED</span><b>{closed}</b></div><div><span>READY TO ACTIVATE</span><b>{ready}</b></div></div>
+      <div class='rule'><strong>V32.4 rule:</strong> reopen never edits history. CONFIRMED_REOPEN creates a successor directive, and the existing execution guard prefers that ACTIVE successor for the same playbook.</div>
+      <a href='/hunter-reopen-cases'>🧭 REOPEN CASES</a><a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a><a href='/hunter-recalibration-retests'>🧪 RETESTS</a>
+      <div class='section'><div class='eyebrow'>CONFIRMED CASES READY TO ACTIVATE</div>{ready_cards}</div>
+      <div class='section'><div class='eyebrow'>SUCCESSOR DIRECTIVE HISTORY</div>{successor_cards}</div>
+    </section></div></body></html>""".format(
+        username=esc(username), total=esc(c.get("total_successors")), active=esc(c.get("active")), closed=esc(c.get("closed")), ready=esc(c.get("ready_to_activate")),
+        ready_cards="".join(ready_cards) if ready_cards else "<p>No confirmed reopen cases are waiting for activation.</p>",
+        successor_cards="".join(successor_cards) if successor_cards else "<p>No successor directives yet.</p>",
+    )
+
+
+# Surface V32.4 from the V32.3 case workspace.
+try:
+    _v324_prev_cases_page = app.view_functions.get("v323_reopen_cases_page")
+    if _v324_prev_cases_page:
+        def _v324_cases_with_activation(*args, **kwargs):
+            response = _v324_prev_cases_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-reopen-activation" not in response:
+                response = response.replace(
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>",
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a><a href='/hunter-reopen-activation'>🔁 REOPEN ACTIVATION</a>",
+                    1
+                )
+            return response
+        app.view_functions["v323_reopen_cases_page"] = _v324_cases_with_activation
 except Exception:
     pass
 
