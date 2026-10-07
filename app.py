@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V29.8"
+V247_SECURITY_VERSION = "V29.9"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V29.8"
+V248_SECURITY_VERSION = "V29.9"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.8 Build Attestation</title><style>
+    <title>BL3 V29.9 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V29.8"
+V250_VERSION = "V29.9"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V29.8"
+V253_VERSION = "V29.9"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V29.8"
+V254_VERSION = "V29.9"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V29.8"
+V255_VERSION = "V29.9"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V29.8"
+V256_VERSION = "V29.9"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V29.8"
+V257_VERSION = "V29.9"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V29.8"
+V258_VERSION = "V29.9"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.8 Hunter Command Deck</title>
+    <title>BL3 V29.9 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V29.8"
+V259_VERSION = "V29.9"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V29.8"
+V260_VERSION = "V29.9"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V29.8"
+V261_VERSION = "V29.9"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V29.8"
+V262_VERSION = "V29.9"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V29.8"
+V263_VERSION = "V29.9"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V29.8"
+V264_VERSION = "V29.9"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V29.8"
+V265_VERSION = "V29.9"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V29.8"
+V266_VERSION = "V29.9"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V29.8"
+V267_VERSION = "V29.9"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V29.8"
+V268_VERSION = "V29.9"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V29.8"
+V269_VERSION = "V29.9"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V29.8"
+V270_VERSION = "V29.9"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V29.8"
+V271_VERSION = "V29.9"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V29.8"
+V272_VERSION = "V29.9"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V29.8"
+V273_VERSION = "V29.9"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V29.8"
+V274_VERSION = "V29.9"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V29.8"
+V275_VERSION = "V29.9"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V29.8"
+V276_VERSION = "V29.9"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V29.8"
+V277_VERSION = "V29.9"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V29.8"
+V278_VERSION = "V29.9"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V29.8"
+V279_VERSION = "V29.9"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V29.8"
+V280_VERSION = "V29.9"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V29.8"
+V281_VERSION = "V29.9"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V29.8"
+V282_VERSION = "V29.9"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V29.8"
+V283_VERSION = "V29.9"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V29.8"
+V284_VERSION = "V29.9"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V29.8"
+V285_VERSION = "V29.9"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V29.8"
+V286_VERSION = "V29.9"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V29.8"
+V287_VERSION = "V29.9"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V29.8"
+V288_VERSION = "V29.9"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V29.8"
+V289_VERSION = "V29.9"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V29.8"
+V290_VERSION = "V29.9"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -43845,6 +43845,501 @@ try:
         app.view_functions["v260_hunter_focus_page"] = _v298_focus_with_finish_check
 except Exception:
     pass
+
+
+# ===== V29.9 VERIFIED COMPLETION GATE + OUTCOME RECEIPT =====
+# Turns the V29.8 Finish Check into a real completion gate for preflight-backed runs.
+# A preflight-backed Focus Run can only be completed after:
+#   1) DONE definition explicitly marked as met
+#   2) confidence >= 3/5
+# On success, BL3 stores a compact completion receipt with contract/evidence + SHA-256 fingerprint.
+# Legacy runs without a linked preflight remain completable for backwards compatibility.
+
+V299_VERSION = "V29.9"
+
+def _v299_ensure_schema():
+    _v298_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_focus_completion_receipts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                run_id INTEGER NOT NULL,
+                preflight_id INTEGER,
+                action_title TEXT NOT NULL,
+                done_definition TEXT NOT NULL,
+                confidence INTEGER NOT NULL DEFAULT 0,
+                evidence TEXT NOT NULL DEFAULT '',
+                friction TEXT NOT NULL DEFAULT 'NONE',
+                timebox_minutes INTEGER NOT NULL DEFAULT 0,
+                elapsed_seconds INTEGER NOT NULL DEFAULT 0,
+                overtime_seconds INTEGER NOT NULL DEFAULT 0,
+                completed_at TEXT NOT NULL,
+                receipt_sha256 TEXT NOT NULL,
+                UNIQUE(username, run_id)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_focus_completion_receipts_user "
+            "ON hunter_focus_completion_receipts(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v299_completion_gate_snapshot(username, run_id=None):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V299_VERSION}
+
+    active = _v260_active_focus(username)
+    if not active:
+        return {
+            "success": True,
+            "version": V299_VERSION,
+            "username": username,
+            "active": False,
+            "gate_required": False,
+            "ready_to_complete": False,
+            "message": "No active Focus Run."
+        }
+
+    active_run_id = int(active.get("id") or 0)
+    if run_id is not None and int(run_id) != active_run_id:
+        return {
+            "success": False,
+            "error": "active_run_mismatch",
+            "active_run_id": active_run_id,
+            "requested_run_id": int(run_id),
+            "version": V299_VERSION
+        }
+
+    contract = _v297_active_focus_contract(username)
+    c = contract.get("contract") or {}
+    preflight_id = c.get("preflight_id")
+    gate_required = bool(preflight_id)
+
+    finish = _v298_finish_check_snapshot(username)
+    finish_check = finish.get("finish_check") or {}
+
+    done_met = bool(finish_check.get("done_met"))
+    confidence = int(finish_check.get("confidence") or 0)
+    ready = bool((not gate_required) or (done_met and confidence >= 3))
+
+    blockers = []
+    if gate_required:
+        if not done_met:
+            blockers.append("done_not_verified")
+        if confidence < 3:
+            blockers.append("confidence_below_3")
+
+    return {
+        "success": True,
+        "version": V299_VERSION,
+        "username": username,
+        "active": True,
+        "run_id": active_run_id,
+        "gate_required": gate_required,
+        "ready_to_complete": ready,
+        "blockers": blockers,
+        "contract": c,
+        "finish_check": finish_check,
+        "mode": "VERIFIED" if gate_required else "LEGACY_COMPAT",
+        "policy": (
+            "Preflight-backed Focus Runs require a passing Finish Check before completion. "
+            "Legacy runs without a linked preflight remain completable for compatibility."
+        )
+    }
+
+
+def _v299_receipt_payload(username, run_id, completed_at):
+    contract_data = _v297_active_focus_contract(username)
+    c = contract_data.get("contract") or {}
+
+    finish = _v298_finish_check_snapshot(username)
+    check = finish.get("finish_check") or {}
+
+    action_title = str(c.get("action_title") or "")
+    done_definition = str(c.get("done_definition") or "")
+    evidence = str(check.get("evidence") or "")
+    confidence = int(check.get("confidence") or 0)
+    friction = str(c.get("friction") or "NONE")
+    timebox = int(c.get("timebox_minutes") or 0)
+    elapsed = int(c.get("elapsed_seconds") or 0)
+    overtime = int(c.get("overtime_seconds") or 0)
+    preflight_id = c.get("preflight_id")
+
+    canonical = "|".join([
+        str(username),
+        str(run_id),
+        str(preflight_id or ""),
+        action_title,
+        done_definition,
+        str(confidence),
+        evidence,
+        friction,
+        str(timebox),
+        str(elapsed),
+        str(overtime),
+        str(completed_at),
+    ])
+    receipt_sha256 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    return {
+        "preflight_id": preflight_id,
+        "action_title": action_title,
+        "done_definition": done_definition,
+        "confidence": confidence,
+        "evidence": evidence,
+        "friction": friction,
+        "timebox_minutes": timebox,
+        "elapsed_seconds": elapsed,
+        "overtime_seconds": overtime,
+        "completed_at": completed_at,
+        "receipt_sha256": receipt_sha256,
+    }
+
+
+def _v299_store_completion_receipt(username, run_id, completed_at):
+    payload = _v299_receipt_payload(username, run_id, completed_at)
+    _v299_ensure_schema()
+
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_focus_completion_receipts
+               (username, run_id, preflight_id, action_title, done_definition,
+                confidence, evidence, friction, timebox_minutes,
+                elapsed_seconds, overtime_seconds, completed_at, receipt_sha256)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(username, run_id) DO UPDATE SET
+                 preflight_id=excluded.preflight_id,
+                 action_title=excluded.action_title,
+                 done_definition=excluded.done_definition,
+                 confidence=excluded.confidence,
+                 evidence=excluded.evidence,
+                 friction=excluded.friction,
+                 timebox_minutes=excluded.timebox_minutes,
+                 elapsed_seconds=excluded.elapsed_seconds,
+                 overtime_seconds=excluded.overtime_seconds,
+                 completed_at=excluded.completed_at,
+                 receipt_sha256=excluded.receipt_sha256""",
+            (
+                username,
+                int(run_id),
+                payload.get("preflight_id"),
+                payload.get("action_title"),
+                payload.get("done_definition"),
+                int(payload.get("confidence") or 0),
+                payload.get("evidence"),
+                payload.get("friction"),
+                int(payload.get("timebox_minutes") or 0),
+                int(payload.get("elapsed_seconds") or 0),
+                int(payload.get("overtime_seconds") or 0),
+                completed_at,
+                payload.get("receipt_sha256"),
+            )
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return payload
+
+
+@app.route("/api/hunter-focus-completion-gate")
+def v299_focus_completion_gate_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v299_completion_gate_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-focus-completion-receipts")
+def v299_focus_completion_receipts_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    _v299_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT id, run_id, preflight_id, action_title, done_definition,
+                      confidence, evidence, friction, timebox_minutes,
+                      elapsed_seconds, overtime_seconds, completed_at, receipt_sha256
+               FROM hunter_focus_completion_receipts
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT 50""",
+            (username,)
+        ).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V299_VERSION,
+        "username": username,
+        "count": len(items),
+        "items": items,
+    })
+
+
+# Wrap the original Focus completion endpoint with the V29.9 verified completion gate.
+try:
+    _v299_prev_focus_complete = app.view_functions.get("v260_hunter_focus_complete_api")
+    if _v299_prev_focus_complete:
+        def _v299_verified_focus_complete(run_id, *args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            if not username:
+                return jsonify({"success": False, "error": "auth_required"}), 401
+
+            gate = _v299_completion_gate_snapshot(username, run_id)
+            if not gate.get("success"):
+                return jsonify(gate), 409
+
+            if gate.get("gate_required") and not gate.get("ready_to_complete"):
+                return jsonify({
+                    "success": False,
+                    "version": V299_VERSION,
+                    "error": "finish_check_required",
+                    "message": "Verify the DONE definition and confidence before completing this Focus Run.",
+                    "blockers": gate.get("blockers"),
+                    "finish_check": "/hunter-focus-finish-check",
+                    "gate": gate,
+                }), 409
+
+            # Build receipt data BEFORE completion changes active state.
+            pre_receipt = _v299_receipt_payload(
+                username,
+                int(run_id),
+                datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            )
+
+            response = _v299_prev_focus_complete(run_id, *args, **kwargs)
+
+            try:
+                body = response.get_json() if hasattr(response, "get_json") else None
+                if body and body.get("success"):
+                    completed_at = str(body.get("completed_at") or pre_receipt.get("completed_at"))
+                    receipt = dict(pre_receipt)
+                    receipt["completed_at"] = completed_at
+
+                    # Recalculate fingerprint with the actual completed_at returned by completion API.
+                    canonical = "|".join([
+                        str(username),
+                        str(run_id),
+                        str(receipt.get("preflight_id") or ""),
+                        str(receipt.get("action_title") or ""),
+                        str(receipt.get("done_definition") or ""),
+                        str(receipt.get("confidence") or 0),
+                        str(receipt.get("evidence") or ""),
+                        str(receipt.get("friction") or "NONE"),
+                        str(receipt.get("timebox_minutes") or 0),
+                        str(receipt.get("elapsed_seconds") or 0),
+                        str(receipt.get("overtime_seconds") or 0),
+                        completed_at,
+                    ])
+                    receipt["receipt_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+                    _v299_ensure_schema()
+                    conn = sqlite3.connect(DB)
+                    try:
+                        conn.execute(
+                            """INSERT INTO hunter_focus_completion_receipts
+                               (username, run_id, preflight_id, action_title, done_definition,
+                                confidence, evidence, friction, timebox_minutes,
+                                elapsed_seconds, overtime_seconds, completed_at, receipt_sha256)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(username, run_id) DO UPDATE SET
+                                 preflight_id=excluded.preflight_id,
+                                 action_title=excluded.action_title,
+                                 done_definition=excluded.done_definition,
+                                 confidence=excluded.confidence,
+                                 evidence=excluded.evidence,
+                                 friction=excluded.friction,
+                                 timebox_minutes=excluded.timebox_minutes,
+                                 elapsed_seconds=excluded.elapsed_seconds,
+                                 overtime_seconds=excluded.overtime_seconds,
+                                 completed_at=excluded.completed_at,
+                                 receipt_sha256=excluded.receipt_sha256""",
+                            (
+                                username,
+                                int(run_id),
+                                receipt.get("preflight_id"),
+                                receipt.get("action_title"),
+                                receipt.get("done_definition"),
+                                int(receipt.get("confidence") or 0),
+                                receipt.get("evidence"),
+                                receipt.get("friction"),
+                                int(receipt.get("timebox_minutes") or 0),
+                                int(receipt.get("elapsed_seconds") or 0),
+                                int(receipt.get("overtime_seconds") or 0),
+                                completed_at,
+                                receipt.get("receipt_sha256"),
+                            )
+                        )
+                        conn.commit()
+                    finally:
+                        conn.close()
+
+                    body["completion_gate_version"] = V299_VERSION
+                    body["completion_mode"] = gate.get("mode")
+                    body["completion_receipt"] = receipt
+                    body["next"] = "/hunter-focus-exit-review"
+                    return jsonify(body)
+            except Exception:
+                pass
+
+            return response
+
+        app.view_functions["v260_hunter_focus_complete_api"] = _v299_verified_focus_complete
+except Exception:
+    pass
+
+
+@app.route("/hunter-focus-completion-gate")
+def v299_focus_completion_gate_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Completion Gate</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🔐 Completion Gate</h1><p>Sign in to view your active completion state.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v299_completion_gate_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    if not data.get("active"):
+        return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 V29.9 Completion Gate</title>
+        <style>body{{margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px}}a{{color:#9fdcff}}</style></head>
+        <body><h1>🔐 COMPLETION GATE</h1><p>No active Focus Run.</p>
+        <a href='/hunter-focus-preflight'>Prepare the next Focus Run</a></body></html>"""
+
+    c = data.get("contract") or {}
+    check = data.get("finish_check") or {}
+    status = "READY" if data.get("ready_to_complete") else "BLOCKED"
+    gate_label = "REQUIRED" if data.get("gate_required") else "LEGACY COMPAT"
+    blockers = ", ".join(data.get("blockers") or []) or "None"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V29.9 Completion Gate</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#241f38 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:900px;margin:auto}}.panel{{background:#0d0a16ed;border:1px solid #5e537a;border-radius:24px;padding:22px}}
+    .eyebrow{{color:#c9b7ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}.muted{{color:#b9b2c8}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}}.card{{background:#0a0810;border:1px solid #433b56;border-radius:16px;padding:15px}}.k{{font-size:10px;color:#bfb4db;font-weight:900}}.v{{font-size:25px;font-weight:950;margin-top:6px}}
+    .done{{background:#0a1510;border:1px solid #476a56;border-radius:17px;padding:16px;margin-top:15px}}.block{{background:#1a0e13;border:1px solid #754455;border-radius:17px;padding:16px;margin-top:15px}}
+    a{{display:inline-block;border:1px solid #74659a;border-radius:10px;padding:10px 13px;background:#151124;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V29.9 // VERIFIED COMPLETION</div>
+      <h1>🔐 COMPLETION GATE</h1>
+      <p class='muted'>{username}, preflight-backed work must pass its Finish Check before BL3 accepts completion.</p>
+
+      <div class='grid'>
+        <div class='card'><div class='k'>STATUS</div><div class='v'>{status}</div></div>
+        <div class='card'><div class='k'>GATE</div><div class='v'>{gate_label}</div></div>
+        <div class='card'><div class='k'>DONE VERIFIED</div><div class='v'>{done_met}</div></div>
+        <div class='card'><div class='k'>CONFIDENCE</div><div class='v'>{confidence}/5</div></div>
+      </div>
+
+      <div class='done'><b>DONE MEANS</b><br>{done_definition}</div>
+      <div class='block'><b>BLOCKERS</b><br>{blockers}</div>
+
+      <p><a href='/hunter-focus-finish-check'>✅ FINISH CHECK</a><a href='/hunter-active-focus-contract'>⏱️ LIVE CONTRACT</a><a href='/hunter-focus'>🔥 FOCUS RUN</a></p>
+    </section></div></body></html>""".format(
+        username=esc(username),
+        status=esc(status),
+        gate_label=esc(gate_label),
+        done_met="YES" if check.get("done_met") else "NO",
+        confidence=esc(check.get("confidence") or 0),
+        done_definition=esc(c.get("done_definition") or ""),
+        blockers=esc(blockers),
+    )
+
+
+@app.route("/hunter-focus-completion-receipts")
+def v299_focus_completion_receipts_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Completion Receipts</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧾 Completion Receipts</h1><p>Sign in to view your verified completion history.</p></body>""", 401
+
+    _v299_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT run_id, action_title, confidence, friction, timebox_minutes,
+                      elapsed_seconds, overtime_seconds, completed_at, receipt_sha256
+               FROM hunter_focus_completion_receipts
+               WHERE username=?
+               ORDER BY id DESC LIMIT 25""",
+            (username,)
+        ).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+    for item in items:
+        cards.append(
+            """<div class='receipt'><div class='eyebrow'>RUN #{run_id} · {completed_at}</div>
+            <h3>{title}</h3><p>Confidence {confidence}/5 · Friction {friction} · Timebox {timebox}m</p>
+            <p>Elapsed {elapsed}s · Overtime {overtime}s</p>
+            <code>{sha}</code></div>""".format(
+                run_id=esc(item.get("run_id")),
+                completed_at=esc(item.get("completed_at")),
+                title=esc(item.get("action_title")),
+                confidence=esc(item.get("confidence")),
+                friction=esc(item.get("friction")),
+                timebox=esc(item.get("timebox_minutes")),
+                elapsed=esc(item.get("elapsed_seconds")),
+                overtime=esc(item.get("overtime_seconds")),
+                sha=esc(item.get("receipt_sha256")),
+            )
+        )
+
+    if not cards:
+        cards.append("<div class='receipt'>No completion receipts yet.</div>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V29.9 Completion Receipts</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:#060609;color:#fff;font-family:Arial;padding:24px}}.wrap{{max-width:1000px;margin:auto}}
+    h1{{font-size:42px}}.receipt{{background:#0b0b10;border:1px solid #3f3f52;border-radius:18px;padding:16px;margin-bottom:12px}}.eyebrow{{font-size:10px;color:#bdb5d9;font-weight:900;letter-spacing:1.2px}}
+    code{{display:block;overflow-wrap:anywhere;color:#9dd8ff;background:#07070a;padding:10px;border-radius:9px}}a{{color:#b9a8ff}}
+    </style></head><body><div class='wrap'><h1>🧾 VERIFIED COMPLETION RECEIPTS</h1>
+    <p><a href='/hunter-focus-completion-gate'>Completion Gate</a> · <a href='/hunter-focus-exit-review'>Exit Reviews</a></p>
+    {cards}</div></body></html>""".format(cards="".join(cards))
+
+
+# Surface the verified completion gate from Finish Check / Active Contract / Focus.
+for _endpoint in (
+    "v298_focus_finish_check_page",
+    "v297_active_focus_contract_page",
+    "v260_hunter_focus_page",
+):
+    try:
+        _previous = app.view_functions.get(_endpoint)
+        if _previous:
+            def _make_wrapped(prev):
+                def _wrapped(*args, **kwargs):
+                    response = prev(*args, **kwargs)
+                    if isinstance(response, str) and "/hunter-focus-completion-gate" not in response:
+                        link = "<a href='/hunter-focus-completion-gate' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #74659a;border-radius:10px;color:#fff;text-decoration:none'>🔐 COMPLETION GATE</a>"
+                        response = response.replace("</body>", link + "</body>", 1)
+                    return response
+                return _wrapped
+            app.view_functions[_endpoint] = _make_wrapped(_previous)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
