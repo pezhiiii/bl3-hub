@@ -57209,6 +57209,675 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.0 CANONICAL WATCH + ROLLBACK GATE =====
+# V32.9 separates promotion from canonical adoption.
+# V33.0 adds a post-adoption evidence loop before rollback:
+# observe -> finalize watch outcome -> explicitly stage rollback -> explicitly execute rollback.
+# Adoption history remains immutable; rollback delegates to the proven V32.9 revoke path.
+
+V330_VERSION = "V33.0"
+V330_SIGNAL_STATES = {"HEALTHY", "MIXED", "DEGRADED", "INCONCLUSIVE"}
+V330_CHECKPOINT_KINDS = {"EXECUTION", "QUALITY", "STABILITY", "MANUAL"}
+V330_OUTCOMES = {"KEEP_CANONICAL", "REVIEW_REQUIRED", "ROLLBACK_RECOMMENDED"}
+V330_MIN_OBSERVATIONS = 2
+
+
+def _v330_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_canonical_watch_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            adoption_id INTEGER NOT NULL,
+            checkpoint_kind TEXT NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v330_watch_obs_user_adoption
+        ON hunter_canonical_watch_observations(username, adoption_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_canonical_watch_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            adoption_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, adoption_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v330_watch_outcome_user
+        ON hunter_canonical_watch_outcomes(username, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_canonical_rollback_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            adoption_id INTEGER NOT NULL,
+            outcome_id INTEGER NOT NULL,
+            request_state TEXT NOT NULL DEFAULT 'STAGED',
+            request_note TEXT,
+            staged_at TEXT NOT NULL,
+            executed_at TEXT,
+            execution_note TEXT,
+            UNIQUE(username, adoption_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v330_rollback_user_state
+        ON hunter_canonical_rollback_requests(username, request_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v330_init()
+except Exception:
+    pass
+
+
+def _v330_active_adoptions(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE username=? AND adoption_state='ADOPTED'
+            ORDER BY id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v330_observations(username, adoption_id=None, limit=600):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if adoption_id is None:
+            rows = con.execute("""
+                SELECT * FROM hunter_canonical_watch_observations
+                WHERE username=? ORDER BY id DESC LIMIT ?
+            """, (username, int(limit))).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT * FROM hunter_canonical_watch_observations
+                WHERE username=? AND adoption_id=?
+                ORDER BY id DESC LIMIT ?
+            """, (username, int(adoption_id), int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v330_outcome(username, adoption_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_canonical_watch_outcomes
+            WHERE username=? AND adoption_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(adoption_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v330_rollback_request(username, adoption_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_canonical_rollback_requests
+            WHERE username=? AND adoption_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(adoption_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v330_add_observation(username, adoption_id, checkpoint_kind, signal_state, note=""):
+    adoption = _v329_adopted_for_successor(username, 0)
+    # Resolve by direct adoption id, since helper above is successor-scoped.
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE id=? AND username=?
+        """, (int(adoption_id), username)).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "adoption_not_found", None
+    if str(adoption.get("adoption_state") or "") != "ADOPTED":
+        return False, "adoption_not_active", None
+
+    kind = str(checkpoint_kind or "MANUAL").strip().upper()
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if kind not in V330_CHECKPOINT_KINDS:
+        return False, "invalid_checkpoint_kind", None
+    if signal not in V330_SIGNAL_STATES:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_canonical_watch_observations
+            (username, adoption_id, checkpoint_kind, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(adoption_id), kind, signal,
+            str(note or "").strip()[:2400], now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(adoption.get("strategy") or ""),
+            "CANONICAL_WATCH_OBSERVATION",
+            detail="V33.0 adoption #%s watch checkpoint recorded as %s/%s." % (
+                int(adoption_id), kind, signal
+            )
+        )
+    except Exception:
+        pass
+    return True, None, oid
+
+
+def _v330_finalize_outcome(username, adoption_id, requested_outcome, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE id=? AND username=?
+        """, (int(adoption_id), username)).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "adoption_not_found", None
+    if str(adoption.get("adoption_state") or "") != "ADOPTED":
+        return False, "adoption_not_active", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V330_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    observations = _v330_observations(username, adoption_id, 1000)
+    if len(observations) < V330_MIN_OBSERVATIONS:
+        return False, "not_enough_observations", None
+
+    existing = _v330_outcome(username, adoption_id)
+    if existing:
+        return False, "outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_canonical_watch_outcomes
+            (username, adoption_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username, int(adoption_id), requested,
+            str(note or "").strip()[:2400], now
+        ))
+        outcome_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(adoption.get("strategy") or ""),
+            "CANONICAL_WATCH_OUTCOME",
+            detail="V33.0 adoption #%s watch finalized as %s. No rollback executed automatically." % (
+                int(adoption_id), requested
+            )
+        )
+    except Exception:
+        pass
+    return True, None, outcome_id
+
+
+def _v330_stage_rollback(username, adoption_id, note=""):
+    outcome = _v330_outcome(username, adoption_id)
+    if not outcome:
+        return False, "watch_outcome_required", None
+    if str(outcome.get("outcome") or "") != "ROLLBACK_RECOMMENDED":
+        return False, "rollback_not_recommended", None
+
+    existing = _v330_rollback_request(username, adoption_id)
+    if existing:
+        return False, "rollback_already_staged", int(existing["id"])
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE id=? AND username=?
+        """, (int(adoption_id), username)).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "adoption_not_found", None
+    if str(adoption.get("adoption_state") or "") != "ADOPTED":
+        return False, "adoption_not_active", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_canonical_rollback_requests
+            (username, adoption_id, outcome_id, request_state, request_note, staged_at)
+            VALUES (?, ?, ?, 'STAGED', ?, ?)
+        """, (
+            username, int(adoption_id), int(outcome["id"]),
+            str(note or "").strip()[:2400], now
+        ))
+        rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(adoption.get("strategy") or ""),
+            "CANONICAL_ROLLBACK_STAGED",
+            detail="V33.0 rollback for adoption #%s staged after evidence-backed recommendation." % int(adoption_id)
+        )
+    except Exception:
+        pass
+    return True, None, rid
+
+
+def _v330_execute_rollback(username, rollback_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_canonical_rollback_requests
+            WHERE id=? AND username=?
+        """, (int(rollback_id), username)).fetchone()
+        req = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not req:
+        return False, "rollback_request_not_found", None
+    if str(req.get("request_state") or "") != "STAGED":
+        return False, "rollback_not_staged", int(req["id"])
+
+    ok, error, _ = _v329_revoke_adoption(
+        username,
+        int(req["adoption_id"]),
+        note or "V33.0 evidence-backed rollback executed."
+    )
+    if not ok:
+        return False, error or "adoption_revoke_failed", int(req["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_canonical_rollback_requests
+            SET request_state='EXECUTED', executed_at=?, execution_note=?
+            WHERE id=? AND username=? AND request_state='STAGED'
+        """, (
+            now,
+            str(note or "V33.0 evidence-backed rollback executed.").strip()[:2400],
+            int(req["id"]),
+            username,
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "CANONICAL_ROLLBACK_EXECUTED",
+            detail="V33.0 rollback request #%s executed; canonical adoption #%s revoked explicitly." % (
+                int(req["id"]), int(req["adoption_id"])
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(req["id"])
+
+
+def _v330_snapshot(username):
+    adoptions = _v330_active_adoptions(username)
+    all_obs = _v330_observations(username, None, 1000)
+
+    obs_by_adoption = {}
+    for o in all_obs:
+        obs_by_adoption.setdefault(int(o.get("adoption_id") or 0), []).append(o)
+
+    items = []
+    ready = 0
+    rollback_ready = 0
+    for a in adoptions:
+        aid = int(a.get("id") or 0)
+        obs = obs_by_adoption.get(aid, [])
+        outcome = _v330_outcome(username, aid)
+        rollback = _v330_rollback_request(username, aid)
+
+        signals = {
+            "HEALTHY": sum(1 for o in obs if str(o.get("signal_state")) == "HEALTHY"),
+            "MIXED": sum(1 for o in obs if str(o.get("signal_state")) == "MIXED"),
+            "DEGRADED": sum(1 for o in obs if str(o.get("signal_state")) == "DEGRADED"),
+            "INCONCLUSIVE": sum(1 for o in obs if str(o.get("signal_state")) == "INCONCLUSIVE"),
+        }
+
+        item = dict(a)
+        item["observations"] = obs[:20]
+        item["observation_count"] = len(obs)
+        item["signals"] = signals
+        item["watch_outcome"] = outcome
+        item["rollback_request"] = rollback
+        item["ready_for_outcome"] = len(obs) >= V330_MIN_OBSERVATIONS and not outcome
+        item["ready_to_stage_rollback"] = (
+            bool(outcome)
+            and str(outcome.get("outcome") or "") == "ROLLBACK_RECOMMENDED"
+            and not rollback
+        )
+        item["ready_to_execute_rollback"] = (
+            bool(rollback)
+            and str(rollback.get("request_state") or "") == "STAGED"
+        )
+        if item["ready_for_outcome"]:
+            ready += 1
+        if item["ready_to_stage_rollback"] or item["ready_to_execute_rollback"]:
+            rollback_ready += 1
+        items.append(item)
+
+    return {
+        "version": V330_VERSION,
+        "minimum_observations": V330_MIN_OBSERVATIONS,
+        "counts": {
+            "active_adoptions": len(adoptions),
+            "observations": len(all_obs),
+            "ready_for_outcome": ready,
+            "rollback_ready": rollback_ready,
+        },
+        "items": items,
+        "policy": "Canonical adoption stays active until an operator explicitly executes rollback. Watch outcomes never mutate routing by themselves."
+    }
+
+
+@app.route("/api/hunter-canonical-watch")
+def v330_canonical_watch_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v330_snapshot(username)})
+
+
+@app.route("/api/hunter-canonical-watch/<int:adoption_id>/observe", methods=["POST"])
+def v330_canonical_watch_observe_api(adoption_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, observation_id = _v330_add_observation(
+        username,
+        adoption_id,
+        payload.get("checkpoint_kind") or "MANUAL",
+        payload.get("signal_state") or "INCONCLUSIVE",
+        payload.get("evidence_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "observation_id": observation_id}), 400
+    return jsonify({"success": True, "observation_id": observation_id})
+
+
+@app.route("/api/hunter-canonical-watch/<int:adoption_id>/outcome", methods=["POST"])
+def v330_canonical_watch_outcome_api(adoption_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, outcome_id = _v330_finalize_outcome(
+        username,
+        adoption_id,
+        payload.get("outcome") or "",
+        payload.get("outcome_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": outcome_id}), 400
+    return jsonify({"success": True, "outcome_id": outcome_id})
+
+
+@app.route("/api/hunter-canonical-watch/<int:adoption_id>/rollback/stage", methods=["POST"])
+def v330_stage_rollback_api(adoption_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, rollback_id = _v330_stage_rollback(
+        username, adoption_id, payload.get("note") or payload.get("request_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "rollback_id": rollback_id}), 400
+    return jsonify({"success": True, "rollback_id": rollback_id})
+
+
+@app.route("/api/hunter-canonical-watch/rollback/<int:rollback_id>/execute", methods=["POST"])
+def v330_execute_rollback_api(rollback_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, rid = _v330_execute_rollback(username, rollback_id, payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "rollback_id": rid}), 400
+    return jsonify({"success": True, "rollback_id": rid})
+
+
+@app.route("/hunter-canonical-watch")
+def v330_canonical_watch_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Canonical Watch</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🛰️ Canonical Watch</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v330_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        aid = int(item.get("id") or 0)
+        outcome = item.get("watch_outcome") or {}
+        rollback = item.get("rollback_request") or {}
+        obs = item.get("observations") or []
+
+        obs_html = "".join(
+            "<div class='obs'><span>{}</span><b>{}</b><p>{}</p><small>{}</small></div>".format(
+                esc(o.get("checkpoint_kind")),
+                esc(o.get("signal_state")),
+                esc(o.get("evidence_note")),
+                esc(o.get("created_at")),
+            ) for o in obs[:8]
+        ) or "<div class='muted'>No watch observations yet.</div>"
+
+        actions = """
+        <form action='/api/hunter-canonical-watch/{aid}/observe' onsubmit='return v330submit(this,event)'>
+          <div class='two'>
+            <select name='checkpoint_kind'>
+              <option>EXECUTION</option><option>QUALITY</option><option>STABILITY</option><option>MANUAL</option>
+            </select>
+            <select name='signal_state'>
+              <option>HEALTHY</option><option>MIXED</option><option>DEGRADED</option><option>INCONCLUSIVE</option>
+            </select>
+          </div>
+          <textarea name='evidence_note' rows='2' placeholder='Evidence from canonical runtime'></textarea>
+          <button type='submit'>ADD WATCH OBSERVATION</button>
+        </form>
+        """.format(aid=aid)
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-canonical-watch/{aid}/outcome' onsubmit='return v330submit(this,event)'>
+              <select name='outcome'>
+                <option value='KEEP_CANONICAL'>KEEP_CANONICAL</option>
+                <option value='REVIEW_REQUIRED'>REVIEW_REQUIRED</option>
+                <option value='ROLLBACK_RECOMMENDED'>ROLLBACK_RECOMMENDED</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Why this watch outcome is supported'></textarea>
+              <button type='submit'>FINALIZE WATCH OUTCOME</button>
+            </form>
+            """.format(aid=aid)
+        elif outcome:
+            actions += "<div class='final'>WATCH OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")), esc(outcome.get("outcome_note"))
+            )
+        else:
+            actions += "<div class='gate'>Need at least {} observations before watch outcome.</div>".format(V330_MIN_OBSERVATIONS)
+
+        if item.get("ready_to_stage_rollback"):
+            actions += """
+            <form action='/api/hunter-canonical-watch/{aid}/rollback/stage' onsubmit='return v330submit(this,event)'>
+              <textarea name='request_note' rows='2' placeholder='Operator rationale for staging rollback'></textarea>
+              <button class='warn' type='submit'>STAGE ROLLBACK</button>
+            </form>
+            """.format(aid=aid)
+
+        if item.get("ready_to_execute_rollback"):
+            actions += """
+            <form action='/api/hunter-canonical-watch/rollback/{rid}/execute' onsubmit='return v330submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Final confirmation note'></textarea>
+              <button class='danger' type='submit'>EXECUTE ROLLBACK</button>
+            </form>
+            """.format(rid=int(rollback.get("id") or 0))
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Adoption #{aid}</span><span class='pill'>CANONICAL</span></div>
+          <h2>Revision #{revision}</h2>
+          <p><b>Strategy:</b> {strategy}</p>
+          <p><b>Successor:</b> #{successor}</p>
+          <div class='signals'>
+            <span>HEALTHY {healthy}</span><span>MIXED {mixed}</span><span>DEGRADED {degraded}</span><span>INCONCLUSIVE {inc}</span>
+          </div>
+          {actions}
+          <div class='history'>{obs}</div>
+        </article>
+        """.format(
+            aid=esc(aid),
+            revision=esc(item.get("revision_id")),
+            strategy=esc(item.get("strategy")),
+            successor=esc(item.get("successor_id")),
+            healthy=esc(item["signals"].get("HEALTHY",0)),
+            mixed=esc(item["signals"].get("MIXED",0)),
+            degraded=esc(item["signals"].get("DEGRADED",0)),
+            inc=esc(item["signals"].get("INCONCLUSIVE",0)),
+            actions=actions,
+            obs=obs_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.0 Canonical Watch</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1120px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#8bf0c8;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#8bf0c8}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #26705d;border-radius:999px;padding:6px 9px;color:#8bf0c8;font-size:11px}}
+    .two{{display:grid;grid-template-columns:1fr 1fr;gap:8px}} textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.danger{{background:#ff8797}} .signals{{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}}
+    .signals span{{font-size:11px;border:1px solid #21495b;border-radius:999px;padding:6px 8px}} .obs{{border-top:1px solid #15313f;padding:10px 0}}
+    .obs span{{color:#8bd6ff;margin-right:10px}} .obs b{{color:#8bf0c8}} .obs p{{margin:6px 0;color:#d7e8ef}}
+    .gate{{margin-top:10px;background:#241f0e;border:1px solid #67551e;color:#ffe294;border-radius:12px;padding:10px}}
+    .final{{margin-top:10px;background:#0e2a21;border:1px solid #216c52;color:#9bf2cb;border-radius:12px;padding:10px}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #8bf0c8;padding:12px;background:#07161a;color:#b9d7df;line-height:1.6}}
+    @media(max-width:700px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}.two{{grid-template-columns:1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.0 // CANONICAL WATCH + ROLLBACK GATE</div>
+        <h1>🛰️ CANONICAL WATCH</h1>
+        <div class='sub'>Observe adopted canonical revisions in runtime, finalize an evidence-backed watch outcome, and require a separate explicit rollback stage + execution.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>ACTIVE ADOPTIONS</div><div class='num'>{active}</div></div>
+          <div class='stat'><div class='eyebrow'>OBSERVATIONS</div><div class='num'>{obs}</div></div>
+          <div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div>
+          <div class='stat'><div class='eyebrow'>ROLLBACK READY</div><div class='num'>{rollback}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-promotion-adoption'>🚀 CANONICAL ADOPTION</a><a href='/hunter-revision-validation'>🧪 REVISION VALIDATION</a><a href='/api/hunter-canonical-watch'>JSON</a></div>
+        <div class='rule'><strong>V33.0 rule:</strong> observations and watch outcomes never alter routing automatically. Rollback requires an explicit evidence-backed stage and a second explicit execution.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v330submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        active=esc(c.get("active_adoptions",0)),
+        obs=esc(c.get("observations",0)),
+        ready=esc(c.get("ready_for_outcome",0)),
+        rollback=esc(c.get("rollback_ready",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No active canonical adoptions yet. Adopt a promoted revision in V32.9 first.</p></article>"
+    )
+
+
+# Surface V33.0 from the V32.9 adoption workspace.
+try:
+    _v330_prev_adoption_page = app.view_functions.get("v329_promotion_adoption_page")
+    if _v330_prev_adoption_page:
+        def _v330_adoption_with_watch(*args, **kwargs):
+            response = _v330_prev_adoption_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-canonical-watch" not in response:
+                anchor = "<a href='/api/hunter-promotion-adoption'>JSON</a>"
+                link = "<a href='/hunter-canonical-watch'>🛰️ CANONICAL WATCH</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v329_promotion_adoption_page"] = _v330_adoption_with_watch
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
