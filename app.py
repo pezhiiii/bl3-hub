@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V30.1"
+V247_SECURITY_VERSION = "V30.2"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V30.1"
+V248_SECURITY_VERSION = "V30.2"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.1 Build Attestation</title><style>
+    <title>BL3 V30.2 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V30.1"
+V250_VERSION = "V30.2"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V30.1"
+V253_VERSION = "V30.2"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V30.1"
+V254_VERSION = "V30.2"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V30.1"
+V255_VERSION = "V30.2"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V30.1"
+V256_VERSION = "V30.2"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V30.1"
+V257_VERSION = "V30.2"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V30.1"
+V258_VERSION = "V30.2"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.1 Hunter Command Deck</title>
+    <title>BL3 V30.2 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V30.1"
+V259_VERSION = "V30.2"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V30.1"
+V260_VERSION = "V30.2"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V30.1"
+V261_VERSION = "V30.2"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V30.1"
+V262_VERSION = "V30.2"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V30.1"
+V263_VERSION = "V30.2"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V30.1"
+V264_VERSION = "V30.2"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V30.1"
+V265_VERSION = "V30.2"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V30.1"
+V266_VERSION = "V30.2"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V30.1"
+V267_VERSION = "V30.2"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V30.1"
+V268_VERSION = "V30.2"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V30.1"
+V269_VERSION = "V30.2"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V30.1"
+V270_VERSION = "V30.2"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V30.1"
+V271_VERSION = "V30.2"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V30.1"
+V272_VERSION = "V30.2"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V30.1"
+V273_VERSION = "V30.2"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V30.1"
+V274_VERSION = "V30.2"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V30.1"
+V275_VERSION = "V30.2"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V30.1"
+V276_VERSION = "V30.2"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V30.1"
+V277_VERSION = "V30.2"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V30.1"
+V278_VERSION = "V30.2"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V30.1"
+V279_VERSION = "V30.2"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V30.1"
+V280_VERSION = "V30.2"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V30.1"
+V281_VERSION = "V30.2"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V30.1"
+V282_VERSION = "V30.2"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V30.1"
+V283_VERSION = "V30.2"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V30.1"
+V284_VERSION = "V30.2"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V30.1"
+V285_VERSION = "V30.2"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V30.1"
+V286_VERSION = "V30.2"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V30.1"
+V287_VERSION = "V30.2"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V30.1"
+V288_VERSION = "V30.2"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V30.1"
+V289_VERSION = "V30.2"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V30.1"
+V290_VERSION = "V30.2"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -45163,6 +45163,426 @@ try:
         app.view_functions["v300_outcome_intelligence_page"] = _v301_outcome_with_experiment
 except Exception:
     pass
+
+
+# ===== V30.2 ADAPTIVE PLAYBOOK + EXPERIMENT LEDGER =====
+# Completed experiments become durable evidence. Hunters may explicitly adopt a winning
+# strategy into a personal playbook. Nothing is auto-adopted and the playbook can be cleared.
+
+V302_VERSION = "V30.2"
+
+def _v302_ensure_schema():
+    _v301_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(hunter_focus_experiments)").fetchall()}
+        additions = {
+            "sample_signal": "REAL",
+            "sample_count_result": "INTEGER",
+            "delta_result": "REAL",
+            "verdict": "TEXT",
+            "end_receipt_id": "INTEGER",
+        }
+        for name, sql_type in additions.items():
+            if name not in cols:
+                conn.execute(f"ALTER TABLE hunter_focus_experiments ADD COLUMN {name} {sql_type}")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_adaptive_playbook (
+                username TEXT PRIMARY KEY,
+                strategy TEXT NOT NULL,
+                source_experiment_id INTEGER NOT NULL,
+                adopted_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v302_playbook(username):
+    _v302_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT username, strategy, source_experiment_id, adopted_at
+               FROM hunter_adaptive_playbook WHERE username=?""",
+            (username,)
+        ).fetchone()
+        data = dict(row) if row else None
+    finally:
+        conn.close()
+
+    if data:
+        data["strategy_meta"] = V301_STRATEGIES.get(str(data.get("strategy") or ""), {})
+    return data
+
+
+def _v302_experiment_history(username, limit=30):
+    _v302_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT id, strategy, baseline_signal, baseline_count, start_receipt_id,
+                      sample_goal, created_at, completed_at, cancelled_at,
+                      sample_signal, sample_count_result, delta_result, verdict, end_receipt_id
+               FROM hunter_focus_experiments
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 30), 100)))
+        ).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    for item in items:
+        item["strategy_meta"] = V301_STRATEGIES.get(str(item.get("strategy") or ""), {})
+        if item.get("cancelled_at"):
+            item["state"] = "CANCELLED"
+        elif item.get("completed_at"):
+            item["state"] = "COMPLETED"
+        else:
+            item["state"] = "ACTIVE"
+    return items
+
+
+def _v302_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V302_VERSION}
+
+    history = _v302_experiment_history(username)
+    playbook = _v302_playbook(username)
+    completed = [x for x in history if x.get("state") == "COMPLETED"]
+    improved = [x for x in completed if str(x.get("verdict") or "").upper() == "IMPROVED"]
+
+    return {
+        "success": True,
+        "version": V302_VERSION,
+        "username": username,
+        "playbook": playbook,
+        "history": history,
+        "counts": {
+            "experiments": len(history),
+            "completed": len(completed),
+            "improved": len(improved),
+            "cancelled": len([x for x in history if x.get("state") == "CANCELLED"]),
+        },
+        "policy": (
+            "Only the Hunter can adopt or clear a playbook strategy. BL3 never auto-adopts "
+            "an experiment result. Adoption is allowed only from experiments explicitly recorded as IMPROVED."
+        ),
+    }
+
+
+@app.route("/api/hunter-adaptive-playbook")
+def v302_playbook_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v302_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-adaptive-playbook/adopt", methods=["POST"])
+def v302_playbook_adopt_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        experiment_id = int(payload.get("experiment_id") or 0)
+    except Exception:
+        experiment_id = 0
+    if experiment_id <= 0:
+        return jsonify({"success": False, "error": "invalid_experiment_id"}), 400
+
+    _v302_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT id, strategy, verdict, completed_at
+               FROM hunter_focus_experiments
+               WHERE id=? AND username=?""",
+            (experiment_id, username)
+        ).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "experiment_not_found"}), 404
+
+        exp = dict(row)
+        if not exp.get("completed_at"):
+            return jsonify({"success": False, "error": "experiment_not_completed"}), 409
+        if str(exp.get("verdict") or "").upper() != "IMPROVED":
+            return jsonify({
+                "success": False,
+                "error": "experiment_not_improved",
+                "message": "Only an experiment recorded as IMPROVED can be adopted into the playbook."
+            }), 409
+
+        strategy = str(exp.get("strategy") or "").upper()
+        if strategy not in V301_STRATEGIES:
+            return jsonify({"success": False, "error": "unknown_strategy"}), 409
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        conn.execute(
+            """INSERT INTO hunter_adaptive_playbook
+               (username, strategy, source_experiment_id, adopted_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(username) DO UPDATE SET
+                 strategy=excluded.strategy,
+                 source_experiment_id=excluded.source_experiment_id,
+                 adopted_at=excluded.adopted_at""",
+            (username, strategy, experiment_id, now)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V302_VERSION,
+        "strategy": strategy,
+        "strategy_meta": V301_STRATEGIES[strategy],
+        "source_experiment_id": experiment_id,
+        "redirect": "/hunter-adaptive-playbook",
+    })
+
+
+@app.route("/api/hunter-adaptive-playbook/clear", methods=["POST"])
+def v302_playbook_clear_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    _v302_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("DELETE FROM hunter_adaptive_playbook WHERE username=?", (username,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"success": True, "version": V302_VERSION, "cleared": True})
+
+
+# Persist experiment result at the moment V30.1 closes an experiment.
+try:
+    _v302_prev_finish_experiment = app.view_functions.get("v301_run_experiment_finish_api")
+    if _v302_prev_finish_experiment:
+        def _v302_finish_experiment_with_ledger(*args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            before = _v301_experiment_snapshot(username) if username else {}
+            active = before.get("active") or {}
+            exp_id = int(active.get("id") or 0)
+
+            response = _v302_prev_finish_experiment(*args, **kwargs)
+            body = response.get_json() if hasattr(response, "get_json") else None
+
+            if body and body.get("success") and exp_id:
+                _v302_ensure_schema()
+                conn = sqlite3.connect(DB)
+                try:
+                    row = conn.execute(
+                        "SELECT COALESCE(MAX(id),0) FROM hunter_focus_completion_receipts WHERE username=?",
+                        (username,)
+                    ).fetchone()
+                    end_receipt_id = int((row or [0])[0] or 0)
+                    conn.execute(
+                        """UPDATE hunter_focus_experiments
+                           SET sample_signal=?,
+                               sample_count_result=?,
+                               delta_result=?,
+                               verdict=?,
+                               end_receipt_id=?
+                           WHERE id=? AND username=?""",
+                        (
+                            float(body.get("sample_signal") or 0),
+                            int(before.get("sample_count") or 0),
+                            float(body.get("delta") or 0),
+                            str(body.get("verdict") or ""),
+                            end_receipt_id,
+                            exp_id,
+                            username,
+                        )
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                body["ledger_saved"] = True
+                body["adaptive_playbook"] = "/hunter-adaptive-playbook"
+                return jsonify(body)
+
+            return response
+
+        app.view_functions["v301_run_experiment_finish_api"] = _v302_finish_experiment_with_ledger
+except Exception:
+    pass
+
+
+@app.route("/hunter-adaptive-playbook")
+def v302_playbook_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Adaptive Playbook</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📘 Adaptive Playbook</h1><p>Sign in to view your experiment ledger and adopted strategy.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v302_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    playbook = data.get("playbook")
+
+    if playbook:
+        meta = playbook.get("strategy_meta") or {}
+        playbook_html = """<div class='adopted'>
+          <div class='eyebrow'>ACTIVE PLAYBOOK · EXPERIMENT #{source}</div>
+          <h2>{title}</h2>
+          <p>{detail}</p>
+          <div class='hint'><b>Preflight guidance</b><br>{hint}</div>
+          <button onclick='clearPlaybook()'>CLEAR PLAYBOOK</button>
+        </div>""".format(
+            source=esc(playbook.get("source_experiment_id")),
+            title=esc(meta.get("title")),
+            detail=esc(meta.get("detail")),
+            hint=esc(meta.get("preflight_hint")),
+        )
+    else:
+        playbook_html = """<div class='adopted'>
+          <div class='eyebrow'>NO ACTIVE PLAYBOOK</div>
+          <h2>Nothing is auto-adopted.</h2>
+          <p>Finish an experiment with an IMPROVED verdict, then choose whether to adopt it.</p>
+        </div>"""
+
+    rows = []
+    for item in data.get("history") or []:
+        meta = item.get("strategy_meta") or {}
+        verdict = str(item.get("verdict") or "—")
+        state = str(item.get("state") or "")
+        adopt = ""
+        if state == "COMPLETED" and verdict.upper() == "IMPROVED":
+            adopt = "<button onclick='adoptPlaybook({})'>ADOPT WINNER</button>".format(int(item.get("id") or 0))
+
+        rows.append(
+            """<div class='experiment'>
+              <div class='top'><div><div class='eyebrow'>EXPERIMENT #{id} · {state}</div><h3>{title}</h3></div><div class='verdict'>{verdict}</div></div>
+              <div class='grid small'>
+                <div class='card'><div class='k'>BASELINE</div><div class='v'>{baseline}</div></div>
+                <div class='card'><div class='k'>SAMPLE</div><div class='v'>{sample}</div></div>
+                <div class='card'><div class='k'>DELTA</div><div class='v'>{delta}</div></div>
+                <div class='card'><div class='k'>SAMPLE COUNT</div><div class='v'>{count}</div></div>
+              </div>
+              <p class='muted'>{detail}</p>{adopt}
+            </div>""".format(
+                id=esc(item.get("id")),
+                state=esc(state),
+                title=esc(meta.get("title") or item.get("strategy")),
+                verdict=esc(verdict),
+                baseline=esc(item.get("baseline_signal")),
+                sample=esc(item.get("sample_signal") if item.get("sample_signal") is not None else "—"),
+                delta=esc(item.get("delta_result") if item.get("delta_result") is not None else "—"),
+                count=esc(item.get("sample_count_result") if item.get("sample_count_result") is not None else "—"),
+                detail=esc(meta.get("detail")),
+                adopt=adopt,
+            )
+        )
+
+    if not rows:
+        rows.append("<div class='experiment'>No experiments recorded yet.</div>")
+
+    counts = data.get("counts") or {}
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.2 Adaptive Playbook</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2b2039 0,#08080d 50%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1050px;margin:auto}}.panel{{background:#0e0a15ed;border:1px solid #684d79;border-radius:24px;padding:22px}}.eyebrow{{color:#d3ade7;font-size:11px;font-weight:900;letter-spacing:1.6px}}
+    h1{{font-size:46px;margin:10px 0}}.muted{{color:#bfb2c8}}.adopted{{background:#15101d;border:1px solid #74568a;border-radius:18px;padding:18px;margin:16px 0}}
+    .experiment{{background:#0a0810;border:1px solid #43384d;border-radius:17px;padding:16px;margin-top:12px}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.verdict{{font-weight:950;color:#d9b8ec;font-size:20px}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}}.card{{background:#08070b;border:1px solid #392f42;border-radius:13px;padding:13px}}.k{{font-size:9px;color:#b7a1c2;font-weight:900}}.v{{font-size:24px;font-weight:950;margin-top:5px}}
+    .hint{{background:#0d0b12;border-left:3px solid #a873c1;border-radius:10px;padding:12px;margin:12px 0}}button,a{{display:inline-block;border:1px solid #7b5a8e;border-radius:10px;padding:10px 13px;background:#1a1121;color:#fff;text-decoration:none;font-weight:850;cursor:pointer;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V30.2 // EVIDENCE → PERSONAL PLAYBOOK</div>
+      <h1>📘 ADAPTIVE PLAYBOOK</h1>
+      <p class='muted'>{username}, keep the result history and explicitly adopt only the workflow changes that actually improved your verified outcomes.</p>
+
+      <div class='grid'>
+        <div class='card'><div class='k'>EXPERIMENTS</div><div class='v'>{experiments}</div></div>
+        <div class='card'><div class='k'>COMPLETED</div><div class='v'>{completed}</div></div>
+        <div class='card'><div class='k'>IMPROVED</div><div class='v'>{improved}</div></div>
+        <div class='card'><div class='k'>CANCELLED</div><div class='v'>{cancelled}</div></div>
+      </div>
+
+      {playbook_html}
+      <h2>Experiment Ledger</h2>
+      {rows}
+      <p><a href='/hunter-run-experiment'>🧪 RUN EXPERIMENT</a><a href='/hunter-outcome-intelligence'>🧠 OUTCOME INTELLIGENCE</a><a href='/hunter-focus-preflight'>🛫 PREFLIGHT</a></p>
+    </section></div>
+    <script>
+    async function adoptPlaybook(id){{
+      const r=await fetch('/api/hunter-adaptive-playbook/adopt',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{experiment_id:id}})}});
+      const j=await r.json(); if(j.success) location.reload(); else alert(j.message||j.error||'Could not adopt');
+    }}
+    async function clearPlaybook(){{
+      const r=await fetch('/api/hunter-adaptive-playbook/clear',{{method:'POST'}});
+      const j=await r.json(); if(j.success) location.reload(); else alert(j.error||'Could not clear');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        experiments=esc(counts.get("experiments") or 0),
+        completed=esc(counts.get("completed") or 0),
+        improved=esc(counts.get("improved") or 0),
+        cancelled=esc(counts.get("cancelled") or 0),
+        playbook_html=playbook_html,
+        rows="".join(rows),
+    )
+
+
+# Surface adopted playbook guidance inside Preflight. This is guidance only; no field is auto-filled.
+try:
+    _v302_prev_preflight_page = app.view_functions.get("v294_focus_preflight_page")
+    if _v302_prev_preflight_page:
+        def _v302_preflight_with_playbook(*args, **kwargs):
+            response = _v302_prev_preflight_page(*args, **kwargs)
+            if not isinstance(response, str):
+                return response
+            username = str(session.get("authenticated_username") or "").strip()
+            pb = _v302_playbook(username) if username else None
+            if pb and "/hunter-adaptive-playbook" not in response:
+                meta = pb.get("strategy_meta") or {}
+                banner = (
+                    "<div style='max-width:900px;margin:12px auto;padding:14px;border:1px solid #7b5a8e;"
+                    "border-radius:14px;background:#160f1f;color:#fff'>"
+                    "<b>📘 ACTIVE PLAYBOOK: " + html.escape(str(meta.get("title") or pb.get("strategy") or "")) + "</b><br>"
+                    + html.escape(str(meta.get("preflight_hint") or "")) +
+                    "<br><a href='/hunter-adaptive-playbook' style='color:#d9b6ee'>OPEN PLAYBOOK</a></div>"
+                )
+                response = response.replace("</body>", banner + "</body>", 1)
+            return response
+        app.view_functions["v294_focus_preflight_page"] = _v302_preflight_with_playbook
+except Exception:
+    pass
+
+
+# Link V30.2 from Experiment Lab and Outcome Intelligence.
+for _endpoint in ("v301_run_experiment_page", "v300_outcome_intelligence_page"):
+    try:
+        _prev = app.view_functions.get(_endpoint)
+        if _prev:
+            def _v302_make_wrapped(prev):
+                def _wrapped(*args, **kwargs):
+                    response = prev(*args, **kwargs)
+                    if isinstance(response, str) and "/hunter-adaptive-playbook" not in response:
+                        link = "<a href='/hunter-adaptive-playbook' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #7b5a8e;border-radius:10px;color:#fff;text-decoration:none'>📘 ADAPTIVE PLAYBOOK</a>"
+                        response = response.replace("</body>", link + "</body>", 1)
+                    return response
+                return _wrapped
+            app.view_functions[_endpoint] = _v302_make_wrapped(_prev)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
