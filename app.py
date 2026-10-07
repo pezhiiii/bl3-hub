@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.7 Build Attestation</title><style>
+    <title>BL3 V31.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.7 Hunter Command Deck</title>
+    <title>BL3 V31.8 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -51847,7 +51847,7 @@ def v317_retests_page():
 
     c = snap.get("counts") or {}
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.7 Recalibration Retests</title>
+    <title>BL3 V31.8 Recalibration Retests</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#241735,#07080d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0c14ef;border:1px solid #59446f;border-radius:24px;padding:24px}}
@@ -51860,7 +51860,7 @@ def v317_retests_page():
     .rule{{border-left:4px solid #c283ff;padding:11px 14px;background:#17101f;border-radius:8px}}.small{{margin-top:10px;color:#8c7f98;font-size:11px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.7 // RETEST EVIDENCE + DIRECTIVE CLOSURE GATE</div>
+      <div class='eyebrow'>BL3 V31.8 // RETEST REPLICATION + EVIDENCE CONFIDENCE</div>
       <h1>🧪 RECALIBRATION RETESTS</h1>
       <p>{username}, RETEST_ONLY is no longer just a warning. It now has a concrete evidence loop: declare the hypothesis, run the retest, record the outcome, and only then can BL3 recommend whether closure is justified.</p>
 
@@ -51984,6 +51984,495 @@ try:
                 )
             return response
         app.view_functions["v316_governance_page"] = _v317_governance_page_with_retests
+except Exception:
+    pass
+
+# ===== V31.8 RETEST REPLICATION + EVIDENCE CONFIDENCE GATE =====
+# Adds an optional stricter evidence policy to RETEST_ONLY directives.
+# Default remains SINGLE so V31.7 behavior is preserved unless the Hunter opts in.
+
+V318_VERSION = "V31.8"
+V318_POLICY_SINGLE = "SINGLE"
+V318_POLICY_REPLICATED = "REPLICATED"
+
+def _v318_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recalibration_evidence_policy (
+            username TEXT NOT NULL,
+            directive_id INTEGER NOT NULL,
+            policy TEXT NOT NULL DEFAULT 'SINGLE',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(username, directive_id)
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v318_init()
+except Exception:
+    pass
+
+
+def _v318_policy(username, directive_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT policy, updated_at
+            FROM hunter_recalibration_evidence_policy
+            WHERE username=? AND directive_id=?
+        """, (username, int(directive_id))).fetchone()
+        if not row:
+            return {
+                "policy": V318_POLICY_SINGLE,
+                "updated_at": None,
+                "is_default": True,
+            }
+        return {
+            "policy": str(row["policy"] or V318_POLICY_SINGLE),
+            "updated_at": row["updated_at"],
+            "is_default": False,
+        }
+    finally:
+        con.close()
+
+
+def _v318_set_policy(username, directive_id, policy):
+    directive = _v317_directive(username, directive_id)
+    if not directive:
+        return False, "directive_not_found"
+
+    if str(directive.get("directive_type")) != "RETEST_ONLY":
+        return False, "policy_only_applies_to_retest_only"
+
+    policy = str(policy or "").strip().upper()
+    if policy not in (V318_POLICY_SINGLE, V318_POLICY_REPLICATED):
+        return False, "invalid_policy"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            INSERT INTO hunter_recalibration_evidence_policy
+            (username, directive_id, policy, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(username, directive_id) DO UPDATE SET
+                policy=excluded.policy,
+                updated_at=excluded.updated_at
+        """, (username, int(directive_id), policy, now))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(directive.get("strategy") or ""),
+            "EVIDENCE_POLICY_UPDATED",
+            review_id=directive.get("review_id"),
+            directive_id=int(directive_id),
+            detail="Evidence policy set to %s." % policy
+        )
+    except Exception:
+        pass
+
+    return True, None
+
+
+def _v318_completed_retests(username, directive_id):
+    return [
+        r for r in _v317_retests(username, directive_id, 100)
+        if str(r.get("status")) == "COMPLETED"
+    ]
+
+
+def _v318_confidence(username, directive_id):
+    directive = _v317_directive(username, directive_id)
+    if not directive:
+        return {
+            "directive": None,
+            "policy": V318_POLICY_SINGLE,
+            "completed_count": 0,
+            "confidence_score": 0,
+            "confidence_state": "NO_EVIDENCE",
+            "average_score": None,
+            "latest_score": None,
+            "strong_count": 0,
+            "weak_count": 0,
+            "score_spread": None,
+            "trend": "NONE",
+            "replicated_ready": False,
+            "reason": "directive_not_found",
+        }
+
+    policy_info = _v318_policy(username, directive_id)
+    completed = _v318_completed_retests(username, directive_id)
+
+    scores = []
+    for r in completed:
+        try:
+            scores.append(int(r.get("outcome_score")))
+        except Exception:
+            pass
+
+    latest_score = scores[0] if scores else None
+    average = round(sum(scores) / len(scores), 1) if scores else None
+    strong_count = sum(1 for s in scores if s >= 80)
+    weak_count = sum(1 for s in scores if s < 70)
+    spread = (max(scores) - min(scores)) if len(scores) >= 2 else None
+
+    if len(scores) >= 2:
+        if scores[0] > scores[1]:
+            trend = "IMPROVING"
+        elif scores[0] < scores[1]:
+            trend = "DECLINING"
+        else:
+            trend = "FLAT"
+    else:
+        trend = "INSUFFICIENT_HISTORY"
+
+    replicated_ready = bool(
+        len(scores) >= 2
+        and strong_count >= 2
+        and latest_score is not None and latest_score >= 80
+        and average is not None and average >= 80
+        and weak_count == 0
+        and (spread is None or spread <= 20)
+    )
+
+    # Confidence is intentionally explainable and bounded.
+    if not scores:
+        confidence = 0
+        state = "NO_EVIDENCE"
+        reason = "No completed retest evidence."
+    elif len(scores) == 1:
+        if scores[0] >= 80:
+            confidence = 58
+            state = "SINGLE_STRONG"
+            reason = "One strong retest exists; replication would increase confidence."
+        elif scores[0] >= 60:
+            confidence = 40
+            state = "SINGLE_MIXED"
+            reason = "One mixed retest exists; more evidence is recommended."
+        else:
+            confidence = 22
+            state = "SINGLE_WEAK"
+            reason = "Single retest is weak or inconclusive."
+    else:
+        base = 48
+        base += min(24, strong_count * 10)
+        if average is not None:
+            base += max(-15, min(15, int((average - 70) * 0.5)))
+        if weak_count:
+            base -= min(28, weak_count * 12)
+        if spread is not None and spread > 25:
+            base -= min(18, int((spread - 25) * 0.5))
+        if latest_score is not None and latest_score >= 80:
+            base += 5
+        confidence = max(0, min(100, int(base)))
+
+        if replicated_ready:
+            state = "REPLICATED_STRONG"
+            reason = "Multiple strong retests agree closely enough to support replicated evidence."
+        elif weak_count:
+            state = "CONFLICTING"
+            reason = "Retest history contains weak evidence; do not treat the result as replicated."
+        elif spread is not None and spread > 20:
+            state = "VARIABLE"
+            reason = "Retest outcomes vary too much for strong replicated confidence."
+        else:
+            state = "ACCUMULATING"
+            reason = "Evidence is accumulating but has not reached the replicated threshold."
+
+    return {
+        "directive": directive,
+        "policy": policy_info.get("policy"),
+        "policy_updated_at": policy_info.get("updated_at"),
+        "completed_count": len(scores),
+        "confidence_score": confidence,
+        "confidence_state": state,
+        "average_score": average,
+        "latest_score": latest_score,
+        "strong_count": strong_count,
+        "weak_count": weak_count,
+        "score_spread": spread,
+        "trend": trend,
+        "replicated_ready": replicated_ready,
+        "reason": reason,
+        "recent_retests": completed[:8],
+    }
+
+
+# Preserve V31.7 closure logic as the SINGLE-policy path.
+try:
+    _v318_v317_closure_evidence = _v317_closure_evidence
+
+    def _v318_closure_evidence(username, directive_id):
+        base = _v318_v317_closure_evidence(username, directive_id)
+        directive = base.get("directive") or {}
+
+        if str(directive.get("directive_type")) != "RETEST_ONLY":
+            return base
+
+        confidence = _v318_confidence(username, directive_id)
+        policy = str(confidence.get("policy") or V318_POLICY_SINGLE)
+
+        base["evidence_policy"] = policy
+        base["confidence"] = confidence
+
+        if policy == V318_POLICY_SINGLE:
+            base["policy_reason"] = "SINGLE policy preserves V31.7 closure behavior."
+            return base
+
+        if not confidence.get("replicated_ready"):
+            base["eligible"] = False
+            base["reason"] = "replicated_evidence_required"
+            base["policy_reason"] = (
+                "REPLICATED policy requires at least two strong, non-conflicting completed retests "
+                "with average and latest score >=80."
+            )
+            return base
+
+        base["eligible"] = True
+        base["reason"] = "replicated_evidence_supports_closure"
+        base["policy_reason"] = "REPLICATED evidence threshold satisfied."
+        return base
+
+    _v317_closure_evidence = _v318_closure_evidence
+except Exception:
+    pass
+
+
+def _v318_snapshot(username):
+    directives = _v316_directives(username, 160)
+    rows = []
+    for d in directives:
+        if (
+            str(d.get("directive_type")) == "RETEST_ONLY"
+            and str(d.get("directive_state")) == "ACTIVE"
+        ):
+            c = _v318_confidence(username, int(d.get("id")))
+            rows.append(c)
+
+    return {
+        "version": V318_VERSION,
+        "username": username,
+        "active_retest_directives": len(rows),
+        "replicated_ready_count": sum(1 for r in rows if r.get("replicated_ready")),
+        "replicated_policy_count": sum(
+            1 for r in rows if str(r.get("policy")) == V318_POLICY_REPLICATED
+        ),
+        "items": rows,
+        "policy": {
+            "default": V318_POLICY_SINGLE,
+            "single": "One eligible completed retest can support closure, matching V31.7.",
+            "replicated": (
+                "Closure requires at least two strong completed retests, no weak retest, "
+                "average >=80, latest >=80, and score spread <=20."
+            ),
+            "control": "Policy changes are explicit Hunter choices and are logged.",
+        },
+    }
+
+
+@app.route("/api/hunter-retest-confidence")
+def v318_confidence_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v318_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-retest-confidence/<int:directive_id>")
+def v318_confidence_detail_api(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    result = _v318_confidence(username, directive_id)
+    if not result.get("directive"):
+        return jsonify({"success": False, "error": "directive_not_found"}), 404
+
+    result["closure_evidence"] = _v317_closure_evidence(username, directive_id)
+    result["success"] = True
+    return jsonify(result)
+
+
+@app.route("/api/hunter-retest-confidence/<int:directive_id>/policy", methods=["POST"])
+def v318_policy_api(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err = _v318_set_policy(username, directive_id, payload.get("policy"))
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+
+    return jsonify({
+        "success": True,
+        "directive_id": directive_id,
+        "confidence": _v318_confidence(username, directive_id),
+        "closure_evidence": _v317_closure_evidence(username, directive_id),
+    })
+
+
+@app.route("/hunter-retest-confidence")
+def v318_confidence_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Retest Confidence</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📈 Retest Confidence</h1><p>Sign in to inspect replicated evidence.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v318_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    cards = []
+    for item in snap.get("items") or []:
+        d = item.get("directive") or {}
+        policy = str(item.get("policy") or V318_POLICY_SINGLE)
+        other = V318_POLICY_REPLICATED if policy == V318_POLICY_SINGLE else V318_POLICY_SINGLE
+
+        history = []
+        for r in item.get("recent_retests") or []:
+            history.append(
+                "<span class='chip'>#%s · %s · %s</span>" % (
+                    esc(r.get("id")),
+                    esc(r.get("outcome_score")),
+                    esc(r.get("recommendation")),
+                )
+            )
+
+        closure = _v317_closure_evidence(username, int(d.get("id")))
+        cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div>
+              <span class='eyebrow'>DIRECTIVE #{id}</span>
+              <h3>{strategy}</h3>
+            </div>
+            <span class='pill'>{state}</span>
+          </div>
+
+          <div class='meter'><i style='width:{confidence}%'></i></div>
+
+          <div class='grid'>
+            <div><span>CONFIDENCE</span><b>{confidence}/100</b></div>
+            <div><span>POLICY</span><b>{policy}</b></div>
+            <div><span>COMPLETED RETESTS</span><b>{completed}</b></div>
+            <div><span>AVERAGE</span><b>{average}</b></div>
+            <div><span>LATEST</span><b>{latest}</b></div>
+            <div><span>STRONG / WEAK</span><b>{strong} / {weak}</b></div>
+            <div><span>SPREAD</span><b>{spread}</b></div>
+            <div><span>TREND</span><b>{trend}</b></div>
+          </div>
+
+          <p>{reason}</p>
+          <p><strong>Closure:</strong> {closure_state} · {closure_reason}</p>
+          <div class='history'>{history}</div>
+
+          <button onclick="setPolicy({id}, '{other}')">SWITCH TO {other}</button>
+          <a href='/hunter-recalibration-retests'>🧪 OPEN RETEST RUNS</a>
+        </article>
+        """.format(
+            id=int(d.get("id")),
+            strategy=esc(d.get("strategy")),
+            state=esc(item.get("confidence_state")),
+            confidence=int(item.get("confidence_score") or 0),
+            policy=esc(policy),
+            completed=esc(item.get("completed_count")),
+            average=esc(item.get("average_score")),
+            latest=esc(item.get("latest_score")),
+            strong=esc(item.get("strong_count")),
+            weak=esc(item.get("weak_count")),
+            spread=esc(item.get("score_spread")),
+            trend=esc(item.get("trend")),
+            reason=esc(item.get("reason")),
+            closure_state="ELIGIBLE" if closure.get("eligible") else "BLOCKED",
+            closure_reason=esc(closure.get("reason")),
+            history="".join(history) if history else "<span class='muted'>No completed retests yet.</span>",
+            other=other,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.8 Retest Confidence</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1c2438,#07080d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0c14ef;border:1px solid #475a7a;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#9ec9ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0}}
+    p{{color:#d8deea;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#111723;border:1px solid #3d516f;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#93a5be;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:18px;overflow-wrap:anywhere}}.card{{background:#10141d;border:1px solid #3f526e;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #5a7da7;border-radius:999px;padding:6px 9px}}
+    .meter{{height:10px;background:#172131;border-radius:99px;overflow:hidden;margin:15px 0}}.meter i{{display:block;height:100%;background:linear-gradient(90deg,#4f8fff,#a982ff)}}
+    button,a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #58759d;border-radius:10px;background:#121a27;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    .chip{{display:inline-block;font-size:10px;padding:6px 8px;margin:3px;border:1px solid #405774;border-radius:999px;background:#111925}}.muted{{color:#8593a6}}
+    .rule{{border-left:4px solid #7fb4ff;padding:11px 14px;background:#111a28;border-radius:8px}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.8 // RETEST REPLICATION + EVIDENCE CONFIDENCE</div>
+      <h1>📈 EVIDENCE CONFIDENCE</h1>
+      <p>{username}, one successful retest can still be enough under the default SINGLE policy. If a decision matters more, you can explicitly switch that directive to REPLICATED and require consistent evidence before closure.</p>
+
+      <div class='hero'>
+        <div><span>ACTIVE RETEST DIRECTIVES</span><b>{active}</b></div>
+        <div><span>REPLICATED POLICY</span><b>{replicated_policy}</b></div>
+        <div><span>REPLICATED READY</span><b>{replicated_ready}</b></div>
+        <div><span>DEFAULT POLICY</span><b>SINGLE</b></div>
+      </div>
+
+      <div class='rule'><strong>REPLICATED gate:</strong> at least two completed retests, at least two strong results, average ≥80, latest ≥80, no weak result below 70, and score spread ≤20. Policy choice is explicit and logged.</div>
+
+      <a href='/hunter-recalibration-retests'>🧪 RETEST RUNS</a>
+      <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>
+      <a href='/hunter-playbook-recalibration'>⚖️ RECALIBRATION</a>
+
+      {cards}
+    </section></div>
+    <script>
+    async function setPolicy(id,policy){{
+      if(!confirm("Set directive #"+id+" evidence policy to "+policy+"?")) return;
+      const r=await fetch("/api/hunter-retest-confidence/"+id+"/policy",{{
+        method:"POST",
+        headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{policy:policy}})
+      }});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Policy update failed");return;}}
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        active=esc(snap.get("active_retest_directives", 0)),
+        replicated_policy=esc(snap.get("replicated_policy_count", 0)),
+        replicated_ready=esc(snap.get("replicated_ready_count", 0)),
+        cards="".join(cards) if cards else "<p>No active RETEST_ONLY directives.</p>",
+    )
+
+
+# Add navigation from the V31.7 retest page to V31.8 confidence.
+try:
+    _v318_prev_retests_page = app.view_functions.get("v317_retests_page")
+    if _v318_prev_retests_page:
+        def _v318_retests_page_with_confidence(*args, **kwargs):
+            response = _v318_prev_retests_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-retest-confidence" not in response:
+                link = "<a href='/hunter-retest-confidence'>📈 EVIDENCE CONFIDENCE</a>"
+                response = response.replace(
+                    "<a href='/hunter-playbook-governance'>🛡️ PLAYBOOK GOVERNANCE</a>",
+                    link + "<a href='/hunter-playbook-governance'>🛡️ PLAYBOOK GOVERNANCE</a>",
+                    1
+                )
+            return response
+        app.view_functions["v317_retests_page"] = _v318_retests_page_with_confidence
 except Exception:
     pass
 
