@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.4 Build Attestation</title><style>
+    <title>BL3 V31.5 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.4 Hunter Command Deck</title>
+    <title>BL3 V31.5 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -49019,7 +49019,7 @@ def v311_experiment_learning_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.4 Execution Learning</title>
+    <title>BL3 V31.5 Recalibration Review</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#132635,#05080c 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #2f6079;border-radius:24px;padding:24px}}
@@ -49443,7 +49443,7 @@ def v312_playbooks_page():
         ))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.4 Execution Learning</title>
+    <title>BL3 V31.5 Recalibration Review</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1b2636,#06090d 55%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #345e79;border-radius:24px;padding:24px}}
@@ -49937,7 +49937,7 @@ def v313_execution_page():
         ))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.4 Execution Learning</title>
+    <title>BL3 V31.5 Recalibration Review</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#18251d,#060a08 58%,#020403);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#08120def;border:1px solid #315f43;border-radius:24px;padding:24px}}
@@ -50388,7 +50388,7 @@ def v314_execution_learning_page():
     c = snap.get("counts") or {}
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.4 Execution Learning</title>
+    <title>BL3 V31.5 Recalibration Review</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1c1827,#08060d 58%,#030204);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0813ef;border:1px solid #51406b;border-radius:24px;padding:24px}}
@@ -50458,6 +50458,369 @@ try:
                 response = response.replace("</section>", link + "</section>", 1)
             return response
         app.view_functions["v313_execution_page"] = _v314_execution_page_with_learning
+except Exception:
+    pass
+
+# ===== V31.5 PLAYBOOK RECALIBRATION REVIEW QUEUE =====
+# Turns execution-learning recommendations into explicit human-reviewed recalibration decisions.
+# No trusted playbook is silently changed.
+
+V315_VERSION = "V31.5"
+
+def _v315_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_playbook_recalibration_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            learning_state TEXT NOT NULL,
+            recommended_action TEXT NOT NULL,
+            rationale TEXT,
+            signal_count INTEGER NOT NULL DEFAULT 0,
+            average_outcome REAL,
+            net_learning_score REAL,
+            review_status TEXT NOT NULL DEFAULT 'PENDING',
+            reviewer_note TEXT,
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT,
+            UNIQUE(username, strategy, review_status)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_recalibration_reviews_user_status
+        ON hunter_playbook_recalibration_reviews(username, review_status, created_at)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v315_init()
+except Exception:
+    pass
+
+
+def _v315_make_recalibration_candidate(item):
+    state = str(item.get("state") or "")
+    if state == "EXECUTION_CHALLENGES_PLAYBOOK":
+        action = "RETEST_AND_CONSIDER_DEMOTION"
+        rationale = "Execution evidence is challenging this strategy. Retest before additional reuse; demotion can be considered only after review."
+    elif state == "EXECUTION_SUPPORTS_PLAYBOOK":
+        action = "CONFIRM_CONTROLLED_REUSE"
+        rationale = "Execution evidence supports the strategy. Keep it trusted, but continue controlled reuse and periodic revalidation."
+    elif state == "EXECUTION_MIXED":
+        action = "NARROW_CONTEXT_AND_RETEST"
+        rationale = "Execution evidence is mixed. Tighten the context definition and run targeted retests."
+    else:
+        action = "WAIT_FOR_MORE_DATA"
+        rationale = "There is not enough execution evidence to justify recalibration."
+    return action, rationale
+
+
+def _v315_sync_candidates(username):
+    strategies = _v314_strategy_learning_summary(username)
+    con = sqlite3.connect(DB)
+    try:
+        created = 0
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+        for item in strategies:
+            state = str(item.get("state") or "")
+            # Only states that imply a meaningful decision become review candidates.
+            if state == "MORE_DATA_NEEDED":
+                continue
+
+            action, rationale = _v315_make_recalibration_candidate(item)
+
+            # Do not create a duplicate pending review for the same strategy.
+            exists = con.execute("""
+                SELECT id FROM hunter_playbook_recalibration_reviews
+                WHERE username=? AND strategy=? AND review_status='PENDING'
+                LIMIT 1
+            """, (username, str(item.get("strategy") or ""))).fetchone()
+
+            if exists:
+                continue
+
+            con.execute("""
+                INSERT INTO hunter_playbook_recalibration_reviews
+                (username, strategy, learning_state, recommended_action, rationale,
+                 signal_count, average_outcome, net_learning_score, review_status,
+                 created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+            """, (
+                username,
+                str(item.get("strategy") or ""),
+                state,
+                action,
+                rationale,
+                int(item.get("signals") or 0),
+                item.get("average_outcome"),
+                item.get("net_learning_score"),
+                now,
+            ))
+            created += 1
+
+        con.commit()
+        return created
+    finally:
+        con.close()
+
+
+def _v315_review_rows(username, limit=100):
+    _v315_sync_candidates(username)
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, strategy, learning_state, recommended_action, rationale,
+                   signal_count, average_outcome, net_learning_score,
+                   review_status, reviewer_note, created_at, reviewed_at
+            FROM hunter_playbook_recalibration_reviews
+            WHERE username=?
+            ORDER BY CASE review_status WHEN 'PENDING' THEN 0 ELSE 1 END, id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v315_snapshot(username):
+    rows = _v315_review_rows(username, 120)
+    counts = {"pending": 0, "approved": 0, "rejected": 0, "deferred": 0}
+    for r in rows:
+        st = str(r.get("review_status") or "").lower()
+        if st in counts:
+            counts[st] += 1
+
+    return {
+        "version": V315_VERSION,
+        "username": username,
+        "reviews": rows,
+        "counts": counts,
+        "governance_rule": (
+            "Execution learning can propose recalibration, but trusted playbooks are not silently edited. "
+            "A Hunter must explicitly approve, reject, or defer each recommendation."
+        ),
+    }
+
+
+def _v315_decide_review(username, review_id, decision, note=""):
+    decision = str(decision or "").upper().strip()
+    allowed = {
+        "APPROVE": "APPROVED",
+        "REJECT": "REJECTED",
+        "DEFER": "DEFERRED",
+    }
+    if decision not in allowed:
+        return False, "invalid_decision"
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("""
+            SELECT id, review_status FROM hunter_playbook_recalibration_reviews
+            WHERE id=? AND username=?
+        """, (int(review_id), username)).fetchone()
+
+        if not row:
+            return False, "review_not_found"
+        if str(row[1]) != "PENDING":
+            return False, "review_already_decided"
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        con.execute("""
+            UPDATE hunter_playbook_recalibration_reviews
+            SET review_status=?, reviewer_note=?, reviewed_at=?
+            WHERE id=? AND username=? AND review_status='PENDING'
+        """, (
+            allowed[decision],
+            str(note or "")[:2000],
+            now,
+            int(review_id),
+            username,
+        ))
+        con.commit()
+        return True, None
+    finally:
+        con.close()
+
+
+@app.route("/api/hunter-playbook-recalibration")
+def v315_recalibration_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v315_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-playbook-recalibration/sync", methods=["POST"])
+def v315_recalibration_sync():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    created = _v315_sync_candidates(username)
+    return jsonify({"success": True, "created": created, "snapshot": _v315_snapshot(username)})
+
+
+@app.route("/api/hunter-playbook-recalibration/<int:review_id>/decision", methods=["POST"])
+def v315_recalibration_decision(review_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    decision = payload.get("decision")
+    note = payload.get("note") or ""
+
+    ok, err = _v315_decide_review(username, review_id, decision, note)
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+    return jsonify({"success": True, "snapshot": _v315_snapshot(username)})
+
+
+@app.route("/hunter-playbook-recalibration")
+def v315_recalibration_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Playbook Recalibration</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚖️ Playbook Recalibration</h1><p>Sign in to review recalibration recommendations.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v315_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    cards = []
+    for r in snap.get("reviews") or []:
+        pending = str(r.get("review_status")) == "PENDING"
+        buttons = ""
+        if pending:
+            buttons = """
+            <div class='actions'>
+              <button onclick="decide({id},'APPROVE')">✅ APPROVE</button>
+              <button onclick="decide({id},'DEFER')">⏳ DEFER</button>
+              <button onclick="decide({id},'REJECT')">✖ REJECT</button>
+            </div>
+            """.format(id=int(r.get("id")))
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>RECALIBRATION REVIEW #{id}</span><h3>{strategy}</h3></div>
+            <span class='pill'>{status}</span>
+          </div>
+          <div class='metrics four'>
+            <div><span>LEARNING STATE</span><b>{learning_state}</b></div>
+            <div><span>SIGNALS</span><b>{signals}</b></div>
+            <div><span>AVG OUTCOME</span><b>{avg}</b></div>
+            <div><span>NET SCORE</span><b>{net}</b></div>
+          </div>
+          <p><strong>{action}</strong></p>
+          <p>{rationale}</p>
+          {buttons}
+          <div class='small'>Created {created} · Reviewed {reviewed}</div>
+        </article>
+        """.format(
+            id=esc(r.get("id")),
+            strategy=esc(r.get("strategy")),
+            status=esc(r.get("review_status")),
+            learning_state=esc(r.get("learning_state")),
+            signals=esc(r.get("signal_count")),
+            avg=esc(r.get("average_outcome")),
+            net=esc(r.get("net_learning_score")),
+            action=esc(r.get("recommended_action")),
+            rationale=esc(r.get("rationale")),
+            buttons=buttons,
+            created=esc(r.get("created_at")),
+            reviewed=esc(r.get("reviewed_at")),
+        ))
+
+    c = snap.get("counts") or {}
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.5 Playbook Recalibration</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#23172c,#09060e 58%,#030204);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c0814ef;border:1px solid #5d426b;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#e4a6ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:30px}}h3{{margin:5px 0 0}}
+    p{{color:#d5cadf;line-height:1.55}}.hero{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}}
+    .hero div,.metrics div{{background:#0f0a16;border:1px solid #4b3557;border-radius:12px;padding:12px}}.hero span,.metrics span{{display:block;color:#a78cae;font-size:9px;font-weight:900}}.hero b,.metrics b{{display:block;margin-top:6px;font-size:20px;overflow-wrap:anywhere}}
+    .card{{background:#100b18;border:1px solid #473153;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.pill{{font-size:10px;font-weight:900;border:1px solid #73537f;border-radius:999px;padding:6px 9px}}
+    .metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:13px 0}}
+    a,button{{display:inline-block;margin:10px 6px 0 0;padding:10px 13px;border:1px solid #755083;border-radius:10px;background:#170d1d;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    .note{{border-left:4px solid #cb6cff;padding:10px 14px;background:#150d1a;border-radius:8px}}
+    .small{{margin-top:12px;color:#87748e;font-size:11px}}
+    @media(max-width:900px){{.hero,.metrics{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.5 // LEARNING → GOVERNANCE → RECALIBRATION</div>
+      <h1>⚖️ PLAYBOOK RECALIBRATION</h1>
+      <p>{username}, BL3 now converts meaningful execution-learning states into a review queue. Nothing trusted changes silently: you explicitly approve, reject, or defer every recalibration recommendation.</p>
+
+      <div class='hero'>
+        <div><span>PENDING</span><b>{pending}</b></div>
+        <div><span>APPROVED</span><b>{approved}</b></div>
+        <div><span>REJECTED</span><b>{rejected}</b></div>
+        <div><span>DEFERRED</span><b>{deferred}</b></div>
+      </div>
+
+      <div class='note'><strong>Governance rule:</strong> Execution learning can suggest “keep using”, “retest”, “narrow context”, or “consider demotion”, but BL3 does not auto-edit a trusted Playbook.</div>
+
+      <a href='/hunter-execution-learning'>🧠 EXECUTION LEARNING</a>
+      <a href='/hunter-strategy-playbooks'>📚 PLAYBOOKS</a>
+      <a href='/hunter-playbook-execution'>🎯 EXECUTION</a>
+      <button onclick='syncReviews()'>SYNC REVIEW QUEUE</button>
+
+      <h2>RECALIBRATION REVIEW QUEUE</h2>
+      {cards}
+    </section></div>
+    <script>
+    async function syncReviews(){{
+      const r=await fetch("/api/hunter-playbook-recalibration/sync",{{method:"POST"}});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Sync failed");return;}}
+      alert("Review queue synced. New: "+j.created);
+      location.reload();
+    }}
+
+    async function decide(id, decision){{
+      const note=prompt("Optional reviewer note:");
+      if(note===null) return;
+      const r=await fetch("/api/hunter-playbook-recalibration/"+id+"/decision",{{
+        method:"POST",
+        headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{decision:decision,note:note}})
+      }});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Decision failed");return;}}
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        pending=esc(c.get("pending", 0)),
+        approved=esc(c.get("approved", 0)),
+        rejected=esc(c.get("rejected", 0)),
+        deferred=esc(c.get("deferred", 0)),
+        cards="".join(cards) if cards else "<p>No recalibration reviews yet. Complete scored execution runs first.</p>",
+    )
+
+
+# Surface V31.5 links from V31.4 Execution Learning page.
+try:
+    _v315_prev_learning_page = app.view_functions.get("v314_execution_learning_page")
+    if _v315_prev_learning_page:
+        def _v315_learning_page_with_recalibration(*args, **kwargs):
+            response = _v315_prev_learning_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-playbook-recalibration" not in response:
+                link = "<a href='/hunter-playbook-recalibration'>⚖️ RECALIBRATION REVIEW</a>"
+                response = response.replace("<h2>STRATEGY LEARNING STATES</h2>", link + "<h2>STRATEGY LEARNING STATES</h2>", 1)
+            return response
+        app.view_functions["v314_execution_learning_page"] = _v315_learning_page_with_recalibration
 except Exception:
     pass
 
