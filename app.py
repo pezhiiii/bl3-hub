@@ -57878,6 +57878,692 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.1 CANONICAL INCIDENT REVIEW + REMEDIATION GATE =====
+# V33.0 can detect REVIEW_REQUIRED / ROLLBACK_RECOMMENDED outcomes.
+# V33.1 turns those outcomes into explicit incident cases with auditable,
+# non-automatic remediation planning. No runtime route is changed by opening,
+# planning, acknowledging or resolving an incident.
+
+V331_VERSION = "V33.1"
+V331_SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+V331_STATES = {"OPEN", "ACKNOWLEDGED", "REMEDIATION_STAGED", "RESOLVED", "DISMISSED"}
+V331_ALLOWED_OUTCOMES = {"REVIEW_REQUIRED", "ROLLBACK_RECOMMENDED"}
+
+
+def _v331_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_canonical_incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            adoption_id INTEGER NOT NULL,
+            watch_outcome_id INTEGER NOT NULL,
+            watch_outcome TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'MEDIUM',
+            incident_state TEXT NOT NULL DEFAULT 'OPEN',
+            title TEXT NOT NULL,
+            summary TEXT,
+            opened_at TEXT NOT NULL,
+            acknowledged_at TEXT,
+            resolved_at TEXT,
+            resolution_note TEXT,
+            UNIQUE(username, adoption_id, watch_outcome_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v331_incident_user_state
+        ON hunter_canonical_incidents(username, incident_state, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_canonical_remediation_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL UNIQUE,
+            plan_state TEXT NOT NULL DEFAULT 'DRAFT',
+            objective TEXT NOT NULL,
+            actions_json TEXT NOT NULL DEFAULT '[]',
+            verification_note TEXT,
+            created_at TEXT NOT NULL,
+            staged_at TEXT,
+            executed_note TEXT,
+            FOREIGN KEY(incident_id) REFERENCES hunter_canonical_incidents(id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v331_plan_user_state
+        ON hunter_canonical_remediation_plans(username, plan_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v331_init()
+except Exception:
+    pass
+
+
+def _v331_incident(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_canonical_incidents
+            WHERE id=? AND username=?
+        """, (int(incident_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v331_incident_for_outcome(username, adoption_id, outcome_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_canonical_incidents
+            WHERE username=? AND adoption_id=? AND watch_outcome_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(adoption_id), int(outcome_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v331_plan(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_canonical_remediation_plans
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(incident_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v331_open_incident(username, adoption_id, severity="MEDIUM", title="", summary=""):
+    outcome = _v330_outcome(username, adoption_id)
+    if not outcome:
+        return False, "watch_outcome_required", None
+
+    outcome_name = str(outcome.get("outcome") or "")
+    if outcome_name not in V331_ALLOWED_OUTCOMES:
+        return False, "incident_not_required_for_outcome", None
+
+    sev = str(severity or "MEDIUM").strip().upper()
+    if sev not in V331_SEVERITIES:
+        return False, "invalid_severity", None
+
+    existing = _v331_incident_for_outcome(username, adoption_id, int(outcome["id"]))
+    if existing:
+        return False, "incident_already_opened", int(existing["id"])
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE id=? AND username=?
+        """, (int(adoption_id), username)).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "adoption_not_found", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    default_title = "Canonical review for adoption #%s" % int(adoption_id)
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_canonical_incidents
+            (username, adoption_id, watch_outcome_id, watch_outcome, severity,
+             incident_state, title, summary, opened_at)
+            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+        """, (
+            username,
+            int(adoption_id),
+            int(outcome["id"]),
+            outcome_name,
+            sev,
+            str(title or default_title).strip()[:240],
+            str(summary or outcome.get("outcome_note") or "").strip()[:3000],
+            now,
+        ))
+        incident_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(adoption.get("strategy") or ""),
+            "CANONICAL_INCIDENT_OPENED",
+            detail="V33.1 incident #%s opened for adoption #%s after watch outcome %s." % (
+                incident_id, int(adoption_id), outcome_name
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, incident_id
+
+
+def _v331_acknowledge_incident(username, incident_id):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+    if str(incident.get("incident_state") or "") != "OPEN":
+        return False, "incident_not_open", int(incident_id)
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_canonical_incidents
+            SET incident_state='ACKNOWLEDGED', acknowledged_at=?
+            WHERE id=? AND username=? AND incident_state='OPEN'
+        """, (now, int(incident_id), username))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, int(incident_id)
+
+
+def _v331_save_plan(username, incident_id, objective, actions, verification_note=""):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+    if str(incident.get("incident_state") or "") in ("RESOLVED", "DISMISSED"):
+        return False, "incident_closed", None
+
+    objective = str(objective or "").strip()
+    if not objective:
+        return False, "objective_required", None
+
+    if isinstance(actions, str):
+        action_list = [a.strip() for a in actions.replace("\r", "").split("\n") if a.strip()]
+    elif isinstance(actions, list):
+        action_list = [str(a).strip() for a in actions if str(a).strip()]
+    else:
+        action_list = []
+
+    if not action_list:
+        return False, "at_least_one_action_required", None
+
+    action_list = action_list[:20]
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    existing = _v331_plan(username, incident_id)
+
+    con = sqlite3.connect(DB)
+    try:
+        if existing:
+            if str(existing.get("plan_state") or "") != "DRAFT":
+                return False, "plan_not_editable", int(existing["id"])
+            con.execute("""
+                UPDATE hunter_canonical_remediation_plans
+                SET objective=?, actions_json=?, verification_note=?
+                WHERE id=? AND username=? AND plan_state='DRAFT'
+            """, (
+                objective[:1000],
+                json.dumps(action_list, ensure_ascii=False),
+                str(verification_note or "").strip()[:2400],
+                int(existing["id"]),
+                username,
+            ))
+            plan_id = int(existing["id"])
+        else:
+            cur = con.execute("""
+                INSERT INTO hunter_canonical_remediation_plans
+                (username, incident_id, plan_state, objective, actions_json,
+                 verification_note, created_at)
+                VALUES (?, ?, 'DRAFT', ?, ?, ?, ?)
+            """, (
+                username,
+                int(incident_id),
+                objective[:1000],
+                json.dumps(action_list, ensure_ascii=False),
+                str(verification_note or "").strip()[:2400],
+                now,
+            ))
+            plan_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, plan_id
+
+
+def _v331_stage_plan(username, incident_id):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+
+    plan = _v331_plan(username, incident_id)
+    if not plan:
+        return False, "remediation_plan_required", None
+    if str(plan.get("plan_state") or "") != "DRAFT":
+        return False, "plan_not_draft", int(plan["id"])
+
+    try:
+        actions = json.loads(plan.get("actions_json") or "[]")
+    except Exception:
+        actions = []
+    if not actions:
+        return False, "plan_actions_required", int(plan["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_canonical_remediation_plans
+            SET plan_state='STAGED', staged_at=?
+            WHERE id=? AND username=? AND plan_state='DRAFT'
+        """, (now, int(plan["id"]), username))
+        con.execute("""
+            UPDATE hunter_canonical_incidents
+            SET incident_state='REMEDIATION_STAGED'
+            WHERE id=? AND username=? AND incident_state IN ('OPEN','ACKNOWLEDGED')
+        """, (int(incident_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "CANONICAL_REMEDIATION_STAGED",
+            detail="V33.1 remediation plan #%s staged for incident #%s. No runtime action executed automatically." % (
+                int(plan["id"]), int(incident_id)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(plan["id"])
+
+
+def _v331_resolve_incident(username, incident_id, resolution_note="", dismissed=False):
+    incident = _v331_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+    if str(incident.get("incident_state") or "") in ("RESOLVED", "DISMISSED"):
+        return False, "incident_already_closed", int(incident_id)
+
+    new_state = "DISMISSED" if dismissed else "RESOLVED"
+    note = str(resolution_note or "").strip()
+    if not note:
+        return False, "resolution_note_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_canonical_incidents
+            SET incident_state=?, resolved_at=?, resolution_note=?
+            WHERE id=? AND username=?
+        """, (new_state, now, note[:3000], int(incident_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "CANONICAL_INCIDENT_" + new_state,
+            detail="V33.1 incident #%s closed as %s. Runtime routing was not changed by incident closure." % (
+                int(incident_id), new_state
+            )
+        )
+    except Exception:
+        pass
+    return True, None, int(incident_id)
+
+
+def _v331_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        incidents = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_canonical_incidents
+            WHERE username=? ORDER BY id DESC LIMIT 300
+        """, (username,)).fetchall()]
+        plans = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_canonical_remediation_plans
+            WHERE username=? ORDER BY id DESC LIMIT 300
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+
+    plan_by_incident = {int(p.get("incident_id") or 0): p for p in plans}
+    enriched = []
+    for incident in incidents:
+        item = dict(incident)
+        plan = plan_by_incident.get(int(incident["id"]))
+        if plan:
+            p = dict(plan)
+            try:
+                p["actions"] = json.loads(p.get("actions_json") or "[]")
+            except Exception:
+                p["actions"] = []
+            item["plan"] = p
+        else:
+            item["plan"] = None
+        enriched.append(item)
+
+    # Discover V33.0 outcomes that qualify for an incident but do not have one yet.
+    eligible = []
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT o.*, a.revision_id, a.successor_id, a.strategy, a.adoption_state
+            FROM hunter_canonical_watch_outcomes o
+            JOIN hunter_revision_adoptions a ON a.id=o.adoption_id
+            WHERE o.username=?
+              AND o.outcome IN ('REVIEW_REQUIRED','ROLLBACK_RECOMMENDED')
+            ORDER BY o.id DESC
+            LIMIT 300
+        """, (username,)).fetchall()
+        for r in rows:
+            row = dict(r)
+            exists = con.execute("""
+                SELECT 1 FROM hunter_canonical_incidents
+                WHERE username=? AND adoption_id=? AND watch_outcome_id=?
+            """, (username, int(row["adoption_id"]), int(row["id"]))).fetchone()
+            if not exists:
+                eligible.append(row)
+    finally:
+        con.close()
+
+    counts = {
+        "incidents": len(incidents),
+        "open": sum(1 for i in incidents if str(i.get("incident_state") or "") in ("OPEN","ACKNOWLEDGED","REMEDIATION_STAGED")),
+        "staged": sum(1 for p in plans if str(p.get("plan_state") or "") == "STAGED"),
+        "resolved": sum(1 for i in incidents if str(i.get("incident_state") or "") in ("RESOLVED","DISMISSED")),
+        "eligible": len(eligible),
+    }
+
+    return {
+        "version": V331_VERSION,
+        "counts": counts,
+        "eligible_outcomes": eligible,
+        "incidents": enriched,
+        "policy": "Incident review and remediation planning are governance records only. They never mutate canonical routing automatically."
+    }
+
+
+@app.route("/api/hunter-canonical-incidents")
+def v331_incidents_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v331_snapshot(username)})
+
+
+@app.route("/api/hunter-canonical-incidents/adoption/<int:adoption_id>/open", methods=["POST"])
+def v331_open_incident_api(adoption_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, incident_id = _v331_open_incident(
+        username,
+        adoption_id,
+        payload.get("severity") or "MEDIUM",
+        payload.get("title") or "",
+        payload.get("summary") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "incident_id": incident_id}), 400
+    return jsonify({"success": True, "incident_id": incident_id})
+
+
+@app.route("/api/hunter-canonical-incidents/<int:incident_id>/ack", methods=["POST"])
+def v331_ack_incident_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, error, iid = _v331_acknowledge_incident(username, incident_id)
+    if not ok:
+        return jsonify({"success": False, "error": error, "incident_id": iid}), 400
+    return jsonify({"success": True, "incident_id": iid})
+
+
+@app.route("/api/hunter-canonical-incidents/<int:incident_id>/plan", methods=["POST"])
+def v331_plan_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, plan_id = _v331_save_plan(
+        username,
+        incident_id,
+        payload.get("objective") or "",
+        payload.get("actions") or "",
+        payload.get("verification_note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "plan_id": plan_id}), 400
+    return jsonify({"success": True, "plan_id": plan_id})
+
+
+@app.route("/api/hunter-canonical-incidents/<int:incident_id>/plan/stage", methods=["POST"])
+def v331_stage_plan_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, error, plan_id = _v331_stage_plan(username, incident_id)
+    if not ok:
+        return jsonify({"success": False, "error": error, "plan_id": plan_id}), 400
+    return jsonify({"success": True, "plan_id": plan_id})
+
+
+@app.route("/api/hunter-canonical-incidents/<int:incident_id>/resolve", methods=["POST"])
+def v331_resolve_incident_api(incident_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    dismissed = str(payload.get("dismissed") or "").lower() in ("1","true","yes","on")
+    ok, error, iid = _v331_resolve_incident(
+        username, incident_id, payload.get("resolution_note") or "", dismissed
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "incident_id": iid}), 400
+    return jsonify({"success": True, "incident_id": iid})
+
+
+@app.route("/hunter-canonical-incidents")
+def v331_incidents_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Canonical Incidents</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🚨 Canonical Incidents</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v331_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    eligible_cards = []
+    for row in data["eligible_outcomes"]:
+        eligible_cards.append("""
+        <article class='card hot'>
+          <div class='top'><span>Adoption #{aid}</span><span class='pill'>{outcome}</span></div>
+          <h2>Incident candidate</h2>
+          <p><b>Revision:</b> #{revision} · <b>Successor:</b> #{successor}</p>
+          <p class='muted'>{note}</p>
+          <form action='/api/hunter-canonical-incidents/adoption/{aid}/open' onsubmit='return v331submit(this,event)'>
+            <div class='two'><select name='severity'><option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select>
+            <input name='title' placeholder='Incident title'></div>
+            <textarea name='summary' rows='2' placeholder='Incident summary'></textarea>
+            <button type='submit'>OPEN INCIDENT</button>
+          </form>
+        </article>
+        """.format(
+            aid=esc(row.get("adoption_id")),
+            outcome=esc(row.get("outcome")),
+            revision=esc(row.get("revision_id")),
+            successor=esc(row.get("successor_id")),
+            note=esc(row.get("outcome_note")),
+        ))
+
+    incident_cards = []
+    for item in data["incidents"]:
+        plan = item.get("plan") or {}
+        state = str(item.get("incident_state") or "")
+        actions = ""
+
+        if state == "OPEN":
+            actions += """
+            <form action='/api/hunter-canonical-incidents/{iid}/ack' onsubmit='return v331submit(this,event)'>
+              <button type='submit'>ACKNOWLEDGE INCIDENT</button>
+            </form>
+            """.format(iid=int(item["id"]))
+
+        if state not in ("RESOLVED","DISMISSED"):
+            plan_actions = "\n".join(plan.get("actions") or [])
+            actions += """
+            <form action='/api/hunter-canonical-incidents/{iid}/plan' onsubmit='return v331submit(this,event)'>
+              <input name='objective' value='{objective}' placeholder='Remediation objective'>
+              <textarea name='actions' rows='4' placeholder='One remediation action per line'>{plan_actions}</textarea>
+              <textarea name='verification_note' rows='2' placeholder='How will this be verified?'>{verify}</textarea>
+              <button type='submit'>SAVE REMEDIATION PLAN</button>
+            </form>
+            """.format(
+                iid=int(item["id"]),
+                objective=esc(plan.get("objective")),
+                plan_actions=esc(plan_actions),
+                verify=esc(plan.get("verification_note")),
+            )
+
+        if plan and str(plan.get("plan_state") or "") == "DRAFT" and state not in ("RESOLVED","DISMISSED"):
+            actions += """
+            <form action='/api/hunter-canonical-incidents/{iid}/plan/stage' onsubmit='return v331submit(this,event)'>
+              <button class='warn' type='submit'>STAGE REMEDIATION</button>
+            </form>
+            """.format(iid=int(item["id"]))
+
+        if state not in ("RESOLVED","DISMISSED"):
+            actions += """
+            <form action='/api/hunter-canonical-incidents/{iid}/resolve' onsubmit='return v331submit(this,event)'>
+              <textarea name='resolution_note' rows='2' placeholder='Resolution / dismissal note'></textarea>
+              <label class='check'><input type='checkbox' name='dismissed' value='1'> Dismiss instead of resolve</label>
+              <button class='safe' type='submit'>CLOSE INCIDENT</button>
+            </form>
+            """.format(iid=int(item["id"]))
+
+        plan_html = ""
+        if plan:
+            plan_html = "<div class='plan'><b>PLAN {}</b><br>{}<ol>{}</ol><small>{}</small></div>".format(
+                esc(plan.get("plan_state")),
+                esc(plan.get("objective")),
+                "".join("<li>{}</li>".format(esc(a)) for a in (plan.get("actions") or [])),
+                esc(plan.get("verification_note")),
+            )
+
+        incident_cards.append("""
+        <article class='card'>
+          <div class='top'><span>Incident #{iid}</span><span class='pill severity-{sev}'>{sev} · {state}</span></div>
+          <h2>{title}</h2>
+          <p><b>Adoption:</b> #{aid} · <b>Watch outcome:</b> {outcome}</p>
+          <p class='muted'>{summary}</p>
+          {plan_html}
+          {actions}
+        </article>
+        """.format(
+            iid=esc(item.get("id")),
+            sev=esc(str(item.get("severity") or "").lower()),
+            state=esc(item.get("incident_state")),
+            title=esc(item.get("title")),
+            aid=esc(item.get("adoption_id")),
+            outcome=esc(item.get("watch_outcome")),
+            summary=esc(item.get("summary")),
+            plan_html=plan_html,
+            actions=actions,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.1 Canonical Incidents</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1160px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#ff9bad;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#8bf0c8}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #31596a;border-radius:999px;padding:6px 9px;color:#b9d7df;font-size:11px}} .hot{{border-color:#6b3a45}}
+    input,textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    .two{{display:grid;grid-template-columns:1fr 1fr;gap:8px}} button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.safe{{background:#8bf0c8}} .plan{{margin-top:10px;padding:12px;border:1px solid #28546a;border-radius:12px;background:#07151c}}
+    .check{{display:block;margin-top:8px;color:#b9d7df;font-size:12px}} .check input{{width:auto;margin-right:6px}} .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #ff9bad;padding:12px;background:#160a0d;color:#e7bbc3;line-height:1.6}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}.two{{grid-template-columns:1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.1 // CANONICAL INCIDENT REVIEW + REMEDIATION GATE</div>
+        <h1>🚨 INCIDENT REVIEW</h1>
+        <div class='sub'>Convert evidence-backed canonical watch concerns into explicit incident cases, remediation plans and operator closure records—without silently changing runtime routing.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>INCIDENTS</div><div class='num'>{incidents}</div></div>
+          <div class='stat'><div class='eyebrow'>OPEN</div><div class='num'>{open}</div></div>
+          <div class='stat'><div class='eyebrow'>STAGED</div><div class='num'>{staged}</div></div>
+          <div class='stat'><div class='eyebrow'>RESOLVED</div><div class='num'>{resolved}</div></div>
+          <div class='stat'><div class='eyebrow'>NEW CANDIDATES</div><div class='num'>{eligible}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-canonical-watch'>🛰️ CANONICAL WATCH</a><a href='/hunter-promotion-adoption'>🚀 ADOPTION</a><a href='/api/hunter-canonical-incidents'>JSON</a></div>
+        <div class='rule'><strong>V33.1 rule:</strong> incidents and remediation plans document operator judgment. They do not execute rollback, switch canonical routing, or rewrite historical evidence.</div>
+      </section>
+      <section class='grid'>{eligible_cards}{incident_cards}</section>
+    </div>
+    <script>
+    async function v331submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        incidents=esc(c.get("incidents",0)),
+        open=esc(c.get("open",0)),
+        staged=esc(c.get("staged",0)),
+        resolved=esc(c.get("resolved",0)),
+        eligible=esc(c.get("eligible",0)),
+        eligible_cards="".join(eligible_cards),
+        incident_cards="".join(incident_cards) if incident_cards else "<article class='card'><p>No incidents yet.</p></article>"
+    )
+
+
+# Surface V33.1 from the V33.0 canonical watch workspace.
+try:
+    _v331_prev_watch_page = app.view_functions.get("v330_canonical_watch_page")
+    if _v331_prev_watch_page:
+        def _v331_watch_with_incidents(*args, **kwargs):
+            response = _v331_prev_watch_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-canonical-incidents" not in response:
+                anchor = "<a href='/api/hunter-canonical-watch'>JSON</a>"
+                link = "<a href='/hunter-canonical-incidents'>🚨 INCIDENT REVIEW</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v330_canonical_watch_page"] = _v331_watch_with_incidents
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
