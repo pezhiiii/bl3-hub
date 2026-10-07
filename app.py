@@ -59776,6 +59776,310 @@ except Exception:
     pass
 
 
+
+# ===== V33.4 RECOVERY POSTMORTEM + LEARNING PROMOTION GATE =====
+V334_VERSION = "V33.4"
+V334_ROOT_CAUSES = {"CONFIG", "LOGIC", "DATA", "DEPENDENCY", "PROCESS", "UNKNOWN"}
+V334_LESSON_TYPES = {"PREVENTION", "DETECTION", "RESPONSE", "RECOVERY", "GOVERNANCE"}
+
+def _v334_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS hunter_recovery_postmortems(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL UNIQUE,
+            seal_id INTEGER NOT NULL,
+            root_cause TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            what_worked TEXT,
+            what_failed TEXT,
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            finalized_at TEXT)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS hunter_recovery_lessons(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            postmortem_id INTEGER NOT NULL,
+            lesson_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS hunter_learning_promotions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            lesson_id INTEGER NOT NULL UNIQUE,
+            promotion_state TEXT NOT NULL DEFAULT 'STAGED',
+            promotion_note TEXT,
+            staged_at TEXT NOT NULL,
+            promoted_at TEXT)""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v334_pm_user_state ON hunter_recovery_postmortems(username,state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v334_lessons_pm ON hunter_recovery_lessons(username,postmortem_id,id ASC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v334_promo_state ON hunter_learning_promotions(username,promotion_state,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v334_init()
+except Exception:
+    pass
+
+def _v334_postmortem(username, incident_id):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM hunter_recovery_postmortems WHERE username=? AND incident_id=? ORDER BY id DESC LIMIT 1",(username,int(incident_id))).fetchone()
+        return dict(r) if r else None
+    finally: con.close()
+
+def _v334_lessons(username, postmortem_id):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        rows=con.execute("SELECT * FROM hunter_recovery_lessons WHERE username=? AND postmortem_id=? ORDER BY id ASC",(username,int(postmortem_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally: con.close()
+
+def _v334_promotion_for_lesson(username, lesson_id):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM hunter_learning_promotions WHERE username=? AND lesson_id=? ORDER BY id DESC LIMIT 1",(username,int(lesson_id))).fetchone()
+        return dict(r) if r else None
+    finally: con.close()
+
+def _v334_save_postmortem(username, incident_id, root_cause, summary, what_worked="", what_failed=""):
+    seal=_v333_seal(username, incident_id)
+    if not seal or str(seal.get("seal_state") or "")!="SEALED":
+        return False,"sealed_recovery_required",None
+    root=str(root_cause or "UNKNOWN").upper().strip()
+    if root not in V334_ROOT_CAUSES: return False,"invalid_root_cause",None
+    summary=str(summary or "").strip()
+    if not summary: return False,"summary_required",None
+    existing=_v334_postmortem(username, incident_id)
+    if existing and str(existing.get("state") or "")!="DRAFT":
+        return False,"postmortem_finalized",int(existing["id"])
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        if existing:
+            con.execute("""UPDATE hunter_recovery_postmortems SET root_cause=?,summary=?,what_worked=?,what_failed=?
+                           WHERE id=? AND username=? AND state='DRAFT'""",
+                        (root,summary[:4000],str(what_worked or "")[:4000],str(what_failed or "")[:4000],int(existing["id"]),username))
+            pid=int(existing["id"])
+        else:
+            cur=con.execute("""INSERT INTO hunter_recovery_postmortems
+                (username,incident_id,seal_id,root_cause,summary,what_worked,what_failed,state,created_at)
+                VALUES(?,?,?,?,?,?,?,'DRAFT',?)""",
+                (username,int(incident_id),int(seal["id"]),root,summary[:4000],str(what_worked or "")[:4000],str(what_failed or "")[:4000],now))
+            pid=int(cur.lastrowid)
+        con.commit()
+    finally: con.close()
+    return True,None,pid
+
+def _v334_add_lesson(username, incident_id, lesson_type, title, detail):
+    pm=_v334_postmortem(username, incident_id)
+    if not pm: return False,"postmortem_required",None
+    if str(pm.get("state") or "")!="DRAFT": return False,"postmortem_not_editable",None
+    lt=str(lesson_type or "").upper().strip()
+    if lt not in V334_LESSON_TYPES: return False,"invalid_lesson_type",None
+    title=str(title or "").strip(); detail=str(detail or "").strip()
+    if not title or not detail: return False,"lesson_title_and_detail_required",None
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO hunter_recovery_lessons
+            (username,postmortem_id,lesson_type,title,detail,created_at) VALUES(?,?,?,?,?,?)""",
+            (username,int(pm["id"]),lt,title[:240],detail[:4000],now))
+        lid=int(cur.lastrowid); con.commit()
+    finally: con.close()
+    return True,None,lid
+
+def _v334_finalize_postmortem(username, incident_id):
+    pm=_v334_postmortem(username, incident_id)
+    if not pm: return False,"postmortem_required",None
+    if str(pm.get("state") or "")!="DRAFT": return False,"postmortem_not_draft",int(pm["id"])
+    if not _v334_lessons(username, int(pm["id"])): return False,"at_least_one_lesson_required",None
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_recovery_postmortems SET state='FINALIZED',finalized_at=? WHERE id=? AND username=?",(now,int(pm["id"]),username))
+        con.commit()
+    finally: con.close()
+    return True,None,int(pm["id"])
+
+def _v334_stage_promotion(username, lesson_id, note=""):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        row=con.execute("""SELECT l.*,p.state AS postmortem_state FROM hunter_recovery_lessons l
+                           JOIN hunter_recovery_postmortems p ON p.id=l.postmortem_id
+                           WHERE l.id=? AND l.username=?""",(int(lesson_id),username)).fetchone()
+        lesson=dict(row) if row else None
+    finally: con.close()
+    if not lesson: return False,"lesson_not_found",None
+    if str(lesson.get("postmortem_state") or "")!="FINALIZED": return False,"postmortem_must_be_finalized",None
+    existing=_v334_promotion_for_lesson(username, lesson_id)
+    if existing: return False,"promotion_already_staged",int(existing["id"])
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO hunter_learning_promotions
+            (username,lesson_id,promotion_state,promotion_note,staged_at) VALUES(?,?,'STAGED',?,?)""",
+            (username,int(lesson_id),str(note or "")[:2400],now))
+        pid=int(cur.lastrowid); con.commit()
+    finally: con.close()
+    return True,None,pid
+
+def _v334_execute_promotion(username, promotion_id, note=""):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM hunter_learning_promotions WHERE id=? AND username=?",(int(promotion_id),username)).fetchone()
+        promo=dict(r) if r else None
+    finally: con.close()
+    if not promo: return False,"promotion_not_found",None
+    if str(promo.get("promotion_state") or "")!="STAGED": return False,"promotion_not_staged",int(promo["id"])
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_learning_promotions SET promotion_state='PROMOTED',promoted_at=?,
+                       promotion_note=CASE WHEN ?<>'' THEN ? ELSE promotion_note END
+                       WHERE id=? AND username=?""",
+                    (now,str(note or "").strip(),str(note or "")[:2400],int(promo["id"]),username))
+        con.commit()
+    finally: con.close()
+    return True,None,int(promo["id"])
+
+def _v334_snapshot(username):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        seals=[dict(r) for r in con.execute("""SELECT s.*,i.title AS incident_title FROM hunter_recovery_seals s
+                 LEFT JOIN hunter_canonical_incidents i ON i.id=s.incident_id
+                 WHERE s.username=? AND s.seal_state='SEALED' ORDER BY s.id DESC""",(username,)).fetchall()]
+        pms=[dict(r) for r in con.execute("SELECT * FROM hunter_recovery_postmortems WHERE username=? ORDER BY id DESC",(username,)).fetchall()]
+        promos=[dict(r) for r in con.execute("SELECT * FROM hunter_learning_promotions WHERE username=? ORDER BY id DESC",(username,)).fetchall()]
+    finally: con.close()
+    pm_by_inc={int(p["incident_id"]):p for p in pms}
+    promo_by_lesson={int(p["lesson_id"]):p for p in promos}
+    items=[]
+    for s in seals:
+        iid=int(s.get("incident_id") or 0); pm=pm_by_inc.get(iid); lessons=[]
+        if pm:
+            for l in _v334_lessons(username,int(pm["id"])):
+                x=dict(l); x["promotion"]=promo_by_lesson.get(int(x["id"])); lessons.append(x)
+        item=dict(s); item["postmortem"]=pm; item["lessons"]=lessons
+        item["ready_to_finalize"]=bool(pm) and str(pm.get("state") or "")=="DRAFT" and bool(lessons)
+        items.append(item)
+    return {"version":V334_VERSION,
+            "counts":{"sealed_recoveries":len(seals),"postmortems":len(pms),
+                      "finalized":sum(1 for p in pms if str(p.get("state") or "")=="FINALIZED"),
+                      "promoted_lessons":sum(1 for p in promos if str(p.get("promotion_state") or "")=="PROMOTED")},
+            "items":items,
+            "policy":"Postmortems and promoted lessons are governance intelligence only; they never mutate runtime routing automatically."}
+
+@app.route("/api/hunter-recovery-postmortems")
+def v334_api():
+    username=session.get("authenticated_username")
+    if not username: return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,**_v334_snapshot(username)})
+
+@app.route("/api/hunter-recovery-postmortems/<int:incident_id>/save",methods=["POST"])
+def v334_save_api(incident_id):
+    username=session.get("authenticated_username")
+    if not username: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,pid=_v334_save_postmortem(username,incident_id,p.get("root_cause"),p.get("summary"),p.get("what_worked"),p.get("what_failed"))
+    if not ok: return jsonify({"success":False,"error":e,"postmortem_id":pid}),400
+    return jsonify({"success":True,"postmortem_id":pid})
+
+@app.route("/api/hunter-recovery-postmortems/<int:incident_id>/lesson",methods=["POST"])
+def v334_lesson_api(incident_id):
+    username=session.get("authenticated_username")
+    if not username: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,lid=_v334_add_lesson(username,incident_id,p.get("lesson_type"),p.get("title"),p.get("detail"))
+    if not ok: return jsonify({"success":False,"error":e,"lesson_id":lid}),400
+    return jsonify({"success":True,"lesson_id":lid})
+
+@app.route("/api/hunter-recovery-postmortems/<int:incident_id>/finalize",methods=["POST"])
+def v334_finalize_api(incident_id):
+    username=session.get("authenticated_username")
+    if not username: return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,pid=_v334_finalize_postmortem(username,incident_id)
+    if not ok: return jsonify({"success":False,"error":e,"postmortem_id":pid}),400
+    return jsonify({"success":True,"postmortem_id":pid})
+
+@app.route("/api/hunter-recovery-postmortems/lesson/<int:lesson_id>/promote/stage",methods=["POST"])
+def v334_stage_promo_api(lesson_id):
+    username=session.get("authenticated_username")
+    if not username: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,pid=_v334_stage_promotion(username,lesson_id,p.get("promotion_note") or p.get("note") or "")
+    if not ok: return jsonify({"success":False,"error":e,"promotion_id":pid}),400
+    return jsonify({"success":True,"promotion_id":pid})
+
+@app.route("/api/hunter-recovery-postmortems/promotion/<int:promotion_id>/execute",methods=["POST"])
+def v334_execute_promo_api(promotion_id):
+    username=session.get("authenticated_username")
+    if not username: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,pid=_v334_execute_promotion(username,promotion_id,p.get("note") or "")
+    if not ok: return jsonify({"success":False,"error":e,"promotion_id":pid}),400
+    return jsonify({"success":True,"promotion_id":pid})
+
+@app.route("/hunter-recovery-postmortems")
+def v334_page():
+    username=session.get("authenticated_username")
+    if not username:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>📘 Recovery Postmortems</h1><p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>",401
+    data=_v334_snapshot(username); c=data["counts"]; esc=lambda v: html.escape(str(v if v is not None else ""))
+    cards=[]
+    for item in data["items"]:
+        iid=int(item.get("incident_id") or 0); pm=item.get("postmortem") or {}; lessons=item.get("lessons") or []; state=str(pm.get("state") or "")
+        forms=""
+        if not pm:
+            forms=f"""<form action='/api/hunter-recovery-postmortems/{iid}/save' onsubmit='return v334submit(this,event)'>
+            <select name='root_cause'><option>CONFIG</option><option>LOGIC</option><option>DATA</option><option>DEPENDENCY</option><option>PROCESS</option><option>UNKNOWN</option></select>
+            <textarea name='summary' placeholder='Postmortem summary'></textarea><textarea name='what_worked' placeholder='What worked'></textarea>
+            <textarea name='what_failed' placeholder='What failed'></textarea><button>CREATE POSTMORTEM</button></form>"""
+        elif state=="DRAFT":
+            forms+=f"""<form action='/api/hunter-recovery-postmortems/{iid}/lesson' onsubmit='return v334submit(this,event)'>
+            <select name='lesson_type'><option>PREVENTION</option><option>DETECTION</option><option>RESPONSE</option><option>RECOVERY</option><option>GOVERNANCE</option></select>
+            <input name='title' placeholder='Lesson title'><textarea name='detail' placeholder='Reusable lesson'></textarea><button>ADD LESSON</button></form>"""
+            if item.get("ready_to_finalize"):
+                forms+=f"<form action='/api/hunter-recovery-postmortems/{iid}/finalize' onsubmit='return v334submit(this,event)'><button class='safe'>FINALIZE POSTMORTEM</button></form>"
+        lesson_html=""
+        for l in lessons:
+            promo=l.get("promotion") or {}; ps=str(promo.get("promotion_state") or ""); action=""
+            if state=="FINALIZED" and not promo:
+                action=f"<form action='/api/hunter-recovery-postmortems/lesson/{int(l['id'])}/promote/stage' onsubmit='return v334submit(this,event)'><textarea name='promotion_note' placeholder='Promotion rationale'></textarea><button class='warn'>STAGE PROMOTION</button></form>"
+            elif ps=="STAGED":
+                action=f"<form action='/api/hunter-recovery-postmortems/promotion/{int(promo['id'])}/execute' onsubmit='return v334submit(this,event)'><textarea name='note' placeholder='Final note'></textarea><button class='safe'>PROMOTE LESSON</button></form>"
+            elif ps=="PROMOTED":
+                action="<div class='promoted'>PROMOTED TO GOVERNANCE LEARNING</div>"
+            lesson_html+=f"<div class='lesson'><b>{esc(l.get('lesson_type'))}</b> · {esc(l.get('title'))}<p>{esc(l.get('detail'))}</p>{action}</div>"
+        cards.append(f"""<article class='card'><div class='top'><span>Incident #{iid}</span><span class='pill'>SEALED RECOVERY</span></div>
+        <h2>{esc(item.get('incident_title') or ('Incident #'+str(iid)))}</h2>{forms}{lesson_html or "<p class='muted'>No lessons yet.</p>"}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V33.4 Recovery Postmortems</title>
+    <style>body{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}.wrap{max-width:1160px;margin:auto;padding:28px}.hero,.card{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}.eyebrow{color:#c8a8ff;font-size:11px;letter-spacing:1.7px;font-weight:900}.stats,.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px}.stats{grid-template-columns:repeat(4,1fr)}.num{font-size:26px;font-weight:900;color:#c8a8ff}.top{display:flex;justify-content:space-between}.pill{border:1px solid #57417a;border-radius:999px;padding:5px 8px;color:#c8a8ff;font-size:11px}.lesson{margin-top:12px;padding:12px;border:1px solid #2b3f55;border-radius:14px}.muted{color:#8ca7b4}textarea,select,input{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}button{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}.warn{background:#ffd66f}.safe{background:#8bf0c8}.promoted{margin-top:8px;padding:9px;border-radius:10px;background:#0e2a21;color:#9bf2cb}.nav a{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}@media(max-width:720px){.grid,.stats{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}}</style></head>
+    <body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V33.4 // RECOVERY POSTMORTEM + LEARNING PROMOTION GATE</div><h1>📘 LEARN FROM RECOVERY</h1>
+    <p class='muted'>Turn sealed recoveries into explicit postmortems, reusable lessons, and separately promoted governance intelligence.</p>
+    <div class='stats'><div class='card'><div class='eyebrow'>SEALED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>POSTMORTEMS</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>FINALIZED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>PROMOTED LESSONS</div><div class='num'>{}</div></div></div>
+    <div class='nav'><a href='/hunter-recovery-stability'>🧷 SEAL RECOVERY</a><a href='/api/hunter-recovery-postmortems'>JSON</a></div></section>
+    <section class='grid'>{}</section></div><script>
+    async function v334submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(c["sealed_recoveries"],c["postmortems"],c["finalized"],c["promoted_lessons"],"".join(cards) or "<article class='card'><p>No sealed recoveries ready for postmortem learning.</p></article>")
+
+try:
+    _v334_prev_page=app.view_functions.get("v333_page")
+    if _v334_prev_page:
+        def _v334_prev_with_link(*args,**kwargs):
+            response=_v334_prev_page(*args,**kwargs)
+            if isinstance(response,str) and "/hunter-recovery-postmortems" not in response:
+                response=response.replace("<a href='/api/hunter-recovery-stability'>JSON</a>","<a href='/api/hunter-recovery-stability'>JSON</a><a href='/hunter-recovery-postmortems'>📘 POSTMORTEM LEARNING</a>",1)
+            return response
+        app.view_functions["v333_page"]=_v334_prev_with_link
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
