@@ -55091,6 +55091,456 @@ try:
 except Exception:
     pass
 
+
+
+# ===== V32.5 SUCCESSOR TRIAL LEDGER + OUTCOME GATE =====
+# Adds an execution-learning layer for V32.4 successor directives. Hunters can
+# record structured trial observations, then finalize a non-destructive outcome
+# only after enough evidence exists. Outcomes never silently rewrite or close a
+# directive; execution state remains an explicit operator choice.
+
+V325_VERSION = "V32.5"
+V325_SIGNAL_STATES = {"POSITIVE", "MIXED", "NEGATIVE", "INCONCLUSIVE"}
+V325_CHECKPOINT_KINDS = {"EXECUTION", "QUALITY", "STABILITY", "MANUAL"}
+V325_OUTCOMES = {"VALIDATED", "ADJUST_REQUIRED", "RETIRE_RECOMMENDED"}
+V325_MIN_OBSERVATIONS_FOR_OUTCOME = 2
+
+
+def _v325_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_successor_trial_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            successor_id INTEGER NOT NULL,
+            checkpoint_kind TEXT NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v325_trial_obs_user_successor
+        ON hunter_successor_trial_observations(username, successor_id, id DESC)
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_successor_trial_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            successor_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, successor_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v325_trial_outcomes_user
+        ON hunter_successor_trial_outcomes(username, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v325_init()
+except Exception:
+    pass
+
+
+def _v325_successor(username, successor_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, case_id, parent_directive_id, playbook_id, strategy,
+                   directive_type, directive_state, activation_note,
+                   created_at, closed_at, close_note
+            FROM hunter_reopen_successor_directives
+            WHERE id=? AND username=?
+        """, (int(successor_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v325_observations(username, successor_id=None, limit=240):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if successor_id is None:
+            rows = con.execute("""
+                SELECT id, successor_id, checkpoint_kind, signal_state,
+                       evidence_note, created_at
+                FROM hunter_successor_trial_observations
+                WHERE username=?
+                ORDER BY id DESC LIMIT ?
+            """, (username, int(limit))).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT id, successor_id, checkpoint_kind, signal_state,
+                       evidence_note, created_at
+                FROM hunter_successor_trial_observations
+                WHERE username=? AND successor_id=?
+                ORDER BY id DESC LIMIT ?
+            """, (username, int(successor_id), int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v325_outcomes(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, successor_id, outcome, outcome_note, created_at
+            FROM hunter_successor_trial_outcomes
+            WHERE username=? ORDER BY id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v325_add_observation(username, successor_id, checkpoint_kind, signal_state, evidence_note=""):
+    successor = _v325_successor(username, successor_id)
+    if not successor:
+        return False, "successor_not_found", None
+
+    kind = str(checkpoint_kind or "").strip().upper()
+    signal = str(signal_state or "").strip().upper()
+    if kind not in V325_CHECKPOINT_KINDS:
+        return False, "invalid_checkpoint_kind", None
+    if signal not in V325_SIGNAL_STATES:
+        return False, "invalid_signal_state", None
+
+    note = str(evidence_note or "").strip()
+    if len(note) < 3:
+        return False, "evidence_note_required", None
+
+    con = sqlite3.connect(DB)
+    try:
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = con.execute("""
+            INSERT INTO hunter_successor_trial_observations
+            (username, successor_id, checkpoint_kind, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(successor_id), kind, signal,
+            note[:2400], now
+        ))
+        observation_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(successor.get("strategy") or ""),
+            "SUCCESSOR_TRIAL_OBSERVATION",
+            directive_id=int(successor.get("parent_directive_id") or 0) or None,
+            detail="V32.5 successor #%s trial checkpoint %s recorded with signal %s." % (
+                int(successor_id), kind, signal
+            )
+        )
+    except Exception:
+        pass
+    return True, None, observation_id
+
+
+def _v325_finalize_outcome(username, successor_id, outcome, outcome_note=""):
+    successor = _v325_successor(username, successor_id)
+    if not successor:
+        return False, "successor_not_found", None
+
+    requested = str(outcome or "").strip().upper()
+    if requested not in V325_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    observations = _v325_observations(username, successor_id, 500)
+    if len(observations) < V325_MIN_OBSERVATIONS_FOR_OUTCOME:
+        return False, "insufficient_observations", None
+
+    con = sqlite3.connect(DB)
+    try:
+        existing = con.execute("""
+            SELECT id FROM hunter_successor_trial_outcomes
+            WHERE username=? AND successor_id=?
+        """, (username, int(successor_id))).fetchone()
+        if existing:
+            return False, "outcome_already_finalized", int(existing[0])
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = con.execute("""
+            INSERT INTO hunter_successor_trial_outcomes
+            (username, successor_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username, int(successor_id), requested,
+            str(outcome_note or "").strip()[:2400], now
+        ))
+        outcome_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(successor.get("strategy") or ""),
+            "SUCCESSOR_TRIAL_OUTCOME",
+            directive_id=int(successor.get("parent_directive_id") or 0) or None,
+            detail="V32.5 successor #%s trial finalized as %s. Directive state was not changed automatically." % (
+                int(successor_id), requested
+            )
+        )
+    except Exception:
+        pass
+    return True, None, outcome_id
+
+
+def _v325_snapshot(username):
+    successors = _v324_successors(username, 180)
+    observations = _v325_observations(username, None, 600)
+    outcomes = _v325_outcomes(username)
+
+    obs_by_successor = {}
+    for row in observations:
+        sid = int(row.get("successor_id") or 0)
+        obs_by_successor.setdefault(sid, []).append(row)
+    outcome_by_successor = {int(r.get("successor_id") or 0): r for r in outcomes}
+
+    enriched = []
+    ready = 0
+    for s in successors:
+        item = dict(s)
+        sid = int(item.get("id") or 0)
+        obs = obs_by_successor.get(sid, [])
+        final_outcome = outcome_by_successor.get(sid)
+        signals = {
+            "POSITIVE": sum(1 for o in obs if str(o.get("signal_state")) == "POSITIVE"),
+            "MIXED": sum(1 for o in obs if str(o.get("signal_state")) == "MIXED"),
+            "NEGATIVE": sum(1 for o in obs if str(o.get("signal_state")) == "NEGATIVE"),
+            "INCONCLUSIVE": sum(1 for o in obs if str(o.get("signal_state")) == "INCONCLUSIVE"),
+        }
+        item["observations"] = obs[:20]
+        item["observation_count"] = len(obs)
+        item["signals"] = signals
+        item["outcome"] = final_outcome
+        item["ready_for_outcome"] = len(obs) >= V325_MIN_OBSERVATIONS_FOR_OUTCOME and not final_outcome
+        if item["ready_for_outcome"]:
+            ready += 1
+        enriched.append(item)
+
+    counts = {
+        "successors": len(successors),
+        "active_successors": sum(1 for s in successors if str(s.get("directive_state") or "") == "ACTIVE"),
+        "observations": len(observations),
+        "finalized_outcomes": len(outcomes),
+        "ready_for_outcome": ready,
+    }
+    return {
+        "version": V325_VERSION,
+        "minimum_observations": V325_MIN_OBSERVATIONS_FOR_OUTCOME,
+        "counts": counts,
+        "successors": enriched,
+        "policy": "Trial outcomes are evidence records only; they never silently mutate or close a directive.",
+    }
+
+
+@app.route("/api/hunter-successor-trials")
+def v325_successor_trials_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v325_snapshot(username)})
+
+
+@app.route("/api/hunter-successor-trials/<int:successor_id>/observe", methods=["POST"])
+def v325_successor_trial_observe_api(successor_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, observation_id = _v325_add_observation(
+        username,
+        successor_id,
+        payload.get("checkpoint_kind") or "MANUAL",
+        payload.get("signal_state") or "INCONCLUSIVE",
+        payload.get("evidence_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "observation_id": observation_id}), 400
+    return jsonify({"success": True, "observation_id": observation_id})
+
+
+@app.route("/api/hunter-successor-trials/<int:successor_id>/outcome", methods=["POST"])
+def v325_successor_trial_outcome_api(successor_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, outcome_id = _v325_finalize_outcome(
+        username,
+        successor_id,
+        payload.get("outcome") or "",
+        payload.get("outcome_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": outcome_id}), 400
+    return jsonify({"success": True, "outcome_id": outcome_id})
+
+
+@app.route("/hunter-successor-trials")
+def v325_successor_trials_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Successor Trials</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧪 Successor Trials</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v325_snapshot(username)
+    counts = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for s in data["successors"]:
+        sid = int(s.get("id") or 0)
+        state = str(s.get("directive_state") or "")
+        outcome = s.get("outcome") or {}
+        outcome_name = str(outcome.get("outcome") or "")
+        obs = s.get("observations") or []
+        signals = s.get("signals") or {}
+
+        obs_rows = []
+        for o in obs[:8]:
+            obs_rows.append("""
+              <div class='obs'>
+                <span class='tag'>{kind}</span><span class='signal {signal_cls}'>{signal}</span>
+                <div class='note'>{note}</div><small>{created}</small>
+              </div>
+            """.format(
+                kind=esc(o.get("checkpoint_kind")),
+                signal=esc(o.get("signal_state")),
+                signal_cls=esc(str(o.get("signal_state") or "").lower()),
+                note=esc(o.get("evidence_note")),
+                created=esc(o.get("created_at")),
+            ))
+
+        outcome_form = ""
+        if not outcome_name and s.get("ready_for_outcome"):
+            outcome_form = """
+              <form class='outcome-form' action='/api/hunter-successor-trials/{sid}/outcome' onsubmit='return v325submit(this,event)'>
+                <label>FINAL TRIAL OUTCOME</label>
+                <select name='outcome'>
+                  <option value='VALIDATED'>VALIDATED</option>
+                  <option value='ADJUST_REQUIRED'>ADJUST_REQUIRED</option>
+                  <option value='RETIRE_RECOMMENDED'>RETIRE_RECOMMENDED</option>
+                </select>
+                <textarea name='outcome_note' rows='2' placeholder='Why this outcome is supported by the trial evidence'></textarea>
+                <button type='submit'>FINALIZE OUTCOME</button>
+              </form>
+            """.format(sid=sid)
+        elif not outcome_name:
+            outcome_form = "<div class='gate'>Add at least %s observations before finalizing an outcome.</div>" % V325_MIN_OBSERVATIONS_FOR_OUTCOME
+        else:
+            outcome_form = """
+              <div class='final'><strong>FINAL OUTCOME: {outcome}</strong><br>{note}<br><small>{created}</small></div>
+            """.format(
+                outcome=esc(outcome_name),
+                note=esc(outcome.get("outcome_note")),
+                created=esc(outcome.get("created_at")),
+            )
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><div class='eyebrow'>SUCCESSOR #{sid} · CASE #{case_id} · PARENT #{parent_id}</div><h3>{strategy}</h3></div>
+            <span class='pill {state_cls}'>{state}</span>
+          </div>
+          <div class='meta'><span>{dtype}</span><span>PLAYBOOK #{playbook}</span><span>{count} OBS</span></div>
+          <div class='signals'><span>🟢 {pos}</span><span>🟡 {mixed}</span><span>🔴 {neg}</span><span>⚪ {inc}</span></div>
+          <form action='/api/hunter-successor-trials/{sid}/observe' onsubmit='return v325submit(this,event)'>
+            <div class='two'><div><label>CHECKPOINT</label><select name='checkpoint_kind'><option>EXECUTION</option><option>QUALITY</option><option>STABILITY</option><option>MANUAL</option></select></div>
+            <div><label>SIGNAL</label><select name='signal_state'><option>POSITIVE</option><option>MIXED</option><option>NEGATIVE</option><option>INCONCLUSIVE</option></select></div></div>
+            <label>EVIDENCE NOTE</label><textarea name='evidence_note' rows='3' placeholder='What happened during this successor trial?'></textarea>
+            <button type='submit'>RECORD OBSERVATION</button>
+          </form>
+          {outcome_form}
+          <div class='history'><div class='eyebrow'>LATEST OBSERVATIONS</div>{obs_rows}</div>
+        </article>
+        """.format(
+            sid=sid,
+            case_id=esc(s.get("case_id")),
+            parent_id=esc(s.get("parent_directive_id")),
+            strategy=esc(s.get("strategy")),
+            state=esc(state),
+            state_cls="active" if state == "ACTIVE" else "closed",
+            dtype=esc(s.get("directive_type")),
+            playbook=esc(s.get("playbook_id") or "—"),
+            count=esc(s.get("observation_count")),
+            pos=esc(signals.get("POSITIVE", 0)),
+            mixed=esc(signals.get("MIXED", 0)),
+            neg=esc(signals.get("NEGATIVE", 0)),
+            inc=esc(signals.get("INCONCLUSIVE", 0)),
+            outcome_form=outcome_form,
+            obs_rows="".join(obs_rows) if obs_rows else "<p class='muted'>No trial observations yet.</p>",
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.5 Successor Trial Ledger</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#192836 0,#070b0f 45%,#020304 100%);color:#eef7ff;font-family:Arial,sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:32px 18px 80px}}.hero,.card{{background:#081017e8;border:1px solid #1c4358;border-radius:24px;padding:22px;box-shadow:0 24px 70px #0008}}
+    .hero{{margin-bottom:16px}}.eyebrow{{font-size:11px;font-weight:900;letter-spacing:2.4px;color:#75d8ff}}h1{{font-size:42px;margin:7px 0}}h3{{font-size:24px;margin:5px 0}}.sub,.muted{{color:#9fb2bd;line-height:1.6}}
+    .stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:18px}}.stat{{background:#061016;border:1px solid #173444;border-radius:18px;padding:14px}}.num{{font-size:26px;font-weight:1000}}
+    .nav a{{display:inline-block;color:#bcecff;text-decoration:none;font-weight:900;margin:12px 10px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:14px}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}
+    .pill{{border-radius:999px;padding:7px 10px;font-size:11px;font-weight:1000}}.pill.active{{background:#123d2d;color:#76f3bd}}.pill.closed{{background:#34242a;color:#ff9caf}}.meta,.signals{{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}}.meta span,.signals span,.tag,.signal{{font-size:11px;font-weight:900;border:1px solid #21465a;border-radius:999px;padding:6px 9px}}
+    form{{margin-top:14px;padding-top:14px;border-top:1px solid #15313f}}label{{display:block;font-size:10px;font-weight:900;letter-spacing:1.5px;color:#8fc8dd;margin:9px 0 5px}}select,textarea{{width:100%;background:#04090d;color:#fff;border:1px solid #21465a;border-radius:12px;padding:10px}}button{{margin-top:9px;border:0;border-radius:999px;background:#1688b8;color:#fff;font-weight:1000;padding:11px 15px;cursor:pointer}}
+    .two{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}.history{{margin-top:16px}}.obs{{border-top:1px solid #15313f;padding:10px 0}}.obs .note{{margin:7px 0;color:#d7e8ef}}small{{color:#6e8996}}.signal.positive{{color:#78f2b8}}.signal.mixed{{color:#ffd66f}}.signal.negative{{color:#ff8a9a}}.signal.inconclusive{{color:#c2d0d7}}
+    .gate{{margin-top:12px;background:#241f0e;border:1px solid #67551e;color:#ffe294;border-radius:14px;padding:11px}}.final{{margin-top:12px;background:#0e2a21;border:1px solid #216c52;color:#9bf2cb;border-radius:14px;padding:12px}}.rule{{margin-top:16px;padding:12px;border-left:3px solid #43c8ff;background:#061116;color:#a9c7d5;line-height:1.6}}
+    @media(max-width:640px){{h1{{font-size:32px}}.two{{grid-template-columns:1fr}}.grid{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'><div class='eyebrow'>BL3 V32.5 // SUCCESSOR TRIAL LEDGER + OUTCOME GATE</div><h1>🧪 SUCCESSOR TRIALS</h1>
+      <div class='sub'>Turn reopened successor directives into measurable learning cycles. Log structured observations, then finalize an evidence-backed outcome without rewriting history.</div>
+      <div class='stats'><div class='stat'><div class='eyebrow'>SUCCESSORS</div><div class='num'>{successors}</div></div><div class='stat'><div class='eyebrow'>ACTIVE</div><div class='num'>{active}</div></div><div class='stat'><div class='eyebrow'>OBSERVATIONS</div><div class='num'>{observations}</div></div><div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div><div class='stat'><div class='eyebrow'>FINALIZED</div><div class='num'>{finalized}</div></div></div>
+      <div class='nav'><a href='/hunter-reopen-activation'>🔁 REOPEN ACTIVATION</a><a href='/hunter-reopen-cases'>🧭 REOPEN CASES</a><a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a><a href='/api/hunter-successor-trials'>JSON</a></div>
+      <div class='rule'><strong>V32.5 rule:</strong> at least {minimum} observations are required before an outcome can be finalized. Finalizing a trial does not automatically close or mutate the successor directive.</div></section>
+      <section class='grid'>{cards}</section>
+    </div><script>
+    async function v325submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        successors=esc(counts.get("successors", 0)),
+        active=esc(counts.get("active_successors", 0)),
+        observations=esc(counts.get("observations", 0)),
+        ready=esc(counts.get("ready_for_outcome", 0)),
+        finalized=esc(counts.get("finalized_outcomes", 0)),
+        minimum=esc(data.get("minimum_observations")),
+        cards="".join(cards) if cards else "<article class='card'><p>No successor directives yet. Activate one from Reopen Activation first.</p></article>",
+    )
+
+
+# Surface V32.5 directly from the V32.4 successor workspace.
+try:
+    _v325_prev_reopen_activation_page = app.view_functions.get("v324_reopen_activation_page")
+    if _v325_prev_reopen_activation_page:
+        def _v325_reopen_activation_with_trials(*args, **kwargs):
+            response = _v325_prev_reopen_activation_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-successor-trials" not in response:
+                anchor = "<a href='/hunter-reopen-cases'>🧭 REOPEN CASES</a>"
+                link = "<a href='/hunter-successor-trials'>🧪 SUCCESSOR TRIALS</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v324_reopen_activation_page"] = _v325_reopen_activation_with_trials
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
