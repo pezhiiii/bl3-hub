@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V29.5"
+V247_SECURITY_VERSION = "V29.6"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V29.5"
+V248_SECURITY_VERSION = "V29.6"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.5 Build Attestation</title><style>
+    <title>BL3 V29.6 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V29.5"
+V250_VERSION = "V29.6"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V29.5"
+V253_VERSION = "V29.6"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V29.5"
+V254_VERSION = "V29.6"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V29.5"
+V255_VERSION = "V29.6"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V29.5"
+V256_VERSION = "V29.6"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V29.5"
+V257_VERSION = "V29.6"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V29.5"
+V258_VERSION = "V29.6"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.5 Hunter Command Deck</title>
+    <title>BL3 V29.6 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V29.5"
+V259_VERSION = "V29.6"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V29.5"
+V260_VERSION = "V29.6"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V29.5"
+V261_VERSION = "V29.6"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V29.5"
+V262_VERSION = "V29.6"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V29.5"
+V263_VERSION = "V29.6"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V29.5"
+V264_VERSION = "V29.6"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V29.5"
+V265_VERSION = "V29.6"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V29.5"
+V266_VERSION = "V29.6"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V29.5"
+V267_VERSION = "V29.6"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V29.5"
+V268_VERSION = "V29.6"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V29.5"
+V269_VERSION = "V29.6"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V29.5"
+V270_VERSION = "V29.6"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V29.5"
+V271_VERSION = "V29.6"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V29.5"
+V272_VERSION = "V29.6"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V29.5"
+V273_VERSION = "V29.6"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V29.5"
+V274_VERSION = "V29.6"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V29.5"
+V275_VERSION = "V29.6"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V29.5"
+V276_VERSION = "V29.6"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V29.5"
+V277_VERSION = "V29.6"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V29.5"
+V278_VERSION = "V29.6"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V29.5"
+V279_VERSION = "V29.6"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V29.5"
+V280_VERSION = "V29.6"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V29.5"
+V281_VERSION = "V29.6"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V29.5"
+V282_VERSION = "V29.6"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V29.5"
+V283_VERSION = "V29.6"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V29.5"
+V284_VERSION = "V29.6"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V29.5"
+V285_VERSION = "V29.6"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V29.5"
+V286_VERSION = "V29.6"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V29.5"
+V287_VERSION = "V29.6"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V29.5"
+V288_VERSION = "V29.6"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V29.5"
+V289_VERSION = "V29.6"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V29.5"
+V290_VERSION = "V29.6"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -42918,7 +42918,7 @@ def v295_preflight_effectiveness_page():
     a{{display:inline-block;border:1px solid #827546;border-radius:10px;padding:10px 13px;background:#181408;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
     </style></head><body><div class='wrap'>
       <section class='panel'>
-        <div class='eyebrow'>BL3 V29.5 // PREFLIGHT → OUTCOME → ADAPT</div>
+        <div class='eyebrow'>BL3 V29.6 // PREFLIGHT → OUTCOME → ADAPT</div>
         <h1>📊 PREFLIGHT EFFECTIVENESS</h1>
         <p class='muted'>{username}, BL3 now checks whether your preflight choices actually lead to completed Focus Runs.</p>
 
@@ -42978,6 +42978,261 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v294_focus_preflight_page"] = _v295_preflight_with_effectiveness
+except Exception:
+    pass
+
+
+# ===== V29.6 OUTCOME-CALIBRATED PREFLIGHT GUARDRAILS =====
+# Converts repeated explicit friction into lightweight safeguards BEFORE the
+# Focus Run starts. Guardrails only activate after the friction profile has
+# enough repeated samples, so one-off feedback does not over-constrain the user.
+
+V296_VERSION = "V29.6"
+
+def _v296_preflight_guardrails(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V296_VERSION}
+
+    profile = _v293_friction_profile(username)
+    defaults = _v294_preflight_defaults(username)
+    friction = str(profile.get("dominant_friction") or "NONE").upper()
+    active = bool(profile.get("enough_samples"))
+
+    rules = {
+        "require_blocker_plan": False,
+        "max_timebox_minutes": None,
+        "min_done_words": 1,
+        "route_before_start": None,
+        "message": "No additional guardrail is active."
+    }
+
+    if active and friction in {"BLOCKED", "TECHNICAL"}:
+        rules.update({
+            "require_blocker_plan": True,
+            "message": "Repeated blocker friction detected. Add a blocker/fallback plan before starting."
+        })
+    elif active and friction in {"TOO_BIG", "DISTRACTED"}:
+        rules.update({
+            "max_timebox_minutes": 25,
+            "message": "Repeated scope/focus friction detected. Keep the next Focus Run at 25 minutes or less."
+        })
+    elif active and friction == "UNCLEAR":
+        rules.update({
+            "min_done_words": 5,
+            "message": "Repeated unclear-action friction detected. Define DONE in at least five words."
+        })
+    elif active and friction == "LOW_PRIORITY":
+        rules.update({
+            "route_before_start": "/hunter-focus-queue",
+            "message": "Repeated priority friction detected. Recheck queue order before starting."
+        })
+
+    return {
+        "success": True,
+        "version": V296_VERSION,
+        "username": username,
+        "active": active,
+        "friction": friction if active else "NONE",
+        "friction_label": profile.get("dominant_label") if active else "No repeated friction",
+        "repeat_count": int(profile.get("dominant_count") or 0),
+        "default_timebox_minutes": int(defaults.get("timebox_minutes") or 25),
+        "rules": rules,
+        "policy": (
+            "V29.6 guardrails use only explicit BL3 Focus Exit Review feedback. "
+            "They activate only after repeated friction and never interrupt an active Focus Run."
+        )
+    }
+
+
+def _v296_validate_preflight(username, payload):
+    guard = _v296_preflight_guardrails(username)
+    rules = guard.get("rules") or {}
+
+    done_definition = " ".join(str(payload.get("done_definition") or "").strip().split())
+    blocker_plan = " ".join(str(payload.get("blocker_plan") or "").strip().split())
+
+    try:
+        timebox = int(payload.get("timebox_minutes") or 25)
+    except Exception:
+        timebox = 25
+
+    if not guard.get("active"):
+        return {"ok": True, "guardrails": guard}
+
+    route = rules.get("route_before_start")
+    if route:
+        return {
+            "ok": False,
+            "error": "reprioritize_before_start",
+            "message": rules.get("message"),
+            "redirect": route,
+            "guardrails": guard
+        }
+
+    if rules.get("require_blocker_plan") and not blocker_plan:
+        return {
+            "ok": False,
+            "error": "blocker_plan_required",
+            "message": rules.get("message"),
+            "guardrails": guard
+        }
+
+    max_timebox = rules.get("max_timebox_minutes")
+    if max_timebox and timebox > int(max_timebox):
+        return {
+            "ok": False,
+            "error": "timebox_too_long_for_current_friction",
+            "max_timebox_minutes": int(max_timebox),
+            "message": rules.get("message"),
+            "guardrails": guard
+        }
+
+    min_words = int(rules.get("min_done_words") or 1)
+    word_count = len([w for w in done_definition.split(" ") if w])
+    if word_count < min_words:
+        return {
+            "ok": False,
+            "error": "done_definition_too_vague",
+            "min_done_words": min_words,
+            "message": rules.get("message"),
+            "guardrails": guard
+        }
+
+    return {"ok": True, "guardrails": guard}
+
+
+@app.route("/api/hunter-preflight-guardrails")
+def v296_preflight_guardrails_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v296_preflight_guardrails(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+# Wrap the existing V29.4 preflight start endpoint with learned guardrails.
+try:
+    _v296_prev_preflight_start = app.view_functions.get("v294_focus_preflight_start_api")
+    if _v296_prev_preflight_start:
+        def _v296_guarded_preflight_start(*args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            if not username:
+                return jsonify({"success": False, "error": "auth_required"}), 401
+
+            payload = request.get_json(silent=True) or {}
+            check = _v296_validate_preflight(username, payload)
+            if not check.get("ok"):
+                body = {
+                    "success": False,
+                    "version": V296_VERSION,
+                    "error": check.get("error"),
+                    "message": check.get("message"),
+                    "redirect": check.get("redirect"),
+                    "max_timebox_minutes": check.get("max_timebox_minutes"),
+                    "min_done_words": check.get("min_done_words"),
+                    "guardrails": check.get("guardrails"),
+                }
+                return jsonify(body), 409
+
+            response = _v296_prev_preflight_start(*args, **kwargs)
+            try:
+                payload_out = response.get_json() if hasattr(response, "get_json") else {}
+                if payload_out and payload_out.get("success"):
+                    payload_out["guardrails_version"] = V296_VERSION
+                    payload_out["guardrails"] = check.get("guardrails")
+                    return jsonify(payload_out)
+            except Exception:
+                pass
+            return response
+
+        app.view_functions["v294_focus_preflight_start_api"] = _v296_guarded_preflight_start
+except Exception:
+    pass
+
+
+@app.route("/hunter-preflight-guardrails")
+def v296_preflight_guardrails_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Preflight Guardrails</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🛡️ Preflight Guardrails</h1><p>Sign in to view your private learned execution safeguards.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v296_preflight_guardrails(username)
+    rules = data.get("rules") or {}
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    status = "ACTIVE" if data.get("active") else "LEARNING"
+    blocker = "YES" if rules.get("require_blocker_plan") else "NO"
+    max_timebox = rules.get("max_timebox_minutes") or "—"
+    min_words = rules.get("min_done_words") or 1
+    route = rules.get("route_before_start") or "—"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V29.6 Preflight Guardrails</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#291b1b 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:980px;margin:auto}}.panel{{background:#100909ed;border:1px solid #724d4d;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#f1a7a7;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}.muted{{color:#c1aeae}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}}.card{{background:#0c0707;border:1px solid #543838;border-radius:16px;padding:15px}}.k{{font-size:10px;color:#d1aaaa;font-weight:900}}.v{{font-size:27px;font-weight:950;margin-top:6px}}
+    .rule{{background:#160c0c;border:1px solid #6f4949;border-radius:17px;padding:16px;margin-top:14px;line-height:1.55}}
+    a{{display:inline-block;border:1px solid #875959;border-radius:10px;padding:10px 13px;background:#1a0e0e;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V29.6 // LEARNED EXECUTION SAFEGUARDS</div>
+        <h1>🛡️ PREFLIGHT GUARDRAILS</h1>
+        <p class='muted'>{username}, repeated friction now changes what BL3 requires before a Focus Run is allowed to start.</p>
+
+        <div class='grid'>
+          <div class='card'><div class='k'>STATUS</div><div class='v'>{status}</div></div>
+          <div class='card'><div class='k'>FRICTION</div><div class='v'>{friction}</div></div>
+          <div class='card'><div class='k'>REPEAT COUNT</div><div class='v'>{repeat_count}</div></div>
+          <div class='card'><div class='k'>BLOCKER PLAN REQUIRED</div><div class='v'>{blocker}</div></div>
+          <div class='card'><div class='k'>MAX TIMEBOX</div><div class='v'>{max_timebox}</div></div>
+          <div class='card'><div class='k'>MIN DONE WORDS</div><div class='v'>{min_words}</div></div>
+        </div>
+
+        <div class='rule'><b>{status}</b><br>{message}<br><br>Pre-start route: <b>{route}</b></div>
+
+        <p><a href='/hunter-focus-preflight'>🛫 FOCUS PREFLIGHT</a><a href='/hunter-preflight-effectiveness'>📊 EFFECTIVENESS</a><a href='/hunter-focus-exit-review'>📝 EXIT REVIEWS</a></p>
+      </section>
+    </div></body></html>""".format(
+        username=esc(username),
+        status=esc(status),
+        friction=esc(data.get("friction_label")),
+        repeat_count=esc(data.get("repeat_count")),
+        blocker=esc(blocker),
+        max_timebox=esc(max_timebox),
+        min_words=esc(min_words),
+        message=esc(rules.get("message")),
+        route=esc(route),
+    )
+
+
+# Surface guardrails from the preflight and effectiveness pages.
+try:
+    _v296_prev_preflight_page = app.view_functions.get("v294_focus_preflight_page")
+    if _v296_prev_preflight_page:
+        def _v296_preflight_with_guardrails(*args, **kwargs):
+            response = _v296_prev_preflight_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-preflight-guardrails" not in response:
+                link = "<a href='/hunter-preflight-guardrails' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #875959;border-radius:10px;color:#fff;text-decoration:none'>🛡️ PREFLIGHT GUARDRAILS</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v294_focus_preflight_page"] = _v296_preflight_with_guardrails
+except Exception:
+    pass
+
+try:
+    _v296_prev_effectiveness_page = app.view_functions.get("v295_preflight_effectiveness_page")
+    if _v296_prev_effectiveness_page:
+        def _v296_effectiveness_with_guardrails(*args, **kwargs):
+            response = _v296_prev_effectiveness_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-preflight-guardrails" not in response:
+                link = "<a href='/hunter-preflight-guardrails' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #875959;border-radius:10px;color:#fff;text-decoration:none'>🛡️ GUARDRAILS</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v295_preflight_effectiveness_page"] = _v296_effectiveness_with_guardrails
 except Exception:
     pass
 
