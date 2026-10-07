@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.6 Build Attestation</title><style>
+    <title>BL3 V31.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.6 Hunter Command Deck</title>
+    <title>BL3 V31.7 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -50743,7 +50743,7 @@ def v315_recalibration_page():
     c = snap.get("counts") or {}
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.6 Playbook Governance</title>
+    <title>BL3 V31.7 Playbook Governance</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#23172c,#09060e 58%,#030204);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c0814ef;border:1px solid #5d426b;border-radius:24px;padding:24px}}
@@ -51210,7 +51210,7 @@ def v316_governance_page():
 
     c = snap.get("counts") or {}
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.6 Playbook Governance</title>
+    <title>BL3 V31.7 Playbook Governance</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#152336,#06090d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081019ef;border:1px solid #38506a;border-radius:24px;padding:24px}}
@@ -51225,7 +51225,7 @@ def v316_governance_page():
     .small{{margin-top:10px;color:#748da0;font-size:11px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}table{{display:block;overflow-x:auto}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.6 // APPROVAL → DIRECTIVE → EXECUTION GUARD</div>
+      <div class='eyebrow'>BL3 V31.7 // DIRECTIVE → RETEST EVIDENCE → CLOSURE GATE</div>
       <h1>🛡️ PLAYBOOK GOVERNANCE</h1>
       <p>{username}, approved recalibration decisions can now become explicit active directives. These directives are versioned, reversible, and can guard Playbook Execution without rewriting the underlying evidence.</p>
 
@@ -51359,6 +51359,631 @@ try:
                 response = response.replace("<h2>RECALIBRATION REVIEW QUEUE</h2>", link + "<h2>RECALIBRATION REVIEW QUEUE</h2>", 1)
             return response
         app.view_functions["v315_recalibration_page"] = _v316_recalibration_page_with_governance
+except Exception:
+    pass
+
+# ===== V31.7 RETEST EVIDENCE + DIRECTIVE CLOSURE GATE =====
+# Gives RETEST_ONLY directives a concrete validation loop before they can be closed.
+# No automatic playbook rewrite or automatic directive closure occurs.
+
+V317_VERSION = "V31.7"
+
+def _v317_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recalibration_retests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            directive_id INTEGER NOT NULL,
+            review_id INTEGER,
+            playbook_id INTEGER,
+            strategy TEXT NOT NULL,
+            hypothesis TEXT,
+            context_label TEXT,
+            context_note TEXT,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            outcome_score INTEGER,
+            outcome_label TEXT,
+            outcome_note TEXT,
+            recommendation TEXT,
+            recommendation_reason TEXT,
+            FOREIGN KEY(directive_id) REFERENCES hunter_playbook_recalibration_directives(id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_recalibration_retests_user_directive
+        ON hunter_recalibration_retests(username, directive_id, status, id)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v317_init()
+except Exception:
+    pass
+
+
+def _v317_directive(username, directive_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, review_id, playbook_id, strategy, directive_type, directive_state,
+                   source_learning_state, rationale, created_at, closed_at, close_note
+            FROM hunter_playbook_recalibration_directives
+            WHERE id=? AND username=?
+        """, (int(directive_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v317_retests(username, directive_id=None, limit=80):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if directive_id is None:
+            rows = con.execute("""
+                SELECT id, directive_id, review_id, playbook_id, strategy, hypothesis,
+                       context_label, context_note, status, started_at, completed_at,
+                       outcome_score, outcome_label, outcome_note,
+                       recommendation, recommendation_reason
+                FROM hunter_recalibration_retests
+                WHERE username=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (username, int(limit))).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT id, directive_id, review_id, playbook_id, strategy, hypothesis,
+                       context_label, context_note, status, started_at, completed_at,
+                       outcome_score, outcome_label, outcome_note,
+                       recommendation, recommendation_reason
+                FROM hunter_recalibration_retests
+                WHERE username=? AND directive_id=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (username, int(directive_id), int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v317_retest_recommendation(outcome_score, outcome_label="", outcome_note=""):
+    """
+    Deliberately conservative closure guidance.
+    A completed retest can recommend closure, more evidence, or keeping the directive active.
+    """
+    score = int(outcome_score)
+    label = str(outcome_label or "").strip().upper()
+    note = str(outcome_note or "").strip()
+
+    if score >= 80 and len(note) >= 30:
+        return (
+            "ELIGIBLE_TO_CLOSE",
+            "Retest outcome is strong and documented. Hunter may explicitly close the directive."
+        )
+    if score >= 60:
+        return (
+            "MORE_EVIDENCE_RECOMMENDED",
+            "Retest is promising but not strong enough for the conservative closure gate."
+        )
+    return (
+        "KEEP_DIRECTIVE_ACTIVE",
+        "Retest outcome is weak or inconclusive; keep the directive active and gather stronger evidence."
+    )
+
+
+def _v317_start_retest(username, directive_id, payload):
+    directive = _v317_directive(username, directive_id)
+    if not directive:
+        return False, "directive_not_found", None
+
+    if str(directive.get("directive_state")) != "ACTIVE":
+        return False, "directive_not_active", None
+
+    if str(directive.get("directive_type")) != "RETEST_ONLY":
+        return False, "directive_does_not_require_retest", None
+
+    hypothesis = str(payload.get("hypothesis") or "").strip()[:1000]
+    context_label = str(payload.get("context_label") or "").strip()[:120]
+    context_note = str(payload.get("context_note") or "").strip()[:1200]
+
+    if len(hypothesis) < 20:
+        return False, "hypothesis_min_20_chars", None
+
+    con = sqlite3.connect(DB)
+    try:
+        active = con.execute("""
+            SELECT id FROM hunter_recalibration_retests
+            WHERE username=? AND directive_id=? AND status='ACTIVE'
+            LIMIT 1
+        """, (username, int(directive_id))).fetchone()
+        if active:
+            return False, "active_retest_already_exists", int(active[0])
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = con.execute("""
+            INSERT INTO hunter_recalibration_retests
+            (username, directive_id, review_id, playbook_id, strategy,
+             hypothesis, context_label, context_note, status, started_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+        """, (
+            username,
+            int(directive_id),
+            directive.get("review_id"),
+            directive.get("playbook_id"),
+            str(directive.get("strategy") or ""),
+            hypothesis,
+            context_label,
+            context_note,
+            now,
+        ))
+        con.commit()
+        retest_id = int(cur.lastrowid)
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(directive.get("strategy") or ""),
+            "RETEST_STARTED",
+            review_id=directive.get("review_id"),
+            directive_id=int(directive_id),
+            detail="Retest #%s started under RETEST_ONLY directive." % retest_id
+        )
+    except Exception:
+        pass
+
+    return True, None, retest_id
+
+
+def _v317_complete_retest(username, retest_id, payload):
+    try:
+        score = int(payload.get("outcome_score"))
+    except Exception:
+        return False, "outcome_score_required", None
+
+    if score < 0 or score > 100:
+        return False, "outcome_score_must_be_0_to_100", None
+
+    label = str(payload.get("outcome_label") or "").strip()[:120]
+    note = str(payload.get("outcome_note") or "").strip()[:1600]
+    if len(note) < 20:
+        return False, "outcome_note_min_20_chars", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, directive_id, review_id, strategy, status
+            FROM hunter_recalibration_retests
+            WHERE id=? AND username=?
+        """, (int(retest_id), username)).fetchone()
+
+        if not row:
+            return False, "retest_not_found", None
+        if str(row["status"]) != "ACTIVE":
+            return False, "retest_not_active", None
+
+        recommendation, reason = _v317_retest_recommendation(score, label, note)
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+        con.execute("""
+            UPDATE hunter_recalibration_retests
+            SET status='COMPLETED', completed_at=?,
+                outcome_score=?, outcome_label=?, outcome_note=?,
+                recommendation=?, recommendation_reason=?
+            WHERE id=? AND username=? AND status='ACTIVE'
+        """, (
+            now, score, label, note, recommendation, reason,
+            int(retest_id), username
+        ))
+        con.commit()
+
+        result = {
+            "retest_id": int(retest_id),
+            "directive_id": int(row["directive_id"]),
+            "review_id": row["review_id"],
+            "strategy": str(row["strategy"] or ""),
+            "outcome_score": score,
+            "recommendation": recommendation,
+            "recommendation_reason": reason,
+        }
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            result["strategy"],
+            "RETEST_COMPLETED",
+            review_id=result.get("review_id"),
+            directive_id=result.get("directive_id"),
+            detail="Retest #%s completed with score %s; recommendation=%s." % (
+                retest_id, score, result["recommendation"]
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, result
+
+
+def _v317_closure_evidence(username, directive_id):
+    directive = _v317_directive(username, directive_id)
+    if not directive:
+        return {
+            "eligible": False,
+            "reason": "directive_not_found",
+            "directive": None,
+            "latest_retest": None,
+        }
+
+    if str(directive.get("directive_type")) != "RETEST_ONLY":
+        return {
+            "eligible": True,
+            "reason": "retest_gate_not_required",
+            "directive": directive,
+            "latest_retest": None,
+        }
+
+    completed = [
+        r for r in _v317_retests(username, directive_id, 20)
+        if str(r.get("status")) == "COMPLETED"
+    ]
+    latest = completed[0] if completed else None
+    if not latest:
+        return {
+            "eligible": False,
+            "reason": "completed_retest_required",
+            "directive": directive,
+            "latest_retest": None,
+        }
+
+    eligible = str(latest.get("recommendation")) == "ELIGIBLE_TO_CLOSE"
+    return {
+        "eligible": bool(eligible),
+        "reason": (
+            "retest_supports_closure"
+            if eligible
+            else "latest_retest_does_not_support_closure"
+        ),
+        "directive": directive,
+        "latest_retest": latest,
+    }
+
+
+def _v317_snapshot(username):
+    directives = _v316_directives(username, 120)
+    retests = _v317_retests(username, None, 120)
+
+    active_retests = [r for r in retests if str(r.get("status")) == "ACTIVE"]
+    completed = [r for r in retests if str(r.get("status")) == "COMPLETED"]
+    eligible = [r for r in completed if str(r.get("recommendation")) == "ELIGIBLE_TO_CLOSE"]
+
+    retest_directives = [
+        d for d in directives
+        if str(d.get("directive_state")) == "ACTIVE"
+        and str(d.get("directive_type")) == "RETEST_ONLY"
+    ]
+
+    return {
+        "version": V317_VERSION,
+        "username": username,
+        "counts": {
+            "retest_directives": len(retest_directives),
+            "active_retests": len(active_retests),
+            "completed_retests": len(completed),
+            "closure_eligible_retests": len(eligible),
+        },
+        "directives": retest_directives,
+        "retests": retests,
+        "policy": {
+            "start": "RETEST_ONLY directives can launch one active retest at a time.",
+            "complete": "Each retest requires a 0-100 outcome score plus a documented outcome note.",
+            "closure": "RETEST_ONLY closure requires a completed retest whose conservative recommendation is ELIGIBLE_TO_CLOSE.",
+            "automation": "BL3 never closes the directive automatically. Final closure remains an explicit Hunter action.",
+        },
+    }
+
+
+@app.route("/api/hunter-recalibration-retests")
+def v317_retests_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v317_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-recalibration-retests/start/<int:directive_id>", methods=["POST"])
+def v317_retest_start(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err, retest_id = _v317_start_retest(username, directive_id, payload)
+    if not ok:
+        return jsonify({
+            "success": False,
+            "error": err,
+            "retest_id": retest_id,
+        }), 400
+
+    return jsonify({
+        "success": True,
+        "status": "started",
+        "retest_id": retest_id,
+        "snapshot": _v317_snapshot(username),
+    })
+
+
+@app.route("/api/hunter-recalibration-retests/<int:retest_id>/complete", methods=["POST"])
+def v317_retest_complete(retest_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err, result = _v317_complete_retest(username, retest_id, payload)
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+
+    return jsonify({
+        "success": True,
+        "status": "completed",
+        "result": result,
+        "snapshot": _v317_snapshot(username),
+    })
+
+
+@app.route("/api/hunter-recalibration-retests/closure-evidence/<int:directive_id>")
+def v317_closure_evidence_api(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    result = _v317_closure_evidence(username, directive_id)
+    result["success"] = True
+    return jsonify(result)
+
+
+@app.route("/hunter-recalibration-retests")
+def v317_retests_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Recalibration Retests</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧪 Recalibration Retests</h1><p>Sign in to manage directive validation runs.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v317_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    directive_cards = []
+    for d in snap.get("directives") or []:
+        evidence = _v317_closure_evidence(username, int(d.get("id")))
+        latest = evidence.get("latest_retest")
+        evidence_text = (
+            "NO COMPLETED RETEST"
+            if not latest
+            else "%s · score %s" % (
+                str(latest.get("recommendation") or "UNKNOWN"),
+                str(latest.get("outcome_score") if latest.get("outcome_score") is not None else "—"),
+            )
+        )
+        directive_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>RETEST DIRECTIVE #{id}</span><h3>{strategy}</h3></div>
+            <span class='pill'>{evidence}</span>
+          </div>
+          <p>{rationale}</p>
+          <div class='grid'>
+            <div><span>PLAYBOOK</span><b>{playbook}</b></div>
+            <div><span>REVIEW</span><b>#{review}</b></div>
+            <div><span>LEARNING STATE</span><b>{source}</b></div>
+            <div><span>CLOSURE ELIGIBLE</span><b>{eligible}</b></div>
+          </div>
+          <button onclick="startRetest({id})">START RETEST</button>
+        </article>
+        """.format(
+            id=int(d.get("id")),
+            strategy=esc(d.get("strategy")),
+            evidence=esc(evidence_text),
+            rationale=esc(d.get("rationale")),
+            playbook=esc(d.get("playbook_id")),
+            review=esc(d.get("review_id")),
+            source=esc(d.get("source_learning_state")),
+            eligible="YES" if evidence.get("eligible") else "NO",
+        ))
+
+    retest_cards = []
+    for r in snap.get("retests") or []:
+        complete_btn = (
+            "<button onclick=\"completeRetest(%s)\">COMPLETE RETEST</button>" % int(r.get("id"))
+            if str(r.get("status")) == "ACTIVE" else ""
+        )
+        retest_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>RETEST #{id} · DIRECTIVE #{directive}</span><h3>{strategy}</h3></div>
+            <span class='pill'>{status}</span>
+          </div>
+          <p><strong>Hypothesis:</strong> {hypothesis}</p>
+          <div class='grid'>
+            <div><span>CONTEXT</span><b>{context}</b></div>
+            <div><span>SCORE</span><b>{score}</b></div>
+            <div><span>OUTCOME</span><b>{label}</b></div>
+            <div><span>RECOMMENDATION</span><b>{recommendation}</b></div>
+          </div>
+          <p>{reason}</p>
+          {complete_btn}
+          <div class='small'>Started {started} · Completed {completed}</div>
+        </article>
+        """.format(
+            id=int(r.get("id")),
+            directive=int(r.get("directive_id")),
+            strategy=esc(r.get("strategy")),
+            status=esc(r.get("status")),
+            hypothesis=esc(r.get("hypothesis")),
+            context=esc(r.get("context_label")),
+            score=esc(r.get("outcome_score")),
+            label=esc(r.get("outcome_label")),
+            recommendation=esc(r.get("recommendation")),
+            reason=esc(r.get("recommendation_reason")),
+            complete_btn=complete_btn,
+            started=esc(r.get("started_at")),
+            completed=esc(r.get("completed_at")),
+        ))
+
+    c = snap.get("counts") or {}
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.7 Recalibration Retests</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#241735,#07080d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0c14ef;border:1px solid #59446f;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#d8a7ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:32px}}h3{{margin:5px 0}}
+    p{{color:#d8d2e4;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#11121b;border:1px solid #4b3c5c;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#a896b6;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:18px;overflow-wrap:anywhere}}.card{{background:#10111a;border:1px solid #4b3c5c;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #7b5a94;border-radius:999px;padding:6px 9px}}
+    button,a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #745692;border-radius:10px;background:#17111f;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    .rule{{border-left:4px solid #c283ff;padding:11px 14px;background:#17101f;border-radius:8px}}.small{{margin-top:10px;color:#8c7f98;font-size:11px}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.7 // RETEST EVIDENCE + DIRECTIVE CLOSURE GATE</div>
+      <h1>🧪 RECALIBRATION RETESTS</h1>
+      <p>{username}, RETEST_ONLY is no longer just a warning. It now has a concrete evidence loop: declare the hypothesis, run the retest, record the outcome, and only then can BL3 recommend whether closure is justified.</p>
+
+      <div class='hero'>
+        <div><span>RETEST DIRECTIVES</span><b>{directives}</b></div>
+        <div><span>ACTIVE RETESTS</span><b>{active}</b></div>
+        <div><span>COMPLETED</span><b>{completed}</b></div>
+        <div><span>CLOSURE ELIGIBLE</span><b>{eligible}</b></div>
+      </div>
+
+      <div class='rule'><strong>Closure gate:</strong> a RETEST_ONLY directive cannot be closed without a completed retest. A score of 80+ plus a documented outcome can make it eligible — but BL3 still never closes it automatically.</div>
+
+      <a href='/hunter-playbook-governance'>🛡️ PLAYBOOK GOVERNANCE</a>
+      <a href='/hunter-playbook-execution'>🎯 PLAYBOOK EXECUTION</a>
+      <a href='/hunter-playbook-recalibration'>⚖️ RECALIBRATION REVIEW</a>
+
+      <h2>ACTIVE RETEST DIRECTIVES</h2>
+      {directive_cards}
+
+      <h2>RETEST RUNS</h2>
+      {retest_cards}
+    </section></div>
+    <script>
+    async function startRetest(id){{
+      const hypothesis=prompt("Retest hypothesis (minimum 20 characters):");
+      if(hypothesis===null) return;
+      const context_label=prompt("Context label (optional):") || "";
+      const context_note=prompt("Context note (optional):") || "";
+      const r=await fetch("/api/hunter-recalibration-retests/start/"+id,{{
+        method:"POST",headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{hypothesis:hypothesis,context_label:context_label,context_note:context_note}})
+      }});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Start failed");return;}}
+      location.reload();
+    }}
+    async function completeRetest(id){{
+      const score=prompt("Outcome score 0-100:");
+      if(score===null) return;
+      const label=prompt("Outcome label:") || "";
+      const note=prompt("Outcome note (minimum 20 characters):");
+      if(note===null) return;
+      const r=await fetch("/api/hunter-recalibration-retests/"+id+"/complete",{{
+        method:"POST",headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{outcome_score:score,outcome_label:label,outcome_note:note}})
+      }});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Complete failed");return;}}
+      alert("Recommendation: "+(j.result?.recommendation||"UNKNOWN"));
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        directives=esc(c.get("retest_directives", 0)),
+        active=esc(c.get("active_retests", 0)),
+        completed=esc(c.get("completed_retests", 0)),
+        eligible=esc(c.get("closure_eligible_retests", 0)),
+        directive_cards="".join(directive_cards) if directive_cards else "<p>No active RETEST_ONLY directives.</p>",
+        retest_cards="".join(retest_cards) if retest_cards else "<p>No retests yet.</p>",
+    )
+
+
+# V31.7 closure gate: protect RETEST_ONLY directive closure with actual retest evidence.
+try:
+    _v317_original_close_directive = _v316_close_directive
+
+    def _v317_close_directive_guarded(username, directive_id, note=""):
+        evidence = _v317_closure_evidence(username, directive_id)
+        directive = evidence.get("directive") or {}
+
+        if (
+            str(directive.get("directive_type")) == "RETEST_ONLY"
+            and not bool(evidence.get("eligible"))
+        ):
+            return False, "retest_evidence_required_for_closure"
+
+        ok, err = _v317_original_close_directive(username, directive_id, note)
+        if ok:
+            try:
+                latest = evidence.get("latest_retest") or {}
+                _v316_log_event(
+                    username,
+                    str(directive.get("strategy") or ""),
+                    "DIRECTIVE_CLOSED_WITH_EVIDENCE",
+                    review_id=directive.get("review_id"),
+                    directive_id=int(directive_id),
+                    detail=(
+                        "Closure passed V31.7 evidence gate"
+                        + (
+                            "; latest retest #%s score=%s recommendation=%s"
+                            % (
+                                latest.get("id"),
+                                latest.get("outcome_score"),
+                                latest.get("recommendation"),
+                            )
+                            if latest else ""
+                        )
+                    )
+                )
+            except Exception:
+                pass
+        return ok, err
+
+    _v316_close_directive = _v317_close_directive_guarded
+except Exception:
+    pass
+
+
+# Surface the retest workflow from the V31.6 governance page.
+try:
+    _v317_prev_governance_page = app.view_functions.get("v316_governance_page")
+    if _v317_prev_governance_page:
+        def _v317_governance_page_with_retests(*args, **kwargs):
+            response = _v317_prev_governance_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-recalibration-retests" not in response:
+                link = "<a href='/hunter-recalibration-retests'>🧪 RECALIBRATION RETESTS</a>"
+                response = response.replace(
+                    "<a href='/hunter-playbook-execution'>🎯 PLAYBOOK EXECUTION</a>",
+                    "<a href='/hunter-playbook-execution'>🎯 PLAYBOOK EXECUTION</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v316_governance_page"] = _v317_governance_page_with_retests
 except Exception:
     pass
 
