@@ -60080,6 +60080,506 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.5 LEARNING POLICY ADOPTION + CONTROL GATE =====
+# V33.4 can promote lessons into governance learning.
+# V33.5 converts promoted lessons into explicit policy candidates that can be
+# staged and then adopted as governance controls. Adoption is separate from
+# promotion and does not silently mutate runtime routing or historical records.
+
+V335_VERSION = "V33.5"
+V335_POLICY_TYPES = {"GUARDRAIL", "CHECKLIST", "ALERT_RULE", "REVIEW_RULE", "RECOVERY_RULE"}
+V335_POLICY_STATES = {"DRAFT", "STAGED", "ADOPTED", "RETIRED"}
+
+
+def _v335_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_learning_policy_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            lesson_id INTEGER NOT NULL UNIQUE,
+            promotion_id INTEGER NOT NULL,
+            policy_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            rule_text TEXT NOT NULL,
+            verification_text TEXT,
+            policy_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            staged_at TEXT,
+            adopted_at TEXT,
+            retired_at TEXT,
+            retire_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v335_policy_user_state
+        ON hunter_learning_policy_candidates(username, policy_state, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_learning_policy_adoptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            policy_id INTEGER NOT NULL UNIQUE,
+            adoption_note TEXT,
+            adopted_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v335_adoption_user
+        ON hunter_learning_policy_adoptions(username, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v335_init()
+except Exception:
+    pass
+
+
+def _v335_promoted_lesson(username, lesson_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT l.*, p.id AS promotion_id, p.promotion_state, p.promotion_note
+            FROM hunter_recovery_lessons l
+            JOIN hunter_learning_promotions p ON p.lesson_id=l.id
+            WHERE l.id=? AND l.username=? AND p.promotion_state='PROMOTED'
+            ORDER BY p.id DESC LIMIT 1
+        """, (int(lesson_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v335_policy_for_lesson(username, lesson_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_learning_policy_candidates
+            WHERE username=? AND lesson_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(lesson_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v335_policy(username, policy_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_learning_policy_candidates
+            WHERE username=? AND id=?
+        """, (username, int(policy_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v335_create_or_update_policy(username, lesson_id, policy_type, title, rule_text, verification_text=""):
+    lesson = _v335_promoted_lesson(username, lesson_id)
+    if not lesson:
+        return False, "promoted_lesson_required", None
+
+    ptype = str(policy_type or "").strip().upper()
+    if ptype not in V335_POLICY_TYPES:
+        return False, "invalid_policy_type", None
+
+    title = str(title or "").strip()
+    rule_text = str(rule_text or "").strip()
+    if not title or not rule_text:
+        return False, "title_and_rule_required", None
+
+    existing = _v335_policy_for_lesson(username, lesson_id)
+    if existing and str(existing.get("policy_state") or "") != "DRAFT":
+        return False, "policy_not_editable", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        if existing:
+            con.execute("""
+                UPDATE hunter_learning_policy_candidates
+                SET policy_type=?, title=?, rule_text=?, verification_text=?
+                WHERE id=? AND username=? AND policy_state='DRAFT'
+            """, (
+                ptype, title[:240], rule_text[:5000], str(verification_text or "").strip()[:3000],
+                int(existing["id"]), username
+            ))
+            pid = int(existing["id"])
+        else:
+            cur = con.execute("""
+                INSERT INTO hunter_learning_policy_candidates
+                (username, lesson_id, promotion_id, policy_type, title, rule_text,
+                 verification_text, policy_state, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
+            """, (
+                username, int(lesson_id), int(lesson["promotion_id"]), ptype,
+                title[:240], rule_text[:5000], str(verification_text or "").strip()[:3000], now
+            ))
+            pid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, pid
+
+
+def _v335_stage_policy(username, policy_id):
+    policy = _v335_policy(username, policy_id)
+    if not policy:
+        return False, "policy_not_found", None
+    if str(policy.get("policy_state") or "") != "DRAFT":
+        return False, "policy_not_draft", int(policy["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_learning_policy_candidates
+            SET policy_state='STAGED', staged_at=?
+            WHERE id=? AND username=? AND policy_state='DRAFT'
+        """, (now, int(policy_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(policy_id)
+
+
+def _v335_adopt_policy(username, policy_id, note=""):
+    policy = _v335_policy(username, policy_id)
+    if not policy:
+        return False, "policy_not_found", None
+    if str(policy.get("policy_state") or "") != "STAGED":
+        return False, "policy_not_staged", int(policy["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_learning_policy_adoptions
+            (username, policy_id, adoption_note, adopted_at)
+            VALUES (?, ?, ?, ?)
+        """, (
+            username, int(policy_id), str(note or "").strip()[:2400], now
+        ))
+        adoption_id = int(cur.lastrowid)
+        con.execute("""
+            UPDATE hunter_learning_policy_candidates
+            SET policy_state='ADOPTED', adopted_at=?
+            WHERE id=? AND username=? AND policy_state='STAGED'
+        """, (now, int(policy_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "LEARNING_POLICY_ADOPTED",
+            detail="V33.5 policy #%s adopted from promoted recovery lesson #%s." % (
+                int(policy_id), int(policy.get("lesson_id") or 0)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, adoption_id
+
+
+def _v335_retire_policy(username, policy_id, note=""):
+    policy = _v335_policy(username, policy_id)
+    if not policy:
+        return False, "policy_not_found", None
+    if str(policy.get("policy_state") or "") != "ADOPTED":
+        return False, "policy_not_adopted", int(policy["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_learning_policy_candidates
+            SET policy_state='RETIRED', retired_at=?, retire_note=?
+            WHERE id=? AND username=? AND policy_state='ADOPTED'
+        """, (
+            now, str(note or "Explicit V33.5 retirement.").strip()[:2400],
+            int(policy_id), username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(policy_id)
+
+
+def _v335_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        lessons = [dict(r) for r in con.execute("""
+            SELECT l.*, p.id AS promotion_id
+            FROM hunter_recovery_lessons l
+            JOIN hunter_learning_promotions p ON p.lesson_id=l.id
+            WHERE l.username=? AND p.promotion_state='PROMOTED'
+            ORDER BY l.id DESC
+        """, (username,)).fetchall()]
+
+        policies = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_learning_policy_candidates
+            WHERE username=? ORDER BY id DESC
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+
+    by_lesson = {int(p["lesson_id"]): p for p in policies}
+    items = []
+    for lesson in lessons:
+        item = dict(lesson)
+        item["policy"] = by_lesson.get(int(lesson["id"]))
+        items.append(item)
+
+    return {
+        "version": V335_VERSION,
+        "counts": {
+            "promoted_lessons": len(lessons),
+            "draft": sum(1 for p in policies if str(p.get("policy_state") or "") == "DRAFT"),
+            "staged": sum(1 for p in policies if str(p.get("policy_state") or "") == "STAGED"),
+            "adopted": sum(1 for p in policies if str(p.get("policy_state") or "") == "ADOPTED"),
+            "retired": sum(1 for p in policies if str(p.get("policy_state") or "") == "RETIRED"),
+        },
+        "items": items,
+        "policy": "Promoted learning becomes governance only through explicit policy drafting, staging and adoption."
+    }
+
+
+@app.route("/api/hunter-learning-policies")
+def v335_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v335_snapshot(username)})
+
+
+@app.route("/api/hunter-learning-policies/lesson/<int:lesson_id>/save", methods=["POST"])
+def v335_save_api(lesson_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, policy_id = _v335_create_or_update_policy(
+        username,
+        lesson_id,
+        p.get("policy_type") or "",
+        p.get("title") or "",
+        p.get("rule_text") or "",
+        p.get("verification_text") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "policy_id": policy_id}), 400
+    return jsonify({"success": True, "policy_id": policy_id})
+
+
+@app.route("/api/hunter-learning-policies/<int:policy_id>/stage", methods=["POST"])
+def v335_stage_api(policy_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, error, pid = _v335_stage_policy(username, policy_id)
+    if not ok:
+        return jsonify({"success": False, "error": error, "policy_id": pid}), 400
+    return jsonify({"success": True, "policy_id": pid})
+
+
+@app.route("/api/hunter-learning-policies/<int:policy_id>/adopt", methods=["POST"])
+def v335_adopt_api(policy_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, adoption_id = _v335_adopt_policy(username, policy_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "adoption_id": adoption_id}), 400
+    return jsonify({"success": True, "adoption_id": adoption_id})
+
+
+@app.route("/api/hunter-learning-policies/<int:policy_id>/retire", methods=["POST"])
+def v335_retire_api(policy_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, pid = _v335_retire_policy(username, policy_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "policy_id": pid}), 400
+    return jsonify({"success": True, "policy_id": pid})
+
+
+@app.route("/hunter-learning-policies")
+def v335_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Learning Policies</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>📜 Learning Policies</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v335_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        lesson_id = int(item.get("id") or 0)
+        policy = item.get("policy") or {}
+        state = str(policy.get("policy_state") or "")
+        actions = ""
+
+        if not policy:
+            actions = """
+            <form action='/api/hunter-learning-policies/lesson/{lid}/save' onsubmit='return v335submit(this,event)'>
+              <select name='policy_type'>
+                <option>GUARDRAIL</option><option>CHECKLIST</option><option>ALERT_RULE</option><option>REVIEW_RULE</option><option>RECOVERY_RULE</option>
+              </select>
+              <input name='title' placeholder='Policy title'>
+              <textarea name='rule_text' rows='3' placeholder='Policy / control rule'></textarea>
+              <textarea name='verification_text' rows='2' placeholder='How this policy should be verified'></textarea>
+              <button type='submit'>CREATE POLICY CANDIDATE</button>
+            </form>
+            """.format(lid=lesson_id)
+        elif state == "DRAFT":
+            actions = """
+            <div class='policy'><b>{ptype}</b><h3>{title}</h3><p>{rule}</p><small>{verify}</small></div>
+            <form action='/api/hunter-learning-policies/{pid}/stage' onsubmit='return v335submit(this,event)'>
+              <button class='warn' type='submit'>STAGE POLICY</button>
+            </form>
+            """.format(
+                ptype=esc(policy.get("policy_type")),
+                title=esc(policy.get("title")),
+                rule=esc(policy.get("rule_text")),
+                verify=esc(policy.get("verification_text")),
+                pid=int(policy["id"]),
+            )
+        elif state == "STAGED":
+            actions = """
+            <div class='policy'><b>{ptype}</b><h3>{title}</h3><p>{rule}</p></div>
+            <form action='/api/hunter-learning-policies/{pid}/adopt' onsubmit='return v335submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Final governance adoption note'></textarea>
+              <button class='safe' type='submit'>ADOPT POLICY</button>
+            </form>
+            """.format(
+                ptype=esc(policy.get("policy_type")),
+                title=esc(policy.get("title")),
+                rule=esc(policy.get("rule_text")),
+                pid=int(policy["id"]),
+            )
+        elif state == "ADOPTED":
+            actions = """
+            <div class='adopted'>ADOPTED GOVERNANCE POLICY</div>
+            <form action='/api/hunter-learning-policies/{pid}/retire' onsubmit='return v335submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Reason for retirement'></textarea>
+              <button class='danger' type='submit'>RETIRE POLICY</button>
+            </form>
+            """.format(pid=int(policy["id"]))
+        else:
+            actions = "<div class='retired'>POLICY RETIRED</div>"
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Lesson #{lid}</span><span class='pill'>{state}</span></div>
+          <h2>{title}</h2>
+          <p><b>{ltype}</b></p>
+          <p class='muted'>{detail}</p>
+          {actions}
+        </article>
+        """.format(
+            lid=esc(lesson_id),
+            state=esc(state or "PROMOTED LESSON"),
+            title=esc(item.get("title")),
+            ltype=esc(item.get("lesson_type")),
+            detail=esc(item.get("detail")),
+            actions=actions,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.5 Learning Policies</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1160px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#ffd66f;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#ffd66f}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #6f5a22;border-radius:999px;padding:6px 9px;color:#ffd66f;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.safe{{background:#8bf0c8}} button.danger{{background:#ff8797}}
+    .policy,.adopted,.retired{{margin-top:10px;padding:12px;border:1px solid #2b3f55;border-radius:12px;background:#071018}}
+    .adopted{{color:#9bf2cb;border-color:#216c52;background:#0e2a21}} .retired{{color:#ffb5bf;border-color:#6b3a45;background:#180c0f}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #ffd66f;padding:12px;background:#171307;color:#e8ddb8;line-height:1.6}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.5 // LEARNING POLICY ADOPTION + CONTROL GATE</div>
+        <h1>📜 ADOPT LEARNING</h1>
+        <div class='sub'>Turn promoted recovery lessons into explicit governance controls through a separate draft → stage → adopt lifecycle.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>PROMOTED LESSONS</div><div class='num'>{lessons}</div></div>
+          <div class='stat'><div class='eyebrow'>DRAFT</div><div class='num'>{draft}</div></div>
+          <div class='stat'><div class='eyebrow'>STAGED</div><div class='num'>{staged}</div></div>
+          <div class='stat'><div class='eyebrow'>ADOPTED</div><div class='num'>{adopted}</div></div>
+          <div class='stat'><div class='eyebrow'>RETIRED</div><div class='num'>{retired}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-recovery-postmortems'>📘 POSTMORTEM LEARNING</a><a href='/api/hunter-learning-policies'>JSON</a></div>
+        <div class='rule'><strong>V33.5 rule:</strong> promoted learning is not a policy until an operator explicitly drafts, stages and adopts it.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v335submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        lessons=esc(c.get("promoted_lessons",0)),
+        draft=esc(c.get("draft",0)),
+        staged=esc(c.get("staged",0)),
+        adopted=esc(c.get("adopted",0)),
+        retired=esc(c.get("retired",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No promoted lessons are ready for policy adoption.</p></article>"
+    )
+
+
+# Surface V33.5 from V33.4 postmortem learning workspace.
+try:
+    _v335_prev_page = app.view_functions.get("v334_page")
+    if _v335_prev_page:
+        def _v335_postmortem_with_policy(*args, **kwargs):
+            response = _v335_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-learning-policies" not in response:
+                anchor = "<a href='/api/hunter-recovery-postmortems'>JSON</a>"
+                link = "<a href='/hunter-learning-policies'>📜 LEARNING POLICIES</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v334_page"] = _v335_postmortem_with_policy
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
