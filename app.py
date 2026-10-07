@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.2 Build Attestation</title><style>
+    <title>BL3 V32.3 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.2 Hunter Command Deck</title>
+    <title>BL3 V32.3 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -54212,6 +54212,518 @@ try:
                 )
             return response
         app.view_functions["v321_closure_verification_page"] = _v322_verification_with_triage
+except Exception:
+    pass
+
+# ===== V32.3 REOPEN CASES + RE-EVALUATION WORKSPACE =====
+V323_VERSION = "V32.3"
+V323_OUTCOMES = {"CONFIRMED_REOPEN", "KEEP_CLOSED", "RETEST_REQUIRED"}
+
+
+def _v323_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_reopen_cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                proposal_id INTEGER NOT NULL,
+                receipt_id INTEGER NOT NULL,
+                directive_id INTEGER NOT NULL,
+                strategy TEXT,
+                case_state TEXT NOT NULL DEFAULT 'ACTIVE',
+                opening_note TEXT,
+                reevaluation_note TEXT,
+                outcome TEXT,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            )
+        """)
+        con.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_v323_unique_proposal
+            ON hunter_reopen_cases(username, proposal_id)
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_v323_user_state
+            ON hunter_reopen_cases(username, case_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v323_init()
+except Exception:
+    pass
+
+
+def _v323_cases(username, limit=250):
+    _v323_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT *
+            FROM hunter_reopen_cases
+            WHERE username=?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v323_get(username, case_id):
+    _v323_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT *
+            FROM hunter_reopen_cases
+            WHERE username=? AND id=?
+            LIMIT 1
+        """, (username, int(case_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v323_case_for_proposal(username, proposal_id):
+    _v323_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT *
+            FROM hunter_reopen_cases
+            WHERE username=? AND proposal_id=?
+            LIMIT 1
+        """, (username, int(proposal_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v323_open_case(username, proposal_id, opening_note=""):
+    proposal = _v322_get(username, proposal_id)
+    if not proposal:
+        return False, "proposal_not_found", None
+
+    if str(proposal.get("decision_state") or "") != "APPROVED":
+        return False, "proposal_not_approved", None
+
+    existing = _v323_case_for_proposal(username, proposal_id)
+    if existing:
+        return False, "case_already_exists", int(existing.get("id") or 0)
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_reopen_cases (
+                username, proposal_id, receipt_id, directive_id, strategy,
+                case_state, opening_note, created_at
+            ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+        """, (
+            username,
+            int(proposal_id),
+            int(proposal.get("receipt_id") or 0),
+            int(proposal.get("directive_id") or 0),
+            str(proposal.get("strategy") or "")[:500],
+            str(opening_note or proposal.get("decision_note") or "Approved regression reopen review.")[:2000],
+            now,
+        ))
+        con.commit()
+        case_id = int(cur.lastrowid)
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(proposal.get("strategy") or ""),
+            "REOPEN_CASE_OPENED",
+            directive_id=int(proposal.get("directive_id") or 0),
+            detail="V32.3 case #%s opened from approved proposal #%s" % (case_id, proposal_id),
+        )
+    except Exception:
+        pass
+
+    return True, None, case_id
+
+
+def _v323_resolve_case(username, case_id, outcome, reevaluation_note=""):
+    case = _v323_get(username, case_id)
+    if not case:
+        return False, "case_not_found"
+
+    if str(case.get("case_state") or "") != "ACTIVE":
+        return False, "case_not_active"
+
+    outcome = str(outcome or "").strip().upper()
+    if outcome not in V323_OUTCOMES:
+        return False, "invalid_outcome"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_reopen_cases
+            SET case_state='RESOLVED',
+                outcome=?,
+                reevaluation_note=?,
+                resolved_at=?
+            WHERE username=? AND id=? AND case_state='ACTIVE'
+        """, (
+            outcome,
+            str(reevaluation_note or "")[:3000],
+            now,
+            username,
+            int(case_id),
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(case.get("strategy") or ""),
+            "REOPEN_CASE_RESOLVED_%s" % outcome,
+            directive_id=int(case.get("directive_id") or 0),
+            detail="V32.3 case #%s resolved as %s" % (case_id, outcome),
+        )
+    except Exception:
+        pass
+
+    return True, None
+
+
+def _v323_cancel_case(username, case_id, note=""):
+    case = _v323_get(username, case_id)
+    if not case:
+        return False, "case_not_found"
+
+    if str(case.get("case_state") or "") != "ACTIVE":
+        return False, "case_not_active"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_reopen_cases
+            SET case_state='CANCELLED',
+                outcome='KEEP_CLOSED',
+                reevaluation_note=?,
+                resolved_at=?
+            WHERE username=? AND id=? AND case_state='ACTIVE'
+        """, (
+            str(note or "Reopen review cancelled.")[:3000],
+            now,
+            username,
+            int(case_id),
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(case.get("strategy") or ""),
+            "REOPEN_CASE_CANCELLED",
+            directive_id=int(case.get("directive_id") or 0),
+            detail="V32.3 case #%s cancelled" % case_id,
+        )
+    except Exception:
+        pass
+
+    return True, None
+
+
+def _v323_snapshot(username):
+    proposals = _v322_proposals(username, 300)
+    cases = _v323_cases(username, 300)
+
+    by_proposal = {int(c.get("proposal_id") or 0): c for c in cases}
+    approved_without_case = [
+        p for p in proposals
+        if str(p.get("decision_state") or "") == "APPROVED"
+        and int(p.get("id") or 0) not in by_proposal
+    ]
+
+    counts = {
+        "total": len(cases),
+        "active": sum(1 for c in cases if str(c.get("case_state") or "") == "ACTIVE"),
+        "resolved": sum(1 for c in cases if str(c.get("case_state") or "") == "RESOLVED"),
+        "cancelled": sum(1 for c in cases if str(c.get("case_state") or "") == "CANCELLED"),
+        "confirmed_reopen": sum(1 for c in cases if str(c.get("outcome") or "") == "CONFIRMED_REOPEN"),
+        "keep_closed": sum(1 for c in cases if str(c.get("outcome") or "") == "KEEP_CLOSED"),
+        "retest_required": sum(1 for c in cases if str(c.get("outcome") or "") == "RETEST_REQUIRED"),
+    }
+
+    return {
+        "version": V323_VERSION,
+        "counts": counts,
+        "approved_without_case": approved_without_case,
+        "cases": cases,
+        "original_directive_mutation": False,
+    }
+
+
+@app.route("/api/hunter-reopen-cases")
+def v323_reopen_cases_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v323_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-reopen-cases/open/<int:proposal_id>", methods=["POST"])
+def v323_reopen_cases_open_api(proposal_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err, case_id = _v323_open_case(
+        username,
+        proposal_id,
+        payload.get("opening_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": err, "case_id": case_id}), 400
+
+    return jsonify({
+        "success": True,
+        "version": V323_VERSION,
+        "case_id": case_id,
+        "original_directive_mutation": False,
+    })
+
+
+@app.route("/api/hunter-reopen-cases/<int:case_id>/resolve", methods=["POST"])
+def v323_reopen_cases_resolve_api(case_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err = _v323_resolve_case(
+        username,
+        case_id,
+        payload.get("outcome"),
+        payload.get("reevaluation_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+
+    return jsonify({
+        "success": True,
+        "version": V323_VERSION,
+        "case": _v323_get(username, case_id),
+        "original_directive_mutation": False,
+    })
+
+
+@app.route("/api/hunter-reopen-cases/<int:case_id>/cancel", methods=["POST"])
+def v323_reopen_cases_cancel_api(case_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err = _v323_cancel_case(
+        username,
+        case_id,
+        payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+
+    return jsonify({
+        "success": True,
+        "version": V323_VERSION,
+        "case": _v323_get(username, case_id),
+        "original_directive_mutation": False,
+    })
+
+
+@app.route("/hunter-reopen-cases")
+def v323_reopen_cases_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Reopen Cases</title>
+        <body style='background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧭 Reopen Cases</h1><p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+    snap = _v323_snapshot(username)
+    counts = snap.get("counts") or {}
+
+    approved_cards = []
+    for p in snap.get("approved_without_case") or []:
+        pid = int(p.get("id") or 0)
+        approved_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>APPROVED PROPOSAL #{pid} · RECEIPT #{rid}</span><h3>{strategy}</h3></div>
+            <span class='pill approved'>READY TO OPEN</span>
+          </div>
+          <p><strong>Decision note:</strong> {decision_note}</p>
+          <form action='/api/hunter-reopen-cases/open/{pid}' onsubmit='return v323open(this,event)'>
+            <label>Opening note</label>
+            <textarea name='opening_note' rows='3' placeholder='What exactly are we re-evaluating?'></textarea>
+            <button type='submit'>OPEN RE-EVALUATION CASE</button>
+          </form>
+        </article>
+        """.format(
+            pid=esc(pid),
+            rid=esc(p.get("receipt_id")),
+            strategy=esc(p.get("strategy")),
+            decision_note=esc(p.get("decision_note")),
+        ))
+
+    case_cards = []
+    for c in snap.get("cases") or []:
+        cid = int(c.get("id") or 0)
+        state = str(c.get("case_state") or "ACTIVE")
+        if state == "ACTIVE":
+            controls = """
+            <form action='/api/hunter-reopen-cases/{cid}/resolve' onsubmit='return v323resolve(this,event)'>
+              <label>Outcome</label>
+              <select name='outcome'>
+                <option value='CONFIRMED_REOPEN'>CONFIRMED_REOPEN</option>
+                <option value='KEEP_CLOSED'>KEEP_CLOSED</option>
+                <option value='RETEST_REQUIRED'>RETEST_REQUIRED</option>
+              </select>
+              <label>Re-evaluation note</label>
+              <textarea name='reevaluation_note' rows='4' placeholder='Evidence and reasoning for the final outcome'></textarea>
+              <button type='submit'>RESOLVE CASE</button>
+            </form>
+            <form action='/api/hunter-reopen-cases/{cid}/cancel' onsubmit='return v323cancel(this,event)'>
+              <label>Cancel note</label>
+              <textarea name='note' rows='2'></textarea>
+              <button type='submit'>CANCEL REVIEW</button>
+            </form>
+            """.format(cid=cid)
+        else:
+            controls = "<p><strong>Re-evaluation note:</strong> %s</p>" % esc(c.get("reevaluation_note"))
+
+        case_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>CASE #{cid} · PROPOSAL #{pid} · DIRECTIVE #{did}</span><h3>{strategy}</h3></div>
+            <span class='pill {stateclass}'>{state}</span>
+          </div>
+          <div class='grid'>
+            <div><span>OUTCOME</span><b>{outcome}</b></div>
+            <div><span>CREATED</span><b>{created}</b></div>
+            <div><span>RESOLVED</span><b>{resolved}</b></div>
+            <div><span>ORIGINAL MUTATION</span><b>OFF</b></div>
+          </div>
+          <p><strong>Opening note:</strong> {opening_note}</p>
+          {controls}
+        </article>
+        """.format(
+            cid=esc(cid),
+            pid=esc(c.get("proposal_id")),
+            did=esc(c.get("directive_id")),
+            strategy=esc(c.get("strategy")),
+            state=esc(state),
+            stateclass=esc(state.lower()),
+            outcome=esc(c.get("outcome")),
+            created=esc(c.get("created_at")),
+            resolved=esc(c.get("resolved_at")),
+            opening_note=esc(c.get("opening_note")),
+            controls=controls,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.3 Reopen Cases</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#203044,#090d12 58%,#020203);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c1115ef;border:1px solid #3f5e7c;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#8fd4ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0}}
+    p{{color:#d8e7f1;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#101822;border:1px solid #37506a;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#9cb5c8;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:17px;overflow-wrap:anywhere}}.card{{background:#0f1720;border:1px solid #38546d;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #587a96;border-radius:999px;padding:6px 9px}}
+    .pill.active{{border-color:#66b7ff}}.pill.resolved{{border-color:#5aa877}}.pill.cancelled{{border-color:#b16b70}}.pill.approved{{border-color:#5aa877}}
+    .rule{{border-left:4px solid #68c5ff;padding:11px 14px;background:#101b24;border-radius:8px}}
+    a,button{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #42627c;border-radius:10px;background:#101c27;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    form{{margin-top:14px;padding-top:12px;border-top:1px solid #2e4559}}label{{display:block;margin-top:9px;color:#a9c1d3;font-size:10px;font-weight:900}}
+    select,textarea{{width:100%;margin-top:5px;background:#091018;color:#fff;border:1px solid #38566f;border-radius:10px;padding:10px}}
+    .section{{margin-top:28px;padding-top:18px;border-top:1px solid #283b4b}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style>
+    <script>
+    async function v323open(form,event){{
+      event.preventDefault(); const fd=new FormData(form);
+      const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{opening_note:fd.get('opening_note')}})}});
+      const data=await res.json(); if(data.success){{location.reload();return false;}} alert(data.error||'open_failed'); return false;
+    }}
+    async function v323resolve(form,event){{
+      event.preventDefault(); const fd=new FormData(form);
+      const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{outcome:fd.get('outcome'),reevaluation_note:fd.get('reevaluation_note')}})}});
+      const data=await res.json(); if(data.success){{location.reload();return false;}} alert(data.error||'resolve_failed'); return false;
+    }}
+    async function v323cancel(form,event){{
+      event.preventDefault(); const fd=new FormData(form);
+      const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{note:fd.get('note')}})}});
+      const data=await res.json(); if(data.success){{location.reload();return false;}} alert(data.error||'cancel_failed'); return false;
+    }}
+    </script></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V32.3 // REOPEN CASES + RE-EVALUATION WORKSPACE</div>
+      <h1>🧭 REOPEN CASES</h1>
+      <p>{username}, approved reopen proposals can now become explicit re-evaluation cases. Each case ends in one of three outcomes: confirmed reopen, keep closed, or retest required.</p>
+
+      <div class='hero'>
+        <div><span>TOTAL CASES</span><b>{total}</b></div>
+        <div><span>ACTIVE</span><b>{active}</b></div>
+        <div><span>RESOLVED</span><b>{resolved}</b></div>
+        <div><span>RETEST REQUIRED</span><b>{retest}</b></div>
+      </div>
+
+      <div class='rule'><strong>V32.3 rule:</strong> opening and resolving a case is explicit. The historical closed directive is never silently rewritten; the case becomes the auditable record of the re-evaluation.</div>
+
+      <a href='/hunter-regression-triage'>🚨 REGRESSION TRIAGE</a>
+      <a href='/hunter-closure-verification'>🔎 POST-CLOSURE VERIFICATION</a>
+      <a href='/hunter-recalibration-retests'>🧪 RETESTS</a>
+      <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>
+
+      <div class='section'><div class='eyebrow'>APPROVED PROPOSALS READY TO OPEN</div>{approved}</div>
+      <div class='section'><div class='eyebrow'>RE-EVALUATION CASE HISTORY</div>{cases}</div>
+    </section></div></body></html>""".format(
+        username=esc(username),
+        total=esc(counts.get("total")),
+        active=esc(counts.get("active")),
+        resolved=esc(counts.get("resolved")),
+        retest=esc(counts.get("retest_required")),
+        approved="".join(approved_cards) if approved_cards else "<p>No approved proposals are waiting to become cases.</p>",
+        cases="".join(case_cards) if case_cards else "<p>No re-evaluation cases yet.</p>",
+    )
+
+
+# Surface V32.3 from the V32.2 triage page.
+try:
+    _v323_prev_triage = app.view_functions.get("v322_regression_triage_page")
+    if _v323_prev_triage:
+        def _v323_triage_with_cases(*args, **kwargs):
+            response = _v323_prev_triage(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-reopen-cases" not in response:
+                response = response.replace(
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>",
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a><a href='/hunter-reopen-cases'>🧭 REOPEN CASES</a>",
+                    1
+                )
+            return response
+        app.view_functions["v322_regression_triage_page"] = _v323_triage_with_cases
 except Exception:
     pass
 
