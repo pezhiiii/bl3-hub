@@ -61149,6 +61149,646 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.7 POLICY COMPLIANCE AUDIT + EXCEPTION GATE =====
+# V33.6 separates adoption from enforcement.
+# V33.7 observes whether an ENFORCED policy is actually followed in operation.
+# Non-compliance can be documented, classified, and optionally converted into
+# an explicit exception request. Exceptions are staged, approved, revocable,
+# and never silently disable the underlying enforcement.
+
+V337_VERSION = "V33.7"
+V337_COMPLIANCE_SIGNALS = {"COMPLIANT", "PARTIAL", "NON_COMPLIANT", "INCONCLUSIVE"}
+V337_AUDIT_OUTCOMES = {"HEALTHY", "CORRECTIVE_ACTION", "EXCEPTION_REVIEW"}
+V337_EXCEPTION_TYPES = {"TEMPORARY", "SCOPE_LIMITED", "EMERGENCY", "TEST_ONLY"}
+V337_MIN_CHECKS = 2
+
+
+def _v337_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_compliance_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            enforcement_id INTEGER NOT NULL,
+            policy_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v337_checks_enforcement
+        ON hunter_policy_compliance_checks(username, enforcement_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_compliance_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            enforcement_id INTEGER NOT NULL UNIQUE,
+            policy_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_exception_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            enforcement_id INTEGER NOT NULL UNIQUE,
+            policy_id INTEGER NOT NULL,
+            exception_type TEXT NOT NULL,
+            scope_note TEXT NOT NULL,
+            reason_note TEXT NOT NULL,
+            request_state TEXT NOT NULL DEFAULT 'STAGED',
+            staged_at TEXT NOT NULL,
+            approved_at TEXT,
+            revoked_at TEXT,
+            revoke_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v337_exception_state
+        ON hunter_policy_exception_requests(username, request_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v337_init()
+except Exception:
+    pass
+
+
+def _v337_enforced_rows(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT e.*, p.title, p.policy_type, p.rule_text, p.verification_text
+            FROM hunter_policy_enforcements e
+            JOIN hunter_learning_policy_candidates p ON p.id=e.policy_id
+            WHERE e.username=? AND e.enforcement_state='ENFORCED'
+            ORDER BY e.id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v337_checks(username, enforcement_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_policy_compliance_checks
+            WHERE username=? AND enforcement_id=?
+            ORDER BY id DESC
+        """, (username, int(enforcement_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v337_outcome(username, enforcement_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_compliance_outcomes
+            WHERE username=? AND enforcement_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(enforcement_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v337_exception(username, enforcement_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_exception_requests
+            WHERE username=? AND enforcement_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(enforcement_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v337_add_check(username, enforcement_id, signal_state, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_enforcements
+            WHERE username=? AND id=?
+        """, (username, int(enforcement_id))).fetchone()
+        enforcement = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not enforcement:
+        return False, "enforcement_not_found", None
+    if str(enforcement.get("enforcement_state") or "") != "ENFORCED":
+        return False, "enforcement_not_active", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V337_COMPLIANCE_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_compliance_checks
+            (username, enforcement_id, policy_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(enforcement_id), int(enforcement["policy_id"]), signal,
+            str(note or "").strip()[:2400], now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v337_finalize_outcome(username, enforcement_id, requested_outcome, note=""):
+    checks = _v337_checks(username, enforcement_id)
+    if len(checks) < V337_MIN_CHECKS:
+        return False, "not_enough_compliance_checks", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V337_AUDIT_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v337_outcome(username, enforcement_id)
+    if existing:
+        return False, "outcome_already_finalized", int(existing["id"])
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_enforcements
+            WHERE username=? AND id=?
+        """, (username, int(enforcement_id))).fetchone()
+        enforcement = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not enforcement:
+        return False, "enforcement_not_found", None
+    if str(enforcement.get("enforcement_state") or "") != "ENFORCED":
+        return False, "enforcement_not_active", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_compliance_outcomes
+            (username, enforcement_id, policy_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username, int(enforcement_id), int(enforcement["policy_id"]),
+            requested, str(note or "").strip()[:2400], now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v337_stage_exception(username, enforcement_id, exception_type, scope_note, reason_note):
+    outcome = _v337_outcome(username, enforcement_id)
+    if not outcome:
+        return False, "compliance_outcome_required", None
+    if str(outcome.get("outcome") or "") != "EXCEPTION_REVIEW":
+        return False, "exception_review_outcome_required", None
+
+    existing = _v337_exception(username, enforcement_id)
+    if existing:
+        return False, "exception_already_exists", int(existing["id"])
+
+    etype = str(exception_type or "").strip().upper()
+    if etype not in V337_EXCEPTION_TYPES:
+        return False, "invalid_exception_type", None
+
+    scope_note = str(scope_note or "").strip()
+    reason_note = str(reason_note or "").strip()
+    if not scope_note or not reason_note:
+        return False, "scope_and_reason_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_exception_requests
+            (username, enforcement_id, policy_id, exception_type, scope_note,
+             reason_note, request_state, staged_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'STAGED', ?)
+        """, (
+            username, int(enforcement_id), int(outcome["policy_id"]), etype,
+            scope_note[:3000], reason_note[:3000], now
+        ))
+        xid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, xid
+
+
+def _v337_approve_exception(username, exception_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_exception_requests
+            WHERE username=? AND id=?
+        """, (username, int(exception_id))).fetchone()
+        exc = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not exc:
+        return False, "exception_not_found", None
+    if str(exc.get("request_state") or "") != "STAGED":
+        return False, "exception_not_staged", int(exc["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_exception_requests
+            SET request_state='APPROVED', approved_at=?
+            WHERE id=? AND username=? AND request_state='STAGED'
+        """, (now, int(exception_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "POLICY_EXCEPTION_APPROVED",
+            detail="V33.7 exception #%s approved for enforced policy #%s. Enforcement remains active." % (
+                int(exception_id), int(exc.get("policy_id") or 0)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(exception_id)
+
+
+def _v337_revoke_exception(username, exception_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_exception_requests
+            WHERE username=? AND id=?
+        """, (username, int(exception_id))).fetchone()
+        exc = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not exc:
+        return False, "exception_not_found", None
+    if str(exc.get("request_state") or "") != "APPROVED":
+        return False, "exception_not_active", int(exc["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_exception_requests
+            SET request_state='REVOKED', revoked_at=?, revoke_note=?
+            WHERE id=? AND username=? AND request_state='APPROVED'
+        """, (
+            now, str(note or "Explicit V33.7 exception revoke.").strip()[:2400],
+            int(exception_id), username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(exception_id)
+
+
+def _v337_snapshot(username):
+    rows = _v337_enforced_rows(username)
+    items = []
+
+    for enforcement in rows:
+        eid = int(enforcement.get("id") or 0)
+        checks = _v337_checks(username, eid)
+        outcome = _v337_outcome(username, eid)
+        exc = _v337_exception(username, eid)
+
+        item = dict(enforcement)
+        item["checks"] = checks[:20]
+        item["check_count"] = len(checks)
+        item["compliance_outcome"] = outcome
+        item["exception"] = exc
+        item["ready_for_outcome"] = len(checks) >= V337_MIN_CHECKS and not outcome
+        item["ready_for_exception"] = (
+            bool(outcome)
+            and str(outcome.get("outcome") or "") == "EXCEPTION_REVIEW"
+            and not exc
+        )
+        item["ready_to_approve"] = bool(exc) and str(exc.get("request_state") or "") == "STAGED"
+        items.append(item)
+
+    return {
+        "version": V337_VERSION,
+        "minimum_checks": V337_MIN_CHECKS,
+        "counts": {
+            "enforced_policies": len(rows),
+            "checks": sum(int(i.get("check_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "active_exceptions": sum(
+                1 for i in items
+                if i.get("exception") and str(i["exception"].get("request_state") or "") == "APPROVED"
+            ),
+        },
+        "items": items,
+        "policy": "Enforcement remains active unless explicitly revoked in V33.6; V33.7 exceptions are scoped governance records, not silent enforcement bypasses."
+    }
+
+
+@app.route("/api/hunter-policy-compliance")
+def v337_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v337_snapshot(username)})
+
+
+@app.route("/api/hunter-policy-compliance/<int:enforcement_id>/check", methods=["POST"])
+def v337_check_api(enforcement_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, cid = _v337_add_check(
+        username,
+        enforcement_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-policy-compliance/<int:enforcement_id>/outcome", methods=["POST"])
+def v337_outcome_api(enforcement_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, oid = _v337_finalize_outcome(
+        username,
+        enforcement_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-policy-compliance/<int:enforcement_id>/exception/stage", methods=["POST"])
+def v337_stage_exception_api(enforcement_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, xid = _v337_stage_exception(
+        username,
+        enforcement_id,
+        p.get("exception_type") or "",
+        p.get("scope_note") or "",
+        p.get("reason_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "exception_id": xid}), 400
+    return jsonify({"success": True, "exception_id": xid})
+
+
+@app.route("/api/hunter-policy-compliance/exception/<int:exception_id>/approve", methods=["POST"])
+def v337_approve_exception_api(exception_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, error, xid = _v337_approve_exception(username, exception_id)
+    if not ok:
+        return jsonify({"success": False, "error": error, "exception_id": xid}), 400
+    return jsonify({"success": True, "exception_id": xid})
+
+
+@app.route("/api/hunter-policy-compliance/exception/<int:exception_id>/revoke", methods=["POST"])
+def v337_revoke_exception_api(exception_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, xid = _v337_revoke_exception(username, exception_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "exception_id": xid}), 400
+    return jsonify({"success": True, "exception_id": xid})
+
+
+@app.route("/hunter-policy-compliance")
+def v337_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Policy Compliance</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧾 Policy Compliance</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v337_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        eid = int(item.get("id") or 0)
+        outcome = item.get("compliance_outcome") or {}
+        exc = item.get("exception") or {}
+        checks = item.get("checks") or []
+
+        actions = ""
+
+        if not outcome:
+            actions += """
+            <form action='/api/hunter-policy-compliance/{eid}/check' onsubmit='return v337submit(this,event)'>
+              <select name='signal_state'>
+                <option>COMPLIANT</option><option>PARTIAL</option><option>NON_COMPLIANT</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Compliance evidence'></textarea>
+              <button type='submit'>ADD COMPLIANCE CHECK</button>
+            </form>
+            """.format(eid=eid)
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-policy-compliance/{eid}/outcome' onsubmit='return v337submit(this,event)'>
+              <select name='outcome'>
+                <option value='HEALTHY'>HEALTHY</option>
+                <option value='CORRECTIVE_ACTION'>CORRECTIVE_ACTION</option>
+                <option value='EXCEPTION_REVIEW'>EXCEPTION_REVIEW</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Audit outcome rationale'></textarea>
+              <button type='submit'>FINALIZE COMPLIANCE OUTCOME</button>
+            </form>
+            """.format(eid=eid)
+        elif outcome:
+            actions += "<div class='final'>AUDIT OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")), esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_for_exception"):
+            actions += """
+            <form action='/api/hunter-policy-compliance/{eid}/exception/stage' onsubmit='return v337submit(this,event)'>
+              <select name='exception_type'>
+                <option>TEMPORARY</option><option>SCOPE_LIMITED</option><option>EMERGENCY</option><option>TEST_ONLY</option>
+              </select>
+              <textarea name='scope_note' rows='2' placeholder='Exact exception scope'></textarea>
+              <textarea name='reason_note' rows='2' placeholder='Why this exception is needed'></textarea>
+              <button class='warn' type='submit'>STAGE EXCEPTION</button>
+            </form>
+            """.format(eid=eid)
+
+        if item.get("ready_to_approve"):
+            actions += """
+            <form action='/api/hunter-policy-compliance/exception/{xid}/approve' onsubmit='return v337submit(this,event)'>
+              <button class='safe' type='submit'>APPROVE EXCEPTION</button>
+            </form>
+            """.format(xid=int(exc.get("id") or 0))
+        elif exc and str(exc.get("request_state") or "") == "APPROVED":
+            actions += """
+            <div class='exception'>ACTIVE EXCEPTION · {etype}<br><small>{scope}</small></div>
+            <form action='/api/hunter-policy-compliance/exception/{xid}/revoke' onsubmit='return v337submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Reason to revoke exception'></textarea>
+              <button class='danger' type='submit'>REVOKE EXCEPTION</button>
+            </form>
+            """.format(
+                etype=esc(exc.get("exception_type")),
+                scope=esc(exc.get("scope_note")),
+                xid=int(exc.get("id") or 0),
+            )
+
+        checks_html = "".join(
+            "<div class='checkrow'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No compliance checks yet.</div>"
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Enforcement #{eid}</span><span class='pill'>ENFORCED</span></div>
+          <h2>{title}</h2>
+          <p><b>{ptype}</b></p>
+          <p class='muted'>{rule}</p>
+          {actions}
+          <div class='history'>{checks}</div>
+        </article>
+        """.format(
+            eid=esc(eid),
+            title=esc(item.get("title")),
+            ptype=esc(item.get("policy_type")),
+            rule=esc(item.get("rule_text")),
+            actions=actions,
+            checks=checks_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.7 Policy Compliance</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1160px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#ffb86b;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#ffb86b}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #6b4d2c;border-radius:999px;padding:6px 9px;color:#ffb86b;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.safe{{background:#8bf0c8}} button.danger{{background:#ff8797}}
+    .checkrow{{border-top:1px solid #15313f;padding:10px 0}} .checkrow b{{color:#ffb86b;display:block}} .checkrow span{{display:block;margin:5px 0;color:#d7e8ef}}
+    .final,.exception{{margin-top:10px;background:#0e2a21;border:1px solid #216c52;color:#9bf2cb;border-radius:12px;padding:10px}}
+    .exception{{background:#191407;border-color:#6b5a2c;color:#ffe294}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #ffb86b;padding:12px;background:#170f08;color:#e9c6a5;line-height:1.6}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.7 // POLICY COMPLIANCE AUDIT + EXCEPTION GATE</div>
+        <h1>🧾 AUDIT ENFORCEMENT</h1>
+        <div class='sub'>An enforced policy must still prove operational compliance. Exceptions are explicit scoped governance records—not silent bypasses.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>ENFORCED POLICIES</div><div class='num'>{policies}</div></div>
+          <div class='stat'><div class='eyebrow'>CHECKS</div><div class='num'>{checks}</div></div>
+          <div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div>
+          <div class='stat'><div class='eyebrow'>ACTIVE EXCEPTIONS</div><div class='num'>{exceptions}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-policy-effectiveness'>⚖️ POLICY EFFECTIVENESS</a><a href='/hunter-learning-policies'>📜 LEARNING POLICIES</a><a href='/api/hunter-policy-compliance'>JSON</a></div>
+        <div class='rule'><strong>V33.7 rule:</strong> enforcement and exceptions are separate records. Approving an exception never silently disables or deletes the underlying enforced policy.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v337submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        policies=esc(c.get("enforced_policies",0)),
+        checks=esc(c.get("checks",0)),
+        ready=esc(c.get("ready_for_outcome",0)),
+        exceptions=esc(c.get("active_exceptions",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No enforced policies are ready for compliance audit.</p></article>"
+    )
+
+
+try:
+    _v337_prev_page = app.view_functions.get("v336_page")
+    if _v337_prev_page:
+        def _v337_effectiveness_with_compliance(*args, **kwargs):
+            response = _v337_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-policy-compliance" not in response:
+                anchor = "<a href='/api/hunter-policy-effectiveness'>JSON</a>"
+                link = "<a href='/hunter-policy-compliance'>🧾 POLICY COMPLIANCE</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v336_page"] = _v337_effectiveness_with_compliance
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
