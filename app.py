@@ -55541,6 +55541,356 @@ except Exception:
     pass
 
 
+# ===== V32.6 OUTCOME ACTION GATE =====
+# Turns a finalized V32.5 trial outcome into an explicit operator-approved action.
+# Nothing executes on outcome finalization. The Hunter must first stage an action,
+# then explicitly execute it. Historical evidence/outcomes are never rewritten.
+
+V326_VERSION = "V32.6"
+V326_ACTION_FOR_OUTCOME = {
+    "VALIDATED": "KEEP_ACTIVE",
+    "ADJUST_REQUIRED": "CREATE_REVISION",
+    "RETIRE_RECOMMENDED": "REQUEST_CLOSE",
+}
+V326_ALLOWED_ACTIONS = set(V326_ACTION_FOR_OUTCOME.values())
+
+
+def _v326_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_successor_outcome_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            successor_id INTEGER NOT NULL,
+            outcome_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            action TEXT NOT NULL,
+            action_state TEXT NOT NULL DEFAULT 'STAGED',
+            action_note TEXT,
+            created_at TEXT NOT NULL,
+            executed_at TEXT,
+            execution_note TEXT,
+            UNIQUE(username, successor_id, outcome_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v326_action_user_state
+        ON hunter_successor_outcome_actions(username, action_state, id DESC)
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_successor_revision_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            successor_id INTEGER NOT NULL,
+            outcome_action_id INTEGER NOT NULL UNIQUE,
+            strategy TEXT NOT NULL,
+            requested_at TEXT NOT NULL,
+            revision_note TEXT
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v326_init()
+except Exception:
+    pass
+
+
+def _v326_outcome(username, successor_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, username, successor_id, outcome, outcome_note, created_at
+            FROM hunter_successor_trial_outcomes
+            WHERE username=? AND successor_id=?
+        """, (username, int(successor_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v326_action(username, successor_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_successor_outcome_actions
+            WHERE username=? AND successor_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(successor_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v326_stage_action(username, successor_id, action_note=""):
+    successor = _v325_successor(username, successor_id)
+    if not successor:
+        return False, "successor_not_found", None
+    outcome = _v326_outcome(username, successor_id)
+    if not outcome:
+        return False, "trial_outcome_required", None
+    requested_action = V326_ACTION_FOR_OUTCOME.get(str(outcome.get("outcome") or "").upper())
+    if not requested_action:
+        return False, "unsupported_outcome", None
+
+    con = sqlite3.connect(DB)
+    try:
+        existing = con.execute("""
+            SELECT id, action_state FROM hunter_successor_outcome_actions
+            WHERE username=? AND successor_id=? AND outcome_id=?
+        """, (username, int(successor_id), int(outcome["id"]))).fetchone()
+        if existing:
+            return False, "action_already_staged", int(existing[0])
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = con.execute("""
+            INSERT INTO hunter_successor_outcome_actions
+            (username, successor_id, outcome_id, outcome, action, action_state, action_note, created_at)
+            VALUES (?, ?, ?, ?, ?, 'STAGED', ?, ?)
+        """, (
+            username, int(successor_id), int(outcome["id"]), str(outcome["outcome"]),
+            requested_action, str(action_note or "").strip()[:2400], now
+        ))
+        action_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username, str(successor.get("strategy") or ""), "SUCCESSOR_OUTCOME_ACTION_STAGED",
+            directive_id=int(successor.get("parent_directive_id") or 0) or None,
+            detail="V32.6 staged %s for successor #%s from finalized outcome %s; no execution occurred." % (
+                requested_action, int(successor_id), str(outcome.get("outcome") or "")
+            )
+        )
+    except Exception:
+        pass
+    return True, None, action_id
+
+
+def _v326_execute_action(username, action_id, execution_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        action = con.execute("""
+            SELECT * FROM hunter_successor_outcome_actions
+            WHERE id=? AND username=?
+        """, (int(action_id), username)).fetchone()
+        if not action:
+            return False, "action_not_found", None
+        action = dict(action)
+        if str(action.get("action_state") or "") != "STAGED":
+            return False, "action_not_staged", action
+    finally:
+        con.close()
+
+    successor = _v325_successor(username, int(action["successor_id"]))
+    if not successor:
+        return False, "successor_not_found", action
+
+    action_name = str(action.get("action") or "").upper()
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    note = str(execution_note or "").strip()[:2400]
+    side_effect = "none"
+
+    if action_name == "KEEP_ACTIVE":
+        if str(successor.get("directive_state") or "") != "ACTIVE":
+            return False, "successor_not_active", action
+        side_effect = "successor_remains_active"
+
+    elif action_name == "CREATE_REVISION":
+        con = sqlite3.connect(DB)
+        try:
+            con.execute("""
+                INSERT OR IGNORE INTO hunter_successor_revision_requests
+                (username, successor_id, outcome_action_id, strategy, requested_at, revision_note)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                username, int(action["successor_id"]), int(action["id"]),
+                str(successor.get("strategy") or ""), now, note
+            ))
+            con.commit()
+        finally:
+            con.close()
+        side_effect = "revision_request_created"
+
+    elif action_name == "REQUEST_CLOSE":
+        if str(successor.get("directive_state") or "") != "ACTIVE":
+            return False, "successor_not_active", action
+        ok, err = _v324_close_successor(
+            username, int(action["successor_id"]),
+            note or "V32.6 explicit close execution after RETIRE_RECOMMENDED outcome."
+        )
+        if not ok:
+            return False, err or "close_failed", action
+        side_effect = "successor_closed"
+    else:
+        return False, "invalid_action", action
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_successor_outcome_actions
+            SET action_state='EXECUTED', executed_at=?, execution_note=?
+            WHERE id=? AND username=? AND action_state='STAGED'
+        """, (now, note, int(action["id"]), username))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username, str(successor.get("strategy") or ""), "SUCCESSOR_OUTCOME_ACTION_EXECUTED",
+            directive_id=int(successor.get("parent_directive_id") or 0) or None,
+            detail="V32.6 executed %s for successor #%s (%s)." % (
+                action_name, int(action["successor_id"]), side_effect
+            )
+        )
+    except Exception:
+        pass
+    return True, None, {**action, "action_state": "EXECUTED", "executed_at": now, "side_effect": side_effect}
+
+
+def _v326_snapshot(username):
+    base = _v325_snapshot(username)
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        actions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_successor_outcome_actions
+            WHERE username=? ORDER BY id DESC LIMIT 300
+        """, (username,)).fetchall()]
+        revisions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_successor_revision_requests
+            WHERE username=? ORDER BY id DESC LIMIT 200
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+    by_successor = {int(a["successor_id"]): a for a in actions}
+    enriched = []
+    for s in base.get("successors", []):
+        item = dict(s)
+        item["outcome_action"] = by_successor.get(int(item.get("id") or 0))
+        outcome = item.get("outcome") or {}
+        outcome_name = str(outcome.get("outcome") or "")
+        item["recommended_action"] = V326_ACTION_FOR_OUTCOME.get(outcome_name)
+        item["ready_to_stage_action"] = bool(outcome_name and not item["outcome_action"])
+        enriched.append(item)
+    return {
+        "version": V326_VERSION,
+        "counts": {
+            "finalized_outcomes": base.get("counts", {}).get("finalized_outcomes", 0),
+            "staged_actions": sum(1 for a in actions if str(a.get("action_state")) == "STAGED"),
+            "executed_actions": sum(1 for a in actions if str(a.get("action_state")) == "EXECUTED"),
+            "revision_requests": len(revisions),
+        },
+        "successors": enriched,
+        "actions": actions,
+        "revision_requests": revisions,
+        "policy": "V32.6 requires an explicit stage and a separate explicit execute step. Outcome finalization alone never executes an action."
+    }
+
+
+@app.route("/api/hunter-outcome-actions")
+def v326_outcome_actions_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v326_snapshot(username)})
+
+
+@app.route("/api/hunter-outcome-actions/<int:successor_id>/stage", methods=["POST"])
+def v326_stage_action_api(successor_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, action_id = _v326_stage_action(username, successor_id, payload.get("action_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "action_id": action_id}), 400
+    return jsonify({"success": True, "action_id": action_id})
+
+
+@app.route("/api/hunter-outcome-actions/<int:action_id>/execute", methods=["POST"])
+def v326_execute_action_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, result = _v326_execute_action(username, action_id, payload.get("execution_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "action": result}), 400
+    return jsonify({"success": True, "action": result})
+
+
+@app.route("/hunter-outcome-actions")
+def v326_outcome_actions_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Outcome Action Gate</title><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🚦 Outcome Action Gate</h1><p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+    data = _v326_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+    for s in data.get("successors", []):
+        outcome = s.get("outcome") or {}
+        if not outcome:
+            continue
+        sid = int(s.get("id") or 0)
+        action = s.get("outcome_action") or {}
+        rec = str(s.get("recommended_action") or "")
+        action_ui = ""
+        if not action:
+            action_ui = """
+            <form action='/api/hunter-outcome-actions/{sid}/stage' onsubmit='return v326submit(this,event)'>
+              <label>ACTION NOTE</label><textarea name='action_note' rows='2' placeholder='Why should this recommended action be staged?'></textarea>
+              <button type='submit'>STAGE {rec}</button>
+            </form>""".format(sid=sid, rec=esc(rec))
+        elif str(action.get("action_state")) == "STAGED":
+            action_ui = """
+            <div class='staged'><b>STAGED: {action}</b><br><small>Action #{aid} · {created}</small></div>
+            <form action='/api/hunter-outcome-actions/{aid}/execute' onsubmit='return v326submit(this,event,true)'>
+              <label>EXECUTION NOTE</label><textarea name='execution_note' rows='2' placeholder='Explicit execution confirmation note'></textarea>
+              <button class='execute' type='submit'>EXECUTE {action}</button>
+            </form>""".format(action=esc(action.get("action")), aid=int(action.get("id")), created=esc(action.get("created_at")))
+        else:
+            action_ui = """<div class='done'><b>EXECUTED: {action}</b><br>{note}<br><small>{when}</small></div>""".format(
+                action=esc(action.get("action")), note=esc(action.get("execution_note")), when=esc(action.get("executed_at")))
+        cards.append("""
+        <article class='card'><div class='eyebrow'>SUCCESSOR #{sid} · {state}</div><h3>{strategy}</h3>
+        <div class='outcome'>FINAL OUTCOME: <b>{outcome}</b></div>
+        <div class='recommended'>RECOMMENDED ACTION: <b>{rec}</b></div>{action_ui}</article>
+        """.format(sid=sid,state=esc(s.get("directive_state")),strategy=esc(s.get("strategy")),outcome=esc(outcome.get("outcome")),rec=esc(rec),action_ui=action_ui))
+
+    c = data.get("counts", {})
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V32.6 Outcome Action Gate</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2a2417 0,#08090b 42%,#020304 100%);color:#f5f7fa;font-family:Arial,sans-serif}}.wrap{{max-width:1120px;margin:auto;padding:32px 18px 80px}}.hero,.card{{background:#0b0f13e8;border:1px solid #55451e;border-radius:24px;padding:22px;box-shadow:0 24px 70px #0008}}.hero{{margin-bottom:16px}}.eyebrow{{font-size:11px;font-weight:900;letter-spacing:2.2px;color:#ffd66f}}h1{{font-size:42px;margin:7px 0}}h3{{margin:8px 0 14px}}.sub{{color:#abb3bd;line-height:1.6}}.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}}.stat{{border:1px solid #493b1c;border-radius:16px;padding:13px;background:#100e08}}.num{{font-size:27px;font-weight:1000}}.nav a{{color:#ffe39a;text-decoration:none;font-weight:900;margin-right:14px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}}.outcome,.recommended,.staged,.done{{padding:11px;border-radius:14px;margin:9px 0;background:#111820;border:1px solid #263545}}.recommended{{border-color:#655221;background:#171307}}.staged{{border-color:#765e22;color:#ffe399}}.done{{border-color:#216c52;color:#9bf2cb;background:#0e2a21}}form{{border-top:1px solid #2b3037;margin-top:13px;padding-top:13px}}label{{display:block;font-size:10px;letter-spacing:1.4px;color:#d1b75e;font-weight:900;margin:6px 0}}textarea{{width:100%;background:#05070a;color:#fff;border:1px solid #3c4650;border-radius:12px;padding:10px}}button{{margin-top:9px;border:0;border-radius:999px;background:#c49a2f;color:#090a0b;font-weight:1000;padding:11px 15px;cursor:pointer}}button.execute{{background:#ff7d70}}.rule{{margin-top:16px;padding:12px;border-left:3px solid #ffd66f;background:#141108;color:#d5c897;line-height:1.6}}small{{color:#7d8791}}@media(max-width:640px){{h1{{font-size:32px}}.grid{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V32.6 // OUTCOME ACTION GATE</div><h1>🚦 OUTCOME ACTION GATE</h1><div class='sub'>Evidence is finalized first. Action is staged second. Execution requires a separate explicit confirmation.</div><div class='stats'><div class='stat'><div class='eyebrow'>FINAL OUTCOMES</div><div class='num'>{fo}</div></div><div class='stat'><div class='eyebrow'>STAGED</div><div class='num'>{st}</div></div><div class='stat'><div class='eyebrow'>EXECUTED</div><div class='num'>{ex}</div></div><div class='stat'><div class='eyebrow'>REVISIONS</div><div class='num'>{rv}</div></div></div><div class='nav'><a href='/hunter-successor-trials'>🧪 SUCCESSOR TRIALS</a><a href='/hunter-reopen-activation'>🔁 REOPEN ACTIVATION</a><a href='/api/hunter-outcome-actions'>JSON</a></div><div class='rule'><b>V32.6 rule:</b> finalizing an outcome never executes anything. Stage and execute are separate operator actions. RETIRE_RECOMMENDED closes a successor only on the explicit EXECUTE step.</div></section><section class='grid'>{cards}</section></div><script>
+    async function v326submit(form,e,confirmExecute=false){{e.preventDefault();if(confirmExecute&&!confirm('Execute this staged action now?'))return false;const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(fo=esc(c.get("finalized_outcomes",0)),st=esc(c.get("staged_actions",0)),ex=esc(c.get("executed_actions",0)),rv=esc(c.get("revision_requests",0)),cards="".join(cards) if cards else "<article class='card'><p>No finalized successor outcomes yet. Finish a V32.5 trial first.</p></article>")
+
+
+# Surface V32.6 from the V32.5 trial workspace.
+try:
+    _v326_prev_trials_page = app.view_functions.get("v325_successor_trials_page")
+    if _v326_prev_trials_page:
+        def _v326_trials_with_actions(*args, **kwargs):
+            response = _v326_prev_trials_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-outcome-actions" not in response:
+                anchor = "<a href='/api/hunter-successor-trials'>JSON</a>"
+                link = "<a href='/hunter-outcome-actions'>🚦 OUTCOME ACTIONS</a>"
+                if anchor in response:
+                    response = response.replace(anchor, link + anchor, 1)
+            return response
+        app.view_functions["v325_successor_trials_page"] = _v326_trials_with_actions
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
