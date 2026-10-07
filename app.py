@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.4 Build Attestation</title><style>
+    <title>BL3 V30.5 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.4 Hunter Command Deck</title>
+    <title>BL3 V30.5 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -45995,7 +45995,7 @@ except Exception:
 # rank alternative strategies using current friction + prior experiment evidence.
 # Starting a challenger is always explicit. The current playbook is never auto-cleared.
 
-V304_VERSION = "V30.4"
+V304_VERSION = "V30.5"
 
 
 def _v304_strategy_evidence(username):
@@ -46304,7 +46304,7 @@ def v304_playbook_challenger_page():
         </div>""".format(id=esc(active.get("id")))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.4 Playbook Challenger Lab</title>
+    <title>BL3 V30.5 Playbook Challenger Lab</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#3c2515 0,#0b0907 48%,#030302 100%);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1050px;margin:auto}}.panel{{background:#100d09ee;border:1px solid #745335;border-radius:24px;padding:22px}}.eyebrow{{color:#f1bd7e;font-size:11px;font-weight:900;letter-spacing:1.5px}}
@@ -46380,6 +46380,416 @@ try:
         app.view_functions["v294_focus_preflight_page"] = _v304_preflight_with_challenger
 except Exception:
     pass
+
+
+# ===== V30.5 PLAYBOOK DECISION ARENA =====
+# Close the loop between an adopted playbook and a completed challenger.
+# BL3 presents evidence side-by-side; KEEP or SWITCH is always explicit.
+
+V305_VERSION = "V30.5"
+
+
+def _v305_ensure_schema():
+    _v303_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_playbook_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                current_strategy TEXT,
+                current_source_experiment_id INTEGER,
+                challenger_strategy TEXT,
+                challenger_experiment_id INTEGER,
+                current_signal REAL NOT NULL DEFAULT 0,
+                challenger_signal REAL NOT NULL DEFAULT 0,
+                current_delta REAL NOT NULL DEFAULT 0,
+                challenger_delta REAL NOT NULL DEFAULT 0,
+                decision TEXT NOT NULL,
+                note TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_playbook_decisions_user "
+            "ON hunter_playbook_decisions(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v305_latest_completed_challenger(username, current_strategy=None, current_source_id=0):
+    _v302_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT id, strategy, baseline_signal, baseline_count, start_receipt_id,
+                      sample_goal, created_at, completed_at, cancelled_at,
+                      sample_signal, sample_count_result, delta_result, verdict, end_receipt_id
+               FROM hunter_focus_experiments
+               WHERE username=? AND completed_at IS NOT NULL
+               ORDER BY id DESC
+               LIMIT 25""",
+            (username,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    current_strategy = str(current_strategy or "").upper()
+    current_source_id = int(current_source_id or 0)
+
+    for row in rows:
+        item = dict(row)
+        if int(item.get("id") or 0) == current_source_id:
+            continue
+        if current_strategy and str(item.get("strategy") or "").upper() == current_strategy:
+            continue
+        item["strategy_meta"] = V301_STRATEGIES.get(str(item.get("strategy") or "").upper(), {})
+        return item
+    return None
+
+
+def _v305_decision_history(username, limit=12):
+    _v305_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_playbook_decisions
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 12), 50)))
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v305_decision_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V305_VERSION}
+
+    playbook = _v302_playbook(username)
+    monitor = _v303_monitor_snapshot(username) if playbook else {
+        "state": "NO_PLAYBOOK",
+        "post_signal": 0,
+        "reference_signal": 0,
+        "delta": 0,
+        "post_count": 0,
+    }
+
+    current_strategy = str((playbook or {}).get("strategy") or "").upper()
+    current_source_id = int((playbook or {}).get("source_experiment_id") or 0)
+
+    challenger = _v305_latest_completed_challenger(
+        username,
+        current_strategy=current_strategy,
+        current_source_id=current_source_id,
+    )
+
+    state = "NO_PLAYBOOK" if not playbook else "NO_CHALLENGER"
+    recommendation = "WAIT"
+    gap = 0.0
+
+    if playbook and challenger:
+        challenger_verdict = str(challenger.get("verdict") or "").upper()
+        challenger_signal = float(challenger.get("sample_signal") or 0)
+        current_signal = float(monitor.get("post_signal") or monitor.get("reference_signal") or 0)
+        gap = round(challenger_signal - current_signal, 1)
+
+        if challenger_verdict == "IMPROVED":
+            state = "DECISION_READY"
+            if monitor.get("state") == "REVIEW_DUE" and gap >= 0:
+                recommendation = "SWITCH_CANDIDATE"
+            elif gap >= 5:
+                recommendation = "SWITCH_CANDIDATE"
+            else:
+                recommendation = "KEEP_CANDIDATE"
+        else:
+            state = "CHALLENGER_NOT_STRONG_ENOUGH"
+            recommendation = "KEEP_CANDIDATE"
+
+    return {
+        "success": True,
+        "version": V305_VERSION,
+        "username": username,
+        "state": state,
+        "recommendation": recommendation,
+        "playbook": playbook,
+        "monitor": monitor,
+        "challenger": challenger,
+        "signal_gap": gap,
+        "history": _v305_decision_history(username),
+        "policy": (
+            "The Decision Arena is advisory. KEEP and SWITCH are explicit Hunter choices. "
+            "SWITCH is allowed only when the challenger experiment is completed and recorded as IMPROVED."
+        ),
+    }
+
+
+@app.route("/api/hunter-playbook-decision")
+def v305_playbook_decision_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v305_decision_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-playbook-decision/apply", methods=["POST"])
+def v305_playbook_decision_apply_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    decision = str(payload.get("decision") or "").strip().upper()
+    note = str(payload.get("note") or "").strip()[:500]
+
+    if decision not in {"KEEP", "SWITCH"}:
+        return jsonify({"success": False, "error": "invalid_decision"}), 400
+
+    snap = _v305_decision_snapshot(username)
+    playbook = snap.get("playbook")
+    challenger = snap.get("challenger")
+
+    if not playbook:
+        return jsonify({"success": False, "error": "no_active_playbook"}), 409
+    if not challenger:
+        return jsonify({"success": False, "error": "no_completed_challenger"}), 409
+
+    challenger_verdict = str(challenger.get("verdict") or "").upper()
+    if decision == "SWITCH" and challenger_verdict != "IMPROVED":
+        return jsonify({
+            "success": False,
+            "error": "challenger_not_improved",
+            "message": "Only a completed challenger recorded as IMPROVED can replace the active playbook."
+        }), 409
+
+    current_strategy = str(playbook.get("strategy") or "").upper()
+    current_source_id = int(playbook.get("source_experiment_id") or 0)
+    challenger_strategy = str(challenger.get("strategy") or "").upper()
+    challenger_id = int(challenger.get("id") or 0)
+
+    monitor = snap.get("monitor") or {}
+    current_signal = float(monitor.get("post_signal") or monitor.get("reference_signal") or 0)
+    current_delta = float(monitor.get("delta") or 0)
+    challenger_signal = float(challenger.get("sample_signal") or 0)
+    challenger_delta = float(challenger.get("delta_result") or 0)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    _v305_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_playbook_decisions
+               (username, current_strategy, current_source_experiment_id,
+                challenger_strategy, challenger_experiment_id,
+                current_signal, challenger_signal, current_delta, challenger_delta,
+                decision, note, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                username,
+                current_strategy,
+                current_source_id,
+                challenger_strategy,
+                challenger_id,
+                current_signal,
+                challenger_signal,
+                current_delta,
+                challenger_delta,
+                decision,
+                note,
+                now,
+            )
+        )
+
+        if decision == "SWITCH":
+            conn.execute(
+                """INSERT INTO hunter_adaptive_playbook
+                   (username, strategy, source_experiment_id, adopted_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(username) DO UPDATE SET
+                     strategy=excluded.strategy,
+                     source_experiment_id=excluded.source_experiment_id,
+                     adopted_at=excluded.adopted_at""",
+                (username, challenger_strategy, challenger_id, now)
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V305_VERSION,
+        "decision": decision,
+        "previous_strategy": current_strategy,
+        "active_strategy": challenger_strategy if decision == "SWITCH" else current_strategy,
+        "challenger_experiment_id": challenger_id,
+        "message": (
+            "Playbook switched to the evidence-backed challenger."
+            if decision == "SWITCH"
+            else "Current playbook kept. Challenger result was recorded for future comparison."
+        ),
+        "redirect": "/hunter-playbook-decision",
+    })
+
+
+@app.route("/hunter-playbook-decision")
+def v305_playbook_decision_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Playbook Decision Arena</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚖️ Playbook Decision Arena</h1><p>Sign in to compare your active playbook with the latest completed challenger.</p>
+        <a style='color:#d9a86c' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v305_decision_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    playbook = data.get("playbook")
+    challenger = data.get("challenger")
+    monitor = data.get("monitor") or {}
+
+    if playbook:
+        pmeta = playbook.get("strategy_meta") or {}
+        current_html = """<div class='side current'>
+          <div class='eyebrow'>ACTIVE PLAYBOOK</div>
+          <h2>{title}</h2>
+          <p>{detail}</p>
+          <div class='metric'>{signal}<small> CURRENT SIGNAL</small></div>
+          <div class='pill'>HEALTH {health} · Δ {delta}</div>
+        </div>""".format(
+            title=esc(pmeta.get("title") or playbook.get("strategy")),
+            detail=esc(pmeta.get("detail")),
+            signal=esc(monitor.get("post_signal") or monitor.get("reference_signal") or 0),
+            health=esc(monitor.get("state")),
+            delta=esc(monitor.get("delta") or 0),
+        )
+    else:
+        current_html = "<div class='side current'><h2>No active playbook.</h2></div>"
+
+    if challenger:
+        cmeta = challenger.get("strategy_meta") or {}
+        challenger_html = """<div class='side challenger'>
+          <div class='eyebrow'>LATEST COMPLETED CHALLENGER · #{id}</div>
+          <h2>{title}</h2>
+          <p>{detail}</p>
+          <div class='metric'>{signal}<small> CHALLENGER SIGNAL</small></div>
+          <div class='pill'>VERDICT {verdict} · Δ {delta}</div>
+        </div>""".format(
+            id=esc(challenger.get("id")),
+            title=esc(cmeta.get("title") or challenger.get("strategy")),
+            detail=esc(cmeta.get("detail")),
+            signal=esc(challenger.get("sample_signal") or 0),
+            verdict=esc(challenger.get("verdict")),
+            delta=esc(challenger.get("delta_result") or 0),
+        )
+    else:
+        challenger_html = """<div class='side challenger'>
+          <h2>No completed challenger yet.</h2>
+          <p>Run a challenger experiment first, then return here for a side-by-side decision.</p>
+        </div>"""
+
+    controls = ""
+    if playbook and challenger:
+        switch_disabled = str(challenger.get("verdict") or "").upper() != "IMPROVED"
+        controls = """<div class='controls'>
+          <div class='eyebrow'>HUNTER DECISION</div>
+          <h2>{recommendation}</h2>
+          <p>Signal gap (challenger − current): <b>{gap}</b></p>
+          <textarea id='note' placeholder='Optional decision note'></textarea><br>
+          <button onclick="applyDecision('KEEP')">KEEP CURRENT</button>
+          <button {disabled} onclick="applyDecision('SWITCH')">SWITCH TO CHALLENGER</button>
+          {why}
+        </div>""".format(
+            recommendation=esc(data.get("recommendation")),
+            gap=esc(data.get("signal_gap")),
+            disabled="disabled" if switch_disabled else "",
+            why=(
+                "<p class='warn'>SWITCH is locked because this challenger was not recorded as IMPROVED.</p>"
+                if switch_disabled else
+                "<p class='ok'>This challenger is eligible for an explicit switch.</p>"
+            ),
+        )
+
+    rows = []
+    for item in data.get("history") or []:
+        rows.append("""<tr>
+          <td>{when}</td><td>{decision}</td><td>{current}</td><td>{challenger}</td>
+          <td>{cs}</td><td>{chs}</td>
+        </tr>""".format(
+            when=esc(item.get("created_at")),
+            decision=esc(item.get("decision")),
+            current=esc(item.get("current_strategy")),
+            challenger=esc(item.get("challenger_strategy")),
+            cs=esc(item.get("current_signal")),
+            chs=esc(item.get("challenger_signal")),
+        ))
+    history_html = "".join(rows) or "<tr><td colspan='6'>No playbook decisions recorded yet.</td></tr>"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.5 Playbook Decision Arena</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2d2518,#0b0906 52%,#030302);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1100px;margin:auto}}.panel{{background:#100d09ee;border:1px solid #6f5737;border-radius:24px;padding:22px}}
+    .eyebrow{{color:#efbd78;font-size:11px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:45px;margin:10px 0}}p{{color:#c9bba8;line-height:1.5}}
+    .arena{{display:grid;grid-template-columns:1fr 1fr;gap:14px}}.side,.controls{{background:#0b0907;border:1px solid #4d3c29;border-radius:18px;padding:18px;margin-top:14px}}
+    .current{{box-shadow:inset 0 0 0 1px #513d25}}.challenger{{box-shadow:inset 0 0 0 1px #6d4e2c}}
+    .metric{{font-size:38px;font-weight:950;color:#f0b76f;margin:13px 0}}.metric small{{font-size:12px;color:#9d8c78}}
+    .pill{{display:inline-block;border:1px solid #8f6841;border-radius:999px;padding:7px 10px;font-weight:900}}textarea{{width:100%;min-height:80px;background:#070605;color:#fff;border:1px solid #5d4630;border-radius:10px;padding:10px}}
+    button,a{{display:inline-block;margin:7px 5px 0 0;padding:10px 13px;border:1px solid #8d6844;border-radius:10px;background:#1b130b;color:#fff;text-decoration:none;font-weight:850;cursor:pointer}}button:disabled{{opacity:.35;cursor:not-allowed}}
+    .ok{{color:#9edc9e}}.warn{{color:#efb59c}}table{{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}}th,td{{border-bottom:1px solid #33291e;padding:9px;text-align:left}}th{{color:#d9ad74}}
+    @media(max-width:760px){{.arena{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V30.5 // EVIDENCE BEFORE SWITCHING</div>
+      <h1>⚖️ PLAYBOOK DECISION ARENA</h1>
+      <p>{username}, compare the active playbook with the latest completed challenger before making any change.</p>
+      <div class='arena'>{current_html}{challenger_html}</div>
+      {controls}
+      <p><a href='/hunter-playbook-monitor'>📈 MONITOR</a><a href='/hunter-playbook-challenger'>⚔️ CHALLENGER LAB</a><a href='/hunter-adaptive-playbook'>📘 PLAYBOOK</a></p>
+      <h2>Decision History</h2>
+      <table><thead><tr><th>TIME</th><th>DECISION</th><th>CURRENT</th><th>CHALLENGER</th><th>CURRENT SIGNAL</th><th>CHALLENGER SIGNAL</th></tr></thead>
+      <tbody>{history_html}</tbody></table>
+    </section></div>
+    <script>
+    async function applyDecision(decision){{
+      const note=document.getElementById('note')?.value||'';
+      const verb=decision==='SWITCH'?'switch the active playbook':'keep the current playbook';
+      if(!confirm('Confirm: '+verb+'?')) return;
+      const r=await fetch('/api/hunter-playbook-decision/apply',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{decision,note}})}});
+      const j=await r.json();
+      if(j.success) location.href=j.redirect||'/hunter-playbook-decision';
+      else alert(j.message||j.error||'Decision failed');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        current_html=current_html,
+        challenger_html=challenger_html,
+        controls=controls,
+        history_html=history_html,
+    )
+
+
+# Surface the Decision Arena from the Monitor and Challenger Lab.
+for _endpoint in ("v303_playbook_monitor_page", "v304_playbook_challenger_page", "v302_playbook_page"):
+    try:
+        _prev = app.view_functions.get(_endpoint)
+        if _prev:
+            def _v305_wrap_decision(prev):
+                def _wrapped(*args, **kwargs):
+                    response = prev(*args, **kwargs)
+                    if isinstance(response, str) and "/hunter-playbook-decision" not in response:
+                        link = "<a href='/hunter-playbook-decision' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #8d6844;border-radius:10px;color:#fff;text-decoration:none'>⚖️ PLAYBOOK DECISION</a>"
+                        response = response.replace("</body>", link + "</body>", 1)
+                    return response
+                return _wrapped
+            app.view_functions[_endpoint] = _v305_wrap_decision(_prev)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
