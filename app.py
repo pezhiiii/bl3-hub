@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.7 Build Attestation</title><style>
+    <title>BL3 V30.8 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.7 Hunter Command Deck</title>
+    <title>BL3 V30.8 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -47610,7 +47610,7 @@ def v307_playbook_learning_page():
         )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.7 Decision Learning Memory</title>
+    <title>BL3 V30.8 Decision Learning Memory</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#151f32,#070a10 56%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1120px;margin:auto}}.panel{{background:#081019ee;border:1px solid #2d4c70;border-radius:24px;padding:22px}}
@@ -47716,6 +47716,368 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v306_decision_outcome_page"] = _v307_outcome_page_with_learning_link
+except Exception:
+    pass
+
+
+# ===== V30.8 EVIDENCE-BACKED EXPERIMENT COACH =====
+# Uses verified learning memory to recommend the next strategy worth testing.
+# It never auto-switches the active playbook and never auto-starts an experiment.
+# The Hunter must explicitly press START RECOMMENDED EXPERIMENT.
+
+V308_VERSION = "V30.8"
+
+
+def _v308_strategy_score(strategy, memory_item, current_strategy, overall):
+    item = memory_item or {}
+    samples = int(item.get("samples") or 0)
+    avg_delta = float(item.get("avg_delta") or 0)
+    confidence = str(item.get("confidence") or "INSUFFICIENT").upper()
+    trend = str(item.get("trend") or "LEARNING").upper()
+
+    score = 50.0
+
+    # Evidence signal: modest weight, never treated as a prediction.
+    score += max(-20.0, min(20.0, avg_delta * 1.8))
+
+    # Confidence in observed history.
+    score += {
+        "STRONG": 12,
+        "MODERATE": 8,
+        "FRAGILE": 3,
+        "INSUFFICIENT": 0,
+    }.get(confidence, 0)
+
+    # Explore under-tested strategies so BL3 does not overfit to one option.
+    if samples == 0:
+        score += 18
+    elif samples == 1:
+        score += 13
+    elif samples == 2:
+        score += 8
+    elif samples >= 6:
+        score -= 3
+
+    if trend == "IMPROVING":
+        score += 6
+    elif trend == "WEAKENING":
+        score -= 5
+
+    # If this is already the active playbook, slightly prefer a challenger.
+    if strategy == current_strategy:
+        score -= 16
+
+    # If the overall system is weakening, increase exploration of alternatives.
+    if str((overall or {}).get("trend") or "").upper() == "WEAKENING" and strategy != current_strategy:
+        score += 7
+
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+def _v308_coach_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V308_VERSION}
+
+    learning = _v307_learning_snapshot(username)
+    playbook = _v302_playbook(username)
+    monitor = _v303_monitor_snapshot(username) if playbook else None
+    active_experiment = _v301_active_experiment(username)
+
+    current_strategy = str((playbook or {}).get("strategy") or "").upper()
+    overall = learning.get("overall") or {}
+    memory_map = {
+        str(x.get("strategy") or "").upper(): x
+        for x in (learning.get("strategy_summaries") or [])
+    }
+
+    candidates = []
+    for strategy, meta in V301_STRATEGIES.items():
+        mem = memory_map.get(strategy) or {
+            "strategy": strategy,
+            "title": meta.get("title") or strategy,
+            "samples": 0,
+            "avg_delta": 0,
+            "confidence": "INSUFFICIENT",
+            "trend": "LEARNING",
+        }
+        coach_score = _v308_strategy_score(strategy, mem, current_strategy, overall)
+
+        reasons = []
+        samples = int(mem.get("samples") or 0)
+        avg_delta = float(mem.get("avg_delta") or 0)
+        trend = str(mem.get("trend") or "LEARNING").upper()
+        confidence = str(mem.get("confidence") or "INSUFFICIENT").upper()
+
+        if strategy == current_strategy:
+            reasons.append("This is the current active playbook, so BL3 gives challenger strategies more exploration weight.")
+        if samples == 0:
+            reasons.append("No verified learning history exists for this strategy yet.")
+        elif samples < V307_MIN_CONFIDENCE_SAMPLES:
+            reasons.append("Only %s verified sample(s) exist, so this strategy is still under-tested." % samples)
+        else:
+            reasons.append("Observed average realized delta is %s across %s verified samples." % (round(avg_delta, 1), samples))
+        if trend == "IMPROVING":
+            reasons.append("Recent verified outcomes are improving.")
+        elif trend == "WEAKENING":
+            reasons.append("Recent verified outcomes are weakening, so BL3 discounts the evidence slightly.")
+        if confidence in {"STRONG", "MODERATE"}:
+            reasons.append("Observed-history confidence is %s." % confidence)
+
+        candidates.append({
+            "strategy": strategy,
+            "title": meta.get("title") or strategy,
+            "detail": meta.get("detail") or "",
+            "preflight_hint": meta.get("preflight_hint") or "",
+            "coach_score": coach_score,
+            "memory": mem,
+            "reasons": reasons,
+            "is_current_playbook": strategy == current_strategy,
+        })
+
+    candidates.sort(key=lambda x: (x["coach_score"], -int((x["memory"] or {}).get("samples") or 0)), reverse=True)
+    recommended = candidates[0] if candidates else None
+
+    state = "READY"
+    blocking_message = ""
+    if active_experiment:
+        state = "EXPERIMENT_ALREADY_ACTIVE"
+        blocking_message = "Finish or cancel the active experiment before starting another one."
+    elif not recommended:
+        state = "NO_RECOMMENDATION"
+        blocking_message = "No strategy recommendation is available."
+
+    return {
+        "success": True,
+        "version": V308_VERSION,
+        "username": username,
+        "state": state,
+        "blocking_message": blocking_message,
+        "current_playbook": playbook,
+        "playbook_monitor": monitor,
+        "active_experiment": active_experiment,
+        "learning": learning,
+        "recommended": recommended,
+        "candidates": candidates,
+        "policy": (
+            "The Experiment Coach ranks what is worth testing next from verified history. "
+            "It is exploratory, not predictive. Starting an experiment is always an explicit Hunter action, "
+            "and playbook changes still require the Decision Arena."
+        ),
+    }
+
+
+@app.route("/api/hunter-experiment-coach")
+def v308_experiment_coach_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v308_coach_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-experiment-coach/start", methods=["POST"])
+def v308_experiment_coach_start_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    snap = _v308_coach_snapshot(username)
+    if snap.get("state") != "READY":
+        return jsonify({
+            "success": False,
+            "error": str(snap.get("state") or "not_ready").lower(),
+            "message": snap.get("blocking_message") or "Coach is not ready to start a new experiment.",
+        }), 409
+
+    payload = request.get_json(silent=True) or {}
+    requested = str(payload.get("strategy") or "").strip().upper()
+    recommended = str(((snap.get("recommended") or {}).get("strategy") or "")).upper()
+
+    # User may explicitly pick any valid strategy from the coach page.
+    strategy = requested if requested in V301_STRATEGIES else recommended
+    if strategy not in V301_STRATEGIES:
+        return jsonify({"success": False, "error": "invalid_strategy"}), 400
+
+    if _v301_active_experiment(username):
+        return jsonify({"success": False, "error": "experiment_already_active"}), 409
+
+    baseline_items = _v301_recent_receipts(username, after_id=0, limit=3)
+    baseline_count = len(baseline_items)
+    baseline_signal = (
+        round(sum(float(x.get("outcome_signal") or 0) for x in baseline_items) / baseline_count, 1)
+        if baseline_count else 0
+    )
+
+    _v301_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(id),0) FROM hunter_focus_completion_receipts WHERE username=?",
+            (username,)
+        ).fetchone()
+        start_receipt_id = int((row or [0])[0] or 0)
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = conn.execute(
+            """INSERT INTO hunter_focus_experiments
+               (username, strategy, baseline_signal, baseline_count,
+                start_receipt_id, sample_goal, created_at, completed_at, cancelled_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)""",
+            (
+                username,
+                strategy,
+                baseline_signal,
+                baseline_count,
+                start_receipt_id,
+                V301_SAMPLE_GOAL,
+                now,
+            )
+        )
+        experiment_id = int(cur.lastrowid)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V308_VERSION,
+        "strategy": strategy,
+        "experiment_id": experiment_id,
+        "sample_goal": V301_SAMPLE_GOAL,
+        "baseline_signal": baseline_signal,
+        "message": "Evidence-backed experiment started explicitly by the Hunter.",
+        "redirect": "/hunter-run-experiment",
+    })
+
+
+@app.route("/hunter-experiment-coach")
+def v308_experiment_coach_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Experiment Coach</title><body style='margin:0;background:#05080c;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧭 Evidence-Backed Experiment Coach</h1><p>Sign in to turn verified learning memory into the next deliberate experiment.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v308_coach_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    rec = data.get("recommended") or {}
+    current = data.get("current_playbook") or {}
+    monitor = data.get("playbook_monitor") or {}
+
+    cards = []
+    for item in data.get("candidates") or []:
+        mem = item.get("memory") or {}
+        reasons = "".join("<li>%s</li>" % esc(x) for x in (item.get("reasons") or []))
+        current_badge = "<span class='badge'>ACTIVE PLAYBOOK</span>" if item.get("is_current_playbook") else ""
+        cards.append("""
+        <div class='card'>
+          <div class='top'><div><div class='k'>STRATEGY</div><h3>{title}</h3></div><b class='score'>{score}</b></div>
+          {badge}
+          <p>{detail}</p>
+          <div class='mini'>
+            <div><span>SAMPLES</span><b>{samples}</b></div>
+            <div><span>AVG Δ</span><b>{avg}</b></div>
+            <div><span>CONF</span><b>{conf}</b></div>
+            <div><span>TREND</span><b>{trend}</b></div>
+          </div>
+          <ul>{reasons}</ul>
+          <button onclick="startStrategy('{strategy}')">TEST THIS STRATEGY</button>
+        </div>
+        """.format(
+            title=esc(item.get("title")), score=esc(item.get("coach_score")), badge=current_badge,
+            detail=esc(item.get("detail")), samples=esc(mem.get("samples")), avg=esc(mem.get("avg_delta")),
+            conf=esc(mem.get("confidence")), trend=esc(mem.get("trend")), reasons=reasons,
+            strategy=esc(item.get("strategy")),
+        ))
+    cards_html = "".join(cards)
+
+    if data.get("state") == "EXPERIMENT_ALREADY_ACTIVE":
+        action_html = "<div class='warn'>An experiment is already active. Finish or cancel it before starting another.</div>"
+    elif rec:
+        action_html = """
+        <button class='primary' onclick="startStrategy('{strategy}')">🚀 START RECOMMENDED EXPERIMENT</button>
+        """.format(strategy=esc(rec.get("strategy")))
+    else:
+        action_html = "<div class='warn'>No recommendation is available yet.</div>"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.8 Evidence-Backed Experiment Coach</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#17263b,#070a10 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1140px;margin:auto}}.panel{{background:#071019ef;border:1px solid #315778;border-radius:24px;padding:22px}}
+    .k{{color:#83dcff;font-size:11px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:43px;margin:8px 0}}p,li{{color:#b8c8d8;line-height:1.5}}
+    .hero{{display:grid;grid-template-columns:1.2fr .8fr;gap:14px;margin-top:14px}}.hero>div,.card,.warn{{background:#071019;border:1px solid #244967;border-radius:18px;padding:16px}}
+    .recommended h2{{margin:6px 0;font-size:30px}}.bigscore{{font-size:56px;color:#8ee4ff;font-weight:950}}
+    .grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}
+    .card h3{{margin:6px 0}}.score{{font-size:30px;color:#8ee4ff}}.badge{{display:inline-block;font-size:10px;font-weight:900;padding:5px 8px;border:1px solid #647eff;border-radius:999px;color:#b9c2ff}}
+    .mini{{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}}.mini div{{background:#04090e;padding:9px;border-radius:10px}}.mini span{{display:block;color:#7696ac;font-size:9px;font-weight:900}}.mini b{{display:block;margin-top:4px;font-size:12px}}
+    button,a{{display:inline-block;margin:8px 5px 0 0;padding:10px 13px;border:1px solid #34769d;border-radius:10px;background:#0c1d29;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}.primary{{font-size:16px;background:#103247;border-color:#61cfff}}
+    .warn{{margin-top:12px;border-color:#8b6930;color:#ffd58b}}.policy{{margin-top:18px;padding:13px;border-left:3px solid #5fbfe9;background:#071019}}
+    @media(max-width:900px){{.grid{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='k'>BL3 V30.8 // MEMORY → NEXT EXPERIMENT</div>
+      <h1>🧭 EVIDENCE-BACKED EXPERIMENT COACH</h1>
+      <p>{username}, BL3 now converts your verified learning memory into a ranked answer to one practical question: <b>what should I deliberately test next?</b></p>
+
+      <div class='hero'>
+        <div class='recommended'>
+          <div class='k'>RECOMMENDED NEXT TEST</div>
+          <h2>{rec_title}</h2>
+          <p>{rec_detail}</p>
+          {action_html}
+        </div>
+        <div>
+          <div class='k'>COACH SCORE</div><div class='bigscore'>{rec_score}</div>
+          <p><b>Current playbook:</b> {current_strategy}</p>
+          <p><b>Monitor state:</b> {monitor_state}</p>
+          <p><b>Learning trend:</b> {learning_trend}</p>
+        </div>
+      </div>
+
+      <h2>All Candidate Strategies</h2>
+      <div class='grid'>{cards_html}</div>
+
+      <div class='policy'>{policy}</div>
+      <p>
+        <a href='/hunter-playbook-learning'>🧠 LEARNING MEMORY</a>
+        <a href='/hunter-run-experiment'>🧪 RUN EXPERIMENT</a>
+        <a href='/hunter-playbook-decision'>⚖️ DECISION ARENA</a>
+      </p>
+    </section></div>
+    <script>
+    async function startStrategy(strategy){{
+      if(!confirm('Start a new verified experiment with '+strategy+'?')) return;
+      const r=await fetch('/api/hunter-experiment-coach/start',{{
+        method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{strategy}})
+      }});
+      const j=await r.json();
+      if(j.success) location.href=j.redirect||'/hunter-run-experiment';
+      else alert(j.message||j.error||'Could not start experiment');
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        rec_title=esc(rec.get("title") or "Not enough evidence yet"),
+        rec_detail=esc(rec.get("detail") or "Complete verified reviews to unlock a ranked next test."),
+        action_html=action_html,
+        rec_score=esc(rec.get("coach_score") if rec else "—"),
+        current_strategy=esc(current.get("strategy") or "No active playbook"),
+        monitor_state=esc(monitor.get("state") or "—"),
+        learning_trend=esc(((data.get("learning") or {}).get("overall") or {}).get("trend") or "—"),
+        cards_html=cards_html,
+        policy=esc(data.get("policy")),
+    )
+
+
+# Surface V30.8 from the Learning Memory page.
+try:
+    _v308_prev_learning_page = app.view_functions.get("v307_playbook_learning_page")
+    if _v308_prev_learning_page:
+        def _v308_learning_page_with_coach_link(*args, **kwargs):
+            response = _v308_prev_learning_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-experiment-coach" not in response:
+                link = "<a href='/hunter-experiment-coach' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #2f6c91;border-radius:10px;color:#fff;text-decoration:none'>🧭 EXPERIMENT COACH</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v307_playbook_learning_page"] = _v308_learning_page_with_coach_link
 except Exception:
     pass
 
