@@ -56684,6 +56684,531 @@ except Exception:
     pass
 
 
+
+
+# ===== V32.9 PROMOTION ADOPTION + CANONICAL EXECUTION GATE =====
+# V32.8 promotion is approval only. V32.9 adds a second, explicit adoption gate:
+# a promoted revision can be STAGED for adoption and then EXECUTED as the canonical
+# runtime baseline for its successor. No historical successor/revision row is edited.
+
+V329_VERSION = "V32.9"
+V329_ADOPTION_STATES = {"STAGED", "ADOPTED", "REVOKED"}
+
+
+def _v329_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_revision_adoptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            promotion_id INTEGER NOT NULL,
+            revision_id INTEGER NOT NULL,
+            successor_id INTEGER NOT NULL,
+            strategy TEXT NOT NULL,
+            directive_type TEXT NOT NULL,
+            adoption_state TEXT NOT NULL DEFAULT 'STAGED',
+            adoption_note TEXT,
+            staged_at TEXT NOT NULL,
+            adopted_at TEXT,
+            revoked_at TEXT,
+            revoke_note TEXT,
+            UNIQUE(username, promotion_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v329_adoption_user_state
+        ON hunter_revision_adoptions(username, adoption_state, id DESC)
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v329_adoption_successor_state
+        ON hunter_revision_adoptions(username, successor_id, adoption_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v329_init()
+except Exception:
+    pass
+
+
+def _v329_promotion(username, promotion_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_promotions
+            WHERE id=? AND username=?
+        """, (int(promotion_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v329_adoption_for_promotion(username, promotion_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE username=? AND promotion_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(promotion_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v329_adopted_for_successor(username, successor_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE username=? AND successor_id=? AND adoption_state='ADOPTED'
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(successor_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v329_stage_adoption(username, promotion_id, note=""):
+    promo = _v329_promotion(username, promotion_id)
+    if not promo:
+        return False, "promotion_not_found", None
+
+    revision = _v328_revision(username, int(promo.get("revision_id") or 0))
+    if not revision:
+        return False, "revision_not_found", None
+
+    outcome = _v328_outcome(username, int(revision.get("id") or 0))
+    if not outcome or str(outcome.get("outcome") or "") != "VALIDATED":
+        return False, "validated_outcome_required", None
+
+    existing = _v329_adoption_for_promotion(username, promotion_id)
+    if existing:
+        return False, "adoption_already_staged", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_revision_adoptions
+            (username, promotion_id, revision_id, successor_id, strategy,
+             directive_type, adoption_state, adoption_note, staged_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'STAGED', ?, ?)
+        """, (
+            username,
+            int(promo["id"]),
+            int(promo["revision_id"]),
+            int(promo["successor_id"]),
+            str(promo.get("strategy") or revision.get("strategy") or ""),
+            str(promo.get("directive_type") or revision.get("directive_type") or ""),
+            str(note or "").strip()[:2400],
+            now,
+        ))
+        aid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(promo.get("strategy") or ""),
+            "REVISION_ADOPTION_STAGED",
+            detail="V32.9 promoted revision #%s staged for explicit adoption." % int(promo["revision_id"])
+        )
+    except Exception:
+        pass
+    return True, None, aid
+
+
+def _v329_execute_adoption(username, adoption_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE id=? AND username=?
+        """, (int(adoption_id), username)).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "adoption_not_found", None
+    if str(adoption.get("adoption_state") or "") != "STAGED":
+        return False, "adoption_not_staged", int(adoption["id"])
+
+    revision = _v328_revision(username, int(adoption["revision_id"]))
+    if not revision:
+        return False, "revision_not_found", None
+    if str(revision.get("revision_state") or "") != "ACTIVE":
+        return False, "revision_not_active", None
+
+    promotion = _v328_promotion(username, int(adoption["revision_id"]))
+    if not promotion:
+        return False, "promotion_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        # Canonical adoption is exclusive per successor, but history is preserved.
+        con.execute("""
+            UPDATE hunter_revision_adoptions
+            SET adoption_state='REVOKED',
+                revoked_at=?,
+                revoke_note='Superseded by a newer explicit V32.9 adoption.'
+            WHERE username=? AND successor_id=? AND adoption_state='ADOPTED' AND id<>?
+        """, (now, username, int(adoption["successor_id"]), int(adoption["id"])))
+
+        con.execute("""
+            UPDATE hunter_revision_adoptions
+            SET adoption_state='ADOPTED',
+                adopted_at=?,
+                adoption_note=CASE
+                    WHEN ? <> '' THEN ?
+                    ELSE adoption_note
+                END
+            WHERE id=? AND username=? AND adoption_state='STAGED'
+        """, (
+            now,
+            str(note or "").strip(),
+            str(note or "").strip()[:2400],
+            int(adoption["id"]),
+            username,
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(adoption.get("strategy") or ""),
+            "REVISION_ADOPTED_CANONICAL",
+            detail="V32.9 revision #%s explicitly adopted as canonical execution baseline for successor #%s." % (
+                int(adoption["revision_id"]), int(adoption["successor_id"])
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(adoption["id"])
+
+
+def _v329_revoke_adoption(username, adoption_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE id=? AND username=?
+        """, (int(adoption_id), username)).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "adoption_not_found", None
+    if str(adoption.get("adoption_state") or "") != "ADOPTED":
+        return False, "adoption_not_active", int(adoption["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_revision_adoptions
+            SET adoption_state='REVOKED', revoked_at=?, revoke_note=?
+            WHERE id=? AND username=? AND adoption_state='ADOPTED'
+        """, (
+            now,
+            str(note or "Explicit canonical adoption rollback.").strip()[:2400],
+            int(adoption["id"]),
+            username,
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(adoption.get("strategy") or ""),
+            "REVISION_ADOPTION_REVOKED",
+            detail="V32.9 canonical adoption #%s revoked; runtime falls back to active overlay/base successor routing." % int(adoption_id)
+        )
+    except Exception:
+        pass
+    return True, None, int(adoption["id"])
+
+
+def _v329_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        promotions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_revision_promotions
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+        adoptions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_revision_adoptions
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+
+    by_promo = {int(a["promotion_id"]): a for a in adoptions}
+    items = []
+    for p in promotions:
+        item = dict(p)
+        rid = int(p.get("revision_id") or 0)
+        revision = _v328_revision(username, rid) or {}
+        outcome = _v328_outcome(username, rid) or {}
+        adoption = by_promo.get(int(p["id"]))
+        item["revision"] = revision
+        item["outcome"] = outcome
+        item["adoption"] = adoption
+        item["ready_to_stage"] = (
+            str(outcome.get("outcome") or "") == "VALIDATED"
+            and not adoption
+        )
+        item["ready_to_adopt"] = (
+            bool(adoption)
+            and str(adoption.get("adoption_state") or "") == "STAGED"
+            and str(revision.get("revision_state") or "") == "ACTIVE"
+        )
+        items.append(item)
+
+    return {
+        "version": V329_VERSION,
+        "counts": {
+            "promotions": len(promotions),
+            "unstaged": sum(1 for i in items if i["ready_to_stage"]),
+            "staged": sum(1 for a in adoptions if str(a.get("adoption_state") or "") == "STAGED"),
+            "adopted": sum(1 for a in adoptions if str(a.get("adoption_state") or "") == "ADOPTED"),
+            "revoked": sum(1 for a in adoptions if str(a.get("adoption_state") or "") == "REVOKED"),
+        },
+        "items": items,
+        "adoptions": adoptions,
+        "policy": "Promotion is approval. Canonical adoption is a separate explicit action. Historical successor and revision rows are never rewritten."
+    }
+
+
+# Canonical V32.9 adoption takes precedence over ordinary ACTIVE V32.7 overlays.
+try:
+    _v329_prev_active_successor_for_playbook = _v324_active_successor_for_playbook
+
+    def _v324_active_successor_for_playbook(username, playbook_id):
+        routed = _v329_prev_active_successor_for_playbook(username, playbook_id)
+        if not routed:
+            return None
+
+        successor_id = int(routed.get("id") or 0)
+        if not successor_id:
+            return routed
+
+        adoption = _v329_adopted_for_successor(username, successor_id)
+        if not adoption:
+            return routed
+
+        revision = _v328_revision(username, int(adoption.get("revision_id") or 0))
+        if not revision:
+            return routed
+
+        canonical = dict(routed)
+        canonical["directive_type"] = str(revision.get("directive_type") or canonical.get("directive_type") or "")
+        canonical["rationale"] = str(revision.get("rationale") or canonical.get("rationale") or "")
+        canonical["revision_overlay"] = True
+        canonical["revision_id"] = int(revision.get("id") or 0)
+        canonical["canonical_adoption"] = True
+        canonical["adoption_id"] = int(adoption.get("id") or 0)
+        canonical["source_learning_state"] = "REVISION_CANONICAL_ADOPTED"
+        return canonical
+except Exception:
+    pass
+
+
+@app.route("/api/hunter-promotion-adoption")
+def v329_promotion_adoption_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v329_snapshot(username)})
+
+
+@app.route("/api/hunter-promotion-adoption/<int:promotion_id>/stage", methods=["POST"])
+def v329_stage_adoption_api(promotion_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, adoption_id = _v329_stage_adoption(
+        username, promotion_id, payload.get("note") or payload.get("adoption_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "adoption_id": adoption_id}), 400
+    return jsonify({"success": True, "adoption_id": adoption_id})
+
+
+@app.route("/api/hunter-promotion-adoption/adoption/<int:adoption_id>/execute", methods=["POST"])
+def v329_execute_adoption_api(adoption_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, aid = _v329_execute_adoption(username, adoption_id, payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "adoption_id": aid}), 400
+    return jsonify({"success": True, "adoption_id": aid})
+
+
+@app.route("/api/hunter-promotion-adoption/adoption/<int:adoption_id>/revoke", methods=["POST"])
+def v329_revoke_adoption_api(adoption_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, aid = _v329_revoke_adoption(username, adoption_id, payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "adoption_id": aid}), 400
+    return jsonify({"success": True, "adoption_id": aid})
+
+
+@app.route("/hunter-promotion-adoption")
+def v329_promotion_adoption_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Promotion Adoption</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🚀 Promotion Adoption</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v329_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        p = item
+        r = item.get("revision") or {}
+        a = item.get("adoption") or {}
+        promo_id = int(p.get("id") or 0)
+        adoption_id = int(a.get("id") or 0) if a else 0
+
+        action_html = ""
+        if item.get("ready_to_stage"):
+            action_html = """
+            <form action='/api/hunter-promotion-adoption/{pid}/stage' onsubmit='return v329submit(this,event)'>
+              <textarea name='adoption_note' rows='2' placeholder='Why this promoted revision should enter canonical adoption'></textarea>
+              <button type='submit'>STAGE ADOPTION</button>
+            </form>
+            """.format(pid=promo_id)
+        elif item.get("ready_to_adopt"):
+            action_html = """
+            <form action='/api/hunter-promotion-adoption/adoption/{aid}/execute' onsubmit='return v329submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Final operator note before canonical adoption'></textarea>
+              <button type='submit'>EXECUTE CANONICAL ADOPTION</button>
+            </form>
+            """.format(aid=adoption_id)
+        elif a and str(a.get("adoption_state") or "") == "ADOPTED":
+            action_html = """
+            <form action='/api/hunter-promotion-adoption/adoption/{aid}/revoke' onsubmit='return v329submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Reason for rollback / revoke'></textarea>
+              <button class='danger' type='submit'>REVOKE CANONICAL ADOPTION</button>
+            </form>
+            """.format(aid=adoption_id)
+        elif a:
+            action_html = "<div class='state'>ADOPTION STATE: <b>{}</b></div>".format(esc(a.get("adoption_state")))
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Promotion #{promo}</span><span class='pill'>{state}</span></div>
+          <h2>Revision #{revision}</h2>
+          <p><b>Strategy:</b> {strategy}</p>
+          <p><b>Directive:</b> {dtype}</p>
+          <p><b>Successor:</b> #{successor}</p>
+          <p class='muted'>{approval}</p>
+          {actions}
+        </article>
+        """.format(
+            promo=esc(p.get("id")),
+            state=esc(a.get("adoption_state") if a else "PROMOTED"),
+            revision=esc(p.get("revision_id")),
+            strategy=esc(p.get("strategy")),
+            dtype=esc(r.get("directive_type") or p.get("directive_type")),
+            successor=esc(p.get("successor_id")),
+            approval=esc(p.get("approval_note") or "Validated revision approved in V32.8."),
+            actions=action_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.9 Promotion Adoption</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1100px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#43c8ff;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#8bf0c8}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill,.state{{border:1px solid #26566b;border-radius:999px;padding:6px 9px;color:#9edfff;font-size:11px}} textarea{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.danger{{background:#ff8797}} .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #8bf0c8;padding:12px;background:#07161a;color:#b9d7df;line-height:1.6}}
+    @media(max-width:700px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V32.9 // PROMOTION ADOPTION + CANONICAL EXECUTION GATE</div>
+        <h1>🚀 CANONICAL ADOPTION</h1>
+        <div class='sub'>Promotion means approved. Adoption means explicitly chosen for canonical runtime routing. The two steps are intentionally separate.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>PROMOTIONS</div><div class='num'>{promotions}</div></div>
+          <div class='stat'><div class='eyebrow'>STAGED</div><div class='num'>{staged}</div></div>
+          <div class='stat'><div class='eyebrow'>ADOPTED</div><div class='num'>{adopted}</div></div>
+          <div class='stat'><div class='eyebrow'>REVOKED</div><div class='num'>{revoked}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-revision-validation'>🧪 REVISION VALIDATION</a><a href='/hunter-revision-workshop'>🛠️ REVISION WORKSHOP</a><a href='/api/hunter-promotion-adoption'>JSON</a></div>
+        <div class='rule'><strong>V32.9 rule:</strong> a promoted revision does not become canonical until adoption is separately staged and executed. Revocation restores ordinary active-overlay/base routing without rewriting history.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v329submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        promotions=esc(c.get("promotions",0)),
+        staged=esc(c.get("staged",0)),
+        adopted=esc(c.get("adopted",0)),
+        revoked=esc(c.get("revoked",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No promoted revisions yet. Validate and promote one in V32.8 first.</p></article>"
+    )
+
+
+# Surface V32.9 directly from V32.8 validation workspace.
+try:
+    _v329_prev_validation_page = app.view_functions.get("v328_revision_validation_page")
+    if _v329_prev_validation_page:
+        def _v329_validation_with_adoption(*args, **kwargs):
+            response = _v329_prev_validation_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-promotion-adoption" not in response:
+                anchor = "<a href='/api/hunter-revision-validation'>JSON</a>"
+                link = "<a href='/hunter-promotion-adoption'>🚀 CANONICAL ADOPTION</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v328_revision_validation_page"] = _v329_validation_with_adoption
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
