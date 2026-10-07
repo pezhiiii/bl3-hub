@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.3 Build Attestation</title><style>
+    <title>BL3 V31.4 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.3 Hunter Command Deck</title>
+    <title>BL3 V31.4 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -49019,7 +49019,7 @@ def v311_experiment_learning_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.3 Playbook Execution</title>
+    <title>BL3 V31.4 Execution Learning</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#132635,#05080c 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #2f6079;border-radius:24px;padding:24px}}
@@ -49035,7 +49035,7 @@ def v311_experiment_learning_page():
     @media(max-width:900px){{.hero{{grid-template-columns:1fr 1fr}}.metrics{{grid-template-columns:1fr 1fr 1fr}}h1{{font-size:34px}}}}
     @media(max-width:560px){{.metrics{{grid-template-columns:1fr 1fr}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.3 // PLAYBOOK → EXECUTION → FEEDBACK</div>
+      <div class='eyebrow'>BL3 V31.4 // EXECUTION → LEARNING → RECALIBRATION</div>
       <h1>🧠 EXPERIMENT LEARNING LOOP</h1>
       <p>{username}, BL3 now converts verdict history into strategy calibration instead of leaving completed experiments as isolated records.</p>
 
@@ -49443,7 +49443,7 @@ def v312_playbooks_page():
         ))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.3 Playbook Execution</title>
+    <title>BL3 V31.4 Execution Learning</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1b2636,#06090d 55%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #345e79;border-radius:24px;padding:24px}}
@@ -49937,7 +49937,7 @@ def v313_execution_page():
         ))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.3 Playbook Execution</title>
+    <title>BL3 V31.4 Execution Learning</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#18251d,#060a08 58%,#020403);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#08120def;border:1px solid #315f43;border-radius:24px;padding:24px}}
@@ -50027,6 +50027,437 @@ try:
                 response = response.replace("</section>", link + "</section>", 1)
             return response
         app.view_functions["v312_playbooks_page"] = _v313_playbooks_page_with_execution
+except Exception:
+    pass
+
+# ===== V31.4 EXECUTION LEARNING + AUTO FEEDBACK LOOP =====
+# Converts completed execution runs into structured learning signals without blindly mutating trusted playbooks.
+
+V314_VERSION = "V31.4"
+
+def _v314_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_execution_learnings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            run_id INTEGER NOT NULL,
+            playbook_id INTEGER NOT NULL,
+            strategy TEXT NOT NULL,
+            outcome_score INTEGER,
+            signal TEXT NOT NULL,
+            confidence INTEGER NOT NULL DEFAULT 0,
+            learning_note TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, run_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_execution_learnings_user_strategy
+        ON hunter_execution_learnings(username, strategy, created_at)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v314_init()
+except Exception:
+    pass
+
+
+def _v314_signal_from_run(run):
+    score = run.get("outcome_score")
+    fit_score = int(run.get("fit_score") or 0)
+    fit_state = str(run.get("fit_state") or "UNKNOWN")
+    context_note = str(run.get("context_note") or "")
+    outcome_note = str(run.get("outcome_note") or "")
+
+    try:
+        score = int(score)
+    except Exception:
+        score = None
+
+    if score is None:
+        signal = "UNSCORED"
+        confidence = 20
+    elif score >= 80:
+        signal = "STRONG_SUPPORT"
+        confidence = 80
+    elif score >= 65:
+        signal = "SUPPORT"
+        confidence = 65
+    elif score >= 45:
+        signal = "MIXED"
+        confidence = 50
+    elif score >= 25:
+        signal = "WEAKEN"
+        confidence = 65
+    else:
+        signal = "STRONG_WEAKEN"
+        confidence = 80
+
+    # Context fit tempers confidence but does not invert the outcome.
+    if fit_state == "STRONG_FIT":
+        confidence += 10
+    elif fit_state == "GOOD_FIT":
+        confidence += 5
+    elif fit_state in ("TEST_FIT", "CAUTION"):
+        confidence -= 10
+
+    if len(context_note.strip()) < 12:
+        confidence -= 8
+    if len(outcome_note.strip()) < 12:
+        confidence -= 8
+
+    confidence = max(5, min(95, confidence))
+
+    return {
+        "signal": signal,
+        "confidence": confidence,
+        "outcome_score": score,
+    }
+
+
+def _v314_backfill_learning(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        runs = con.execute("""
+            SELECT id, username, playbook_id, strategy, fit_score, fit_state,
+                   context_note, outcome_score, outcome_note, completed_at
+            FROM hunter_playbook_runs
+            WHERE username=? AND status='COMPLETED'
+            ORDER BY id ASC
+        """, (username,)).fetchall()
+
+        created = 0
+        for rr in runs:
+            r = dict(rr)
+            sig = _v314_signal_from_run(r)
+            now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            note = (
+                "Execution outcome %s with fit %s/%s generated signal %s. "
+                "This is a learning signal only; it does not auto-promote or auto-demote the playbook."
+            ) % (
+                str(sig.get("outcome_score")),
+                str(r.get("fit_state") or "UNKNOWN"),
+                str(r.get("fit_score") or 0),
+                str(sig.get("signal")),
+            )
+            cur = con.execute("""
+                INSERT OR IGNORE INTO hunter_execution_learnings
+                (username, run_id, playbook_id, strategy, outcome_score,
+                 signal, confidence, learning_note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                username,
+                int(r.get("id")),
+                int(r.get("playbook_id")),
+                str(r.get("strategy") or ""),
+                sig.get("outcome_score"),
+                str(sig.get("signal")),
+                int(sig.get("confidence") or 0),
+                note,
+                now,
+            ))
+            if cur.rowcount:
+                created += 1
+
+        con.commit()
+        return created
+    finally:
+        con.close()
+
+
+def _v314_learning_rows(username, limit=80):
+    _v314_backfill_learning(username)
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, run_id, playbook_id, strategy, outcome_score,
+                   signal, confidence, learning_note, created_at
+            FROM hunter_execution_learnings
+            WHERE username=?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v314_strategy_learning_summary(username):
+    rows = _v314_learning_rows(username, 200)
+    grouped = {}
+
+    weights = {
+        "STRONG_SUPPORT": 2.0,
+        "SUPPORT": 1.0,
+        "MIXED": 0.0,
+        "WEAKEN": -1.0,
+        "STRONG_WEAKEN": -2.0,
+        "UNSCORED": 0.0,
+    }
+
+    for r in rows:
+        s = str(r.get("strategy") or "unknown")
+        g = grouped.setdefault(s, {
+            "strategy": s,
+            "signals": 0,
+            "weighted_sum": 0.0,
+            "confidence_sum": 0,
+            "outcome_scores": [],
+            "latest_signal": None,
+            "latest_created_at": None,
+        })
+        conf = int(r.get("confidence") or 0)
+        signal = str(r.get("signal") or "UNSCORED")
+        g["signals"] += 1
+        g["weighted_sum"] += weights.get(signal, 0.0) * (conf / 100.0)
+        g["confidence_sum"] += conf
+        if r.get("outcome_score") is not None:
+            g["outcome_scores"].append(int(r.get("outcome_score")))
+        if g["latest_created_at"] is None:
+            g["latest_signal"] = signal
+            g["latest_created_at"] = r.get("created_at")
+
+    result = []
+    for _, g in grouped.items():
+        avg_conf = round(g["confidence_sum"] / g["signals"], 1) if g["signals"] else 0
+        avg_outcome = round(sum(g["outcome_scores"]) / len(g["outcome_scores"]), 1) if g["outcome_scores"] else None
+        net = round(g["weighted_sum"], 2)
+
+        if g["signals"] < 2:
+            state = "MORE_DATA_NEEDED"
+        elif net >= 1.5:
+            state = "EXECUTION_SUPPORTS_PLAYBOOK"
+        elif net <= -1.5:
+            state = "EXECUTION_CHALLENGES_PLAYBOOK"
+        else:
+            state = "EXECUTION_MIXED"
+
+        result.append({
+            "strategy": g["strategy"],
+            "signals": g["signals"],
+            "average_confidence": avg_conf,
+            "average_outcome": avg_outcome,
+            "net_learning_score": net,
+            "state": state,
+            "latest_signal": g["latest_signal"],
+            "latest_created_at": g["latest_created_at"],
+        })
+
+    result.sort(key=lambda x: (-x["signals"], x["strategy"]))
+    return result
+
+
+def _v314_recommendation_for_strategy(item):
+    state = str(item.get("state"))
+    signals = int(item.get("signals") or 0)
+    avg = item.get("average_outcome")
+
+    if state == "EXECUTION_CHALLENGES_PLAYBOOK":
+        action = "RETEST_BEFORE_REUSE"
+        reason = "Observed execution outcomes are challenging this promoted strategy."
+    elif state == "EXECUTION_SUPPORTS_PLAYBOOK":
+        action = "CONTINUE_CONTROLLED_REUSE"
+        reason = "Observed executions are supporting the strategy, but evidence should still be refreshed over time."
+    elif state == "EXECUTION_MIXED":
+        action = "NARROW_CONTEXT_OR_RUN_MORE_TESTS"
+        reason = "Execution results are mixed; isolate context before drawing a stronger conclusion."
+    else:
+        action = "COLLECT_MORE_EXECUTION_DATA"
+        reason = "There are not enough execution signals yet."
+
+    return {
+        "strategy": item.get("strategy"),
+        "action": action,
+        "reason": reason,
+        "signals": signals,
+        "average_outcome": avg,
+        "state": state,
+    }
+
+
+def _v314_snapshot(username):
+    rows = _v314_learning_rows(username, 100)
+    strategies = _v314_strategy_learning_summary(username)
+    recommendations = [_v314_recommendation_for_strategy(x) for x in strategies]
+
+    support = sum(1 for x in strategies if x.get("state") == "EXECUTION_SUPPORTS_PLAYBOOK")
+    challenge = sum(1 for x in strategies if x.get("state") == "EXECUTION_CHALLENGES_PLAYBOOK")
+    mixed = sum(1 for x in strategies if x.get("state") == "EXECUTION_MIXED")
+
+    return {
+        "version": V314_VERSION,
+        "username": username,
+        "learning_signals": rows,
+        "strategies": strategies,
+        "recommendations": recommendations,
+        "counts": {
+            "signals": len(rows),
+            "supported": support,
+            "challenged": challenge,
+            "mixed": mixed,
+        },
+        "safety_principle": (
+            "Execution outcomes influence learning recommendations, but they do not silently mutate trusted playbooks. "
+            "Promotion and demotion remain evidence-governed decisions."
+        ),
+    }
+
+
+@app.route("/api/hunter-execution-learning")
+def v314_execution_learning_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v314_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-execution-learning/rebuild", methods=["POST"])
+def v314_execution_learning_rebuild():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    created = _v314_backfill_learning(username)
+    return jsonify({"success": True, "created": created, "snapshot": _v314_snapshot(username)})
+
+
+@app.route("/hunter-execution-learning")
+def v314_execution_learning_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Execution Learning</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧠 Execution Learning</h1><p>Sign in to inspect execution-derived learning signals.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v314_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    strategy_cards = []
+    for s in snap.get("strategies") or []:
+        rec = _v314_recommendation_for_strategy(s)
+        strategy_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>STRATEGY LEARNING</span><h3>{strategy}</h3></div>
+            <span class='pill'>{state}</span>
+          </div>
+          <div class='metrics four'>
+            <div><span>SIGNALS</span><b>{signals}</b></div>
+            <div><span>AVG OUTCOME</span><b>{avg}</b></div>
+            <div><span>AVG CONFIDENCE</span><b>{conf}</b></div>
+            <div><span>NET LEARNING</span><b>{net}</b></div>
+          </div>
+          <p><strong>{action}</strong> — {reason}</p>
+        </article>
+        """.format(
+            strategy=esc(s.get("strategy")),
+            state=esc(s.get("state")),
+            signals=esc(s.get("signals")),
+            avg=esc(s.get("average_outcome")),
+            conf=esc(s.get("average_confidence")),
+            net=esc(s.get("net_learning_score")),
+            action=esc(rec.get("action")),
+            reason=esc(rec.get("reason")),
+        ))
+
+    signal_rows = []
+    for r in snap.get("learning_signals") or []:
+        signal_rows.append("""
+        <tr>
+          <td>#{run}</td><td>{strategy}</td><td>{signal}</td><td>{confidence}</td>
+          <td>{outcome}</td><td>{created}</td>
+        </tr>
+        """.format(
+            run=esc(r.get("run_id")),
+            strategy=esc(r.get("strategy")),
+            signal=esc(r.get("signal")),
+            confidence=esc(str(r.get("confidence")) + "%"),
+            outcome=esc(r.get("outcome_score")),
+            created=esc(r.get("created_at")),
+        ))
+
+    c = snap.get("counts") or {}
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.4 Execution Learning</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1c1827,#08060d 58%,#030204);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0813ef;border:1px solid #51406b;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#caa6ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:30px}}h3{{margin:5px 0 0}}
+    p{{color:#d0c7dc;line-height:1.55}}.hero{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}}
+    .hero div,.metrics div{{background:#0d0a15;border:1px solid #47385e;border-radius:12px;padding:12px}}.hero span,.metrics span{{display:block;color:#9888ac;font-size:9px;font-weight:900}}.hero b,.metrics b{{display:block;margin-top:6px;font-size:20px}}
+    .card{{background:#0e0a17;border:1px solid #403251;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.pill{{font-size:10px;font-weight:900;border:1px solid #66517d;border-radius:999px;padding:6px 9px}}
+    .metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:13px 0}}
+    a,button{{display:inline-block;margin:10px 6px 0 0;padding:10px 13px;border:1px solid #6a5384;border-radius:10px;background:#120c1c;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    table{{width:100%;border-collapse:collapse;margin-top:10px}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #2a2036;font-size:12px}}th{{color:#ab99c0;font-size:10px}}
+    .note{{border-left:4px solid #a76bff;padding:10px 14px;background:#120e19;border-radius:8px}}
+    @media(max-width:900px){{.hero,.metrics{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}table{{display:block;overflow:auto}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.4 // EXECUTION → LEARNING → RECOMMENDATION</div>
+      <h1>🧠 EXECUTION LEARNING</h1>
+      <p>{username}, completed execution runs are now converted into structured learning signals. BL3 can tell when real-world execution is supporting, challenging, or producing mixed evidence around a promoted strategy.</p>
+
+      <div class='hero'>
+        <div><span>LEARNING SIGNALS</span><b>{signals}</b></div>
+        <div><span>SUPPORTED</span><b>{supported}</b></div>
+        <div><span>CHALLENGED</span><b>{challenged}</b></div>
+        <div><span>MIXED</span><b>{mixed}</b></div>
+      </div>
+
+      <div class='note'><strong>Safety rule:</strong> execution feedback never silently edits a trusted Playbook. It produces recommendations such as retest, continue controlled reuse, narrow context, or gather more data.</div>
+
+      <a href='/hunter-playbook-execution'>🎯 EXECUTION</a>
+      <a href='/hunter-strategy-playbooks'>📚 PLAYBOOKS</a>
+      <a href='/hunter-experiment-learning'>🧪 EXPERIMENT LEARNING</a>
+      <button onclick='rebuild()'>REBUILD SIGNALS</button>
+
+      <h2>STRATEGY LEARNING STATES</h2>
+      {strategies}
+
+      <h2>LEARNING SIGNAL LEDGER</h2>
+      <table><thead><tr><th>RUN</th><th>STRATEGY</th><th>SIGNAL</th><th>CONFIDENCE</th><th>OUTCOME</th><th>CREATED</th></tr></thead>
+      <tbody>{rows}</tbody></table>
+    </section></div>
+    <script>
+    async function rebuild(){{
+      const r=await fetch("/api/hunter-execution-learning/rebuild",{{method:"POST"}});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Rebuild failed");return;}}
+      alert("Learning signals refreshed. New: "+j.created);
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        signals=esc(c.get("signals", 0)),
+        supported=esc(c.get("supported", 0)),
+        challenged=esc(c.get("challenged", 0)),
+        mixed=esc(c.get("mixed", 0)),
+        strategies="".join(strategy_cards) if strategy_cards else "<p>No completed execution learning yet.</p>",
+        rows="".join(signal_rows) if signal_rows else "<tr><td colspan='6'>No learning signals yet.</td></tr>",
+    )
+
+
+# Surface V31.4 from the V31.3 execution page.
+try:
+    _v314_prev_execution_page = app.view_functions.get("v313_execution_page")
+    if _v314_prev_execution_page:
+        def _v314_execution_page_with_learning(*args, **kwargs):
+            response = _v314_prev_execution_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-execution-learning" not in response:
+                link = "<a href='/hunter-execution-learning'>🧠 EXECUTION LEARNING</a>"
+                response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v313_execution_page"] = _v314_execution_page_with_learning
 except Exception:
     pass
 
