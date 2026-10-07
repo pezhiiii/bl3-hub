@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V29.6"
+V247_SECURITY_VERSION = "V29.7"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V29.6"
+V248_SECURITY_VERSION = "V29.7"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.6 Build Attestation</title><style>
+    <title>BL3 V29.7 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V29.6"
+V250_VERSION = "V29.7"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V29.6"
+V253_VERSION = "V29.7"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V29.6"
+V254_VERSION = "V29.7"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V29.6"
+V255_VERSION = "V29.7"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V29.6"
+V256_VERSION = "V29.7"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V29.6"
+V257_VERSION = "V29.7"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V29.6"
+V258_VERSION = "V29.7"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.6 Hunter Command Deck</title>
+    <title>BL3 V29.7 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V29.6"
+V259_VERSION = "V29.7"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V29.6"
+V260_VERSION = "V29.7"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V29.6"
+V261_VERSION = "V29.7"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V29.6"
+V262_VERSION = "V29.7"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V29.6"
+V263_VERSION = "V29.7"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V29.6"
+V264_VERSION = "V29.7"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V29.6"
+V265_VERSION = "V29.7"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V29.6"
+V266_VERSION = "V29.7"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V29.6"
+V267_VERSION = "V29.7"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V29.6"
+V268_VERSION = "V29.7"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V29.6"
+V269_VERSION = "V29.7"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V29.6"
+V270_VERSION = "V29.7"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V29.6"
+V271_VERSION = "V29.7"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V29.6"
+V272_VERSION = "V29.7"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V29.6"
+V273_VERSION = "V29.7"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V29.6"
+V274_VERSION = "V29.7"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V29.6"
+V275_VERSION = "V29.7"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V29.6"
+V276_VERSION = "V29.7"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V29.6"
+V277_VERSION = "V29.7"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V29.6"
+V278_VERSION = "V29.7"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V29.6"
+V279_VERSION = "V29.7"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V29.6"
+V280_VERSION = "V29.7"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V29.6"
+V281_VERSION = "V29.7"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V29.6"
+V282_VERSION = "V29.7"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V29.6"
+V283_VERSION = "V29.7"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V29.6"
+V284_VERSION = "V29.7"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V29.6"
+V285_VERSION = "V29.7"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V29.6"
+V286_VERSION = "V29.7"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V29.6"
+V287_VERSION = "V29.7"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V29.6"
+V288_VERSION = "V29.7"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V29.6"
+V289_VERSION = "V29.7"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V29.6"
+V290_VERSION = "V29.7"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -43233,6 +43233,271 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v295_preflight_effectiveness_page"] = _v296_effectiveness_with_guardrails
+except Exception:
+    pass
+
+
+# ===== V29.7 ACTIVE FOCUS CONTRACT + TIMEBOX TIMER =====
+# Brings the preflight contract into the live Focus Run so the Hunter can see
+# exactly what "done" means, the fallback plan, and the remaining time while executing.
+
+V297_VERSION = "V29.7"
+
+def _v297_parse_iso(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", ""))
+    except Exception:
+        return None
+
+
+def _v297_active_focus_contract(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V297_VERSION}
+
+    active = _v260_active_focus(username)
+    if not active:
+        return {
+            "success": True,
+            "version": V297_VERSION,
+            "username": username,
+            "active": False,
+            "contract": None,
+            "message": "No active Focus Run."
+        }
+
+    run_id = int(active.get("id") or 0)
+    _v294_ensure_schema()
+
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """SELECT id, queue_id, run_id, action_title, done_definition,
+                      timebox_minutes, blocker_plan, friction, created_at, started_at
+               FROM hunter_focus_preflights
+               WHERE username=? AND run_id=?
+               ORDER BY id DESC LIMIT 1""",
+            (username, run_id)
+        ).fetchone()
+        preflight = dict(row) if row else None
+    finally:
+        conn.close()
+
+    started_at = (
+        (preflight or {}).get("started_at")
+        or active.get("started_at")
+        or ""
+    )
+    started_dt = _v297_parse_iso(started_at)
+
+    timebox_minutes = int((preflight or {}).get("timebox_minutes") or 0)
+    elapsed_seconds = 0
+    remaining_seconds = None
+    overtime_seconds = 0
+    timer_state = "NO_TIMEBOX"
+
+    if started_dt:
+        elapsed_seconds = max(
+            0,
+            int((datetime.utcnow() - started_dt).total_seconds())
+        )
+
+    if timebox_minutes > 0:
+        total_seconds = timebox_minutes * 60
+        remaining_seconds = max(0, total_seconds - elapsed_seconds)
+        overtime_seconds = max(0, elapsed_seconds - total_seconds)
+        timer_state = "OVERTIME" if overtime_seconds > 0 else "RUNNING"
+
+    if preflight:
+        done_definition = str(preflight.get("done_definition") or "")
+        blocker_plan = str(preflight.get("blocker_plan") or "")
+        friction = str(preflight.get("friction") or "NONE")
+        contract_source = "PREFLIGHT"
+    else:
+        done_definition = str(active.get("action_title") or "Complete the active Focus Run.")
+        blocker_plan = ""
+        friction = "NONE"
+        contract_source = "LEGACY_RUN"
+
+    return {
+        "success": True,
+        "version": V297_VERSION,
+        "username": username,
+        "active": True,
+        "run": active,
+        "contract": {
+            "run_id": run_id,
+            "preflight_id": (preflight or {}).get("id"),
+            "source": contract_source,
+            "action_title": str(active.get("action_title") or ""),
+            "done_definition": done_definition,
+            "blocker_plan": blocker_plan,
+            "friction": friction,
+            "timebox_minutes": timebox_minutes,
+            "started_at": started_at,
+            "elapsed_seconds": elapsed_seconds,
+            "remaining_seconds": remaining_seconds,
+            "overtime_seconds": overtime_seconds,
+            "timer_state": timer_state,
+        },
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "policy": (
+            "The Active Focus Contract displays the Hunter's own preflight definition and "
+            "linked BL3 run state. It does not infer completion automatically."
+        )
+    }
+
+
+@app.route("/api/hunter-active-focus-contract")
+def v297_active_focus_contract_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v297_active_focus_contract(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-active-focus-contract")
+def v297_active_focus_contract_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Active Focus Contract</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⏱️ Active Focus Contract</h1><p>Sign in to view your live Focus contract.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v297_active_focus_contract(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    if not data.get("active"):
+        return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 V29.7 Active Focus Contract</title>
+        <style>body{{margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px}}a{{color:#78d6ff}}</style></head>
+        <body><h1>⏱️ ACTIVE FOCUS CONTRACT</h1><p>No active Focus Run.</p>
+        <a href='/hunter-focus-preflight'>Prepare the next Focus Run</a></body></html>"""
+
+    c = data.get("contract") or {}
+    remaining = c.get("remaining_seconds")
+    initial_seconds = int(remaining if remaining is not None else 0)
+    overtime = int(c.get("overtime_seconds") or 0)
+    timer_state = str(c.get("timer_state") or "NO_TIMEBOX")
+    timer_label = "NO TIMEBOX" if timer_state == "NO_TIMEBOX" else (
+        "OVERTIME" if timer_state == "OVERTIME" else "TIME REMAINING"
+    )
+    initial_timer = overtime if timer_state == "OVERTIME" else initial_seconds
+
+    blocker = c.get("blocker_plan") or "No blocker plan was set."
+    source = c.get("source") or "UNKNOWN"
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V29.7 Active Focus Contract</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#142735 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:900px;margin:auto}}.panel{{background:#091017ed;border:1px solid #3d6574;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#8ee1ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:44px;margin:10px 0}}h2{{margin:8px 0}}.muted{{color:#aab9bf}}
+    .timer{{text-align:center;background:#07141d;border:1px solid #39677c;border-radius:22px;padding:24px;margin:16px 0}}.timer .label{{font-size:11px;color:#9bcfe1;font-weight:900;letter-spacing:1.5px}}.timer .value{{font-size:58px;font-weight:950;margin-top:8px}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}}.card{{background:#071015;border:1px solid #2c4d58;border-radius:16px;padding:16px}}.k{{font-size:10px;color:#91bbc6;font-weight:900}}.v{{font-size:18px;font-weight:850;margin-top:7px;line-height:1.45}}
+    .done{{background:#0b1a13;border:1px solid #3f7657;border-radius:18px;padding:18px;margin:14px 0}}.done .k{{color:#98d9af}}.done .v{{font-size:24px}}
+    .blocker{{background:#1a120b;border:1px solid #725538;border-radius:18px;padding:18px;margin:14px 0}}
+    a{{display:inline-block;border:1px solid #4d8396;border-radius:10px;padding:11px 14px;background:#0d1d24;color:#fff;text-decoration:none;font-weight:900;margin:5px 5px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V29.7 // LIVE EXECUTION CONTRACT</div>
+        <h1>⏱️ ACTIVE FOCUS CONTRACT</h1>
+        <p class='muted'>{username}, keep the preflight definition visible while you execute.</p>
+
+        <h2>{title}</h2>
+
+        <div class='timer'>
+          <div class='label' id='timerLabel'>{timer_label}</div>
+          <div class='value' id='timerValue'>--:--</div>
+        </div>
+
+        <div class='done'>
+          <div class='k'>DONE MEANS</div>
+          <div class='v'>{done_definition}</div>
+        </div>
+
+        <div class='blocker'>
+          <div class='k'>BLOCKER / FALLBACK PLAN</div>
+          <div class='v'>{blocker}</div>
+        </div>
+
+        <div class='grid'>
+          <div class='card'><div class='k'>TIMEBOX</div><div class='v'>{timebox} minutes</div></div>
+          <div class='card'><div class='k'>LEARNED FRICTION</div><div class='v'>{friction}</div></div>
+          <div class='card'><div class='k'>CONTRACT SOURCE</div><div class='v'>{source}</div></div>
+          <div class='card'><div class='k'>RUN ID</div><div class='v'>#{run_id}</div></div>
+        </div>
+
+        <p><a href='/hunter-focus'>🔥 FOCUS RUN</a><a href='/hunter-focus-exit-review'>📝 EXIT REVIEW</a><a href='/hunter-focus-queue'>📋 QUEUE</a></p>
+      </section>
+    </div>
+    <script>
+    let mode={mode_json};
+    let seconds={seconds};
+    function fmt(s){{
+      s=Math.max(0,Math.floor(s));
+      const m=Math.floor(s/60), r=s%60;
+      return String(m).padStart(2,'0')+':'+String(r).padStart(2,'0');
+    }}
+    function tick(){{
+      const label=document.getElementById('timerLabel');
+      const value=document.getElementById('timerValue');
+      if(mode==='NO_TIMEBOX'){{value.textContent='∞';return;}}
+      value.textContent=fmt(seconds);
+      if(mode==='RUNNING'){{
+        seconds-=1;
+        if(seconds<0){{
+          mode='OVERTIME'; seconds=0;
+          label.textContent='OVERTIME';
+        }}
+      }}else if(mode==='OVERTIME'){{
+        seconds+=1;
+      }}
+    }}
+    tick(); setInterval(tick,1000);
+    </script></body></html>""".format(
+        username=esc(username),
+        title=esc(c.get("action_title")),
+        timer_label=esc(timer_label),
+        done_definition=esc(c.get("done_definition")),
+        blocker=esc(blocker),
+        timebox=esc(c.get("timebox_minutes") or "—"),
+        friction=esc(c.get("friction") or "NONE"),
+        source=esc(source),
+        run_id=esc(c.get("run_id")),
+        mode_json=json.dumps(timer_state),
+        seconds=initial_timer,
+    )
+
+
+# Surface the live contract from Hunter Focus and Preflight.
+try:
+    _v297_prev_focus_page = app.view_functions.get("v260_hunter_focus_page")
+    if _v297_prev_focus_page:
+        def _v297_focus_with_contract(*args, **kwargs):
+            response = _v297_prev_focus_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-active-focus-contract" not in response:
+                link = "<a href='/hunter-active-focus-contract' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #4d8396;border-radius:10px;color:#fff;text-decoration:none'>⏱️ ACTIVE FOCUS CONTRACT</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v260_hunter_focus_page"] = _v297_focus_with_contract
+except Exception:
+    pass
+
+try:
+    _v297_prev_preflight_page = app.view_functions.get("v294_focus_preflight_page")
+    if _v297_prev_preflight_page:
+        def _v297_preflight_with_contract(*args, **kwargs):
+            response = _v297_prev_preflight_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-active-focus-contract" not in response:
+                link = "<a href='/hunter-active-focus-contract' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #4d8396;border-radius:10px;color:#fff;text-decoration:none'>⏱️ LIVE CONTRACT</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v294_focus_preflight_page"] = _v297_preflight_with_contract
 except Exception:
     pass
 
