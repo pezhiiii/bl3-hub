@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.5 Build Attestation</title><style>
+    <title>BL3 V31.6 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.5 Hunter Command Deck</title>
+    <title>BL3 V31.6 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -50743,7 +50743,7 @@ def v315_recalibration_page():
     c = snap.get("counts") or {}
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.5 Playbook Recalibration</title>
+    <title>BL3 V31.6 Playbook Governance</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#23172c,#09060e 58%,#030204);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c0814ef;border:1px solid #5d426b;border-radius:24px;padding:24px}}
@@ -50821,6 +50821,544 @@ try:
                 response = response.replace("<h2>STRATEGY LEARNING STATES</h2>", link + "<h2>STRATEGY LEARNING STATES</h2>", 1)
             return response
         app.view_functions["v314_execution_learning_page"] = _v315_learning_page_with_recalibration
+except Exception:
+    pass
+
+# ===== V31.6 RECALIBRATION DIRECTIVES + EXECUTION GUARD =====
+# Converts APPROVED V31.5 recalibration reviews into explicit, versioned directives.
+# Active directives can influence execution policy, but never silently rewrite a playbook.
+
+V316_VERSION = "V31.6"
+
+def _v316_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_playbook_recalibration_directives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_id INTEGER NOT NULL,
+            playbook_id INTEGER,
+            strategy TEXT NOT NULL,
+            directive_type TEXT NOT NULL,
+            directive_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            source_learning_state TEXT,
+            rationale TEXT,
+            created_at TEXT NOT NULL,
+            closed_at TEXT,
+            close_note TEXT,
+            UNIQUE(username, review_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_recalibration_directives_user_state
+        ON hunter_playbook_recalibration_directives(username, directive_state, strategy)
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_playbook_governance_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            review_id INTEGER,
+            directive_id INTEGER,
+            detail TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_playbook_governance_events_user
+        ON hunter_playbook_governance_events(username, created_at)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v316_init()
+except Exception:
+    pass
+
+
+def _v316_log_event(username, strategy, event_type, review_id=None, directive_id=None, detail=""):
+    con = sqlite3.connect(DB)
+    try:
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        con.execute("""
+            INSERT INTO hunter_playbook_governance_events
+            (username, strategy, event_type, review_id, directive_id, detail, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username, strategy, event_type, review_id, directive_id,
+            str(detail or "")[:2000], now
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+
+def _v316_find_playbook_id(username, strategy):
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("""
+            SELECT id FROM hunter_strategy_playbooks
+            WHERE username=? AND strategy=?
+            ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, id DESC
+            LIMIT 1
+        """, (username, strategy)).fetchone()
+        return int(row[0]) if row else None
+    finally:
+        con.close()
+
+
+def _v316_apply_review(username, review_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        review = con.execute("""
+            SELECT id, strategy, learning_state, recommended_action, rationale, review_status
+            FROM hunter_playbook_recalibration_reviews
+            WHERE id=? AND username=?
+        """, (int(review_id), username)).fetchone()
+
+        if not review:
+            return False, "review_not_found", None
+        if str(review["review_status"]) != "APPROVED":
+            return False, "review_must_be_approved_first", None
+
+        existing = con.execute("""
+            SELECT id FROM hunter_playbook_recalibration_directives
+            WHERE username=? AND review_id=?
+        """, (username, int(review_id))).fetchone()
+        if existing:
+            return False, "review_already_applied", int(existing[0])
+
+        strategy = str(review["strategy"] or "")
+        action = str(review["recommended_action"] or "")
+        directive_map = {
+            "RETEST_AND_CONSIDER_DEMOTION": "RETEST_ONLY",
+            "NARROW_CONTEXT_AND_RETEST": "NARROW_CONTEXT",
+            "CONFIRM_CONTROLLED_REUSE": "CONTROLLED_REUSE",
+            "WAIT_FOR_MORE_DATA": "OBSERVE_ONLY",
+        }
+        directive_type = directive_map.get(action, "OBSERVE_ONLY")
+        playbook_id = _v316_find_playbook_id(username, strategy)
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+        cur = con.execute("""
+            INSERT INTO hunter_playbook_recalibration_directives
+            (username, review_id, playbook_id, strategy, directive_type,
+             directive_state, source_learning_state, rationale, created_at)
+            VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
+        """, (
+            username,
+            int(review_id),
+            playbook_id,
+            strategy,
+            directive_type,
+            str(review["learning_state"] or ""),
+            str(review["rationale"] or ""),
+            now,
+        ))
+        directive_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    _v316_log_event(
+        username, strategy, "DIRECTIVE_ACTIVATED",
+        review_id=int(review_id), directive_id=directive_id,
+        detail="Approved recalibration review materialized as %s." % directive_type
+    )
+    return True, None, directive_id
+
+
+def _v316_close_directive(username, directive_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, strategy, review_id, directive_state
+            FROM hunter_playbook_recalibration_directives
+            WHERE id=? AND username=?
+        """, (int(directive_id), username)).fetchone()
+
+        if not row:
+            return False, "directive_not_found"
+        if str(row["directive_state"]) != "ACTIVE":
+            return False, "directive_not_active"
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        con.execute("""
+            UPDATE hunter_playbook_recalibration_directives
+            SET directive_state='CLOSED', closed_at=?, close_note=?
+            WHERE id=? AND username=? AND directive_state='ACTIVE'
+        """, (now, str(note or "")[:2000], int(directive_id), username))
+        con.commit()
+
+        strategy = str(row["strategy"] or "")
+        review_id = int(row["review_id"])
+    finally:
+        con.close()
+
+    _v316_log_event(
+        username, strategy, "DIRECTIVE_CLOSED",
+        review_id=review_id, directive_id=int(directive_id),
+        detail=str(note or "")[:2000]
+    )
+    return True, None
+
+
+def _v316_directives(username, limit=100):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, review_id, playbook_id, strategy, directive_type, directive_state,
+                   source_learning_state, rationale, created_at, closed_at, close_note
+            FROM hunter_playbook_recalibration_directives
+            WHERE username=?
+            ORDER BY CASE directive_state WHEN 'ACTIVE' THEN 0 ELSE 1 END, id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v316_events(username, limit=80):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, strategy, event_type, review_id, directive_id, detail, created_at
+            FROM hunter_playbook_governance_events
+            WHERE username=?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v316_active_directive_for_playbook(username, playbook_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, review_id, playbook_id, strategy, directive_type, directive_state,
+                   source_learning_state, rationale, created_at
+            FROM hunter_playbook_recalibration_directives
+            WHERE username=? AND playbook_id=? AND directive_state='ACTIVE'
+            ORDER BY id DESC
+            LIMIT 1
+        """, (username, int(playbook_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v316_snapshot(username):
+    directives = _v316_directives(username, 120)
+    events = _v316_events(username, 120)
+    active = [d for d in directives if str(d.get("directive_state")) == "ACTIVE"]
+    counts = {
+        "active": len(active),
+        "retest_only": sum(1 for d in active if d.get("directive_type") == "RETEST_ONLY"),
+        "narrow_context": sum(1 for d in active if d.get("directive_type") == "NARROW_CONTEXT"),
+        "controlled_reuse": sum(1 for d in active if d.get("directive_type") == "CONTROLLED_REUSE"),
+    }
+    return {
+        "version": V316_VERSION,
+        "username": username,
+        "counts": counts,
+        "directives": directives,
+        "events": events,
+        "execution_policy": {
+            "RETEST_ONLY": "Blocks normal Playbook Execution until the directive is explicitly closed after retesting/review.",
+            "NARROW_CONTEXT": "Requires an explicit context label plus a substantive context note before execution.",
+            "CONTROLLED_REUSE": "Allows execution while preserving the approved controlled-reuse directive in the governance ledger.",
+            "OBSERVE_ONLY": "No execution block; retains a visible observation directive.",
+        },
+        "principle": (
+            "Approved learning can become policy, but policy remains explicit, reversible, and auditable. "
+            "BL3 never silently rewrites trusted strategy evidence."
+        ),
+    }
+
+
+@app.route("/api/hunter-playbook-governance")
+def v316_governance_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v316_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-playbook-governance/apply/<int:review_id>", methods=["POST"])
+def v316_governance_apply(review_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    ok, err, directive_id = _v316_apply_review(username, review_id)
+    if not ok:
+        return jsonify({"success": False, "error": err, "directive_id": directive_id}), 400
+    return jsonify({
+        "success": True,
+        "directive_id": directive_id,
+        "snapshot": _v316_snapshot(username),
+    })
+
+
+@app.route("/api/hunter-playbook-governance/directive/<int:directive_id>/close", methods=["POST"])
+def v316_governance_close(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    note = str(payload.get("note") or "").strip()
+    ok, err = _v316_close_directive(username, directive_id, note)
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+    return jsonify({"success": True, "snapshot": _v316_snapshot(username)})
+
+
+@app.route("/hunter-playbook-governance")
+def v316_governance_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Playbook Governance</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🛡️ Playbook Governance</h1><p>Sign in to manage active recalibration directives.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v316_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    directive_cards = []
+    for d in snap.get("directives") or []:
+        active = str(d.get("directive_state")) == "ACTIVE"
+        close_btn = (
+            "<button onclick=\"closeDirective(%s)\">CLOSE DIRECTIVE</button>" % int(d.get("id"))
+            if active else ""
+        )
+        directive_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div><span class='eyebrow'>DIRECTIVE #{id}</span><h3>{strategy}</h3></div>
+            <span class='pill'>{state}</span>
+          </div>
+          <div class='grid'>
+            <div><span>TYPE</span><b>{dtype}</b></div>
+            <div><span>PLAYBOOK</span><b>{playbook}</b></div>
+            <div><span>SOURCE STATE</span><b>{source}</b></div>
+            <div><span>REVIEW</span><b>#{review}</b></div>
+          </div>
+          <p>{rationale}</p>
+          {close_btn}
+          <div class='small'>Created {created} · Closed {closed}</div>
+        </article>
+        """.format(
+            id=esc(d.get("id")),
+            strategy=esc(d.get("strategy")),
+            state=esc(d.get("directive_state")),
+            dtype=esc(d.get("directive_type")),
+            playbook=esc(d.get("playbook_id")),
+            source=esc(d.get("source_learning_state")),
+            review=esc(d.get("review_id")),
+            rationale=esc(d.get("rationale")),
+            close_btn=close_btn,
+            created=esc(d.get("created_at")),
+            closed=esc(d.get("closed_at")),
+        ))
+
+    approved_unapplied = []
+    for r in _v315_review_rows(username, 120):
+        if str(r.get("review_status")) != "APPROVED":
+            continue
+        already = any(int(d.get("review_id") or 0) == int(r.get("id") or 0) for d in snap.get("directives") or [])
+        if already:
+            continue
+        approved_unapplied.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>APPROVED REVIEW #{id}</span><h3>{strategy}</h3></div><span class='pill'>READY</span></div>
+          <p><strong>{action}</strong></p><p>{rationale}</p>
+          <button onclick="applyReview({id})">ACTIVATE DIRECTIVE</button>
+        </article>
+        """.format(
+            id=int(r.get("id")),
+            strategy=esc(r.get("strategy")),
+            action=esc(r.get("recommended_action")),
+            rationale=esc(r.get("rationale")),
+        ))
+
+    event_rows = []
+    for e in (snap.get("events") or [])[:30]:
+        event_rows.append("""
+        <tr><td>{time}</td><td>{strategy}</td><td>{event}</td><td>{detail}</td></tr>
+        """.format(
+            time=esc(e.get("created_at")),
+            strategy=esc(e.get("strategy")),
+            event=esc(e.get("event_type")),
+            detail=esc(e.get("detail")),
+        ))
+
+    c = snap.get("counts") or {}
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.6 Playbook Governance</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#152336,#06090d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081019ef;border:1px solid #38506a;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#77d7ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:32px}}h3{{margin:5px 0}}
+    p{{color:#cad8e5;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#0a141f;border:1px solid #30465b;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#8099ad;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:18px;overflow-wrap:anywhere}}.card{{background:#09131d;border:1px solid #2f475d;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #4f708c;border-radius:999px;padding:6px 9px}}
+    button,a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #476b87;border-radius:10px;background:#0c1b29;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    .rule{{border-left:4px solid #55c7ff;padding:11px 14px;background:#0b1823;border-radius:8px}}
+    table{{width:100%;border-collapse:collapse;margin-top:10px}}th,td{{padding:10px;border-bottom:1px solid #25394b;text-align:left;font-size:12px;vertical-align:top}}th{{color:#7bb9dc}}
+    .small{{margin-top:10px;color:#748da0;font-size:11px}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}table{{display:block;overflow-x:auto}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.6 // APPROVAL → DIRECTIVE → EXECUTION GUARD</div>
+      <h1>🛡️ PLAYBOOK GOVERNANCE</h1>
+      <p>{username}, approved recalibration decisions can now become explicit active directives. These directives are versioned, reversible, and can guard Playbook Execution without rewriting the underlying evidence.</p>
+
+      <div class='hero'>
+        <div><span>ACTIVE DIRECTIVES</span><b>{active}</b></div>
+        <div><span>RETEST ONLY</span><b>{retest}</b></div>
+        <div><span>NARROW CONTEXT</span><b>{narrow}</b></div>
+        <div><span>CONTROLLED REUSE</span><b>{reuse}</b></div>
+      </div>
+
+      <div class='rule'><strong>Execution guard:</strong> RETEST_ONLY blocks normal execution. NARROW_CONTEXT requires a declared context plus a substantive note. CONTROLLED_REUSE allows execution but remains visible in the audit trail.</div>
+
+      <a href='/hunter-playbook-recalibration'>⚖️ RECALIBRATION REVIEW</a>
+      <a href='/hunter-playbook-execution'>🎯 PLAYBOOK EXECUTION</a>
+      <a href='/hunter-strategy-playbooks'>📚 PLAYBOOKS</a>
+
+      <h2>APPROVED REVIEWS READY TO APPLY</h2>
+      {approved}
+
+      <h2>DIRECTIVES</h2>
+      {directives}
+
+      <h2>GOVERNANCE LEDGER</h2>
+      <table><thead><tr><th>TIME</th><th>STRATEGY</th><th>EVENT</th><th>DETAIL</th></tr></thead>
+      <tbody>{events}</tbody></table>
+    </section></div>
+    <script>
+    async function applyReview(id){{
+      if(!confirm("Activate this approved recalibration directive?")) return;
+      const r=await fetch("/api/hunter-playbook-governance/apply/"+id,{{method:"POST"}});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Apply failed");return;}}
+      location.reload();
+    }}
+    async function closeDirective(id){{
+      const note=prompt("Why are you closing this directive?");
+      if(note===null) return;
+      const r=await fetch("/api/hunter-playbook-governance/directive/"+id+"/close",{{
+        method:"POST",headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{note:note}})
+      }});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Close failed");return;}}
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        active=esc(c.get("active", 0)),
+        retest=esc(c.get("retest_only", 0)),
+        narrow=esc(c.get("narrow_context", 0)),
+        reuse=esc(c.get("controlled_reuse", 0)),
+        approved="".join(approved_unapplied) if approved_unapplied else "<p>No approved reviews are waiting to be activated.</p>",
+        directives="".join(directive_cards) if directive_cards else "<p>No directives yet.</p>",
+        events="".join(event_rows) if event_rows else "<tr><td colspan='4'>No governance events yet.</td></tr>",
+    )
+
+
+# V31.6 execution guard: wrap the existing V31.3 start handler.
+# The original evidence guardrails remain authoritative; V31.6 only adds governance constraints.
+try:
+    _v316_original_execution_start = app.view_functions.get("v313_execution_start")
+    if _v316_original_execution_start:
+        def _v316_execution_start_guarded(*args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            if not username:
+                return jsonify({"success": False, "error": "auth_required"}), 401
+
+            payload = request.get_json(silent=True) or request.form or {}
+            try:
+                playbook_id = int(payload.get("playbook_id") or 0)
+            except Exception:
+                return jsonify({"success": False, "error": "invalid_playbook_id"}), 400
+
+            directive = _v316_active_directive_for_playbook(username, playbook_id)
+            if directive:
+                dtype = str(directive.get("directive_type") or "")
+
+                if dtype == "RETEST_ONLY":
+                    _v316_log_event(
+                        username, str(directive.get("strategy") or ""),
+                        "EXECUTION_BLOCKED_BY_DIRECTIVE",
+                        review_id=directive.get("review_id"),
+                        directive_id=directive.get("id"),
+                        detail="Normal execution blocked because RETEST_ONLY is active."
+                    )
+                    return jsonify({
+                        "success": False,
+                        "error": "recalibration_retest_required",
+                        "directive": directive,
+                        "next_step": "Retest/review the strategy, then explicitly close the directive before normal execution."
+                    }), 409
+
+                if dtype == "NARROW_CONTEXT":
+                    context_label = str(payload.get("context_label") or "").strip()
+                    context_note = str(payload.get("context_note") or "").strip()
+                    if not context_label or len(context_note) < 30:
+                        return jsonify({
+                            "success": False,
+                            "error": "narrow_context_required",
+                            "directive": directive,
+                            "requirements": {
+                                "context_label": "required",
+                                "context_note_min_chars": 30
+                            }
+                        }), 409
+
+                if dtype == "CONTROLLED_REUSE":
+                    _v316_log_event(
+                        username, str(directive.get("strategy") or ""),
+                        "CONTROLLED_REUSE_EXECUTION_ATTEMPT",
+                        review_id=directive.get("review_id"),
+                        directive_id=directive.get("id"),
+                        detail="Execution proceeded under CONTROLLED_REUSE governance."
+                    )
+
+            return _v316_original_execution_start(*args, **kwargs)
+
+        app.view_functions["v313_execution_start"] = _v316_execution_start_guarded
+except Exception:
+    pass
+
+
+# Surface governance link from V31.5 recalibration page.
+try:
+    _v316_prev_recalibration_page = app.view_functions.get("v315_recalibration_page")
+    if _v316_prev_recalibration_page:
+        def _v316_recalibration_page_with_governance(*args, **kwargs):
+            response = _v316_prev_recalibration_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-playbook-governance" not in response:
+                link = "<a href='/hunter-playbook-governance'>🛡️ PLAYBOOK GOVERNANCE</a>"
+                response = response.replace("<h2>RECALIBRATION REVIEW QUEUE</h2>", link + "<h2>RECALIBRATION REVIEW QUEUE</h2>", 1)
+            return response
+        app.view_functions["v315_recalibration_page"] = _v316_recalibration_page_with_governance
 except Exception:
     pass
 
