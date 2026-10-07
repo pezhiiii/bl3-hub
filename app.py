@@ -60580,6 +60580,575 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.6 POLICY EFFECTIVENESS + ENFORCEMENT GATE =====
+# V33.5 can adopt governance policies derived from promoted recovery lessons.
+# V33.6 adds a measured effectiveness trial and separates "policy adopted"
+# from "policy enforced". Enforcement is explicit and reversible.
+
+V336_VERSION = "V33.6"
+V336_SIGNALS = {"EFFECTIVE", "MIXED", "INEFFECTIVE", "INCONCLUSIVE"}
+V336_OUTCOMES = {"ENFORCE", "REVISE", "RETIRE_RECOMMENDED"}
+V336_MIN_CHECKS = 2
+
+
+def _v336_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_effectiveness_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            policy_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v336_checks_policy
+        ON hunter_policy_effectiveness_checks(username, policy_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_effectiveness_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            policy_id INTEGER NOT NULL UNIQUE,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_enforcements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            policy_id INTEGER NOT NULL UNIQUE,
+            enforcement_state TEXT NOT NULL DEFAULT 'STAGED',
+            enforcement_note TEXT,
+            staged_at TEXT NOT NULL,
+            enforced_at TEXT,
+            revoked_at TEXT,
+            revoke_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v336_enforcement_state
+        ON hunter_policy_enforcements(username, enforcement_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v336_init()
+except Exception:
+    pass
+
+
+def _v336_checks(username, policy_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_policy_effectiveness_checks
+            WHERE username=? AND policy_id=?
+            ORDER BY id DESC
+        """, (username, int(policy_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v336_outcome(username, policy_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_effectiveness_outcomes
+            WHERE username=? AND policy_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(policy_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v336_enforcement(username, policy_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_enforcements
+            WHERE username=? AND policy_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(policy_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v336_add_check(username, policy_id, signal_state, note=""):
+    policy = _v335_policy(username, policy_id)
+    if not policy:
+        return False, "policy_not_found", None
+    if str(policy.get("policy_state") or "") != "ADOPTED":
+        return False, "adopted_policy_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V336_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_effectiveness_checks
+            (username, policy_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username, int(policy_id), signal,
+            str(note or "").strip()[:2400], now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v336_finalize_outcome(username, policy_id, requested_outcome, note=""):
+    policy = _v335_policy(username, policy_id)
+    if not policy:
+        return False, "policy_not_found", None
+    if str(policy.get("policy_state") or "") != "ADOPTED":
+        return False, "adopted_policy_required", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V336_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    checks = _v336_checks(username, policy_id)
+    if len(checks) < V336_MIN_CHECKS:
+        return False, "not_enough_checks", None
+
+    existing = _v336_outcome(username, policy_id)
+    if existing:
+        return False, "outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_effectiveness_outcomes
+            (username, policy_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username, int(policy_id), requested,
+            str(note or "").strip()[:2400], now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v336_stage_enforcement(username, policy_id, note=""):
+    outcome = _v336_outcome(username, policy_id)
+    if not outcome:
+        return False, "effectiveness_outcome_required", None
+    if str(outcome.get("outcome") or "") != "ENFORCE":
+        return False, "enforce_outcome_required", None
+
+    existing = _v336_enforcement(username, policy_id)
+    if existing:
+        return False, "enforcement_already_exists", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_enforcements
+            (username, policy_id, enforcement_state, enforcement_note, staged_at)
+            VALUES (?, ?, 'STAGED', ?, ?)
+        """, (
+            username, int(policy_id), str(note or "").strip()[:2400], now
+        ))
+        eid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, eid
+
+
+def _v336_execute_enforcement(username, enforcement_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_enforcements
+            WHERE username=? AND id=?
+        """, (username, int(enforcement_id))).fetchone()
+        enforcement = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not enforcement:
+        return False, "enforcement_not_found", None
+    if str(enforcement.get("enforcement_state") or "") != "STAGED":
+        return False, "enforcement_not_staged", int(enforcement["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_enforcements
+            SET enforcement_state='ENFORCED',
+                enforced_at=?,
+                enforcement_note=CASE WHEN ?<>'' THEN ? ELSE enforcement_note END
+            WHERE id=? AND username=? AND enforcement_state='STAGED'
+        """, (
+            now, str(note or "").strip(), str(note or "").strip()[:2400],
+            int(enforcement_id), username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "LEARNING_POLICY_ENFORCED",
+            detail="V33.6 policy #%s explicitly enforced after effectiveness review." % int(enforcement["policy_id"])
+        )
+    except Exception:
+        pass
+
+    return True, None, int(enforcement_id)
+
+
+def _v336_revoke_enforcement(username, enforcement_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_enforcements
+            WHERE username=? AND id=?
+        """, (username, int(enforcement_id))).fetchone()
+        enforcement = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not enforcement:
+        return False, "enforcement_not_found", None
+    if str(enforcement.get("enforcement_state") or "") != "ENFORCED":
+        return False, "enforcement_not_active", int(enforcement["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_enforcements
+            SET enforcement_state='REVOKED', revoked_at=?, revoke_note=?
+            WHERE id=? AND username=? AND enforcement_state='ENFORCED'
+        """, (
+            now, str(note or "Explicit V33.6 enforcement revoke.").strip()[:2400],
+            int(enforcement_id), username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(enforcement_id)
+
+
+def _v336_snapshot(username):
+    base = _v335_snapshot(username)
+    items = []
+
+    for lesson in base.get("items", []):
+        policy = lesson.get("policy") or {}
+        if str(policy.get("policy_state") or "") != "ADOPTED":
+            continue
+
+        pid = int(policy.get("id") or 0)
+        checks = _v336_checks(username, pid)
+        outcome = _v336_outcome(username, pid)
+        enforcement = _v336_enforcement(username, pid)
+
+        item = dict(policy)
+        item["lesson"] = lesson
+        item["checks"] = checks[:20]
+        item["check_count"] = len(checks)
+        item["effectiveness_outcome"] = outcome
+        item["enforcement"] = enforcement
+        item["ready_for_outcome"] = len(checks) >= V336_MIN_CHECKS and not outcome
+        item["ready_to_stage"] = bool(outcome) and str(outcome.get("outcome") or "") == "ENFORCE" and not enforcement
+        item["ready_to_execute"] = bool(enforcement) and str(enforcement.get("enforcement_state") or "") == "STAGED"
+        items.append(item)
+
+    return {
+        "version": V336_VERSION,
+        "minimum_checks": V336_MIN_CHECKS,
+        "counts": {
+            "adopted_policies": len(items),
+            "checks": sum(int(i.get("check_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "enforced": sum(1 for i in items if i.get("enforcement") and str(i["enforcement"].get("enforcement_state") or "") == "ENFORCED"),
+        },
+        "items": items,
+        "policy": "Policy adoption and policy enforcement are separate explicit governance steps."
+    }
+
+
+@app.route("/api/hunter-policy-effectiveness")
+def v336_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v336_snapshot(username)})
+
+
+@app.route("/api/hunter-policy-effectiveness/<int:policy_id>/check", methods=["POST"])
+def v336_check_api(policy_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, cid = _v336_add_check(
+        username, policy_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-policy-effectiveness/<int:policy_id>/outcome", methods=["POST"])
+def v336_outcome_api(policy_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, oid = _v336_finalize_outcome(
+        username, policy_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-policy-effectiveness/<int:policy_id>/enforce/stage", methods=["POST"])
+def v336_stage_api(policy_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, eid = _v336_stage_enforcement(username, policy_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "enforcement_id": eid}), 400
+    return jsonify({"success": True, "enforcement_id": eid})
+
+
+@app.route("/api/hunter-policy-effectiveness/enforcement/<int:enforcement_id>/execute", methods=["POST"])
+def v336_execute_api(enforcement_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, eid = _v336_execute_enforcement(username, enforcement_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "enforcement_id": eid}), 400
+    return jsonify({"success": True, "enforcement_id": eid})
+
+
+@app.route("/api/hunter-policy-effectiveness/enforcement/<int:enforcement_id>/revoke", methods=["POST"])
+def v336_revoke_api(enforcement_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, eid = _v336_revoke_enforcement(username, enforcement_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "enforcement_id": eid}), 400
+    return jsonify({"success": True, "enforcement_id": eid})
+
+
+@app.route("/hunter-policy-effectiveness")
+def v336_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Policy Effectiveness</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>⚖️ Policy Effectiveness</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v336_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        pid = int(item.get("id") or 0)
+        outcome = item.get("effectiveness_outcome") or {}
+        enforcement = item.get("enforcement") or {}
+        checks = item.get("checks") or []
+
+        actions = ""
+        if not outcome:
+            actions += """
+            <form action='/api/hunter-policy-effectiveness/{pid}/check' onsubmit='return v336submit(this,event)'>
+              <select name='signal_state'>
+                <option>EFFECTIVE</option><option>MIXED</option><option>INEFFECTIVE</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Policy effectiveness evidence'></textarea>
+              <button type='submit'>ADD EFFECTIVENESS CHECK</button>
+            </form>
+            """.format(pid=pid)
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-policy-effectiveness/{pid}/outcome' onsubmit='return v336submit(this,event)'>
+              <select name='outcome'>
+                <option value='ENFORCE'>ENFORCE</option>
+                <option value='REVISE'>REVISE</option>
+                <option value='RETIRE_RECOMMENDED'>RETIRE_RECOMMENDED</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Why this outcome is supported'></textarea>
+              <button type='submit'>FINALIZE EFFECTIVENESS OUTCOME</button>
+            </form>
+            """.format(pid=pid)
+        elif outcome:
+            actions += "<div class='final'>OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")), esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_stage"):
+            actions += """
+            <form action='/api/hunter-policy-effectiveness/{pid}/enforce/stage' onsubmit='return v336submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Why this policy should move into enforcement'></textarea>
+              <button class='warn' type='submit'>STAGE ENFORCEMENT</button>
+            </form>
+            """.format(pid=pid)
+
+        if item.get("ready_to_execute"):
+            actions += """
+            <form action='/api/hunter-policy-effectiveness/enforcement/{eid}/execute' onsubmit='return v336submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Final enforcement note'></textarea>
+              <button class='safe' type='submit'>EXECUTE ENFORCEMENT</button>
+            </form>
+            """.format(eid=int(enforcement.get("id") or 0))
+        elif enforcement and str(enforcement.get("enforcement_state") or "") == "ENFORCED":
+            actions += """
+            <div class='enforced'>POLICY ENFORCED</div>
+            <form action='/api/hunter-policy-effectiveness/enforcement/{eid}/revoke' onsubmit='return v336submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Reason to revoke enforcement'></textarea>
+              <button class='danger' type='submit'>REVOKE ENFORCEMENT</button>
+            </form>
+            """.format(eid=int(enforcement.get("id") or 0))
+
+        checks_html = "".join(
+            "<div class='checkrow'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")), esc(ch.get("evidence_note")), esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No effectiveness checks yet.</div>"
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Policy #{pid}</span><span class='pill'>{state}</span></div>
+          <h2>{title}</h2>
+          <p><b>{ptype}</b></p>
+          <p class='muted'>{rule}</p>
+          {actions}
+          <div class='history'>{checks}</div>
+        </article>
+        """.format(
+            pid=esc(pid),
+            state=esc((enforcement or {}).get("enforcement_state") or "ADOPTED"),
+            title=esc(item.get("title")),
+            ptype=esc(item.get("policy_type")),
+            rule=esc(item.get("rule_text")),
+            actions=actions,
+            checks=checks_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.6 Policy Effectiveness</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1160px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#7fe0ff;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#7fe0ff}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #2c5a69;border-radius:999px;padding:6px 9px;color:#7fe0ff;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.safe{{background:#8bf0c8}} button.danger{{background:#ff8797}}
+    .checkrow{{border-top:1px solid #15313f;padding:10px 0}} .checkrow b{{color:#7fe0ff;display:block}} .checkrow span{{display:block;margin:5px 0;color:#d7e8ef}}
+    .final,.enforced{{margin-top:10px;background:#0e2a21;border:1px solid #216c52;color:#9bf2cb;border-radius:12px;padding:10px}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #7fe0ff;padding:12px;background:#07131a;color:#bddbe8;line-height:1.6}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.6 // POLICY EFFECTIVENESS + ENFORCEMENT GATE</div>
+        <h1>⚖️ PROVE THE POLICY</h1>
+        <div class='sub'>Adopted policy does not automatically mean enforced policy. First collect effectiveness evidence, then explicitly stage and execute enforcement.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>ADOPTED POLICIES</div><div class='num'>{policies}</div></div>
+          <div class='stat'><div class='eyebrow'>CHECKS</div><div class='num'>{checks}</div></div>
+          <div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div>
+          <div class='stat'><div class='eyebrow'>ENFORCED</div><div class='num'>{enforced}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-learning-policies'>📜 LEARNING POLICIES</a><a href='/api/hunter-policy-effectiveness'>JSON</a></div>
+        <div class='rule'><strong>V33.6 rule:</strong> policy adoption, effectiveness validation and enforcement are separate explicit governance steps.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v336submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        policies=esc(c.get("adopted_policies",0)),
+        checks=esc(c.get("checks",0)),
+        ready=esc(c.get("ready_for_outcome",0)),
+        enforced=esc(c.get("enforced",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No adopted policies are ready for effectiveness review.</p></article>"
+    )
+
+
+try:
+    _v336_prev_page = app.view_functions.get("v335_page")
+    if _v336_prev_page:
+        def _v336_policy_with_effectiveness(*args, **kwargs):
+            response = _v336_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-policy-effectiveness" not in response:
+                anchor = "<a href='/api/hunter-learning-policies'>JSON</a>"
+                link = "<a href='/hunter-policy-effectiveness'>⚖️ POLICY EFFECTIVENESS</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v335_page"] = _v336_policy_with_effectiveness
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
