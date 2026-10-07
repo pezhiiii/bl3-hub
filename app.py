@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.2 Build Attestation</title><style>
+    <title>BL3 V31.3 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.2 Hunter Command Deck</title>
+    <title>BL3 V31.3 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -49019,7 +49019,7 @@ def v311_experiment_learning_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.2 Strategy Playbooks</title>
+    <title>BL3 V31.3 Playbook Execution</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#132635,#05080c 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #2f6079;border-radius:24px;padding:24px}}
@@ -49035,7 +49035,7 @@ def v311_experiment_learning_page():
     @media(max-width:900px){{.hero{{grid-template-columns:1fr 1fr}}.metrics{{grid-template-columns:1fr 1fr 1fr}}h1{{font-size:34px}}}}
     @media(max-width:560px){{.metrics{{grid-template-columns:1fr 1fr}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.2 // EVIDENCE → PLAYBOOK → REUSE</div>
+      <div class='eyebrow'>BL3 V31.3 // PLAYBOOK → EXECUTION → FEEDBACK</div>
       <h1>🧠 EXPERIMENT LEARNING LOOP</h1>
       <p>{username}, BL3 now converts verdict history into strategy calibration instead of leaving completed experiments as isolated records.</p>
 
@@ -49443,7 +49443,7 @@ def v312_playbooks_page():
         ))
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.2 Strategy Playbooks</title>
+    <title>BL3 V31.3 Playbook Execution</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1b2636,#06090d 55%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #345e79;border-radius:24px;padding:24px}}
@@ -49517,6 +49517,516 @@ try:
                 response = response.replace("</section>", link + "</section>", 1)
             return response
         app.view_functions["v311_experiment_learning_page"] = _v312_learning_page_with_playbooks
+except Exception:
+    pass
+
+# ===== V31.3 PLAYBOOK EXECUTION + CONTEXT FIT + FEEDBACK =====
+# Turns trusted playbooks into concrete execution runs and feeds outcomes back into strategy memory.
+
+V313_VERSION = "V31.3"
+
+def _v313_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_playbook_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            playbook_id INTEGER NOT NULL,
+            strategy TEXT NOT NULL,
+            context_label TEXT,
+            context_note TEXT,
+            fit_score INTEGER NOT NULL DEFAULT 0,
+            fit_state TEXT NOT NULL DEFAULT 'UNKNOWN',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            outcome_label TEXT,
+            outcome_score INTEGER,
+            outcome_note TEXT,
+            FOREIGN KEY(playbook_id) REFERENCES hunter_strategy_playbooks(id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_hunter_playbook_runs_user_status
+        ON hunter_playbook_runs(username, status, started_at)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v313_init()
+except Exception:
+    pass
+
+
+def _v313_context_fit(playbook, context_label="", context_note=""):
+    """
+    Conservative fit score: evidence quality dominates.
+    Context is user-declared, so it can guide but never override weak evidence.
+    """
+    score = 0
+    reasons = []
+
+    guard = str(playbook.get("evidence_guard") or "UNKNOWN")
+    current = playbook.get("current_evidence") or {}
+
+    guard_points = {"VALID": 60, "REVIEW": 35, "WEAK": 15, "STALE": 5}.get(guard, 10)
+    score += guard_points
+    reasons.append("evidence_guard_%s" % guard.lower())
+
+    calibration = int(current.get("calibration_score") or playbook.get("calibration_score") or 0)
+    score += min(25, max(0, calibration // 4))
+
+    strict_tests = int(current.get("strict_tests") or playbook.get("strict_tests") or 0)
+    score += min(10, strict_tests * 2)
+
+    if str(context_label or "").strip():
+        score += 3
+        reasons.append("context_declared")
+    if len(str(context_note or "").strip()) >= 20:
+        score += 2
+        reasons.append("context_note_present")
+
+    score = max(0, min(100, score))
+
+    if guard != "VALID":
+        state = "CAUTION"
+    elif score >= 85:
+        state = "STRONG_FIT"
+    elif score >= 70:
+        state = "GOOD_FIT"
+    elif score >= 55:
+        state = "TEST_FIT"
+    else:
+        state = "CAUTION"
+
+    return {
+        "fit_score": score,
+        "fit_state": state,
+        "reasons": reasons,
+        "guardrail": (
+            "Context can refine a playbook recommendation, but it never upgrades weak, stale, or review-needed evidence into trusted evidence."
+        ),
+    }
+
+
+def _v313_runs(username, limit=30):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, username, playbook_id, strategy, context_label, context_note,
+                   fit_score, fit_state, status, started_at, completed_at,
+                   outcome_label, outcome_score, outcome_note
+            FROM hunter_playbook_runs
+            WHERE username=?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v313_execution_snapshot(username):
+    pb = _v312_playbook_snapshot(username)
+    runs = _v313_runs(username, 40)
+
+    active_runs = [r for r in runs if str(r.get("status")) == "ACTIVE"]
+    completed = [r for r in runs if str(r.get("status")) == "COMPLETED"]
+
+    scores = [
+        int(r.get("outcome_score"))
+        for r in completed
+        if r.get("outcome_score") is not None
+    ]
+    avg_outcome = round(sum(scores) / len(scores), 1) if scores else None
+
+    by_strategy = {}
+    for r in completed:
+        s = str(r.get("strategy") or "unknown")
+        row = by_strategy.setdefault(s, {"runs": 0, "scores": []})
+        row["runs"] += 1
+        if r.get("outcome_score") is not None:
+            row["scores"].append(int(r.get("outcome_score")))
+    for s, row in by_strategy.items():
+        row["average_outcome"] = (
+            round(sum(row["scores"]) / len(row["scores"]), 1)
+            if row["scores"] else None
+        )
+        row.pop("scores", None)
+
+    return {
+        "version": V313_VERSION,
+        "username": username,
+        "active_runs": active_runs,
+        "recent_runs": runs,
+        "completed_runs": len(completed),
+        "average_outcome_score": avg_outcome,
+        "strategy_execution_stats": by_strategy,
+        "playbooks": pb.get("playbooks") or [],
+        "principle": (
+            "BL3 now separates three questions: Is the strategy evidence trustworthy? "
+            "Does it fit this declared context? Did the execution actually work?"
+        ),
+    }
+
+
+@app.route("/api/hunter-playbook-execution")
+def v313_execution_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v313_execution_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-playbook-execution/fit", methods=["POST"])
+def v313_execution_fit():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    playbook_id = int(payload.get("playbook_id") or 0)
+    context_label = str(payload.get("context_label") or "").strip()[:120]
+    context_note = str(payload.get("context_note") or "").strip()[:1000]
+
+    pb = _v312_playbook_snapshot(username)
+    item = next(
+        (x for x in pb.get("playbooks") or []
+         if int(x.get("id") or 0) == playbook_id and str(x.get("status")) == "ACTIVE"),
+        None
+    )
+    if not item:
+        return jsonify({"success": False, "error": "active_playbook_not_found"}), 404
+
+    fit = _v313_context_fit(item, context_label, context_note)
+    return jsonify({
+        "success": True,
+        "playbook_id": playbook_id,
+        "strategy": item.get("strategy"),
+        "fit": fit,
+    })
+
+
+@app.route("/api/hunter-playbook-execution/start", methods=["POST"])
+def v313_execution_start():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    playbook_id = int(payload.get("playbook_id") or 0)
+    context_label = str(payload.get("context_label") or "").strip()[:120]
+    context_note = str(payload.get("context_note") or "").strip()[:1000]
+
+    pb = _v312_playbook_snapshot(username)
+    item = next(
+        (x for x in pb.get("playbooks") or []
+         if int(x.get("id") or 0) == playbook_id and str(x.get("status")) == "ACTIVE"),
+        None
+    )
+    if not item:
+        return jsonify({"success": False, "error": "active_playbook_not_found"}), 404
+
+    fit = _v313_context_fit(item, context_label, context_note)
+
+    # Hard guardrail: non-VALID playbooks cannot be launched as normal execution runs.
+    # User can first review/retest the strategy in the experiment loop.
+    if str(item.get("evidence_guard")) != "VALID":
+        return jsonify({
+            "success": False,
+            "error": "playbook_requires_evidence_review",
+            "evidence_guard": item.get("evidence_guard"),
+            "fit": fit,
+        }), 409
+
+    # One active run per playbook to keep feedback attributable.
+    con = sqlite3.connect(DB)
+    try:
+        active = con.execute("""
+            SELECT id FROM hunter_playbook_runs
+            WHERE username=? AND playbook_id=? AND status='ACTIVE'
+            LIMIT 1
+        """, (username, playbook_id)).fetchone()
+        if active:
+            return jsonify({
+                "success": False,
+                "error": "active_run_already_exists",
+                "run_id": active[0],
+            }), 409
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cur = con.execute("""
+            INSERT INTO hunter_playbook_runs
+            (username, playbook_id, strategy, context_label, context_note,
+             fit_score, fit_state, status, started_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+        """, (
+            username,
+            playbook_id,
+            str(item.get("strategy") or ""),
+            context_label,
+            context_note,
+            int(fit.get("fit_score") or 0),
+            str(fit.get("fit_state") or "UNKNOWN"),
+            now,
+        ))
+        con.commit()
+        run_id = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "status": "started",
+        "run_id": run_id,
+        "strategy": item.get("strategy"),
+        "fit": fit,
+    })
+
+
+@app.route("/api/hunter-playbook-execution/<int:run_id>/complete", methods=["POST"])
+def v313_execution_complete(run_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    outcome_label = str(payload.get("outcome_label") or "").strip()[:120]
+    outcome_note = str(payload.get("outcome_note") or "").strip()[:1200]
+
+    try:
+        outcome_score = int(payload.get("outcome_score"))
+    except Exception:
+        return jsonify({"success": False, "error": "outcome_score_required"}), 400
+
+    if outcome_score < 0 or outcome_score > 100:
+        return jsonify({"success": False, "error": "outcome_score_must_be_0_to_100"}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            UPDATE hunter_playbook_runs
+            SET status='COMPLETED', completed_at=?,
+                outcome_label=?, outcome_score=?, outcome_note=?
+            WHERE id=? AND username=? AND status='ACTIVE'
+        """, (now, outcome_label, outcome_score, outcome_note, run_id, username))
+        con.commit()
+        if cur.rowcount == 0:
+            return jsonify({"success": False, "error": "active_run_not_found"}), 404
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "status": "completed",
+        "run_id": run_id,
+        "outcome_score": outcome_score,
+    })
+
+
+@app.route("/api/hunter-playbook-execution/<int:run_id>/cancel", methods=["POST"])
+def v313_execution_cancel(run_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            UPDATE hunter_playbook_runs
+            SET status='CANCELLED', completed_at=?
+            WHERE id=? AND username=? AND status='ACTIVE'
+        """, (now, run_id, username))
+        con.commit()
+        if cur.rowcount == 0:
+            return jsonify({"success": False, "error": "active_run_not_found"}), 404
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "status": "cancelled", "run_id": run_id})
+
+
+@app.route("/hunter-playbook-execution")
+def v313_execution_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Playbook Execution</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🎯 Playbook Execution</h1><p>Sign in to run trusted playbooks against a declared context.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v313_execution_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    playbook_cards = []
+    for p in snap.get("playbooks") or []:
+        if str(p.get("status")) != "ACTIVE":
+            continue
+        guard = str(p.get("evidence_guard") or "UNKNOWN")
+        disabled = guard != "VALID"
+        btn = (
+            "<button onclick=\"startRun(%d,%s)\">START EXECUTION</button>"
+            % (int(p.get("id")), repr(str(p.get("strategy") or "")))
+            if not disabled else
+            "<span class='disabled'>RETEST FIRST — %s</span>" % esc(guard)
+        )
+        playbook_cards.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>TRUSTED STRATEGY</span><h3>{strategy}</h3></div>
+          <span class='pill {guard_class}'>{guard}</span></div>
+          <div class='metrics'>
+            <div><span>CALIBRATION</span><b>{score}</b></div>
+            <div><span>STRICT TESTS</span><b>{strict}</b></div>
+            <div><span>HIT RATE</span><b>{hit}</b></div>
+          </div>
+          {button}
+        </article>
+        """.format(
+            strategy=esc(p.get("strategy")),
+            guard=esc(guard),
+            guard_class=esc(guard.lower()),
+            score=esc((p.get("current_evidence") or {}).get("calibration_score")),
+            strict=esc((p.get("current_evidence") or {}).get("strict_tests")),
+            hit=esc(
+                "—" if (p.get("current_evidence") or {}).get("hit_rate") is None
+                else str((p.get("current_evidence") or {}).get("hit_rate")) + "%"
+            ),
+            button=btn,
+        ))
+
+    run_cards = []
+    for r in snap.get("recent_runs") or []:
+        complete_btn = ""
+        if str(r.get("status")) == "ACTIVE":
+            complete_btn = (
+                "<button onclick=\"completeRun(%d)\">COMPLETE + SCORE</button>"
+                "<button onclick=\"cancelRun(%d)\">CANCEL</button>"
+                % (int(r.get("id")), int(r.get("id")))
+            )
+        run_cards.append("""
+        <article class='run'>
+          <div class='top'><div><span class='eyebrow'>EXECUTION RUN #{id}</span><h3>{strategy}</h3></div>
+          <span class='pill'>{status}</span></div>
+          <div class='metrics four'>
+            <div><span>FIT</span><b>{fit_state}</b></div>
+            <div><span>FIT SCORE</span><b>{fit_score}</b></div>
+            <div><span>CONTEXT</span><b>{context}</b></div>
+            <div><span>OUTCOME</span><b>{outcome}</b></div>
+          </div>
+          <p>{note}</p>
+          {buttons}
+        </article>
+        """.format(
+            id=esc(r.get("id")),
+            strategy=esc(r.get("strategy")),
+            status=esc(r.get("status")),
+            fit_state=esc(r.get("fit_state")),
+            fit_score=esc(r.get("fit_score")),
+            context=esc(r.get("context_label") or "—"),
+            outcome=esc(r.get("outcome_score")),
+            note=esc(r.get("outcome_note") or r.get("context_note") or ""),
+            buttons=complete_btn,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.3 Playbook Execution</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#18251d,#060a08 58%,#020403);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#08120def;border:1px solid #315f43;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#7ff0ae;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:30px}}h3{{margin:5px 0 0}}
+    p{{color:#bdcec4;line-height:1.55}}.hero{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}}
+    .hero div,.metrics div{{background:#07110b;border:1px solid #2b533a;border-radius:12px;padding:12px}}.hero span,.metrics span{{display:block;color:#7b9d88;font-size:9px;font-weight:900}}.hero b,.metrics b{{display:block;margin-top:6px;font-size:20px}}
+    .card,.run{{background:#0a1310;border:1px solid #284633;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.pill{{font-size:10px;font-weight:900;border:1px solid #527261;border-radius:999px;padding:6px 9px}}
+    .valid{{color:#75f2aa}}.review{{color:#ffd26f}}.weak{{color:#ff8292}}.stale{{color:#a5b2bd}}
+    .metrics{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:13px 0}}.four{{grid-template-columns:repeat(4,1fr)}}
+    button,a{{display:inline-block;margin:10px 6px 0 0;padding:10px 13px;border:1px solid #4e8061;border-radius:10px;background:#0b1b12;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    .disabled{{display:inline-block;margin-top:10px;color:#8aa394;font-size:11px}}
+    @media(max-width:900px){{.hero,.metrics,.four{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.3 // TRUST → CONTEXT → EXECUTION → OUTCOME</div>
+      <h1>🎯 PLAYBOOK EXECUTION</h1>
+      <p>{username}, BL3 can now take a promoted strategy, check its current evidence guard, score its fit against your declared context, launch a trackable run, and store the real outcome.</p>
+      <div class='hero'>
+        <div><span>ACTIVE RUNS</span><b>{active}</b></div>
+        <div><span>COMPLETED RUNS</span><b>{completed}</b></div>
+        <div><span>AVG OUTCOME</span><b>{avg}</b></div>
+      </div>
+      <p><strong>Guardrail:</strong> only playbooks with current <b>VALID</b> evidence can start a normal execution run. Context fit cannot override weak evidence.</p>
+
+      <a href='/hunter-strategy-playbooks'>📚 PLAYBOOKS</a>
+      <a href='/hunter-experiment-learning'>🧠 LEARNING LOOP</a>
+      <a href='/hunter-run-experiment'>🧪 RUN EXPERIMENT</a>
+
+      <h2>AVAILABLE PLAYBOOKS</h2>
+      {playbooks}
+
+      <h2>EXECUTION HISTORY</h2>
+      {runs}
+    </section></div>
+    <script>
+    async function startRun(id,strategy){{
+      const context_label = prompt("Context label (example: launch week / retention / social growth):","") || "";
+      const context_note = prompt("Describe this context so BL3 can score fit:","") || "";
+      const r = await fetch("/api/hunter-playbook-execution/start",{{
+        method:"POST",headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{playbook_id:id,context_label,context_note}})
+      }});
+      const j = await r.json();
+      if(!r.ok){{alert(j.error || "Start failed");return;}}
+      alert("Run started. Fit: "+j.fit.fit_state+" ("+j.fit.fit_score+")");
+      location.reload();
+    }}
+    async function completeRun(id){{
+      const s = prompt("Outcome score 0-100:","70");
+      if(s===null)return;
+      const outcome_score = Number(s);
+      const outcome_label = prompt("Outcome label (win / mixed / miss / custom):","") || "";
+      const outcome_note = prompt("What happened?","") || "";
+      const r = await fetch("/api/hunter-playbook-execution/"+id+"/complete",{{
+        method:"POST",headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{outcome_score,outcome_label,outcome_note}})
+      }});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Complete failed");return;}}
+      location.reload();
+    }}
+    async function cancelRun(id){{
+      if(!confirm("Cancel this execution run?"))return;
+      const r=await fetch("/api/hunter-playbook-execution/"+id+"/cancel",{{method:"POST"}});
+      const j=await r.json();
+      if(!r.ok){{alert(j.error||"Cancel failed");return;}}
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        active=esc(len(snap.get("active_runs") or [])),
+        completed=esc(snap.get("completed_runs")),
+        avg=esc(snap.get("average_outcome_score")),
+        playbooks="".join(playbook_cards) if playbook_cards else "<p>No active playbooks yet.</p>",
+        runs="".join(run_cards) if run_cards else "<p>No execution runs yet.</p>",
+    )
+
+
+# Surface V31.3 from the V31.2 playbook page.
+try:
+    _v313_prev_playbooks_page = app.view_functions.get("v312_playbooks_page")
+    if _v313_prev_playbooks_page:
+        def _v313_playbooks_page_with_execution(*args, **kwargs):
+            response = _v313_prev_playbooks_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-playbook-execution" not in response:
+                link = "<a href='/hunter-playbook-execution'>🎯 PLAYBOOK EXECUTION</a>"
+                response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v312_playbooks_page"] = _v313_playbooks_page_with_execution
 except Exception:
     pass
 
