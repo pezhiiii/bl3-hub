@@ -30672,7 +30672,7 @@ if _v246_original_progression_page:
 # - Strict secret mode is optional with BL3_REQUIRE_SECRETS=1.
 
 V247_DEPLOYMENT_SEAL_SHA256 = "d8672ddc67f2c7411a3c4bf76e02ddaf51e1e70ef77bcc0809456f9a92428b6c"
-V247_SECURITY_VERSION = "V29.9"
+V247_SECURITY_VERSION = "V30.0"
 V247_LOCK_ENABLED = (os.environ.get("BL3_DEPLOYMENT_LOCK") or "0").strip() == "1"
 V247_REQUIRE_SECRETS = (os.environ.get("BL3_REQUIRE_SECRETS") or "0").strip() == "1"
 V247_DEPLOYMENT_KEY = os.environ.get("BL3_DEPLOYMENT_KEY") or ""
@@ -30918,7 +30918,7 @@ except Exception:
 # - Optionally sign the attestation with the deployment key using HMAC-SHA256.
 # - Never reveal secret values.
 
-V248_SECURITY_VERSION = "V29.9"
+V248_SECURITY_VERSION = "V30.0"
 V248_PROJECT_ID = (os.environ.get("BL3_PROJECT_ID") or "BL3-ARENA").strip()[:120]
 V248_OWNER_ID = (os.environ.get("BL3_OWNER_ID") or "UNSET").strip()[:120]
 
@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.9 Build Attestation</title><style>
+    <title>BL3 V30.0 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -31132,7 +31132,7 @@ except Exception:
 # deployment lock and trusted build attestation into one admin-safe readiness view.
 # Secret values are never exposed.
 
-V250_VERSION = "V29.9"
+V250_VERSION = "V30.0"
 V250_RELEASE = "RELEASE SENTINEL + LAUNCH READINESS GATE"
 
 
@@ -31397,7 +31397,7 @@ except Exception:
 # ===== V25.3 INTEGRITY WATCH + ATTESTATION TIMELINE =====
 # Admin-safe runtime integrity overview. No secret values are exposed.
 
-V253_VERSION = "V29.9"
+V253_VERSION = "V30.0"
 
 def _v253_attestation_history(limit=12):
     _v248_ensure_schema()
@@ -31604,7 +31604,7 @@ except Exception:
 # ===== V25.4 INTEGRITY INCIDENT JOURNAL + ALERT ACKNOWLEDGEMENT =====
 # Admin-only integrity event journal. No secret values are stored.
 
-V254_VERSION = "V29.9"
+V254_VERSION = "V30.0"
 
 def _v254_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -31879,7 +31879,7 @@ except Exception:
 # Captures admin-safe integrity posture only when meaningful state changes.
 # No secret values, tokens, deployment keys, or session contents are stored.
 
-V255_VERSION = "V29.9"
+V255_VERSION = "V30.0"
 
 def _v255_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -32184,7 +32184,7 @@ except Exception:
 # Compares one integrity snapshot with its immediately previous snapshot.
 # Admin-only; no secret values are read or exposed.
 
-V256_VERSION = "V29.9"
+V256_VERSION = "V30.0"
 V256_DIFF_FIELDS = [
     ("integrity_state", "Integrity state"),
     ("attestation_state", "Attestation"),
@@ -32444,7 +32444,7 @@ except Exception:
 # baseline and compare the current runtime posture against it.
 # No secret values are stored or exposed.
 
-V257_VERSION = "V29.9"
+V257_VERSION = "V30.0"
 
 def _v257_ensure_schema():
     _v255_ensure_schema()
@@ -32758,7 +32758,7 @@ except Exception:
 # Product-facing personalized home for signed-in Hunters.
 # Reuses existing progression/social/profile systems; no new economic value is introduced.
 
-V258_VERSION = "V29.9"
+V258_VERSION = "V30.0"
 
 def _v258_safe_call(fn, *args, default=None, **kwargs):
     try:
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V29.9 Hunter Command Deck</title>
+    <title>BL3 V30.0 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -33004,7 +33004,7 @@ except Exception:
 # Product-facing priority queue that converts existing BL3 signals into a small,
 # actionable "what should I do next?" list for the signed-in Hunter.
 
-V259_VERSION = "V29.9"
+V259_VERSION = "V30.0"
 
 def _v259_hunter_next_move_snapshot(username):
     username = str(username or "").strip()
@@ -33242,7 +33242,7 @@ except Exception:
 # Turns "Next Move" recommendations into a lightweight persistent execution loop.
 # Focus Runs are purely in-app productivity/progression records; no monetary value.
 
-V260_VERSION = "V29.9"
+V260_VERSION = "V30.0"
 
 def _v260_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -33624,7 +33624,7 @@ except Exception:
 # Lets a signed-in Hunter line up a few next moves, then promote the next queued
 # action into an active Focus Run. Queue state is local BL3 app state only.
 
-V261_VERSION = "V29.9"
+V261_VERSION = "V30.0"
 V261_MAX_QUEUE = 5
 
 def _v261_ensure_schema():
@@ -34011,7 +34011,7 @@ except Exception:
 # Adds an optional per-Hunter setting to automatically promote the next queued
 # action after a Focus Run is completed.
 
-V262_VERSION = "V29.9"
+V262_VERSION = "V30.0"
 
 def _v262_ensure_schema():
     _v261_ensure_schema()
@@ -34229,7 +34229,7 @@ except Exception:
 # Product-facing retrospective built from Hunter Focus Runs.
 # Measures only in-app activity and completion behavior.
 
-V263_VERSION = "V29.9"
+V263_VERSION = "V30.0"
 
 def _v263_parse_iso(value):
     raw = str(value or "").strip()
@@ -34518,7 +34518,7 @@ except Exception:
 # ===== V26.4 WEEKLY FOCUS GOALS + PROGRESS TRACKER =====
 # Adds one simple completion target for the current 7-day window.
 
-V264_VERSION = "V29.9"
+V264_VERSION = "V30.0"
 
 def _v264_ensure_schema():
     _v263_focus_insights_snapshot  # keep dependency explicit
@@ -34707,7 +34707,7 @@ except Exception:
 # Adds lightweight milestone recognition based on completed Focus Runs.
 # Badges are cosmetic in-app achievements only.
 
-V265_VERSION = "V29.9"
+V265_VERSION = "V30.0"
 
 def _v265_ensure_schema():
     _v264_ensure_schema()
@@ -34960,7 +34960,7 @@ except Exception:
 # Bridges V26.5 Focus milestones into the existing Hunter achievement badge
 # system so unlocked Focus milestones can be featured and shared like native badges.
 
-V266_VERSION = "V29.9"
+V266_VERSION = "V30.0"
 
 _V266_ORIGINAL_HUNTER_BADGES_SNAPSHOT = _hunter_badges_snapshot
 
@@ -35168,7 +35168,7 @@ except Exception:
 # Public, shareable progression summary built from existing BL3 profile,
 # focus, goal and badge signals. No private/session/admin data is exposed.
 
-V267_VERSION = "V29.9"
+V267_VERSION = "V30.0"
 
 def _v267_progress_passport_snapshot(username):
     username = str(username or "").strip()
@@ -35397,7 +35397,7 @@ except Exception:
 # Public side-by-side comparison of two existing Progress Passports.
 # Uses only public BL3 progression signals already exposed by V26.7.
 
-V268_VERSION = "V29.9"
+V268_VERSION = "V30.0"
 
 def _v268_compare_snapshot(username_a, username_b):
     a = _v267_progress_passport_snapshot(username_a)
@@ -35606,7 +35606,7 @@ except Exception:
 # Authenticated Hunters can capture public progression checkpoints and compare
 # growth between captures. Stored values are public BL3 progression signals only.
 
-V269_VERSION = "V29.9"
+V269_VERSION = "V30.0"
 
 def _v269_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -35868,7 +35868,7 @@ except Exception:
 # Turns V26.9 progress checkpoints into a compact historical timeline and
 # calculates personal-best values from recorded public progression metrics.
 
-V270_VERSION = "V29.9"
+V270_VERSION = "V30.0"
 
 def _v270_growth_timeline_snapshot(username):
     username = str(username or "").strip()
@@ -36104,7 +36104,7 @@ except Exception:
 # progress checkpoint. Reflections are never exposed through public passport
 # or timeline APIs/pages.
 
-V271_VERSION = "V29.9"
+V271_VERSION = "V30.0"
 V271_MAX_REFLECTION = 600
 
 def _v271_ensure_schema():
@@ -36317,7 +36317,7 @@ except Exception:
 # Adds one private "next action" commitment to each checkpoint reflection and
 # lets the signed-in owner send that commitment into the existing Focus Queue.
 
-V272_VERSION = "V29.9"
+V272_VERSION = "V30.0"
 V272_MAX_COMMITMENT = 180
 
 def _v272_ensure_schema():
@@ -36607,7 +36607,7 @@ except Exception:
 # ===== V27.3 COMMITMENT OUTCOMES + ACTION BOARD =====
 # Adds explicit status/outcome tracking to private Reflection → Action commitments.
 
-V273_VERSION = "V29.9"
+V273_VERSION = "V30.0"
 V273_ALLOWED_STATUSES = {"OPEN", "QUEUED", "DONE", "DROPPED"}
 V273_MAX_OUTCOME = 300
 
@@ -36871,7 +36871,7 @@ except Exception:
 # Links Reflection commitments to Focus Queue items and Focus Runs so the
 # Action Board can close the loop automatically when a linked run finishes.
 
-V274_VERSION = "V29.9"
+V274_VERSION = "V30.0"
 
 def _v274_ensure_schema():
     _v273_ensure_schema()
@@ -37215,7 +37215,7 @@ except Exception:
 # ===== V27.5 COMMITMENT FUNNEL + EXECUTION ANALYTICS =====
 # Private analytics for the Reflection → Commitment → Queue → Focus Run → Done loop.
 
-V275_VERSION = "V29.9"
+V275_VERSION = "V30.0"
 
 def _v275_commitment_funnel_snapshot(username):
     username = str(username or "").strip()
@@ -37442,7 +37442,7 @@ except Exception:
 # Turns private funnel analytics into a small corrective plan and lets the Hunter
 # send one recommended recovery action directly into the existing Focus Queue.
 
-V276_VERSION = "V29.9"
+V276_VERSION = "V30.0"
 
 def _v276_recovery_plan_snapshot(username):
     username = str(username or "").strip()
@@ -37729,7 +37729,7 @@ except Exception:
 # Stores each queued Recovery Coach action with a private baseline snapshot,
 # then compares later funnel metrics against that baseline.
 
-V277_VERSION = "V29.9"
+V277_VERSION = "V30.0"
 V277_ALLOWED_OUTCOMES = {"PENDING", "HELPFUL", "NO_CHANGE", "NOT_HELPFUL"}
 V277_MAX_NOTE = 300
 
@@ -38054,7 +38054,7 @@ except Exception:
 # kinds marked HELPFUL gain priority while repeatedly NOT_HELPFUL kinds are
 # deprioritized. This is private per-Hunter learning memory.
 
-V278_VERSION = "V29.9"
+V278_VERSION = "V30.0"
 
 def _v278_recovery_memory(username):
     username = str(username or "").strip()
@@ -38269,7 +38269,7 @@ except Exception:
 # Detects OPEN/QUEUED commitments that have sat too long without execution and
 # gives the signed-in Hunter a private rescue path: restart, re-queue, or drop.
 
-V279_VERSION = "V29.9"
+V279_VERSION = "V30.0"
 V279_STALE_HOURS = 72
 
 def _v279_parse_iso(value):
@@ -38589,7 +38589,7 @@ except Exception:
 # Records stale-commitment rescue decisions and measures whether rescued items
 # later progressed to Focus Runs or completed commitments.
 
-V280_VERSION = "V29.9"
+V280_VERSION = "V30.0"
 
 def _v280_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -38860,7 +38860,7 @@ except Exception:
 # Learns which stale-work rescue action works best for the signed-in Hunter
 # and adds a recommendation to each stale commitment.
 
-V281_VERSION = "V29.9"
+V281_VERSION = "V30.0"
 
 def _v281_rescue_strategy_snapshot(username):
     username = str(username or "").strip()
@@ -39076,7 +39076,7 @@ except Exception:
 # already present in Focus Queue, BL3 moves it to the top instead of creating
 # a duplicate queue item.
 
-V282_VERSION = "V29.9"
+V282_VERSION = "V30.0"
 
 def _v282_existing_queue_link(username, checkpoint_id):
     _v274_ensure_schema()
@@ -39462,7 +39462,7 @@ except Exception:
 # commitment as the active Focus Run. If another Focus Run is already active,
 # the rescued commitment stays queued at the top instead of interrupting it.
 
-V283_VERSION = "V29.9"
+V283_VERSION = "V30.0"
 
 def _v283_payload(response):
     try:
@@ -39647,7 +39647,7 @@ except Exception:
 # recycling the same item, the Hunter can shrink/rewrite the commitment while
 # preserving a private rewrite audit trail.
 
-V284_VERSION = "V29.9"
+V284_VERSION = "V30.0"
 V284_REPEAT_RESCUE_THRESHOLD = 2
 V284_MAX_COMMITMENT_LEN = 180
 
@@ -40020,7 +40020,7 @@ except Exception:
 # requeue it and start a Focus Run when safe. If another Focus Run is active,
 # the rewritten commitment is placed at the top of the queue without interruption.
 
-V285_VERSION = "V29.9"
+V285_VERSION = "V30.0"
 
 def _v285_response_payload(response):
     try:
@@ -40271,7 +40271,7 @@ except Exception:
 # Unifies active Focus, queue, commitments, stale rescue, loop-breaker state,
 # analytics and adaptive rescue strategy into one private Hunter workspace.
 
-V286_VERSION = "V29.9"
+V286_VERSION = "V30.0"
 
 def _v286_execution_console_snapshot(username):
     username = str(username or "").strip()
@@ -40524,7 +40524,7 @@ except Exception:
 # navigating to the next tool, the Hunter can execute the current primary move
 # directly when it is safe to do so.
 
-V287_VERSION = "V29.9"
+V287_VERSION = "V30.0"
 
 def _v287_primary_action(username):
     console = _v286_execution_console_snapshot(username)
@@ -40758,7 +40758,7 @@ except Exception:
 # Records each successfully executed primary action so the Hunter can review
 # what BL3 actually changed, not just what it recommended.
 
-V288_VERSION = "V29.9"
+V288_VERSION = "V30.0"
 
 def _v288_ensure_schema():
     conn = sqlite3.connect(DB)
@@ -40975,7 +40975,7 @@ except Exception:
 # Evaluates what happened after recorded execution commands by resolving linked
 # Focus Run status. This closes the loop from "command executed" to "work completed".
 
-V289_VERSION = "V29.9"
+V289_VERSION = "V30.0"
 
 def _v289_receipt_outcomes_snapshot(username):
     username = str(username or "").strip()
@@ -41200,7 +41200,7 @@ except Exception:
 # The policy is conservative: it needs at least 3 resolved historical runs for
 # the same command action before it can gate automation.
 
-V290_VERSION = "V29.9"
+V290_VERSION = "V30.0"
 V290_MIN_RESOLVED_SAMPLES = 3
 V290_LOW_COMPLETION_THRESHOLD = 35.0
 V290_HIGH_CANCELLATION_THRESHOLD = 50.0
@@ -44338,6 +44338,344 @@ for _endpoint in (
                     return response
                 return _wrapped
             app.view_functions[_endpoint] = _make_wrapped(_previous)
+    except Exception:
+        pass
+
+
+# ===== V30.0 VERIFIED OUTCOME INTELLIGENCE =====
+# Milestone release: converts verified completion receipts + explicit Exit Reviews
+# into a transparent execution dashboard. No hidden behavioral inference is used.
+# The "Outcome Signal" is a simple product heuristic, not an objective quality score.
+
+V300_VERSION = "V30.0"
+
+def _v300_outcome_intelligence(username, limit=40):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V300_VERSION}
+
+    _v299_ensure_schema()
+    _v292_ensure_schema()
+
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT
+                   c.id, c.run_id, c.preflight_id, c.action_title,
+                   c.done_definition, c.confidence, c.evidence,
+                   c.friction AS preflight_friction,
+                   c.timebox_minutes, c.elapsed_seconds, c.overtime_seconds,
+                   c.completed_at, c.receipt_sha256,
+                   r.outcome AS review_outcome,
+                   r.friction AS exit_friction,
+                   r.note AS exit_note,
+                   r.reviewed_at
+               FROM hunter_focus_completion_receipts c
+               LEFT JOIN hunter_focus_exit_reviews r
+                 ON r.run_id=c.run_id AND r.username=c.username
+               WHERE c.username=?
+               ORDER BY c.id DESC
+               LIMIT ?""",
+            (username, max(1, min(int(limit or 40), 100)))
+        ).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    total = len(items)
+    if not total:
+        return {
+            "success": True,
+            "version": V300_VERSION,
+            "username": username,
+            "verified_outcomes": 0,
+            "outcome_signal": 0,
+            "state": "LEARNING",
+            "metrics": {
+                "evidence_coverage": 0,
+                "review_coverage": 0,
+                "on_time_rate": 0,
+                "avg_confidence": 0,
+                "frictionless_rate": 0,
+            },
+            "dominant_exit_friction": "NONE",
+            "dominant_exit_friction_label": "No reviewed friction yet",
+            "next_adjustment": {
+                "kind": "COLLECT",
+                "title": "Complete more verified Focus Runs",
+                "detail": "V30.0 needs verified completion receipts before it can summarize execution patterns.",
+                "href": "/hunter-focus-preflight",
+            },
+            "items": [],
+            "policy": (
+                "Outcome Intelligence uses only BL3 completion receipts and explicit Exit Review feedback. "
+                "Outcome Signal is a transparent execution heuristic, not a judgment of personal performance."
+            )
+        }
+
+    evidence_count = 0
+    reviewed_count = 0
+    on_time_count = 0
+    confidence_sum = 0
+    frictionless_count = 0
+    exit_counts = {}
+
+    enriched = []
+    for item in items:
+        confidence = max(0, min(5, int(item.get("confidence") or 0)))
+        confidence_sum += confidence
+
+        evidence_present = bool(str(item.get("evidence") or "").strip())
+        reviewed = bool(item.get("reviewed_at"))
+        on_time = int(item.get("overtime_seconds") or 0) <= 0
+        exit_friction = str(item.get("exit_friction") or "NONE").upper()
+
+        if evidence_present:
+            evidence_count += 1
+        if reviewed:
+            reviewed_count += 1
+            exit_counts[exit_friction] = exit_counts.get(exit_friction, 0) + 1
+            if exit_friction == "NONE":
+                frictionless_count += 1
+        if on_time:
+            on_time_count += 1
+
+        # Transparent per-outcome heuristic, capped at 100.
+        signal = 50
+        signal += 10 if confidence >= 4 else (5 if confidence == 3 else 0)
+        signal += 10 if evidence_present else 0
+        signal += 10 if on_time else 0
+        signal += 10 if reviewed else 0
+        signal += 10 if reviewed and exit_friction == "NONE" else 0
+        signal = max(0, min(100, signal))
+
+        row = dict(item)
+        row.update({
+            "evidence_present": evidence_present,
+            "reviewed": reviewed,
+            "on_time": on_time,
+            "outcome_signal": signal,
+        })
+        enriched.append(row)
+
+    evidence_coverage = round((evidence_count / total) * 100)
+    review_coverage = round((reviewed_count / total) * 100)
+    on_time_rate = round((on_time_count / total) * 100)
+    avg_confidence = round(confidence_sum / total, 2)
+    frictionless_rate = round((frictionless_count / reviewed_count) * 100) if reviewed_count else 0
+
+    overall_signal = round(
+        sum(int(x.get("outcome_signal") or 0) for x in enriched) / total
+    )
+
+    dominant = "NONE"
+    if exit_counts:
+        dominant = max(exit_counts, key=exit_counts.get)
+
+    friction_labels = globals().get("V292_FRICTION_CHOICES", {}) or {}
+    dominant_label = friction_labels.get(dominant, dominant)
+
+    adjustment_map = {
+        "TOO_BIG": {
+            "kind": "TIMEBOX",
+            "title": "Shrink the next execution unit",
+            "detail": "Your reviewed outcomes most often report scope friction. Use a shorter timebox or split the next action.",
+            "href": "/hunter-focus-preflight",
+        },
+        "DISTRACTED": {
+            "kind": "TIMEBOX",
+            "title": "Protect a shorter focus window",
+            "detail": "Distraction is the most common reviewed friction. Keep the next run short and single-purpose.",
+            "href": "/hunter-focus-preflight",
+        },
+        "BLOCKED": {
+            "kind": "BLOCKER",
+            "title": "Write the fallback before starting",
+            "detail": "Blocked runs dominate reviewed outcomes. Put a concrete fallback in the Preflight blocker plan.",
+            "href": "/hunter-focus-preflight",
+        },
+        "TECHNICAL": {
+            "kind": "BLOCKER",
+            "title": "Pre-plan the technical fallback",
+            "detail": "Technical friction dominates reviewed outcomes. Define the fallback path before the timer starts.",
+            "href": "/hunter-focus-preflight",
+        },
+        "UNCLEAR": {
+            "kind": "CLARITY",
+            "title": "Tighten the DONE definition",
+            "detail": "Unclear completion criteria dominate reviewed outcomes. Make the next DONE definition concrete and observable.",
+            "href": "/hunter-focus-preflight",
+        },
+        "LOW_PRIORITY": {
+            "kind": "PRIORITY",
+            "title": "Reorder the queue first",
+            "detail": "Priority mismatch dominates reviewed outcomes. Re-rank the Focus Queue before starting another run.",
+            "href": "/hunter-focus-queue",
+        },
+        "NONE": {
+            "kind": "MAINTAIN",
+            "title": "Keep the current execution pattern",
+            "detail": "No repeated reviewed friction dominates the verified outcomes yet. Keep collecting clean receipts and reviews.",
+            "href": "/hunter-focus-preflight",
+        },
+    }
+
+    next_adjustment = adjustment_map.get(dominant, adjustment_map["NONE"])
+
+    # Require at least two reviewed examples before treating a friction as a stable pattern.
+    if reviewed_count < 2:
+        next_adjustment = {
+            "kind": "COLLECT",
+            "title": "Collect two reviewed outcomes",
+            "detail": "V30.0 waits for at least two Exit Reviews before treating any friction as a repeatable pattern.",
+            "href": "/hunter-focus-exit-review",
+        }
+
+    state = "CALIBRATED" if total >= 5 and reviewed_count >= 3 else "LEARNING"
+
+    return {
+        "success": True,
+        "version": V300_VERSION,
+        "username": username,
+        "verified_outcomes": total,
+        "outcome_signal": overall_signal,
+        "state": state,
+        "metrics": {
+            "evidence_coverage": evidence_coverage,
+            "review_coverage": review_coverage,
+            "on_time_rate": on_time_rate,
+            "avg_confidence": avg_confidence,
+            "frictionless_rate": frictionless_rate,
+        },
+        "dominant_exit_friction": dominant,
+        "dominant_exit_friction_label": dominant_label,
+        "exit_friction_counts": exit_counts,
+        "next_adjustment": next_adjustment,
+        "items": enriched,
+        "policy": (
+            "Outcome Intelligence uses only BL3 verified completion receipts and explicit Exit Review feedback. "
+            "Outcome Signal is a transparent execution heuristic: 50 base, +confidence, +evidence, +on-time, "
+            "+review completion, +friction-free review. It is not an objective quality or productivity judgment."
+        )
+    }
+
+
+@app.route("/api/hunter-outcome-intelligence")
+def v300_outcome_intelligence_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v300_outcome_intelligence(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/hunter-outcome-intelligence")
+def v300_outcome_intelligence_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Outcome Intelligence</title><body style='margin:0;background:#07070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧠 Outcome Intelligence</h1><p>Sign in to view your verified execution patterns.</p>
+        <a style='color:#b56cff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v300_outcome_intelligence(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    m = data.get("metrics") or {}
+    adj = data.get("next_adjustment") or {}
+
+    rows = []
+    for item in (data.get("items") or [])[:12]:
+        rows.append(
+            """<div class='receipt'>
+              <div class='top'><b>{title}</b><span>{signal}/100</span></div>
+              <div class='meta'>Confidence {confidence}/5 · {timing} · Exit friction {friction}</div>
+              <div class='hash'>{sha}</div>
+            </div>""".format(
+                title=esc(item.get("action_title")),
+                signal=esc(item.get("outcome_signal")),
+                confidence=esc(item.get("confidence")),
+                timing="ON TIME" if item.get("on_time") else "OVERTIME",
+                friction=esc(item.get("exit_friction") or "UNREVIEWED"),
+                sha=esc(item.get("receipt_sha256")),
+            )
+        )
+    if not rows:
+        rows.append("<div class='receipt'>No verified outcomes yet.</div>")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.0 Outcome Intelligence</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#17243b 0,#08080d 48%,#030305 100%);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1050px;margin:auto}}.panel{{background:#0a0e17ed;border:1px solid #425474;border-radius:24px;padding:22px;margin-bottom:16px}}
+    .eyebrow{{color:#9bc4ff;font-size:12px;font-weight:900;letter-spacing:2px}}h1{{font-size:46px;margin:10px 0}}.muted{{color:#adb8ca}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}}.card{{background:#080c13;border:1px solid #33425c;border-radius:16px;padding:15px}}
+    .k{{font-size:10px;color:#9eacc4;font-weight:900}}.v{{font-size:28px;font-weight:950;margin-top:6px}}.adjust{{background:#101829;border:1px solid #4a6086;border-radius:18px;padding:18px;margin:16px 0}}
+    .receipt{{background:#080b11;border:1px solid #303b4d;border-radius:15px;padding:14px;margin-top:10px}}.top{{display:flex;justify-content:space-between;gap:12px}}.top span{{font-weight:950;color:#a8d0ff}}.meta{{font-size:12px;color:#aeb9c9;margin-top:7px}}.hash{{font-family:monospace;font-size:10px;color:#7f9dbf;overflow-wrap:anywhere;margin-top:8px}}
+    a{{display:inline-block;border:1px solid #526c96;border-radius:10px;padding:10px 13px;background:#111a2a;color:#fff;text-decoration:none;font-weight:850;margin:4px 4px 0 0}}
+    </style></head><body><div class='wrap'>
+      <section class='panel'>
+        <div class='eyebrow'>BL3 V30.0 // VERIFIED OUTCOME INTELLIGENCE</div>
+        <h1>🧠 OUTCOME INTELLIGENCE</h1>
+        <p class='muted'>{username}, this dashboard turns verified Focus receipts and explicit Exit Reviews into execution feedback.</p>
+
+        <div class='grid'>
+          <div class='card'><div class='k'>STATE</div><div class='v'>{state}</div></div>
+          <div class='card'><div class='k'>VERIFIED OUTCOMES</div><div class='v'>{count}</div></div>
+          <div class='card'><div class='k'>OUTCOME SIGNAL</div><div class='v'>{signal}/100</div></div>
+          <div class='card'><div class='k'>AVG CONFIDENCE</div><div class='v'>{confidence}/5</div></div>
+          <div class='card'><div class='k'>EVIDENCE COVERAGE</div><div class='v'>{evidence}%</div></div>
+          <div class='card'><div class='k'>REVIEW COVERAGE</div><div class='v'>{review}%</div></div>
+          <div class='card'><div class='k'>ON-TIME RATE</div><div class='v'>{ontime}%</div></div>
+          <div class='card'><div class='k'>FRICTION-FREE REVIEWS</div><div class='v'>{frictionless}%</div></div>
+        </div>
+
+        <div class='adjust'>
+          <div class='eyebrow'>NEXT ADJUSTMENT · {adj_kind}</div>
+          <h2>{adj_title}</h2>
+          <p>{adj_detail}</p>
+          <a href='{adj_href}'>APPLY NEXT</a>
+        </div>
+
+        <h2>Recent verified outcomes</h2>
+        {rows}
+
+        <p><a href='/hunter-focus-completion-receipts'>🧾 RECEIPTS</a><a href='/hunter-focus-exit-review'>📝 EXIT REVIEWS</a><a href='/hunter-preflight-effectiveness'>📊 PREFLIGHT EFFECTIVENESS</a></p>
+      </section>
+    </div></body></html>""".format(
+        username=esc(username),
+        state=esc(data.get("state")),
+        count=esc(data.get("verified_outcomes")),
+        signal=esc(data.get("outcome_signal")),
+        confidence=esc(m.get("avg_confidence")),
+        evidence=esc(m.get("evidence_coverage")),
+        review=esc(m.get("review_coverage")),
+        ontime=esc(m.get("on_time_rate")),
+        frictionless=esc(m.get("frictionless_rate")),
+        adj_kind=esc(adj.get("kind")),
+        adj_title=esc(adj.get("title")),
+        adj_detail=esc(adj.get("detail")),
+        adj_href=esc(adj.get("href") or "/hunter-focus-preflight"),
+        rows="".join(rows),
+    )
+
+
+# Surface V30.0 from verified completion and review surfaces.
+for _endpoint in (
+    "v299_focus_completion_receipts_page",
+    "v299_focus_completion_gate_page",
+    "v298_focus_finish_check_page",
+):
+    try:
+        _previous = app.view_functions.get(_endpoint)
+        if _previous:
+            def _v300_make_wrapped(prev):
+                def _wrapped(*args, **kwargs):
+                    response = prev(*args, **kwargs)
+                    if isinstance(response, str) and "/hunter-outcome-intelligence" not in response:
+                        link = "<a href='/hunter-outcome-intelligence' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #526c96;border-radius:10px;color:#fff;text-decoration:none'>🧠 OUTCOME INTELLIGENCE</a>"
+                        response = response.replace("</body>", link + "</body>", 1)
+                    return response
+                return _wrapped
+            app.view_functions[_endpoint] = _v300_make_wrapped(_previous)
     except Exception:
         pass
 
