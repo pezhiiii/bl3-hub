@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.9 Build Attestation</title><style>
+    <title>BL3 V32.0 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.9 Hunter Command Deck</title>
+    <title>BL3 V32.0 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -51860,7 +51860,7 @@ def v317_retests_page():
     .rule{{border-left:4px solid #c283ff;padding:11px 14px;background:#17101f;border-radius:8px}}.small{{margin-top:10px;color:#8c7f98;font-size:11px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.9 // CONTEXT-DIVERSE RETEST REPLICATION</div>
+      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
       <h1>🧪 RECALIBRATION RETESTS</h1>
       <p>{username}, RETEST_ONLY is no longer just a warning. It now has a concrete evidence loop: declare the hypothesis, run the retest, record the outcome, and only then can BL3 recommend whether closure is justified.</p>
 
@@ -52418,7 +52418,7 @@ def v318_confidence_page():
     .rule{{border-left:4px solid #7fb4ff;padding:11px 14px;background:#111a28;border-radius:8px}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.9 // CONTEXT-DIVERSE RETEST REPLICATION</div>
+      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
       <h1>📈 EVIDENCE CONFIDENCE</h1>
       <p>{username}, one successful retest can still be enough under the default SINGLE policy. If a decision matters more, you can explicitly switch that directive to REPLICATED and require consistent evidence before closure.</p>
 
@@ -52820,7 +52820,7 @@ def v319_context_diversity_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.9 Context Diversity Gate</title>
+    <title>BL3 V32.0 Context Diversity Gate</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#17314a,#07090d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0b0f16ef;border:1px solid #426982;border-radius:24px;padding:24px}}
@@ -52834,7 +52834,7 @@ def v319_context_diversity_page():
     a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #497895;border-radius:10px;background:#111d27;color:#fff;text-decoration:none;font-weight:900}}
     @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.9 // CONTEXT-DIVERSE RETEST REPLICATION</div>
+      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
       <h1>🧭 CONTEXT DIVERSITY GATE</h1>
       <p>{username}, V31.8 proved that evidence should be replicated. V31.9 asks the next question: was it really replicated independently, or was the same test repeated in essentially the same context?</p>
 
@@ -52896,6 +52896,441 @@ try:
                 )
             return response
         app.view_functions["v317_retests_page"] = _v319_retests_page_with_context_gate
+except Exception:
+    pass
+
+# ===== V32.0 CLOSURE ADJUDICATION + DECISION RECEIPTS =====
+# Completes the retest evidence loop by capturing a durable evidence snapshot
+# whenever a RETEST_ONLY directive is explicitly closed by the Hunter.
+# Existing closure gates remain authoritative; this adds explainability/auditability,
+# not automatic closure.
+
+V320_VERSION = "V32.0"
+
+
+def _v320_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_recalibration_closure_receipts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                directive_id INTEGER NOT NULL,
+                strategy TEXT,
+                directive_type TEXT,
+                evidence_policy TEXT,
+                confidence_state TEXT,
+                confidence_score INTEGER,
+                completed_retests INTEGER,
+                average_score REAL,
+                latest_score INTEGER,
+                distinct_contexts INTEGER,
+                missing_context_labels INTEGER,
+                evidence_reason TEXT,
+                close_note TEXT,
+                closed_at TEXT NOT NULL
+            )
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_v320_receipts_user_directive
+            ON hunter_recalibration_closure_receipts(username, directive_id, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v320_init()
+except Exception:
+    pass
+
+
+def _v320_receipts(username, directive_id=None, limit=100):
+    _v320_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if directive_id is None:
+            rows = con.execute("""
+                SELECT *
+                FROM hunter_recalibration_closure_receipts
+                WHERE username=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (username, int(limit))).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT *
+                FROM hunter_recalibration_closure_receipts
+                WHERE username=? AND directive_id=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (username, int(directive_id), int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v320_closure_packet(username, directive_id):
+    directive = _v317_directive(username, directive_id)
+    if not directive:
+        return {"directive": None, "eligible": False, "reason": "directive_not_found"}
+
+    evidence = _v317_closure_evidence(username, directive_id)
+    confidence = _v318_confidence(username, directive_id)
+    coverage = confidence.get("context_coverage") or {}
+    completed = _v318_completed_retests(username, directive_id)
+
+    packet = {
+        "directive": directive,
+        "eligible": bool(evidence.get("eligible")),
+        "reason": str(evidence.get("reason") or ""),
+        "evidence_policy": str(evidence.get("evidence_policy") or confidence.get("policy") or ""),
+        "confidence_state": str(confidence.get("confidence_state") or ""),
+        "confidence_score": int(confidence.get("confidence_score") or 0),
+        "completed_retests": int(confidence.get("completed_count") or len(completed)),
+        "average_score": confidence.get("average_score"),
+        "latest_score": confidence.get("latest_score"),
+        "distinct_contexts": int(coverage.get("distinct_contexts") or 0),
+        "missing_context_labels": int(coverage.get("missing_context_labels") or 0),
+        "context_gate_applied": bool(confidence.get("context_gate_applied")),
+        "replicated_ready": bool(confidence.get("replicated_ready")),
+        "recent_retests": completed[:8],
+    }
+
+    policy = packet["evidence_policy"]
+    if str(directive.get("directive_type")) != "RETEST_ONLY":
+        packet["adjudication"] = "STANDARD_DIRECTIVE"
+        packet["adjudication_reason"] = "This directive does not use the RETEST_ONLY evidence loop."
+    elif packet["eligible"]:
+        packet["adjudication"] = "READY_FOR_EXPLICIT_CLOSURE"
+        packet["adjudication_reason"] = (
+            "The configured evidence policy is satisfied. Closure still requires an explicit Hunter action."
+        )
+    elif policy == V318_POLICY_REPLICATED and not packet["replicated_ready"]:
+        if packet["distinct_contexts"] < V319_MIN_DISTINCT_CONTEXTS:
+            packet["adjudication"] = "MORE_CONTEXT_DIVERSITY_REQUIRED"
+            packet["adjudication_reason"] = (
+                "Replicated evidence is not independent enough yet. Add a strong retest in a distinct labeled context."
+            )
+        else:
+            packet["adjudication"] = "MORE_REPLICATED_EVIDENCE_REQUIRED"
+            packet["adjudication_reason"] = (
+                "Context diversity exists, but replicated score/consistency requirements are not yet satisfied."
+            )
+    else:
+        packet["adjudication"] = "MORE_EVIDENCE_REQUIRED"
+        packet["adjudication_reason"] = (
+            "The current closure policy is not yet satisfied by completed retest evidence."
+        )
+
+    return packet
+
+
+def _v320_store_receipt(username, directive_id, note, packet):
+    directive = packet.get("directive") or {}
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recalibration_closure_receipts (
+                username, directive_id, strategy, directive_type,
+                evidence_policy, confidence_state, confidence_score,
+                completed_retests, average_score, latest_score,
+                distinct_contexts, missing_context_labels,
+                evidence_reason, close_note, closed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(directive_id),
+            str(directive.get("strategy") or "")[:500],
+            str(directive.get("directive_type") or "")[:80],
+            str(packet.get("evidence_policy") or "")[:80],
+            str(packet.get("confidence_state") or "")[:120],
+            int(packet.get("confidence_score") or 0),
+            int(packet.get("completed_retests") or 0),
+            packet.get("average_score"),
+            packet.get("latest_score"),
+            int(packet.get("distinct_contexts") or 0),
+            int(packet.get("missing_context_labels") or 0),
+            str(packet.get("reason") or "")[:500],
+            str(note or "")[:2000],
+            now,
+        ))
+        con.commit()
+        return int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+# Wrap the existing guarded closure path so every successful RETEST_ONLY close
+# receives an evidence receipt. The existing guard still decides whether closure is allowed.
+try:
+    _v320_previous_close_directive = _v316_close_directive
+
+    def _v320_close_directive_with_receipt(username, directive_id, note=""):
+        packet = _v320_closure_packet(username, directive_id)
+
+        ok, err = _v320_previous_close_directive(username, directive_id, note)
+        if not ok:
+            return ok, err
+
+        directive = packet.get("directive") or {}
+        if str(directive.get("directive_type")) == "RETEST_ONLY":
+            try:
+                receipt_id = _v320_store_receipt(username, directive_id, note, packet)
+                _v316_log_event(
+                    username,
+                    str(directive.get("strategy") or ""),
+                    "CLOSURE_RECEIPT_RECORDED",
+                    review_id=directive.get("review_id"),
+                    directive_id=int(directive_id),
+                    detail="V32.0 closure evidence receipt #%s recorded." % receipt_id
+                )
+            except Exception:
+                # Closure itself already succeeded. Receipt persistence failure must not
+                # retroactively change directive state.
+                pass
+
+        return ok, err
+
+    _v316_close_directive = _v320_close_directive_with_receipt
+except Exception:
+    pass
+
+
+@app.route("/api/hunter-closure-adjudication/<int:directive_id>")
+def v320_closure_adjudication_api(directive_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    packet = _v320_closure_packet(username, directive_id)
+    if not packet.get("directive"):
+        return jsonify({"success": False, "error": "directive_not_found"}), 404
+
+    return jsonify({
+        "success": True,
+        "version": V320_VERSION,
+        "packet": packet,
+        "receipts": _v320_receipts(username, directive_id=directive_id, limit=20),
+    })
+
+
+@app.route("/api/hunter-closure-receipts")
+def v320_closure_receipts_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    return jsonify({
+        "success": True,
+        "version": V320_VERSION,
+        "receipts": _v320_receipts(username, limit=100),
+    })
+
+
+@app.route("/hunter-closure-adjudication")
+def v320_closure_adjudication_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Closure Adjudication</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚖️ Closure Adjudication</h1><p>Sign in to inspect closure readiness and evidence receipts.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+    directives = [
+        d for d in _v316_directives(username, limit=100)
+        if str(d.get("directive_type")) == "RETEST_ONLY"
+    ]
+
+    active_cards = []
+    for d in directives:
+        packet = _v320_closure_packet(username, int(d.get("id")))
+        if str(d.get("directive_state")) != "ACTIVE":
+            continue
+
+        state = packet.get("adjudication")
+        active_cards.append("""
+        <article class='card'>
+          <div class='top'>
+            <div>
+              <span class='eyebrow'>ACTIVE RETEST_ONLY #{id}</span>
+              <h3>{strategy}</h3>
+            </div>
+            <span class='pill'>{state}</span>
+          </div>
+
+          <div class='grid'>
+            <div><span>POLICY</span><b>{policy}</b></div>
+            <div><span>CONFIDENCE</span><b>{confidence}/100</b></div>
+            <div><span>COMPLETED RETESTS</span><b>{completed}</b></div>
+            <div><span>AVERAGE SCORE</span><b>{average}</b></div>
+            <div><span>LATEST SCORE</span><b>{latest}</b></div>
+            <div><span>DISTINCT CONTEXTS</span><b>{contexts}</b></div>
+            <div><span>CLOSURE GATE</span><b>{eligible}</b></div>
+            <div><span>STATE</span><b>{directive_state}</b></div>
+          </div>
+
+          <p>{reason}</p>
+          <p class='adjudication'>{adjudication_reason}</p>
+
+          <a href='/hunter-recalibration-retests'>🧪 RETESTS</a>
+          <a href='/hunter-retest-confidence'>📈 CONFIDENCE</a>
+          <a href='/hunter-retest-context-diversity'>🧭 CONTEXT DIVERSITY</a>
+          <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE / CLOSE</a>
+        </article>
+        """.format(
+            id=esc(d.get("id")),
+            strategy=esc(d.get("strategy")),
+            state=esc(state),
+            policy=esc(packet.get("evidence_policy")),
+            confidence=esc(packet.get("confidence_score")),
+            completed=esc(packet.get("completed_retests")),
+            average=esc(packet.get("average_score")),
+            latest=esc(packet.get("latest_score")),
+            contexts=esc(packet.get("distinct_contexts")),
+            eligible="ELIGIBLE" if packet.get("eligible") else "BLOCKED",
+            directive_state=esc(d.get("directive_state")),
+            reason=esc(packet.get("reason")),
+            adjudication_reason=esc(packet.get("adjudication_reason")),
+        ))
+
+    receipts = _v320_receipts(username, limit=50)
+    receipt_cards = []
+    for r in receipts:
+        receipt_cards.append("""
+        <article class='receipt'>
+          <div class='top'>
+            <div>
+              <span class='eyebrow'>CLOSURE RECEIPT #{rid} · DIRECTIVE #{did}</span>
+              <h3>{strategy}</h3>
+            </div>
+            <span class='pill'>CLOSED</span>
+          </div>
+          <div class='grid'>
+            <div><span>POLICY</span><b>{policy}</b></div>
+            <div><span>CONFIDENCE STATE</span><b>{confidence_state}</b></div>
+            <div><span>CONFIDENCE SCORE</span><b>{confidence_score}/100</b></div>
+            <div><span>COMPLETED RETESTS</span><b>{completed}</b></div>
+            <div><span>AVERAGE</span><b>{average}</b></div>
+            <div><span>LATEST</span><b>{latest}</b></div>
+            <div><span>DISTINCT CONTEXTS</span><b>{contexts}</b></div>
+            <div><span>CLOSED AT</span><b>{closed_at}</b></div>
+          </div>
+          <p><strong>Evidence reason:</strong> {reason}</p>
+          <p><strong>Hunter close note:</strong> {note}</p>
+        </article>
+        """.format(
+            rid=esc(r.get("id")),
+            did=esc(r.get("directive_id")),
+            strategy=esc(r.get("strategy")),
+            policy=esc(r.get("evidence_policy")),
+            confidence_state=esc(r.get("confidence_state")),
+            confidence_score=esc(r.get("confidence_score")),
+            completed=esc(r.get("completed_retests")),
+            average=esc(r.get("average_score")),
+            latest=esc(r.get("latest_score")),
+            contexts=esc(r.get("distinct_contexts")),
+            closed_at=esc(r.get("closed_at")),
+            reason=esc(r.get("evidence_reason")),
+            note=esc(r.get("close_note") or "—"),
+        ))
+
+    ready_count = 0
+    blocked_count = 0
+    for d in directives:
+        if str(d.get("directive_state")) == "ACTIVE":
+            p = _v320_closure_packet(username, int(d.get("id")))
+            if p.get("eligible"):
+                ready_count += 1
+            else:
+                blocked_count += 1
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.0 Closure Adjudication</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#2f2438,#09080c 58%,#020203);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0d0c12ef;border:1px solid #735889;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#d8a7ff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:28px}}h3{{margin:5px 0}}
+    p{{color:#e7deec;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#17121d;border:1px solid #5f4a70;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#bda8ca;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:17px;overflow-wrap:anywhere}}.card,.receipt{{background:#15111a;border:1px solid #5e4b6b;border-radius:18px;padding:17px;margin:12px 0}}
+    .receipt{{background:#11161a;border-color:#405c66}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #7f6195;border-radius:999px;padding:6px 9px}}
+    .adjudication{{padding:11px 13px;background:#1d1625;border-left:4px solid #ce8dff;border-radius:8px}}.rule{{border-left:4px solid #ce8dff;padding:11px 14px;background:#18121e;border-radius:8px}}
+    a{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #6f5680;border-radius:10px;background:#18131d;color:#fff;text-decoration:none;font-weight:900}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V32.0 // CLOSURE ADJUDICATION + DECISION RECEIPTS</div>
+      <h1>⚖️ CLOSURE ADJUDICATION</h1>
+      <p>{username}, the evidence loop now finishes with a durable decision trail. BL3 does not close anything automatically. It explains whether closure is justified, and when you explicitly close an eligible RETEST_ONLY directive, V32.0 records the exact evidence state that supported that decision.</p>
+
+      <div class='hero'>
+        <div><span>READY TO CLOSE</span><b>{ready}</b></div>
+        <div><span>BLOCKED / MORE EVIDENCE</span><b>{blocked}</b></div>
+        <div><span>RECORDED RECEIPTS</span><b>{receipts}</b></div>
+        <div><span>AUTOMATIC CLOSURE</span><b>OFF</b></div>
+      </div>
+
+      <div class='rule'><strong>V32.0 rule:</strong> evidence gates remain authoritative. Closure is still an explicit Hunter action. Every successful RETEST_ONLY closure stores a decision receipt containing the policy, confidence, retest counts, scores, context diversity, evidence reason, note, and timestamp.</div>
+
+      <a href='/hunter-recalibration-retests'>🧪 RETESTS</a>
+      <a href='/hunter-retest-confidence'>📈 CONFIDENCE</a>
+      <a href='/hunter-retest-context-diversity'>🧭 CONTEXT DIVERSITY</a>
+      <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>
+
+      <h2>Active Closure Decisions</h2>
+      {active_cards}
+
+      <h2>Decision Receipts</h2>
+      {receipt_cards}
+    </section></div></body></html>""".format(
+        username=esc(username),
+        ready=esc(ready_count),
+        blocked=esc(blocked_count),
+        receipts=esc(len(receipts)),
+        active_cards="".join(active_cards) if active_cards else "<p>No active RETEST_ONLY directives.</p>",
+        receipt_cards="".join(receipt_cards) if receipt_cards else "<p>No V32.0 closure receipts recorded yet.</p>",
+    )
+
+
+# Add V32.0 navigation to the context-diversity page.
+try:
+    _v320_prev_context_page = app.view_functions.get("v319_context_diversity_page")
+    if _v320_prev_context_page:
+        def _v320_context_page_with_adjudication(*args, **kwargs):
+            response = _v320_prev_context_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-closure-adjudication" not in response:
+                link = "<a href='/hunter-closure-adjudication'>⚖️ CLOSURE ADJUDICATION</a>"
+                response = response.replace(
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>",
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v319_context_diversity_page"] = _v320_context_page_with_adjudication
+except Exception:
+    pass
+
+
+# Add V32.0 navigation to the governance page where closure actually happens.
+try:
+    _v320_prev_governance_page = app.view_functions.get("v316_governance_page")
+    if _v320_prev_governance_page:
+        def _v320_governance_page_with_receipts(*args, **kwargs):
+            response = _v320_prev_governance_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-closure-adjudication" not in response:
+                link = "<a href='/hunter-closure-adjudication'>⚖️ CLOSURE ADJUDICATION</a>"
+                response = response.replace(
+                    "<a href='/hunter-recalibration-retests'>🧪 RETESTS</a>",
+                    "<a href='/hunter-recalibration-retests'>🧪 RETESTS</a>" + link,
+                    1
+                )
+            return response
+        app.view_functions["v316_governance_page"] = _v320_governance_page_with_receipts
 except Exception:
     pass
 
