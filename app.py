@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.8 Build Attestation</title><style>
+    <title>BL3 V30.9 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.8 Hunter Command Deck</title>
+    <title>BL3 V30.9 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -48000,7 +48000,7 @@ def v308_experiment_coach_page():
         action_html = "<div class='warn'>No recommendation is available yet.</div>"
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.8 Evidence-Backed Experiment Coach</title>
+    <title>BL3 V30.9 Evidence-Backed Experiment Coach</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#17263b,#070a10 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1140px;margin:auto}}.panel{{background:#071019ef;border:1px solid #315778;border-radius:24px;padding:22px}}
@@ -48078,6 +48078,373 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v307_playbook_learning_page"] = _v308_learning_page_with_coach_link
+except Exception:
+    pass
+
+
+# ===== V30.9 EXPERIMENT HYPOTHESIS CONTRACT =====
+# Adds a pre-outcome hypothesis + success criteria contract to active experiments.
+# The contract is user-authored and can be locked before evidence arrives, preventing hindsight edits.
+
+V309_VERSION = "V30.9"
+V309_DEFAULT_SUCCESS_DELTA = 5.0
+V309_DEFAULT_FAILURE_DELTA = -5.0
+
+
+def _v309_ensure_schema():
+    _v301_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS hunter_experiment_contracts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experiment_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                hypothesis TEXT NOT NULL DEFAULT '',
+                expected_delta REAL NOT NULL DEFAULT 5,
+                success_delta REAL NOT NULL DEFAULT 5,
+                failure_delta REAL NOT NULL DEFAULT -5,
+                rationale TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                locked_at TEXT,
+                UNIQUE(experiment_id, username)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_experiment_contracts_user "
+            "ON hunter_experiment_contracts(username, experiment_id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v309_contract(username, experiment_id):
+    _v309_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM hunter_experiment_contracts WHERE username=? AND experiment_id=? LIMIT 1",
+            (username, int(experiment_id or 0))
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v309_active_experiment_state(username):
+    exp = _v301_active_experiment(username)
+    if not exp:
+        return None, None, None
+    snap = _v301_experiment_snapshot(username)
+    contract = _v309_contract(username, exp.get("id"))
+    return exp, snap, contract
+
+
+def _v309_contract_snapshot(username):
+    username = str(username or "").strip()
+    if not username:
+        return {"success": False, "error": "auth_required", "version": V309_VERSION}
+
+    exp, exp_snap, contract = _v309_active_experiment_state(username)
+    if not exp:
+        return {
+            "success": True,
+            "version": V309_VERSION,
+            "username": username,
+            "state": "NO_ACTIVE_EXPERIMENT",
+            "active_experiment": None,
+            "contract": None,
+            "message": "Start an experiment before creating a hypothesis contract.",
+        }
+
+    sample_count = int((exp_snap or {}).get("sample_count") or 0)
+    can_edit = sample_count == 0 and not (contract or {}).get("locked_at")
+    can_lock = bool(contract) and sample_count == 0 and not (contract or {}).get("locked_at")
+    state = "LOCKED" if (contract or {}).get("locked_at") else ("EVIDENCE_STARTED" if sample_count > 0 else "DRAFT")
+
+    return {
+        "success": True,
+        "version": V309_VERSION,
+        "username": username,
+        "state": state,
+        "active_experiment": exp,
+        "experiment_snapshot": exp_snap,
+        "contract": contract,
+        "sample_count": sample_count,
+        "sample_goal": int((exp_snap or {}).get("sample_goal") or V301_SAMPLE_GOAL),
+        "can_edit": can_edit,
+        "can_lock": can_lock,
+        "policy": (
+            "Write the hypothesis and thresholds before outcome evidence appears. "
+            "Once locked—or once the first post-start verified sample exists—the contract is immutable, "
+            "which prevents hindsight rewriting."
+        ),
+    }
+
+
+def _v309_clean_number(value, default, low=-100.0, high=100.0):
+    try:
+        x = float(value)
+    except Exception:
+        x = float(default)
+    return max(low, min(high, x))
+
+
+@app.route("/api/hunter-experiment-contract")
+def v309_experiment_contract_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    data = _v309_contract_snapshot(username)
+    return jsonify(data), (200 if data.get("success") else 401)
+
+
+@app.route("/api/hunter-experiment-contract/save", methods=["POST"])
+def v309_experiment_contract_save_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    exp, snap, existing = _v309_active_experiment_state(username)
+    if not exp:
+        return jsonify({"success": False, "error": "no_active_experiment"}), 409
+
+    sample_count = int((snap or {}).get("sample_count") or 0)
+    if sample_count > 0:
+        return jsonify({
+            "success": False,
+            "error": "evidence_already_started",
+            "message": "The first verified experiment sample already exists, so the pre-outcome contract can no longer be edited.",
+        }), 409
+    if (existing or {}).get("locked_at"):
+        return jsonify({"success": False, "error": "contract_locked"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    hypothesis = str(payload.get("hypothesis") or "").strip()[:1200]
+    rationale = str(payload.get("rationale") or "").strip()[:1600]
+    expected_delta = _v309_clean_number(payload.get("expected_delta"), V309_DEFAULT_SUCCESS_DELTA)
+    success_delta = _v309_clean_number(payload.get("success_delta"), V309_DEFAULT_SUCCESS_DELTA)
+    failure_delta = _v309_clean_number(payload.get("failure_delta"), V309_DEFAULT_FAILURE_DELTA)
+
+    if not hypothesis:
+        return jsonify({"success": False, "error": "hypothesis_required"}), 400
+    if failure_delta >= success_delta:
+        return jsonify({
+            "success": False,
+            "error": "invalid_thresholds",
+            "message": "Failure threshold must be lower than the success threshold.",
+        }), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v309_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """INSERT INTO hunter_experiment_contracts
+               (experiment_id, username, hypothesis, expected_delta, success_delta, failure_delta,
+                rationale, created_at, updated_at, locked_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+               ON CONFLICT(experiment_id, username) DO UPDATE SET
+                 hypothesis=excluded.hypothesis,
+                 expected_delta=excluded.expected_delta,
+                 success_delta=excluded.success_delta,
+                 failure_delta=excluded.failure_delta,
+                 rationale=excluded.rationale,
+                 updated_at=excluded.updated_at
+               WHERE hunter_experiment_contracts.locked_at IS NULL""",
+            (
+                int(exp.get("id") or 0), username, hypothesis, expected_delta, success_delta,
+                failure_delta, rationale, now, now,
+            )
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V309_VERSION,
+        "message": "Hypothesis contract saved. Lock it before the first verified sample to freeze the prediction.",
+        "contract": _v309_contract(username, exp.get("id")),
+    })
+
+
+@app.route("/api/hunter-experiment-contract/lock", methods=["POST"])
+def v309_experiment_contract_lock_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    exp, snap, contract = _v309_active_experiment_state(username)
+    if not exp:
+        return jsonify({"success": False, "error": "no_active_experiment"}), 409
+    if not contract:
+        return jsonify({"success": False, "error": "contract_required"}), 409
+    if contract.get("locked_at"):
+        return jsonify({"success": True, "version": V309_VERSION, "contract": contract})
+
+    sample_count = int((snap or {}).get("sample_count") or 0)
+    if sample_count > 0:
+        return jsonify({
+            "success": False,
+            "error": "evidence_already_started",
+            "message": "Evidence already started; the contract cannot be newly locked after outcomes begin.",
+        }), 409
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    _v309_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute(
+            """UPDATE hunter_experiment_contracts SET locked_at=?, updated_at=?
+               WHERE experiment_id=? AND username=? AND locked_at IS NULL""",
+            (now, now, int(exp.get("id") or 0), username)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "success": True,
+        "version": V309_VERSION,
+        "message": "Prediction locked before evidence. Hindsight edits are now disabled.",
+        "contract": _v309_contract(username, exp.get("id")),
+    })
+
+
+@app.route("/hunter-experiment-contract")
+def v309_experiment_contract_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Experiment Contract</title><body style='margin:0;background:#05080c;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧾 Experiment Hypothesis Contract</h1><p>Sign in to create a pre-outcome experiment prediction.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    data = _v309_contract_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    if data.get("state") == "NO_ACTIVE_EXPERIMENT":
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 V30.9 Experiment Contract</title><body style='margin:0;background:#05080c;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧾 Experiment Hypothesis Contract</h1><p>No active experiment yet.</p>
+        <a style='color:#8bd6ff' href='/hunter-experiment-coach'>OPEN EXPERIMENT COACH</a></body>"""
+
+    exp = data.get("active_experiment") or {}
+    contract = data.get("contract") or {}
+    snap = data.get("experiment_snapshot") or {}
+    locked = bool(contract.get("locked_at"))
+    can_edit = bool(data.get("can_edit"))
+
+    readonly = "" if can_edit else "readonly"
+    disabled = "" if can_edit else "disabled"
+    lock_disabled = "" if data.get("can_lock") else "disabled"
+    status = "LOCKED BEFORE EVIDENCE" if locked else ("EVIDENCE ALREADY STARTED" if int(data.get("sample_count") or 0) > 0 else "DRAFT — LOCK BEFORE FIRST SAMPLE")
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V30.9 Experiment Hypothesis Contract</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#21172f,#08070c 58%,#020204);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1050px;margin:auto}}.panel{{background:#0b0911ef;border:1px solid #704477;border-radius:24px;padding:22px}}
+    .k{{color:#ff91ef;font-size:11px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0}}p{{color:#c9b8d0;line-height:1.5}}
+    .hero{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}}.box{{background:#100c16;border:1px solid #51365c;border-radius:18px;padding:16px}}
+    .stat{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}}.stat div{{background:#08060c;border:1px solid #34223d;border-radius:12px;padding:10px}}.stat span{{display:block;color:#987aa2;font-size:9px;font-weight:900}}.stat b{{display:block;margin-top:5px}}
+    label{{display:block;margin-top:13px;color:#e0c4e7;font-weight:900;font-size:12px}}textarea,input{{width:100%;margin-top:6px;background:#07050a;color:#fff;border:1px solid #63436e;border-radius:11px;padding:11px;font:inherit}}textarea{{min-height:105px;resize:vertical}}
+    .row{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}button,a{{display:inline-block;margin:12px 6px 0 0;padding:11px 14px;border:1px solid #8a54a0;border-radius:10px;background:#1a1020;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}button.primary{{background:#3b1745;border-color:#ff83ee}}button:disabled{{opacity:.35;cursor:not-allowed}}
+    .status{{display:inline-block;padding:7px 10px;border:1px solid #a75aa9;border-radius:999px;color:#ffc3f5;font-size:11px;font-weight:900}}.policy{{margin-top:18px;padding:13px;border-left:3px solid #ec71df;background:#0d0911}}
+    @media(max-width:800px){{.hero,.row{{grid-template-columns:1fr}}.stat{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='k'>BL3 V30.9 // PRE-OUTCOME PREDICTION</div>
+      <h1>🧾 EXPERIMENT HYPOTHESIS CONTRACT</h1>
+      <p>{username}, define what you expect <b>before</b> the experiment produces evidence. Once locked, BL3 prevents hindsight editing.</p>
+      <span class='status'>{status}</span>
+
+      <div class='hero'>
+        <div class='box'><div class='k'>ACTIVE EXPERIMENT</div><h2>{strategy}</h2><p>Experiment #{exp_id}</p></div>
+        <div class='box'><div class='k'>VERIFIED PROGRESS</div><div class='stat'>
+          <div><span>SAMPLES</span><b>{samples}/{goal}</b></div>
+          <div><span>BASELINE</span><b>{baseline}</b></div>
+          <div><span>CURRENT Δ</span><b>{delta}</b></div>
+          <div><span>STATE</span><b>{exp_state}</b></div>
+        </div></div>
+      </div>
+
+      <label>HYPOTHESIS</label>
+      <textarea id='hypothesis' {readonly} placeholder='Example: SHORTER_TIMEBOX will improve verified outcome signal because smaller runs reduce TOO_BIG friction.'>{hypothesis}</textarea>
+
+      <label>RATIONALE</label>
+      <textarea id='rationale' {readonly} placeholder='What evidence or observed friction makes this worth testing?'>{rationale}</textarea>
+
+      <div class='row'>
+        <div><label>EXPECTED Δ</label><input id='expected_delta' type='number' step='0.1' value='{expected}' {readonly}></div>
+        <div><label>SUCCESS IF Δ ≥</label><input id='success_delta' type='number' step='0.1' value='{success_delta}' {readonly}></div>
+        <div><label>FAILURE IF Δ ≤</label><input id='failure_delta' type='number' step='0.1' value='{failure_delta}' {readonly}></div>
+      </div>
+
+      <button class='primary' onclick='saveContract()' {disabled}>💾 SAVE DRAFT</button>
+      <button onclick='lockContract()' {lock_disabled}>🔒 LOCK BEFORE EVIDENCE</button>
+      <a href='/hunter-run-experiment'>🧪 EXPERIMENT</a>
+      <a href='/hunter-experiment-coach'>🧭 COACH</a>
+      <div class='policy'>{policy}</div>
+    </section></div>
+    <script>
+    async function saveContract(){{
+      const body={{
+        hypothesis:document.getElementById('hypothesis').value,
+        rationale:document.getElementById('rationale').value,
+        expected_delta:document.getElementById('expected_delta').value,
+        success_delta:document.getElementById('success_delta').value,
+        failure_delta:document.getElementById('failure_delta').value
+      }};
+      const r=await fetch('/api/hunter-experiment-contract/save',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(body)}});
+      const j=await r.json();
+      if(j.success){{alert(j.message);location.reload();}}else alert(j.message||j.error||'Save failed');
+    }}
+    async function lockContract(){{
+      if(!confirm('Lock this prediction before evidence? It cannot be edited afterward.')) return;
+      const r=await fetch('/api/hunter-experiment-contract/lock',{{method:'POST'}});
+      const j=await r.json();
+      if(j.success){{alert(j.message||'Locked');location.reload();}}else alert(j.message||j.error||'Lock failed');
+    }}
+    </script></body></html>""".format(
+        username=esc(username), status=esc(status), strategy=esc(exp.get("strategy") or "—"),
+        exp_id=esc(exp.get("id") or "—"), samples=esc(data.get("sample_count")), goal=esc(data.get("sample_goal")),
+        baseline=esc(exp.get("baseline_signal") if exp.get("baseline_signal") is not None else "—"),
+        delta=esc(snap.get("delta") if snap.get("delta") is not None else "—"), exp_state=esc(snap.get("state") or "—"),
+        readonly=readonly, disabled=disabled, lock_disabled=lock_disabled,
+        hypothesis=esc(contract.get("hypothesis") or ""), rationale=esc(contract.get("rationale") or ""),
+        expected=esc(contract.get("expected_delta") if contract else V309_DEFAULT_SUCCESS_DELTA),
+        success_delta=esc(contract.get("success_delta") if contract else V309_DEFAULT_SUCCESS_DELTA),
+        failure_delta=esc(contract.get("failure_delta") if contract else V309_DEFAULT_FAILURE_DELTA),
+        policy=esc(data.get("policy")),
+    )
+
+
+# Surface the contract from both the experiment page and coach page without altering their core logic.
+try:
+    _v309_prev_exp_page = app.view_functions.get("v301_run_experiment_page")
+    if _v309_prev_exp_page:
+        def _v309_exp_page_with_contract_link(*args, **kwargs):
+            response = _v309_prev_exp_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-experiment-contract" not in response:
+                link = "<a href='/hunter-experiment-contract' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #8a54a0;border-radius:10px;color:#fff;text-decoration:none'>🧾 HYPOTHESIS CONTRACT</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v301_run_experiment_page"] = _v309_exp_page_with_contract_link
+except Exception:
+    pass
+
+try:
+    _v309_prev_coach_page = app.view_functions.get("v308_experiment_coach_page")
+    if _v309_prev_coach_page:
+        def _v309_coach_page_with_contract_link(*args, **kwargs):
+            response = _v309_prev_coach_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-experiment-contract" not in response:
+                link = "<a href='/hunter-experiment-contract' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #8a54a0;border-radius:10px;color:#fff;text-decoration:none'>🧾 HYPOTHESIS CONTRACT</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v308_experiment_coach_page"] = _v309_coach_page_with_contract_link
 except Exception:
     pass
 
