@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.1 Build Attestation</title><style>
+    <title>BL3 V31.2 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.1 Hunter Command Deck</title>
+    <title>BL3 V31.2 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -49019,7 +49019,7 @@ def v311_experiment_learning_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.1 Experiment Learning Loop</title>
+    <title>BL3 V31.2 Strategy Playbooks</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#132635,#05080c 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #2f6079;border-radius:24px;padding:24px}}
@@ -49035,7 +49035,7 @@ def v311_experiment_learning_page():
     @media(max-width:900px){{.hero{{grid-template-columns:1fr 1fr}}.metrics{{grid-template-columns:1fr 1fr 1fr}}h1{{font-size:34px}}}}
     @media(max-width:560px){{.metrics{{grid-template-columns:1fr 1fr}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='eyebrow'>BL3 V31.1 // EVIDENCE → LEARNING → NEXT TEST</div>
+      <div class='eyebrow'>BL3 V31.2 // EVIDENCE → PLAYBOOK → REUSE</div>
       <h1>🧠 EXPERIMENT LEARNING LOOP</h1>
       <p>{username}, BL3 now converts verdict history into strategy calibration instead of leaving completed experiments as isolated records.</p>
 
@@ -49084,6 +49084,439 @@ try:
                 response = response.replace("</section>", link + "</section>", 1)
             return response
         app.view_functions["v310_experiment_verdicts_page"] = _v311_verdict_page_with_learning
+except Exception:
+    pass
+
+# ===== V31.2 STRATEGY PLAYBOOK PROMOTION + EVIDENCE GUARDRAILS =====
+# Promotes sufficiently tested strategies into reusable Hunter playbooks.
+# Promotion is evidence-gated; weak or stale evidence remains visible instead of being silently trusted.
+
+V312_VERSION = "V31.2"
+
+def _v312_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_strategy_playbooks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            calibration_score INTEGER NOT NULL DEFAULT 0,
+            strict_tests INTEGER NOT NULL DEFAULT 0,
+            hit_rate REAL,
+            average_delta REAL NOT NULL DEFAULT 0,
+            evidence_state TEXT NOT NULL DEFAULT 'UNKNOWN',
+            promoted_at TEXT NOT NULL,
+            retired_at TEXT,
+            note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_hunter_strategy_playbooks_user_strategy
+        ON hunter_strategy_playbooks(username, strategy)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v312_init()
+except Exception:
+    pass
+
+
+def _v312_strategy_eligibility(item):
+    strict_tests = int(item.get("strict_tests") or 0)
+    score = int(item.get("calibration_score") or 0)
+    hit_rate = item.get("hit_rate")
+    state = str(item.get("calibration_state") or "UNTESTED")
+
+    reasons = []
+    if strict_tests < 3:
+        reasons.append("needs_at_least_3_strict_tests")
+    if score < 60:
+        reasons.append("calibration_score_below_60")
+    if hit_rate is None:
+        reasons.append("missing_hit_rate")
+    elif float(hit_rate) < 60:
+        reasons.append("hit_rate_below_60")
+    if state in {"CONTESTED", "NOISY", "UNTESTED"}:
+        reasons.append("evidence_state_not_promotion_ready")
+
+    return {
+        "eligible": len(reasons) == 0,
+        "reasons": reasons,
+        "minimums": {
+            "strict_tests": 3,
+            "calibration_score": 60,
+            "hit_rate": 60,
+        },
+    }
+
+
+def _v312_playbook_rows(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, username, strategy, status, calibration_score, strict_tests,
+                   hit_rate, average_delta, evidence_state, promoted_at, retired_at, note
+            FROM hunter_strategy_playbooks
+            WHERE username=?
+            ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, promoted_at DESC, id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v312_playbook_snapshot(username):
+    learning = _v311_learning_snapshot(username)
+    live = {str(x.get("strategy")): x for x in (learning.get("strategies") or [])}
+    rows = _v312_playbook_rows(username)
+
+    active = 0
+    stale = 0
+    enriched = []
+
+    for row in rows:
+        current = live.get(str(row.get("strategy")))
+        evidence_guard = "UNKNOWN"
+        drift = {}
+
+        if current:
+            eligibility = _v312_strategy_eligibility(current)
+            score_now = int(current.get("calibration_score") or 0)
+            strict_now = int(current.get("strict_tests") or 0)
+            hit_now = current.get("hit_rate")
+
+            drift = {
+                "calibration_score_delta": score_now - int(row.get("calibration_score") or 0),
+                "strict_tests_delta": strict_now - int(row.get("strict_tests") or 0),
+                "hit_rate_delta": (
+                    round(float(hit_now) - float(row.get("hit_rate") or 0), 1)
+                    if hit_now is not None and row.get("hit_rate") is not None else None
+                ),
+            }
+
+            if eligibility.get("eligible"):
+                evidence_guard = "VALID"
+            elif strict_now >= 3:
+                evidence_guard = "REVIEW"
+            else:
+                evidence_guard = "WEAK"
+        else:
+            evidence_guard = "STALE"
+
+        row["current_evidence"] = current
+        row["evidence_guard"] = evidence_guard
+        row["drift"] = drift
+
+        if str(row.get("status")) == "ACTIVE":
+            active += 1
+            if evidence_guard != "VALID":
+                stale += 1
+
+        enriched.append(row)
+
+    candidates = []
+    for item in learning.get("strategies") or []:
+        eligibility = _v312_strategy_eligibility(item)
+        item = dict(item)
+        item["promotion"] = eligibility
+        item["already_promoted"] = any(
+            str(r.get("strategy")) == str(item.get("strategy")) and str(r.get("status")) == "ACTIVE"
+            for r in rows
+        )
+        candidates.append(item)
+
+    return {
+        "version": V312_VERSION,
+        "username": username,
+        "active_playbooks": active,
+        "playbooks_needing_review": stale,
+        "playbooks": enriched,
+        "candidates": candidates,
+        "learning_state": learning.get("learning_state"),
+        "next_move": learning.get("next_move"),
+        "principle": (
+            "A BL3 strategy becomes reusable only after evidence clears explicit thresholds. "
+            "Once promoted, its evidence is continuously compared with current results so degraded strategies are flagged for review."
+        ),
+    }
+
+
+@app.route("/api/hunter-strategy-playbooks")
+def v312_playbooks_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v312_playbook_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-strategy-playbooks/promote", methods=["POST"])
+def v312_playbooks_promote():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    strategy = str(payload.get("strategy") or "").strip()
+    note = str(payload.get("note") or "").strip()[:500]
+
+    if not strategy:
+        return jsonify({"success": False, "error": "strategy_required"}), 400
+
+    learning = _v311_learning_snapshot(username)
+    item = next((x for x in learning.get("strategies") or [] if str(x.get("strategy")) == strategy), None)
+    if not item:
+        return jsonify({"success": False, "error": "strategy_not_found"}), 404
+
+    eligibility = _v312_strategy_eligibility(item)
+    if not eligibility.get("eligible"):
+        return jsonify({
+            "success": False,
+            "error": "evidence_gate_failed",
+            "promotion": eligibility,
+            "strategy": item,
+        }), 409
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            INSERT INTO hunter_strategy_playbooks
+            (username, strategy, status, calibration_score, strict_tests, hit_rate,
+             average_delta, evidence_state, promoted_at, retired_at, note)
+            VALUES (?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, NULL, ?)
+            ON CONFLICT(username, strategy) DO UPDATE SET
+                status='ACTIVE',
+                calibration_score=excluded.calibration_score,
+                strict_tests=excluded.strict_tests,
+                hit_rate=excluded.hit_rate,
+                average_delta=excluded.average_delta,
+                evidence_state=excluded.evidence_state,
+                promoted_at=excluded.promoted_at,
+                retired_at=NULL,
+                note=excluded.note
+        """, (
+            username,
+            strategy,
+            int(item.get("calibration_score") or 0),
+            int(item.get("strict_tests") or 0),
+            item.get("hit_rate"),
+            float(item.get("average_delta") or 0),
+            str(item.get("calibration_state") or "UNKNOWN"),
+            now,
+            note,
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "status": "promoted",
+        "strategy": strategy,
+        "promotion": eligibility,
+    })
+
+
+@app.route("/api/hunter-strategy-playbooks/<int:playbook_id>/retire", methods=["POST"])
+def v312_playbooks_retire(playbook_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            UPDATE hunter_strategy_playbooks
+            SET status='RETIRED', retired_at=?
+            WHERE id=? AND username=? AND status='ACTIVE'
+        """, (now, playbook_id, username))
+        con.commit()
+        if cur.rowcount == 0:
+            return jsonify({"success": False, "error": "active_playbook_not_found"}), 404
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "status": "retired", "playbook_id": playbook_id})
+
+
+@app.route("/hunter-strategy-playbooks")
+def v312_playbooks_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Strategy Playbooks</title>
+        <body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>📚 Strategy Playbooks</h1><p>Sign in to promote calibrated strategies into reusable playbooks.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v312_playbook_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    playbook_cards = []
+    for p in snap.get("playbooks") or []:
+        guard = str(p.get("evidence_guard") or "UNKNOWN")
+        drift = p.get("drift") or {}
+        current = p.get("current_evidence") or {}
+        retire_btn = ""
+        if str(p.get("status")) == "ACTIVE":
+            retire_btn = (
+                "<button onclick=\"retirePlaybook(%s)\">RETIRE</button>" % int(p.get("id"))
+            )
+        playbook_cards.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>PLAYBOOK</span><h3>{strategy}</h3></div>
+          <span class='pill {guard_class}'>{guard}</span></div>
+          <div class='metrics'>
+            <div><span>STATUS</span><b>{status}</b></div>
+            <div><span>PROMOTED SCORE</span><b>{score}</b></div>
+            <div><span>CURRENT SCORE</span><b>{current_score}</b></div>
+            <div><span>STRICT TESTS</span><b>{strict}</b></div>
+            <div><span>HIT RATE</span><b>{hit}</b></div>
+            <div><span>SCORE DRIFT</span><b>{score_drift}</b></div>
+          </div>
+          <p>{note}</p>
+          <small>Promoted: {promoted_at}</small><br>
+          {retire_btn}
+        </article>
+        """.format(
+            strategy=esc(p.get("strategy")),
+            guard=esc(guard),
+            guard_class=esc(guard.lower()),
+            status=esc(p.get("status")),
+            score=esc(p.get("calibration_score")),
+            current_score=esc(current.get("calibration_score")),
+            strict=esc(current.get("strict_tests") if current else p.get("strict_tests")),
+            hit=esc(
+                ("—" if current.get("hit_rate") is None else str(current.get("hit_rate")) + "%")
+                if current else
+                ("—" if p.get("hit_rate") is None else str(p.get("hit_rate")) + "%")
+            ),
+            score_drift=esc(drift.get("calibration_score_delta")),
+            note=esc(p.get("note") or "Reusable strategy promoted from calibrated experiment evidence."),
+            promoted_at=esc(p.get("promoted_at")),
+            retire_btn=retire_btn,
+        ))
+
+    candidate_cards = []
+    for c in snap.get("candidates") or []:
+        pr = c.get("promotion") or {}
+        reasons = ", ".join(pr.get("reasons") or []) or "evidence_gate_passed"
+        can_promote = bool(pr.get("eligible")) and not bool(c.get("already_promoted"))
+        btn = (
+            "<button onclick='promoteStrategy(%s)'>PROMOTE TO PLAYBOOK</button>"
+            % repr(str(c.get("strategy") or ""))
+            if can_promote else
+            "<span class='disabled'>%s</span>" % (
+                "ALREADY ACTIVE" if c.get("already_promoted") else esc(reasons)
+            )
+        )
+        candidate_cards.append("""
+        <article class='candidate'>
+          <div class='top'><div><span class='eyebrow'>CALIBRATED STRATEGY</span><h3>{strategy}</h3></div>
+          <span class='pill {state_class}'>{state}</span></div>
+          <div class='metrics'>
+            <div><span>CALIBRATION</span><b>{score}</b></div>
+            <div><span>STRICT TESTS</span><b>{strict}</b></div>
+            <div><span>HIT RATE</span><b>{hit}</b></div>
+            <div><span>AVG Δ</span><b>{avg}</b></div>
+          </div>
+          {button}
+        </article>
+        """.format(
+            strategy=esc(c.get("strategy")),
+            state=esc(c.get("calibration_state")),
+            state_class=esc(str(c.get("calibration_state") or "").lower()),
+            score=esc(c.get("calibration_score")),
+            strict=esc(c.get("strict_tests")),
+            hit=esc("—" if c.get("hit_rate") is None else str(c.get("hit_rate")) + "%"),
+            avg=esc(c.get("average_delta")),
+            button=btn,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.2 Strategy Playbooks</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#1b2636,#06090d 55%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #345e79;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#80dbff;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h2{{margin-top:30px}}h3{{margin:5px 0 0}}
+    p{{color:#b9cad5;line-height:1.55}}.hero{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}}
+    .hero div,.metrics div{{background:#071018;border:1px solid #29495e;border-radius:12px;padding:12px}}.hero span,.metrics span{{display:block;color:#7898a9;font-size:9px;font-weight:900}}.hero b,.metrics b{{display:block;margin-top:6px;font-size:20px}}
+    .card,.candidate{{background:#0a1118;border:1px solid #263f50;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.pill{{font-size:10px;font-weight:900;border:1px solid #4c687b;border-radius:999px;padding:6px 9px}}
+    .valid,.promising{{color:#6ff2a8}}.review,.mixed,.emerging{{color:#ffd26f}}.weak,.contested{{color:#ff8292}}.stale,.noisy,.untested{{color:#a5b2bd}}
+    .metrics{{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:13px 0}}.candidate .metrics{{grid-template-columns:repeat(4,1fr)}}
+    button,a{{display:inline-block;margin:10px 6px 0 0;padding:10px 13px;border:1px solid #4d7899;border-radius:10px;background:#0c1a23;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    .disabled{{display:inline-block;margin-top:10px;color:#7895a9;font-size:11px}}small{{color:#6b8798}}
+    @media(max-width:900px){{.hero{{grid-template-columns:1fr 1fr}}.metrics,.candidate .metrics{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.2 // EVIDENCE-GATED STRATEGY MEMORY</div>
+      <h1>📚 STRATEGY PLAYBOOKS</h1>
+      <p>{username}, promising experiment strategies can now graduate into reusable playbooks — but only when they clear explicit evidence gates.</p>
+      <div class='hero'>
+        <div><span>ACTIVE PLAYBOOKS</span><b>{active}</b></div>
+        <div><span>NEEDING REVIEW</span><b>{review}</b></div>
+        <div><span>LEARNING STATE</span><b>{learning_state}</b></div>
+      </div>
+      <p><strong>Evidence guard:</strong> promoted strategies are compared against current experiment results. If calibration degrades, BL3 marks the playbook REVIEW / WEAK / STALE instead of silently trusting old evidence.</p>
+
+      <a href='/hunter-experiment-learning'>🧠 LEARNING LOOP</a>
+      <a href='/hunter-experiment-verdicts'>⚖️ VERDICT LEDGER</a>
+      <a href='/hunter-run-experiment'>🧪 RUN EXPERIMENT</a>
+
+      <h2>ACTIVE / RETIRED PLAYBOOKS</h2>
+      {playbooks}
+
+      <h2>PROMOTION CANDIDATES</h2>
+      {candidates}
+    </section></div>
+    <script>
+    async function promoteStrategy(strategy){{
+      const note = prompt("Optional playbook note:", "") || "";
+      const r = await fetch("/api/hunter-strategy-playbooks/promote", {{
+        method:"POST", headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{strategy, note}})
+      }});
+      const j = await r.json();
+      if(!r.ok){{ alert(j.error || "Promotion failed"); return; }}
+      location.reload();
+    }}
+    async function retirePlaybook(id){{
+      if(!confirm("Retire this playbook?")) return;
+      const r = await fetch("/api/hunter-strategy-playbooks/"+id+"/retire", {{method:"POST"}});
+      const j = await r.json();
+      if(!r.ok){{ alert(j.error || "Retire failed"); return; }}
+      location.reload();
+    }}
+    </script></body></html>""".format(
+        username=esc(username),
+        active=esc(snap.get("active_playbooks")),
+        review=esc(snap.get("playbooks_needing_review")),
+        learning_state=esc(snap.get("learning_state")),
+        playbooks="".join(playbook_cards) if playbook_cards else "<p>No playbooks promoted yet.</p>",
+        candidates="".join(candidate_cards) if candidate_cards else "<p>No calibrated strategies yet.</p>",
+    )
+
+
+# Surface playbooks from the V31.1 learning page.
+try:
+    _v312_prev_learning_page = app.view_functions.get("v311_experiment_learning_page")
+    if _v312_prev_learning_page:
+        def _v312_learning_page_with_playbooks(*args, **kwargs):
+            response = _v312_prev_learning_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-strategy-playbooks" not in response:
+                link = "<a href='/hunter-strategy-playbooks'>📚 STRATEGY PLAYBOOKS</a>"
+                response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v311_experiment_learning_page"] = _v312_learning_page_with_playbooks
 except Exception:
     pass
 
