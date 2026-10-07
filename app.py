@@ -62460,6 +62460,579 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.9 CORRECTIVE ACTION STABILITY + SEAL GATE =====
+# V33.8 can close a verified corrective action.
+# V33.9 adds a post-closure stability window so "closed" is not automatically
+# considered durable. A correction is only sealed after explicit stability
+# evidence; reopening is explicit and auditable.
+
+V339_VERSION = "V33.9"
+V339_SIGNALS = {"STABLE", "MIXED", "REGRESSED", "INCONCLUSIVE"}
+V339_OUTCOMES = {"SEAL_CORRECTION", "EXTEND_STABILITY_WATCH", "REOPEN_CORRECTION"}
+V339_MIN_CHECKS = 2
+
+
+def _v339_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_corrective_stability_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            corrective_action_id INTEGER NOT NULL,
+            enforcement_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v339_checks_action
+        ON hunter_corrective_stability_checks(username, corrective_action_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_corrective_stability_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            corrective_action_id INTEGER NOT NULL UNIQUE,
+            enforcement_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_corrective_stability_seals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            corrective_action_id INTEGER NOT NULL UNIQUE,
+            enforcement_id INTEGER NOT NULL,
+            stability_outcome_id INTEGER NOT NULL,
+            seal_state TEXT NOT NULL DEFAULT 'SEALED',
+            seal_note TEXT,
+            sealed_at TEXT NOT NULL,
+            reopened_at TEXT,
+            reopen_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v339_seal_state
+        ON hunter_corrective_stability_seals(username, seal_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v339_init()
+except Exception:
+    pass
+
+
+def _v339_checks(username, action_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_corrective_stability_checks
+            WHERE username=? AND corrective_action_id=?
+            ORDER BY id DESC
+        """, (username, int(action_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v339_outcome(username, action_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_corrective_stability_outcomes
+            WHERE username=? AND corrective_action_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(action_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v339_seal(username, action_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_corrective_stability_seals
+            WHERE username=? AND corrective_action_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(action_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v339_add_check(username, action_id, signal_state, note=""):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "CLOSED":
+        return False, "closed_corrective_action_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V339_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_corrective_stability_checks
+            (username, corrective_action_id, enforcement_id, signal_state,
+             evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(action_id),
+            int(action.get("enforcement_id") or 0),
+            signal,
+            str(note or "").strip()[:2400],
+            now,
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v339_finalize_outcome(username, action_id, requested_outcome, note=""):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "CLOSED":
+        return False, "closed_corrective_action_required", None
+
+    checks = _v339_checks(username, action_id)
+    if len(checks) < V339_MIN_CHECKS:
+        return False, "not_enough_stability_checks", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V339_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v339_outcome(username, action_id)
+    if existing:
+        return False, "stability_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_corrective_stability_outcomes
+            (username, corrective_action_id, enforcement_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(action_id),
+            int(action.get("enforcement_id") or 0),
+            requested,
+            str(note or "").strip()[:2400],
+            now,
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v339_create_seal(username, action_id, note=""):
+    outcome = _v339_outcome(username, action_id)
+    if not outcome:
+        return False, "stability_outcome_required", None
+    if str(outcome.get("outcome") or "") != "SEAL_CORRECTION":
+        return False, "seal_correction_outcome_required", None
+
+    existing = _v339_seal(username, action_id)
+    if existing:
+        return False, "correction_already_sealed", int(existing["id"])
+
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_corrective_stability_seals
+            (username, corrective_action_id, enforcement_id, stability_outcome_id,
+             seal_state, seal_note, sealed_at)
+            VALUES (?, ?, ?, ?, 'SEALED', ?, ?)
+        """, (
+            username,
+            int(action_id),
+            int(action.get("enforcement_id") or 0),
+            int(outcome["id"]),
+            str(note or "").strip()[:2400],
+            now,
+        ))
+        sid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "CORRECTIVE_ACTION_SEALED",
+            detail="V33.9 corrective action #%s sealed after post-closure stability verification." % int(action_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, sid
+
+
+def _v339_reopen_correction(username, action_id, note=""):
+    outcome = _v339_outcome(username, action_id)
+    if not outcome or str(outcome.get("outcome") or "") != "REOPEN_CORRECTION":
+        return False, "reopen_outcome_required", None
+
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "CLOSED":
+        return False, "corrective_action_not_closed", int(action["id"])
+
+    seal = _v339_seal(username, action_id)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        # Reopen the corrective action for another execution/verification cycle.
+        con.execute("""
+            UPDATE hunter_policy_corrective_actions
+            SET action_state='EXECUTED',
+                closed_at=NULL,
+                closure_note=?
+            WHERE id=? AND username=? AND action_state='CLOSED'
+        """, (
+            "Reopened by V33.9 stability review. " + str(note or "").strip()[:1800],
+            int(action_id),
+            username,
+        ))
+
+        if seal and str(seal.get("seal_state") or "") == "SEALED":
+            con.execute("""
+                UPDATE hunter_corrective_stability_seals
+                SET seal_state='REOPENED', reopened_at=?, reopen_note=?
+                WHERE id=? AND username=? AND seal_state='SEALED'
+            """, (
+                now,
+                str(note or "Explicit V33.9 corrective-action reopen.").strip()[:2400],
+                int(seal["id"]),
+                username,
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "CORRECTIVE_ACTION_REOPENED",
+            detail="V33.9 corrective action #%s reopened after regression/stability review. Enforcement remains active." % int(action_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, int(action_id)
+
+
+def _v339_snapshot(username):
+    base = _v338_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        action = item0.get("corrective_action") or {}
+        if str(action.get("action_state") or "") != "CLOSED":
+            continue
+
+        aid = int(action.get("id") or 0)
+        checks = _v339_checks(username, aid)
+        outcome = _v339_outcome(username, aid)
+        seal = _v339_seal(username, aid)
+
+        item = dict(item0)
+        item["stability_checks"] = checks[:20]
+        item["stability_count"] = len(checks)
+        item["stability_outcome"] = outcome
+        item["stability_seal"] = seal
+        item["ready_for_outcome"] = len(checks) >= V339_MIN_CHECKS and not outcome
+        item["ready_to_seal"] = bool(outcome) and str(outcome.get("outcome") or "") == "SEAL_CORRECTION" and not seal
+        item["ready_to_reopen"] = bool(outcome) and str(outcome.get("outcome") or "") == "REOPEN_CORRECTION"
+        items.append(item)
+
+    return {
+        "version": V339_VERSION,
+        "minimum_checks": V339_MIN_CHECKS,
+        "counts": {
+            "closed_corrections": len(items),
+            "checks": sum(int(i.get("stability_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "sealed": sum(
+                1 for i in items
+                if i.get("stability_seal") and str(i["stability_seal"].get("seal_state") or "") == "SEALED"
+            ),
+        },
+        "items": items,
+        "policy": "Closed corrective actions are not considered durable until post-closure stability is explicitly verified and sealed."
+    }
+
+
+@app.route("/api/hunter-corrective-stability")
+def v339_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v339_snapshot(username)})
+
+
+@app.route("/api/hunter-corrective-stability/action/<int:action_id>/check", methods=["POST"])
+def v339_check_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, cid = _v339_add_check(
+        username,
+        action_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-corrective-stability/action/<int:action_id>/outcome", methods=["POST"])
+def v339_outcome_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, oid = _v339_finalize_outcome(
+        username,
+        action_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-corrective-stability/action/<int:action_id>/seal", methods=["POST"])
+def v339_seal_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, sid = _v339_create_seal(username, action_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "seal_id": sid}), 400
+    return jsonify({"success": True, "seal_id": sid})
+
+
+@app.route("/api/hunter-corrective-stability/action/<int:action_id>/reopen", methods=["POST"])
+def v339_reopen_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, aid = _v339_reopen_correction(username, action_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/hunter-corrective-stability")
+def v339_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Corrective Stability</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧷 Corrective Stability</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v339_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        action = item.get("corrective_action") or {}
+        aid = int(action.get("id") or 0)
+        outcome = item.get("stability_outcome") or {}
+        seal = item.get("stability_seal") or {}
+        checks = item.get("stability_checks") or []
+
+        actions = ""
+        if not outcome:
+            actions += """
+            <form action='/api/hunter-corrective-stability/action/{aid}/check' onsubmit='return v339submit(this,event)'>
+              <select name='signal_state'>
+                <option>STABLE</option><option>MIXED</option><option>REGRESSED</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Post-closure stability evidence'></textarea>
+              <button type='submit'>ADD STABILITY CHECK</button>
+            </form>
+            """.format(aid=aid)
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-corrective-stability/action/{aid}/outcome' onsubmit='return v339submit(this,event)'>
+              <select name='outcome'>
+                <option value='SEAL_CORRECTION'>SEAL_CORRECTION</option>
+                <option value='EXTEND_STABILITY_WATCH'>EXTEND_STABILITY_WATCH</option>
+                <option value='REOPEN_CORRECTION'>REOPEN_CORRECTION</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Stability outcome rationale'></textarea>
+              <button type='submit'>FINALIZE STABILITY OUTCOME</button>
+            </form>
+            """.format(aid=aid)
+        elif outcome:
+            actions += "<div class='final'>STABILITY OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")),
+                esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_seal"):
+            actions += """
+            <form action='/api/hunter-corrective-stability/action/{aid}/seal' onsubmit='return v339submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Correction seal note'></textarea>
+              <button class='safe' type='submit'>SEAL CORRECTION</button>
+            </form>
+            """.format(aid=aid)
+
+        if item.get("ready_to_reopen"):
+            actions += """
+            <form action='/api/hunter-corrective-stability/action/{aid}/reopen' onsubmit='return v339submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Why this corrective action must reopen'></textarea>
+              <button class='danger' type='submit'>REOPEN CORRECTIVE ACTION</button>
+            </form>
+            """.format(aid=aid)
+
+        seal_html = ""
+        if seal:
+            seal_html = "<div class='seal'>CORRECTION SEAL: <b>{}</b><br><small>{}</small></div>".format(
+                esc(seal.get("seal_state")),
+                esc(seal.get("sealed_at"))
+            )
+
+        checks_html = "".join(
+            "<div class='checkrow'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No stability checks yet.</div>"
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Corrective Action #{aid}</span><span class='pill'>CLOSED</span></div>
+          <h2>{title}</h2>
+          <p><b>{ptype}</b></p>
+          <p class='muted'>{objective}</p>
+          {seal_html}
+          {actions}
+          <div class='history'>{checks}</div>
+        </article>
+        """.format(
+            aid=esc(aid),
+            title=esc(item.get("title")),
+            ptype=esc(item.get("policy_type")),
+            objective=esc(action.get("objective")),
+            seal_html=seal_html,
+            actions=actions,
+            checks=checks_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.9 Corrective Stability</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1160px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#8bf0c8;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#8bf0c8}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #246652;border-radius:999px;padding:6px 9px;color:#8bf0c8;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.safe{{background:#8bf0c8}} button.danger{{background:#ff8797}}
+    .final,.seal{{margin-top:10px;padding:12px;border:1px solid #216c52;border-radius:12px;background:#0e2a21;color:#9bf2cb}}
+    .checkrow{{border-top:1px solid #15313f;padding:10px 0}} .checkrow b{{color:#8bf0c8;display:block}} .checkrow span{{display:block;margin:5px 0;color:#d7e8ef}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #8bf0c8;padding:12px;background:#071611;color:#c0dfd2;line-height:1.6}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.9 // CORRECTIVE ACTION STABILITY + SEAL GATE</div>
+        <h1>🧷 SEAL THE CORRECTION</h1>
+        <div class='sub'>A corrective action is not considered durable just because it was closed. Prove post-closure stability, then explicitly seal it—or reopen it if regression appears.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>CLOSED CORRECTIONS</div><div class='num'>{cases}</div></div>
+          <div class='stat'><div class='eyebrow'>CHECKS</div><div class='num'>{checks}</div></div>
+          <div class='stat'><div class='eyebrow'>READY</div><div class='num'>{ready}</div></div>
+          <div class='stat'><div class='eyebrow'>SEALED</div><div class='num'>{sealed}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-compliance-corrective-actions'>🛠️ CORRECTIVE ACTIONS</a><a href='/hunter-policy-compliance'>🧾 POLICY COMPLIANCE</a><a href='/api/hunter-corrective-stability'>JSON</a></div>
+        <div class='rule'><strong>V33.9 rule:</strong> closure is not proof of durability. Correction stability must be observed and explicitly sealed; reopening remains auditable and enforcement stays active.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v339submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        cases=esc(c.get("closed_corrections",0)),
+        checks=esc(c.get("checks",0)),
+        ready=esc(c.get("ready_for_outcome",0)),
+        sealed=esc(c.get("sealed",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No closed corrective actions are waiting for stability review.</p></article>"
+    )
+
+
+try:
+    _v339_prev_page = app.view_functions.get("v338_page")
+    if _v339_prev_page:
+        def _v339_corrective_with_stability(*args, **kwargs):
+            response = _v339_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-corrective-stability" not in response:
+                anchor = "<a href='/api/hunter-compliance-corrective-actions'>JSON</a>"
+                link = "<a href='/hunter-corrective-stability'>🧷 CORRECTIVE STABILITY</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v338_page"] = _v339_corrective_with_stability
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
