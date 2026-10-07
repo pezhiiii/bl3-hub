@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.0 Build Attestation</title><style>
+    <title>BL3 V31.1 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.0 Hunter Command Deck</title>
+    <title>BL3 V31.1 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -48343,7 +48343,7 @@ def v309_experiment_contract_page():
     status = "LOCKED BEFORE EVIDENCE" if locked else ("EVIDENCE ALREADY STARTED" if int(data.get("sample_count") or 0) > 0 else "DRAFT — LOCK BEFORE FIRST SAMPLE")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.0 Experiment Hypothesis Contract</title>
+    <title>BL3 V31.1 Experiment Hypothesis Contract</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#21172f,#08070c 58%,#020204);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1050px;margin:auto}}.panel{{background:#0b0911ef;border:1px solid #704477;border-radius:24px;padding:22px}}
@@ -48686,7 +48686,7 @@ def v310_experiment_verdicts_page():
     empty = "<div class='empty'>No completed experiment verdicts yet.</div>" if not cards else ""
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V31.0 Experiment Verdict Ledger</title>
+    <title>BL3 V31.1 Experiment Verdict Ledger</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#172333,#07090d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1100px;margin:auto}}.panel{{background:#090d12ef;border:1px solid #32506d;border-radius:24px;padding:22px}}
@@ -48696,7 +48696,7 @@ def v310_experiment_verdicts_page():
     .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}}.hyp{{color:#e5edf3}}a{{display:inline-block;margin:12px 6px 0 0;padding:10px 13px;border:1px solid #4d7899;border-radius:10px;color:#fff;text-decoration:none;font-weight:900}}small{{color:#60798b}}.empty{{padding:28px;color:#7895a9;text-align:center}}
     @media(max-width:850px){{.score{{grid-template-columns:1fr 1fr}}.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
     </style></head><body><div class='wrap'><section class='panel'>
-      <div class='k'>BL3 V31.0 // PREDICTION VS REALITY</div>
+      <div class='k'>BL3 V31.1 // PREDICTION VS REALITY</div>
       <h1>⚖️ EXPERIMENT VERDICT LEDGER</h1>
       <p>{username}, this ledger compares locked pre-outcome predictions with verified experiment results. Unlocked drafts are preserved, but they do not count toward prediction accuracy.</p>
 
@@ -48783,6 +48783,309 @@ try:
 except Exception:
     pass
 
+
+# ===== V31.1 EXPERIMENT LEARNING LOOP + STRATEGY CALIBRATION =====
+# Turns the V31.0 verdict ledger into reusable product intelligence:
+# strategy-level calibration, evidence depth, prediction quality, and a concrete next test.
+
+V311_VERSION = "V31.1"
+
+
+def _v311_strategy_rows(username, limit=200):
+    rows = _v310_verdict_history(username, limit)
+    grouped = {}
+
+    for row in rows:
+        strategy = str(row.get("strategy") or "UNSPECIFIED").strip() or "UNSPECIFIED"
+        bucket = grouped.setdefault(strategy, {
+            "strategy": strategy,
+            "total": 0,
+            "strict_tests": 0,
+            "confirmed": 0,
+            "falsified": 0,
+            "inconclusive": 0,
+            "uncontracted": 0,
+            "delta_sum": 0.0,
+            "last_verdict": None,
+            "last_delta": None,
+            "last_created_at": None,
+        })
+
+        bucket["total"] += 1
+        verdict = str(row.get("verdict") or "")
+        delta = float(row.get("actual_delta") or 0)
+        bucket["delta_sum"] += delta
+
+        if verdict == "CONFIRMED":
+            bucket["confirmed"] += 1
+            bucket["strict_tests"] += 1
+        elif verdict == "FALSIFIED":
+            bucket["falsified"] += 1
+            bucket["strict_tests"] += 1
+        elif verdict == "INCONCLUSIVE":
+            bucket["inconclusive"] += 1
+            bucket["strict_tests"] += 1
+        else:
+            bucket["uncontracted"] += 1
+
+        if bucket["last_created_at"] is None:
+            bucket["last_verdict"] = verdict
+            bucket["last_delta"] = delta
+            bucket["last_created_at"] = row.get("created_at")
+
+    result = []
+    for bucket in grouped.values():
+        strict = int(bucket["strict_tests"])
+        confirmed = int(bucket["confirmed"])
+        total = int(bucket["total"])
+
+        bucket["hit_rate"] = round((confirmed / strict) * 100, 1) if strict else None
+        bucket["average_delta"] = round(bucket["delta_sum"] / total, 1) if total else 0.0
+
+        if strict == 0:
+            bucket["calibration_state"] = "UNTESTED"
+            bucket["calibration_score"] = 0
+            bucket["next_test"] = (
+                "Run one experiment with a locked pre-outcome hypothesis so this strategy can enter strict calibration."
+            )
+        elif strict < 3:
+            bucket["calibration_state"] = "EMERGING"
+            bucket["calibration_score"] = min(49, 20 + strict * 10 + confirmed * 5)
+            bucket["next_test"] = (
+                "Run another narrow confirmation test with the same measurement logic before treating this strategy as reliable."
+            )
+        elif bucket["hit_rate"] is not None and bucket["hit_rate"] >= 70:
+            bucket["calibration_state"] = "PROMISING"
+            bucket["calibration_score"] = min(95, 55 + int(bucket["hit_rate"] * 0.4))
+            bucket["next_test"] = (
+                "Run one adversarial or out-of-sample confirmation test. If it holds, promote the strategy toward a reusable playbook."
+            )
+        elif bucket["falsified"] > bucket["confirmed"]:
+            bucket["calibration_state"] = "CONTESTED"
+            bucket["calibration_score"] = max(15, 45 - bucket["falsified"] * 5 + bucket["confirmed"] * 3)
+            bucket["next_test"] = (
+                "Shrink the claim: isolate one variable, tighten the hypothesis, and test the failure assumption directly."
+            )
+        elif bucket["inconclusive"] >= max(bucket["confirmed"], bucket["falsified"]):
+            bucket["calibration_state"] = "NOISY"
+            bucket["calibration_score"] = 40
+            bucket["next_test"] = (
+                "Increase signal quality or measurement window before changing strategy. The current evidence is mostly inconclusive."
+            )
+        else:
+            bucket["calibration_state"] = "MIXED"
+            bucket["calibration_score"] = 50
+            bucket["next_test"] = (
+                "Run a discriminating test designed to separate the strongest competing explanation from the current hypothesis."
+            )
+
+        bucket.pop("delta_sum", None)
+        result.append(bucket)
+
+    result.sort(
+        key=lambda x: (
+            int(x.get("calibration_score") or 0),
+            int(x.get("strict_tests") or 0),
+            int(x.get("total") or 0),
+        ),
+        reverse=True,
+    )
+    return result
+
+
+def _v311_learning_snapshot(username):
+    verdicts = _v310_verdict_history(username, 200)
+    strategies = _v311_strategy_rows(username, 200)
+    scorecard = _v310_scorecard(verdicts)
+
+    strict = int(scorecard.get("strict_tests") or 0)
+    uncontracted = int(scorecard.get("uncontracted") or 0)
+    confirmed = int(scorecard.get("confirmed") or 0)
+    falsified = int(scorecard.get("falsified") or 0)
+    inconclusive = int(scorecard.get("inconclusive") or 0)
+
+    if strict == 0:
+        learning_state = "NO CALIBRATED EVIDENCE"
+        next_move = "Lock a hypothesis contract before the next experiment and complete one strict test."
+    elif strict < 3:
+        learning_state = "EARLY SIGNAL"
+        next_move = "Build evidence depth: repeat the strongest strategy under the same measurement rules."
+    elif confirmed >= 2 and confirmed > falsified:
+        learning_state = "POSITIVE LEARNING LOOP"
+        next_move = "Challenge the best-performing strategy with an adversarial confirmation test."
+    elif falsified > confirmed:
+        learning_state = "MODEL NEEDS REVISION"
+        next_move = "Rewrite the weakest assumption and run a narrower falsification-focused experiment."
+    elif inconclusive >= max(confirmed, falsified):
+        learning_state = "MEASUREMENT NOISE"
+        next_move = "Improve signal quality before increasing experiment volume."
+    else:
+        learning_state = "MIXED EVIDENCE"
+        next_move = "Use the strategy calibration table to choose the next discriminating experiment."
+
+    best = strategies[0] if strategies else None
+    calibration_debt = uncontracted
+    evidence_depth = strict
+
+    return {
+        "version": V311_VERSION,
+        "username": username,
+        "learning_state": learning_state,
+        "next_move": next_move,
+        "evidence_depth": evidence_depth,
+        "calibration_debt": calibration_debt,
+        "scorecard": scorecard,
+        "best_strategy": best,
+        "strategies": strategies,
+        "principle": (
+            "BL3 treats prediction accuracy as an earned signal: only locked pre-outcome contracts "
+            "count toward strict calibration, and repeated evidence matters more than one lucky result."
+        ),
+    }
+
+
+@app.route("/api/hunter-experiment-learning")
+def v311_experiment_learning_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    snap = _v311_learning_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/hunter-experiment-learning")
+def v311_experiment_learning_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Experiment Learning Loop</title>
+        <body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🧠 Experiment Learning Loop</h1>
+        <p>Sign in to calibrate strategy from your experiment verdict history.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    snap = _v311_learning_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    strategy_cards = []
+    for item in snap.get("strategies") or []:
+        state = str(item.get("calibration_state") or "UNTESTED")
+        state_class = state.lower().replace(" ", "-")
+        hit = "—" if item.get("hit_rate") is None else f"{item.get('hit_rate')}%"
+        strategy_cards.append("""<article class='strategy'>
+            <div class='row'>
+              <div>
+                <span class='eyebrow'>STRATEGY</span>
+                <h3>{strategy}</h3>
+              </div>
+              <span class='state {state_class}'>{state}</span>
+            </div>
+            <div class='metrics'>
+              <div><span>CALIBRATION</span><b>{score}</b></div>
+              <div><span>STRICT TESTS</span><b>{strict}</b></div>
+              <div><span>HIT RATE</span><b>{hit}</b></div>
+              <div><span>AVG Δ</span><b>{avg}</b></div>
+              <div><span>CONFIRMED</span><b>{confirmed}</b></div>
+              <div><span>FALSIFIED</span><b>{falsified}</b></div>
+            </div>
+            <p class='next'><strong>NEXT TEST:</strong> {next_test}</p>
+            <small>Latest verdict: {last_verdict} · Δ {last_delta}</small>
+        </article>""".format(
+            strategy=esc(item.get("strategy")),
+            state=esc(state),
+            state_class=esc(state_class),
+            score=esc(item.get("calibration_score")),
+            strict=esc(item.get("strict_tests")),
+            hit=esc(hit),
+            avg=esc(item.get("average_delta")),
+            confirmed=esc(item.get("confirmed")),
+            falsified=esc(item.get("falsified")),
+            next_test=esc(item.get("next_test")),
+            last_verdict=esc(item.get("last_verdict")),
+            last_delta=esc(item.get("last_delta")),
+        ))
+
+    best = snap.get("best_strategy") or {}
+    best_name = best.get("strategy") or "—"
+    best_score = best.get("calibration_score") if best else "—"
+    hit_rate = snap.get("scorecard", {}).get("prediction_hit_rate")
+    hit_rate_text = "—" if hit_rate is None else f"{hit_rate}%"
+
+    empty = (
+        "<div class='empty'>No experiment verdicts yet. Finish a contracted experiment to start the learning loop.</div>"
+        if not strategy_cards else ""
+    )
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.1 Experiment Learning Loop</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#132635,#05080c 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#081017ef;border:1px solid #2f6079;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#72dafd;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0 0}}
+    p{{color:#b6c9d6;line-height:1.55}}.hero{{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin:18px 0}}
+    .hero div,.metrics div{{background:#071018;border:1px solid #25495e;border-radius:12px;padding:12px}}.hero span,.metrics span{{display:block;color:#7396a9;font-size:9px;font-weight:900}}.hero b,.metrics b{{display:block;margin-top:6px;font-size:20px}}
+    .callout{{background:#0a1821;border:1px solid #376c87;border-radius:16px;padding:16px;margin:14px 0}}.callout strong{{color:#9cecff}}
+    .strategy{{background:#0a1118;border:1px solid #263f50;border-radius:18px;padding:17px;margin:12px 0}}.row{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}
+    .state{{font-size:10px;font-weight:900;border:1px solid #47687c;border-radius:999px;padding:6px 9px}}.promising{{color:#6ff2a8}}.contested{{color:#ff8292}}.noisy{{color:#ffd26f}}.emerging{{color:#8ed9ff}}.mixed{{color:#d7a2ff}}.untested{{color:#a5b2bd}}
+    .metrics{{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:13px 0}}.next{{color:#dce8ef}}small{{color:#627f90}}
+    a{{display:inline-block;margin:10px 6px 0 0;padding:10px 13px;border:1px solid #4d7899;border-radius:10px;color:#fff;text-decoration:none;font-weight:900}}
+    .empty{{padding:28px;color:#7895a9;text-align:center}}
+    @media(max-width:900px){{.hero{{grid-template-columns:1fr 1fr}}.metrics{{grid-template-columns:1fr 1fr 1fr}}h1{{font-size:34px}}}}
+    @media(max-width:560px){{.metrics{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V31.1 // EVIDENCE → LEARNING → NEXT TEST</div>
+      <h1>🧠 EXPERIMENT LEARNING LOOP</h1>
+      <p>{username}, BL3 now converts verdict history into strategy calibration instead of leaving completed experiments as isolated records.</p>
+
+      <div class='hero'>
+        <div><span>LEARNING STATE</span><b>{learning_state}</b></div>
+        <div><span>EVIDENCE DEPTH</span><b>{evidence_depth}</b></div>
+        <div><span>PREDICTION HIT RATE</span><b>{hit_rate}</b></div>
+        <div><span>CALIBRATION DEBT</span><b>{debt}</b></div>
+        <div><span>BEST STRATEGY</span><b>{best_name}</b></div>
+      </div>
+
+      <div class='callout'>
+        <strong>NEXT MOVE</strong>
+        <p>{next_move}</p>
+        <small>Best strategy calibration score: {best_score}</small>
+      </div>
+
+      <a href='/hunter-experiment-verdicts'>⚖️ VERDICT LEDGER</a>
+      <a href='/hunter-experiment-contract'>🧾 HYPOTHESIS CONTRACT</a>
+      <a href='/hunter-run-experiment'>🧪 ACTIVE EXPERIMENT</a>
+
+      {empty}
+      {strategies}
+    </section></div></body></html>""".format(
+        username=esc(username),
+        learning_state=esc(snap.get("learning_state")),
+        evidence_depth=esc(snap.get("evidence_depth")),
+        hit_rate=esc(hit_rate_text),
+        debt=esc(snap.get("calibration_debt")),
+        best_name=esc(best_name),
+        next_move=esc(snap.get("next_move")),
+        best_score=esc(best_score),
+        empty=empty,
+        strategies="".join(strategy_cards),
+    )
+
+
+# Surface the Learning Loop from the V31.0 verdict page without replacing its logic.
+try:
+    _v311_prev_verdict_page = app.view_functions.get("v310_experiment_verdicts_page")
+    if _v311_prev_verdict_page:
+        def _v311_verdict_page_with_learning(*args, **kwargs):
+            response = _v311_prev_verdict_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-experiment-learning" not in response:
+                link = "<a href='/hunter-experiment-learning' style='display:inline-block;margin:12px 6px 0 0;padding:10px 13px;border:1px solid #4d7899;border-radius:10px;color:#fff;text-decoration:none;font-weight:900'>🧠 LEARNING LOOP</a>"
+                response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v310_experiment_verdicts_page"] = _v311_verdict_page_with_learning
+except Exception:
+    pass
 
 if __name__ == "__main__":
 
