@@ -55891,6 +55891,417 @@ except Exception:
     pass
 
 
+
+# ===== V32.7 REVISION WORKSHOP + OVERLAY ACTIVATION GATE =====
+# Converts V32.6 CREATE_REVISION requests into immutable revision overlays.
+# The base successor row is never edited. A revision is drafted/staged first and
+# requires a separate explicit activation step before the execution guard can use it.
+
+V327_VERSION = "V32.7"
+
+
+def _v327_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_successor_revision_directives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            revision_request_id INTEGER NOT NULL,
+            successor_id INTEGER NOT NULL,
+            outcome_action_id INTEGER NOT NULL,
+            strategy TEXT NOT NULL,
+            directive_type TEXT NOT NULL,
+            revision_state TEXT NOT NULL DEFAULT 'STAGED',
+            rationale TEXT,
+            created_at TEXT NOT NULL,
+            activated_at TEXT,
+            closed_at TEXT,
+            close_note TEXT,
+            UNIQUE(username, revision_request_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v327_revision_user_state
+        ON hunter_successor_revision_directives(username, revision_state, id DESC)
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v327_revision_successor_state
+        ON hunter_successor_revision_directives(username, successor_id, revision_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v327_init()
+except Exception:
+    pass
+
+
+def _v327_revision_request(username, request_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT id, username, successor_id, outcome_action_id, strategy,
+                   requested_at, revision_note
+            FROM hunter_successor_revision_requests
+            WHERE id=? AND username=?
+        """, (int(request_id), username)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v327_revision_for_request(username, request_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE username=? AND revision_request_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(request_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v327_active_revision_for_successor(username, successor_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE username=? AND successor_id=? AND revision_state='ACTIVE'
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(successor_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v327_stage_revision(username, request_id, directive_type="", rationale=""):
+    req = _v327_revision_request(username, request_id)
+    if not req:
+        return False, "revision_request_not_found", None
+
+    successor = _v325_successor(username, int(req["successor_id"]))
+    if not successor:
+        return False, "successor_not_found", None
+    if str(successor.get("directive_state") or "") != "ACTIVE":
+        return False, "successor_not_active", None
+
+    existing = _v327_revision_for_request(username, request_id)
+    if existing:
+        return False, "revision_already_staged", int(existing["id"])
+
+    requested = str(directive_type or successor.get("directive_type") or "OBSERVE_ONLY").strip().upper()
+    if requested not in V324_ALLOWED_TYPES:
+        return False, "invalid_directive_type", None
+
+    text = str(rationale or req.get("revision_note") or "Revision requested after ADJUST_REQUIRED trial outcome.").strip()[:3000]
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_successor_revision_directives
+            (username, revision_request_id, successor_id, outcome_action_id, strategy,
+             directive_type, revision_state, rationale, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'STAGED', ?, ?)
+        """, (
+            username, int(req["id"]), int(req["successor_id"]), int(req["outcome_action_id"]),
+            str(req.get("strategy") or successor.get("strategy") or ""), requested, text, now
+        ))
+        revision_id = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username, str(req.get("strategy") or ""), "SUCCESSOR_REVISION_STAGED",
+            directive_id=int(successor.get("parent_directive_id") or 0) or None,
+            detail="V32.7 revision #%s staged for successor #%s as %s; base successor remains unchanged." % (
+                revision_id, int(req["successor_id"]), requested
+            )
+        )
+    except Exception:
+        pass
+    return True, None, revision_id
+
+
+def _v327_activate_revision(username, revision_id, activation_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE id=? AND username=?
+        """, (int(revision_id), username)).fetchone()
+        if not row:
+            return False, "revision_not_found", None
+        revision = dict(row)
+        if str(revision.get("revision_state") or "") != "STAGED":
+            return False, "revision_not_staged", revision
+    finally:
+        con.close()
+
+    successor = _v325_successor(username, int(revision["successor_id"]))
+    if not successor:
+        return False, "successor_not_found", revision
+    if str(successor.get("directive_state") or "") != "ACTIVE":
+        return False, "successor_not_active", revision
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    note = str(activation_note or "").strip()[:2400]
+    con = sqlite3.connect(DB)
+    try:
+        # Defensive: only one active overlay per base successor. Older overlays, if any,
+        # are closed explicitly in the revision ledger, never deleted or rewritten.
+        con.execute("""
+            UPDATE hunter_successor_revision_directives
+            SET revision_state='CLOSED', closed_at=?, close_note=?
+            WHERE username=? AND successor_id=? AND revision_state='ACTIVE' AND id<>?
+        """, (now, "Superseded by explicit V32.7 revision activation.", username,
+              int(revision["successor_id"]), int(revision["id"])))
+        cur = con.execute("""
+            UPDATE hunter_successor_revision_directives
+            SET revision_state='ACTIVE', activated_at=?
+            WHERE id=? AND username=? AND revision_state='STAGED'
+        """, (now, int(revision["id"]), username))
+        if cur.rowcount != 1:
+            con.rollback()
+            return False, "activation_conflict", revision
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username, str(revision.get("strategy") or ""), "SUCCESSOR_REVISION_ACTIVATED",
+            directive_id=int(successor.get("parent_directive_id") or 0) or None,
+            detail="V32.7 revision #%s activated for successor #%s as %s. %s" % (
+                int(revision["id"]), int(revision["successor_id"]),
+                str(revision.get("directive_type") or ""), note[:900]
+            )
+        )
+    except Exception:
+        pass
+    return True, None, {**revision, "revision_state": "ACTIVE", "activated_at": now}
+
+
+def _v327_close_revision(username, revision_id, close_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE id=? AND username=?
+        """, (int(revision_id), username)).fetchone()
+        if not row:
+            return False, "revision_not_found"
+        revision = dict(row)
+        if str(revision.get("revision_state") or "") != "ACTIVE":
+            return False, "revision_not_active"
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        con.execute("""
+            UPDATE hunter_successor_revision_directives
+            SET revision_state='CLOSED', closed_at=?, close_note=?
+            WHERE id=? AND username=? AND revision_state='ACTIVE'
+        """, (now, str(close_note or "")[:2400], int(revision_id), username))
+        con.commit()
+    finally:
+        con.close()
+    return True, None
+
+
+def _v327_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        requests = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_successor_revision_requests
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+        revisions = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_successor_revision_directives
+            WHERE username=? ORDER BY id DESC LIMIT 250
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+
+    by_request = {int(r["revision_request_id"]): r for r in revisions}
+    items = []
+    for req in requests:
+        successor = _v325_successor(username, int(req["successor_id"])) or {}
+        item = dict(req)
+        item["successor"] = successor
+        item["revision"] = by_request.get(int(req["id"]))
+        item["ready_to_stage"] = bool(successor and str(successor.get("directive_state") or "") == "ACTIVE" and not item["revision"])
+        items.append(item)
+
+    return {
+        "version": V327_VERSION,
+        "counts": {
+            "revision_requests": len(requests),
+            "unstaged": sum(1 for i in items if i["ready_to_stage"]),
+            "staged": sum(1 for r in revisions if str(r.get("revision_state") or "") == "STAGED"),
+            "active": sum(1 for r in revisions if str(r.get("revision_state") or "") == "ACTIVE"),
+            "closed": sum(1 for r in revisions if str(r.get("revision_state") or "") == "CLOSED"),
+        },
+        "items": items,
+        "revisions": revisions,
+        "policy": "Revision overlays are immutable records. Base successors are never edited; only explicitly ACTIVE overlays affect execution routing."
+    }
+
+
+# Prefer an ACTIVE V32.7 overlay while preserving the base successor record.
+try:
+    _v327_prev_active_successor_for_playbook = _v324_active_successor_for_playbook
+    def _v324_active_successor_for_playbook(username, playbook_id):
+        base = _v327_prev_active_successor_for_playbook(username, playbook_id)
+        if not base:
+            return None
+        revision = _v327_active_revision_for_successor(username, int(base.get("id") or 0))
+        if not revision:
+            return base
+        routed = dict(base)
+        routed["directive_type"] = str(revision.get("directive_type") or routed.get("directive_type") or "")
+        routed["rationale"] = str(revision.get("rationale") or routed.get("rationale") or "")
+        routed["revision_overlay"] = True
+        routed["revision_id"] = int(revision.get("id") or 0)
+        routed["source_learning_state"] = "SUCCESSOR_REVISION_ACTIVE"
+        return routed
+except Exception:
+    pass
+
+
+@app.route("/api/hunter-revision-workshop")
+def v327_revision_workshop_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v327_snapshot(username)})
+
+
+@app.route("/api/hunter-revision-workshop/<int:request_id>/stage", methods=["POST"])
+def v327_stage_revision_api(request_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, revision_id = _v327_stage_revision(
+        username, request_id,
+        payload.get("directive_type") or "",
+        payload.get("rationale") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "revision_id": revision_id}), 400
+    return jsonify({"success": True, "revision_id": revision_id})
+
+
+@app.route("/api/hunter-revision-workshop/revision/<int:revision_id>/activate", methods=["POST"])
+def v327_activate_revision_api(revision_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error, revision = _v327_activate_revision(username, revision_id, payload.get("activation_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "revision": revision}), 400
+    return jsonify({"success": True, "revision": revision})
+
+
+@app.route("/api/hunter-revision-workshop/revision/<int:revision_id>/close", methods=["POST"])
+def v327_close_revision_api(revision_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, error = _v327_close_revision(username, revision_id, payload.get("close_note") or payload.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-revision-workshop")
+def v327_revision_workshop_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Revision Workshop</title><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧬 Revision Workshop</h1><p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v327_snapshot(username)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    options = "".join("<option value='%s'>%s</option>" % (esc(x), esc(x)) for x in sorted(V324_ALLOWED_TYPES))
+    cards = []
+    for item in data.get("items", []):
+        req = item
+        suc = item.get("successor") or {}
+        rev = item.get("revision") or {}
+        rid = int(req.get("id") or 0)
+        block = ""
+        if not rev and item.get("ready_to_stage"):
+            block = """
+            <form action='/api/hunter-revision-workshop/{rid}/stage' onsubmit='return v327submit(this,event)'>
+              <label>REVISED DIRECTIVE TYPE</label><select name='directive_type'>{options}</select>
+              <label>REVISION RATIONALE</label><textarea name='rationale' rows='3' placeholder='What changes, and what evidence supports the adjustment?'></textarea>
+              <button type='submit'>STAGE REVISION</button>
+            </form>""".format(rid=rid, options=options)
+        elif not rev:
+            block = "<div class='warn'>Base successor is not ACTIVE, so a revision cannot be staged.</div>"
+        elif str(rev.get("revision_state")) == "STAGED":
+            block = """
+            <div class='staged'><b>STAGED REVISION #{vid}</b><br>{dtype}<br><small>{why}</small></div>
+            <form action='/api/hunter-revision-workshop/revision/{vid}/activate' onsubmit='return v327submit(this,event,true)'>
+              <label>ACTIVATION NOTE</label><textarea name='activation_note' rows='2' placeholder='Explicit activation confirmation'></textarea>
+              <button class='activate' type='submit'>ACTIVATE REVISION OVERLAY</button>
+            </form>""".format(vid=int(rev.get("id") or 0), dtype=esc(rev.get("directive_type")), why=esc(rev.get("rationale")))
+        elif str(rev.get("revision_state")) == "ACTIVE":
+            block = """
+            <div class='active'><b>ACTIVE OVERLAY #{vid}</b><br>{dtype}<br><small>{why}</small></div>
+            <form action='/api/hunter-revision-workshop/revision/{vid}/close' onsubmit='return v327submit(this,event,true)'>
+              <label>CLOSE NOTE</label><textarea name='close_note' rows='2' placeholder='Why should this overlay stop routing execution?'></textarea>
+              <button class='close' type='submit'>CLOSE OVERLAY</button>
+            </form>""".format(vid=int(rev.get("id") or 0), dtype=esc(rev.get("directive_type")), why=esc(rev.get("rationale")))
+        else:
+            block = "<div class='closed'><b>CLOSED REVISION #{}</b><br><small>{}</small></div>".format(int(rev.get("id") or 0), esc(rev.get("close_note")))
+
+        cards.append("""
+        <article class='card'><div class='eyebrow'>REVISION REQUEST #{rid} · SUCCESSOR #{sid}</div>
+        <h3>{strategy}</h3><div class='base'>BASE DIRECTIVE: <b>{dtype}</b> · {state}</div>
+        <p>{reqnote}</p>{block}</article>
+        """.format(rid=rid, sid=esc(req.get("successor_id")), strategy=esc(req.get("strategy")),
+                   dtype=esc(suc.get("directive_type")), state=esc(suc.get("directive_state")),
+                   reqnote=esc(req.get("revision_note")), block=block))
+
+    c = data.get("counts", {})
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V32.7 Revision Workshop</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#172635 0,#080a0d 44%,#020304 100%);color:#f4f8fb;font-family:Arial,sans-serif}}.wrap{{max-width:1140px;margin:auto;padding:32px 18px 80px}}.hero,.card{{background:#091018ed;border:1px solid #24445c;border-radius:24px;padding:22px;box-shadow:0 24px 70px #0008}}.hero{{margin-bottom:16px}}.eyebrow{{font-size:11px;font-weight:900;letter-spacing:2px;color:#75d8ff}}h1{{font-size:42px;margin:7px 0}}h3{{margin:8px 0 12px}}.sub,p{{color:#a9bdc9;line-height:1.6}}.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:18px 0}}.stat{{border:1px solid #24445c;border-radius:15px;padding:12px;background:#07111a}}.num{{font-size:27px;font-weight:1000}}.nav a{{color:#81ddff;text-decoration:none;font-weight:900;margin-right:14px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:14px}}.base,.staged,.active,.closed,.warn{{padding:11px;border-radius:13px;margin:9px 0;border:1px solid #263d4e;background:#0c1720}}.staged{{border-color:#735d23;color:#ffe39a;background:#171307}}.active{{border-color:#1e7357;color:#9ff1ce;background:#09251c}}.closed{{color:#93a0aa}}.warn{{border-color:#6c3035;color:#ffacb4}}form{{border-top:1px solid #23313b;margin-top:13px;padding-top:13px}}label{{display:block;font-size:10px;letter-spacing:1.4px;color:#75d8ff;font-weight:900;margin:7px 0}}select,textarea{{width:100%;background:#04080c;color:#fff;border:1px solid #314957;border-radius:11px;padding:10px}}button{{margin-top:9px;border:0;border-radius:999px;background:#65d4ff;color:#041018;font-weight:1000;padding:11px 15px;cursor:pointer}}button.activate{{background:#83f1c3}}button.close{{background:#ff9ca8}}.rule{{margin-top:16px;padding:12px;border-left:3px solid #75d8ff;background:#07131c;color:#afd0e1;line-height:1.6}}small{{color:#7e929f}}@media(max-width:640px){{h1{{font-size:32px}}.grid{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V32.7 // REVISION WORKSHOP + OVERLAY ACTIVATION GATE</div><h1>🧬 REVISION WORKSHOP</h1><div class='sub'>Turn ADJUST_REQUIRED into a controlled revision without mutating the original successor. Draft first, activate separately, preserve the full chain.</div><div class='stats'><div class='stat'><div class='eyebrow'>REQUESTS</div><div class='num'>{rq}</div></div><div class='stat'><div class='eyebrow'>UNSTAGED</div><div class='num'>{un}</div></div><div class='stat'><div class='eyebrow'>STAGED</div><div class='num'>{st}</div></div><div class='stat'><div class='eyebrow'>ACTIVE</div><div class='num'>{ac}</div></div><div class='stat'><div class='eyebrow'>CLOSED</div><div class='num'>{cl}</div></div></div><div class='nav'><a href='/hunter-outcome-actions'>🚦 OUTCOME ACTIONS</a><a href='/hunter-successor-trials'>🧪 TRIALS</a><a href='/api/hunter-revision-workshop'>JSON</a></div><div class='rule'><b>V32.7 rule:</b> the original successor is immutable. Only a separately activated revision overlay can change execution routing, and closing that overlay falls back to the base successor.</div></section><section class='grid'>{cards}</section></div><script>
+    async function v327submit(form,e,confirmAction=false){{e.preventDefault();if(confirmAction&&!confirm('Confirm this revision state change?'))return false;const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(rq=esc(c.get("revision_requests",0)),un=esc(c.get("unstaged",0)),st=esc(c.get("staged",0)),ac=esc(c.get("active",0)),cl=esc(c.get("closed",0)),cards="".join(cards) if cards else "<article class='card'><p>No V32.6 revision requests yet.</p></article>")
+
+
+# Surface V32.7 from the V32.6 Outcome Action Gate.
+try:
+    _v327_prev_actions_page = app.view_functions.get("v326_outcome_actions_page")
+    if _v327_prev_actions_page:
+        def _v327_actions_with_workshop(*args, **kwargs):
+            response = _v327_prev_actions_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-revision-workshop" not in response:
+                anchor = "<a href='/hunter-successor-trials'>🧪 SUCCESSOR TRIALS</a>"
+                link = "<a href='/hunter-revision-workshop'>🧬 REVISION WORKSHOP</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+            return response
+        app.view_functions["v326_outcome_actions_page"] = _v327_actions_with_workshop
+except Exception:
+    pass
+
+
+
 if __name__ == "__main__":
 
     init_db()
