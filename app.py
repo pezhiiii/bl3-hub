@@ -61789,6 +61789,677 @@ except Exception:
     pass
 
 
+
+
+# ===== V33.8 COMPLIANCE CORRECTIVE ACTION + VERIFICATION GATE =====
+# V33.7 can finalize a compliance audit as CORRECTIVE_ACTION.
+# V33.8 turns that outcome into an explicit corrective-action case:
+# plan -> stage -> execute -> verify -> close/escalate.
+# Enforcement remains active throughout unless explicitly revoked elsewhere.
+
+V338_VERSION = "V33.8"
+V338_ACTION_TYPES = {"PROCESS_FIX", "TRAINING", "CONFIG_CHANGE", "SCOPE_CLARIFICATION", "MONITORING"}
+V338_VERIFY_SIGNALS = {"RESOLVED", "IMPROVING", "UNCHANGED", "WORSENED", "INCONCLUSIVE"}
+V338_VERIFY_OUTCOMES = {"CLOSE_CORRECTIVE_ACTION", "EXTEND_CORRECTIVE_ACTION", "ESCALATE_EXCEPTION_REVIEW"}
+V338_MIN_VERIFY_CHECKS = 2
+
+
+def _v338_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_corrective_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            enforcement_id INTEGER NOT NULL UNIQUE,
+            policy_id INTEGER NOT NULL,
+            compliance_outcome_id INTEGER NOT NULL,
+            action_type TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            action_steps TEXT NOT NULL,
+            owner_note TEXT,
+            action_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            staged_at TEXT,
+            executed_at TEXT,
+            closed_at TEXT,
+            closure_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v338_action_state
+        ON hunter_policy_corrective_actions(username, action_state, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_corrective_verification_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            corrective_action_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v338_verify_action
+        ON hunter_policy_corrective_verification_checks(username, corrective_action_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_policy_corrective_verification_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            corrective_action_id INTEGER NOT NULL UNIQUE,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v338_init()
+except Exception:
+    pass
+
+
+def _v338_action(username, enforcement_id=None, action_id=None):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if action_id is not None:
+            row = con.execute("""
+                SELECT * FROM hunter_policy_corrective_actions
+                WHERE username=? AND id=?
+            """, (username, int(action_id))).fetchone()
+        else:
+            row = con.execute("""
+                SELECT * FROM hunter_policy_corrective_actions
+                WHERE username=? AND enforcement_id=?
+                ORDER BY id DESC LIMIT 1
+            """, (username, int(enforcement_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v338_checks(username, action_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_policy_corrective_verification_checks
+            WHERE username=? AND corrective_action_id=?
+            ORDER BY id DESC
+        """, (username, int(action_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v338_verification_outcome(username, action_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_policy_corrective_verification_outcomes
+            WHERE username=? AND corrective_action_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(action_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v338_save_action(username, enforcement_id, action_type, objective, action_steps, owner_note=""):
+    outcome = _v337_outcome(username, enforcement_id)
+    if not outcome:
+        return False, "compliance_outcome_required", None
+    if str(outcome.get("outcome") or "") != "CORRECTIVE_ACTION":
+        return False, "corrective_action_outcome_required", None
+
+    atype = str(action_type or "").strip().upper()
+    if atype not in V338_ACTION_TYPES:
+        return False, "invalid_action_type", None
+
+    objective = str(objective or "").strip()
+    action_steps = str(action_steps or "").strip()
+    if not objective or not action_steps:
+        return False, "objective_and_steps_required", None
+
+    existing = _v338_action(username, enforcement_id=enforcement_id)
+    if existing and str(existing.get("action_state") or "") != "DRAFT":
+        return False, "action_not_editable", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        if existing:
+            con.execute("""
+                UPDATE hunter_policy_corrective_actions
+                SET action_type=?, objective=?, action_steps=?, owner_note=?
+                WHERE id=? AND username=? AND action_state='DRAFT'
+            """, (
+                atype, objective[:2000], action_steps[:5000], str(owner_note or "").strip()[:2400],
+                int(existing["id"]), username
+            ))
+            aid = int(existing["id"])
+        else:
+            cur = con.execute("""
+                INSERT INTO hunter_policy_corrective_actions
+                (username, enforcement_id, policy_id, compliance_outcome_id,
+                 action_type, objective, action_steps, owner_note,
+                 action_state, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
+            """, (
+                username,
+                int(enforcement_id),
+                int(outcome["policy_id"]),
+                int(outcome["id"]),
+                atype,
+                objective[:2000],
+                action_steps[:5000],
+                str(owner_note or "").strip()[:2400],
+                now,
+            ))
+            aid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, aid
+
+
+def _v338_stage_action(username, action_id):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "DRAFT":
+        return False, "corrective_action_not_draft", int(action["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_corrective_actions
+            SET action_state='STAGED', staged_at=?
+            WHERE id=? AND username=? AND action_state='DRAFT'
+        """, (now, int(action_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(action_id)
+
+
+def _v338_execute_action(username, action_id, note=""):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "STAGED":
+        return False, "corrective_action_not_staged", int(action["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_corrective_actions
+            SET action_state='EXECUTED', executed_at=?,
+                owner_note=CASE WHEN ?<>'' THEN ? ELSE owner_note END
+            WHERE id=? AND username=? AND action_state='STAGED'
+        """, (
+            now, str(note or "").strip(), str(note or "").strip()[:2400],
+            int(action_id), username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "POLICY_CORRECTIVE_ACTION_EXECUTED",
+            detail="V33.8 corrective action #%s executed for policy #%s. Enforcement remains active." % (
+                int(action_id), int(action.get("policy_id") or 0)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(action_id)
+
+
+def _v338_add_verify_check(username, action_id, signal_state, note=""):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "EXECUTED":
+        return False, "executed_corrective_action_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V338_VERIFY_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_corrective_verification_checks
+            (username, corrective_action_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username, int(action_id), signal, str(note or "").strip()[:2400], now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v338_finalize_verify_outcome(username, action_id, requested_outcome, note=""):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+    if str(action.get("action_state") or "") != "EXECUTED":
+        return False, "executed_corrective_action_required", None
+
+    checks = _v338_checks(username, action_id)
+    if len(checks) < V338_MIN_VERIFY_CHECKS:
+        return False, "not_enough_verification_checks", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V338_VERIFY_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v338_verification_outcome(username, action_id)
+    if existing:
+        return False, "verification_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_policy_corrective_verification_outcomes
+            (username, corrective_action_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username, int(action_id), requested,
+            str(note or "").strip()[:2400], now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v338_close_action(username, action_id, note=""):
+    action = _v338_action(username, action_id=action_id)
+    if not action:
+        return False, "corrective_action_not_found", None
+
+    outcome = _v338_verification_outcome(username, action_id)
+    if not outcome:
+        return False, "verification_outcome_required", None
+    if str(outcome.get("outcome") or "") != "CLOSE_CORRECTIVE_ACTION":
+        return False, "close_outcome_required", None
+    if str(action.get("action_state") or "") != "EXECUTED":
+        return False, "corrective_action_not_executed", int(action["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_policy_corrective_actions
+            SET action_state='CLOSED', closed_at=?, closure_note=?
+            WHERE id=? AND username=? AND action_state='EXECUTED'
+        """, (
+            now, str(note or "Corrective action verified and closed.").strip()[:2400],
+            int(action_id), username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(action_id)
+
+
+def _v338_snapshot(username):
+    enforced = _v337_enforced_rows(username)
+    items = []
+
+    for enforcement in enforced:
+        eid = int(enforcement.get("id") or 0)
+        compliance_outcome = _v337_outcome(username, eid)
+        if not compliance_outcome or str(compliance_outcome.get("outcome") or "") != "CORRECTIVE_ACTION":
+            continue
+
+        action = _v338_action(username, enforcement_id=eid)
+        checks = _v338_checks(username, int(action["id"])) if action else []
+        verify_outcome = _v338_verification_outcome(username, int(action["id"])) if action else None
+
+        item = dict(enforcement)
+        item["compliance_outcome"] = compliance_outcome
+        item["corrective_action"] = action
+        item["verification_checks"] = checks[:20]
+        item["verification_count"] = len(checks)
+        item["verification_outcome"] = verify_outcome
+        item["ready_to_stage"] = bool(action) and str(action.get("action_state") or "") == "DRAFT"
+        item["ready_to_execute"] = bool(action) and str(action.get("action_state") or "") == "STAGED"
+        item["ready_for_verification"] = bool(action) and str(action.get("action_state") or "") == "EXECUTED" and not verify_outcome
+        item["ready_for_outcome"] = item["ready_for_verification"] and len(checks) >= V338_MIN_VERIFY_CHECKS
+        item["ready_to_close"] = bool(verify_outcome) and str(verify_outcome.get("outcome") or "") == "CLOSE_CORRECTIVE_ACTION" and bool(action) and str(action.get("action_state") or "") == "EXECUTED"
+        items.append(item)
+
+    return {
+        "version": V338_VERSION,
+        "minimum_verification_checks": V338_MIN_VERIFY_CHECKS,
+        "counts": {
+            "corrective_cases": len(items),
+            "draft": sum(1 for i in items if i.get("corrective_action") and str(i["corrective_action"].get("action_state") or "") == "DRAFT"),
+            "executed": sum(1 for i in items if i.get("corrective_action") and str(i["corrective_action"].get("action_state") or "") == "EXECUTED"),
+            "closed": sum(1 for i in items if i.get("corrective_action") and str(i["corrective_action"].get("action_state") or "") == "CLOSED"),
+        },
+        "items": items,
+        "policy": "Corrective action never disables enforcement automatically. It is planned, staged, executed, verified, and explicitly closed."
+    }
+
+
+@app.route("/api/hunter-compliance-corrective-actions")
+def v338_api():
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v338_snapshot(username)})
+
+
+@app.route("/api/hunter-compliance-corrective-actions/<int:enforcement_id>/save", methods=["POST"])
+def v338_save_api(enforcement_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, aid = _v338_save_action(
+        username,
+        enforcement_id,
+        p.get("action_type") or "",
+        p.get("objective") or "",
+        p.get("action_steps") or "",
+        p.get("owner_note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/api/hunter-compliance-corrective-actions/action/<int:action_id>/stage", methods=["POST"])
+def v338_stage_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, error, aid = _v338_stage_action(username, action_id)
+    if not ok:
+        return jsonify({"success": False, "error": error, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/api/hunter-compliance-corrective-actions/action/<int:action_id>/execute", methods=["POST"])
+def v338_execute_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, aid = _v338_execute_action(username, action_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/api/hunter-compliance-corrective-actions/action/<int:action_id>/check", methods=["POST"])
+def v338_check_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, cid = _v338_add_verify_check(
+        username, action_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-compliance-corrective-actions/action/<int:action_id>/outcome", methods=["POST"])
+def v338_outcome_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, oid = _v338_finalize_verify_outcome(
+        username, action_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": error, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-compliance-corrective-actions/action/<int:action_id>/close", methods=["POST"])
+def v338_close_api(action_id):
+    username = session.get("authenticated_username")
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, error, aid = _v338_close_action(username, action_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": error, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/hunter-compliance-corrective-actions")
+def v338_page():
+    username = session.get("authenticated_username")
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Corrective Actions</title>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🛠️ Corrective Actions</h1>
+        <p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    data = _v338_snapshot(username)
+    c = data["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in data["items"]:
+        eid = int(item.get("id") or 0)
+        action = item.get("corrective_action") or {}
+        verify_outcome = item.get("verification_outcome") or {}
+        checks = item.get("verification_checks") or []
+
+        actions = ""
+
+        if not action:
+            actions += """
+            <form action='/api/hunter-compliance-corrective-actions/{eid}/save' onsubmit='return v338submit(this,event)'>
+              <select name='action_type'>
+                <option>PROCESS_FIX</option><option>TRAINING</option><option>CONFIG_CHANGE</option><option>SCOPE_CLARIFICATION</option><option>MONITORING</option>
+              </select>
+              <textarea name='objective' rows='2' placeholder='Corrective objective'></textarea>
+              <textarea name='action_steps' rows='4' placeholder='Corrective action steps'></textarea>
+              <textarea name='owner_note' rows='2' placeholder='Owner / execution note'></textarea>
+              <button type='submit'>CREATE CORRECTIVE ACTION</button>
+            </form>
+            """.format(eid=eid)
+
+        elif item.get("ready_to_stage"):
+            actions += """
+            <div class='actionbox'><b>{atype}</b><h3>{objective}</h3><p>{steps}</p></div>
+            <form action='/api/hunter-compliance-corrective-actions/action/{aid}/stage' onsubmit='return v338submit(this,event)'>
+              <button class='warn' type='submit'>STAGE CORRECTIVE ACTION</button>
+            </form>
+            """.format(
+                atype=esc(action.get("action_type")),
+                objective=esc(action.get("objective")),
+                steps=esc(action.get("action_steps")),
+                aid=int(action["id"]),
+            )
+
+        elif item.get("ready_to_execute"):
+            actions += """
+            <div class='actionbox'><b>STAGED</b><p>{objective}</p></div>
+            <form action='/api/hunter-compliance-corrective-actions/action/{aid}/execute' onsubmit='return v338submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Execution note'></textarea>
+              <button class='safe' type='submit'>EXECUTE CORRECTIVE ACTION</button>
+            </form>
+            """.format(
+                objective=esc(action.get("objective")),
+                aid=int(action["id"]),
+            )
+
+        elif item.get("ready_for_verification") or item.get("ready_for_outcome"):
+            actions += """
+            <div class='actionbox'><b>EXECUTED</b><p>{objective}</p></div>
+            <form action='/api/hunter-compliance-corrective-actions/action/{aid}/check' onsubmit='return v338submit(this,event)'>
+              <select name='signal_state'>
+                <option>RESOLVED</option><option>IMPROVING</option><option>UNCHANGED</option><option>WORSENED</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Corrective verification evidence'></textarea>
+              <button type='submit'>ADD VERIFICATION CHECK</button>
+            </form>
+            """.format(
+                objective=esc(action.get("objective")),
+                aid=int(action["id"]),
+            )
+
+        if item.get("ready_for_outcome"):
+            actions += """
+            <form action='/api/hunter-compliance-corrective-actions/action/{aid}/outcome' onsubmit='return v338submit(this,event)'>
+              <select name='outcome'>
+                <option value='CLOSE_CORRECTIVE_ACTION'>CLOSE_CORRECTIVE_ACTION</option>
+                <option value='EXTEND_CORRECTIVE_ACTION'>EXTEND_CORRECTIVE_ACTION</option>
+                <option value='ESCALATE_EXCEPTION_REVIEW'>ESCALATE_EXCEPTION_REVIEW</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Verification outcome rationale'></textarea>
+              <button type='submit'>FINALIZE VERIFICATION OUTCOME</button>
+            </form>
+            """.format(aid=int(action["id"]))
+        elif verify_outcome:
+            actions += "<div class='final'>VERIFICATION OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(verify_outcome.get("outcome")),
+                esc(verify_outcome.get("outcome_note")),
+            )
+
+        if item.get("ready_to_close"):
+            actions += """
+            <form action='/api/hunter-compliance-corrective-actions/action/{aid}/close' onsubmit='return v338submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Closure note'></textarea>
+              <button class='safe' type='submit'>CLOSE CORRECTIVE ACTION</button>
+            </form>
+            """.format(aid=int(action["id"]))
+
+        checks_html = "".join(
+            "<div class='checkrow'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No verification checks yet.</div>"
+
+        cards.append("""
+        <article class='card'>
+          <div class='top'><span>Enforcement #{eid}</span><span class='pill'>CORRECTIVE ACTION</span></div>
+          <h2>{title}</h2>
+          <p><b>{ptype}</b></p>
+          <p class='muted'>{rule}</p>
+          {actions}
+          <div class='history'>{checks}</div>
+        </article>
+        """.format(
+            eid=esc(eid),
+            title=esc(item.get("title")),
+            ptype=esc(item.get("policy_type")),
+            rule=esc(item.get("rule_text")),
+            actions=actions,
+            checks=checks_html,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V33.8 Corrective Actions</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial,sans-serif}}
+    .wrap{{max-width:1160px;margin:auto;padding:28px}} .hero{{border:1px solid #183746;background:#081116;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#ff8f8f;font-size:11px;letter-spacing:1.7px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .sub,.muted,small{{color:#8ca7b4;line-height:1.6}} .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+    .stat,.card{{border:1px solid #173342;background:#081116;border-radius:18px;padding:16px}} .num{{font-size:26px;font-weight:900;color:#ff8f8f}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}} .top{{display:flex;justify-content:space-between;gap:10px}}
+    .pill{{border:1px solid #6a3232;border-radius:999px;padding:6px 9px;color:#ff9e9e;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;color:#031016;font-weight:900;cursor:pointer}}
+    button.warn{{background:#ffd66f}} button.safe{{background:#8bf0c8}}
+    .actionbox,.final{{margin-top:10px;padding:12px;border:1px solid #4a3030;border-radius:12px;background:#160c0c}}
+    .final{{background:#0e2a21;border-color:#216c52;color:#9bf2cb}}
+    .checkrow{{border-top:1px solid #15313f;padding:10px 0}} .checkrow b{{color:#ff9e9e;display:block}} .checkrow span{{display:block;margin:5px 0;color:#d7e8ef}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:14px 12px 0 0;text-decoration:none}}
+    .rule{{margin-top:14px;border-left:3px solid #ff8f8f;padding:12px;background:#170909;color:#e8bbbb;line-height:1.6}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}h1{{font-size:32px}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V33.8 // COMPLIANCE CORRECTIVE ACTION + VERIFICATION GATE</div>
+        <h1>🛠️ CORRECT THE GAP</h1>
+        <div class='sub'>A compliance problem becomes an explicit corrective-action workflow: plan, stage, execute, verify, then close or escalate.</div>
+        <div class='stats'>
+          <div class='stat'><div class='eyebrow'>CASES</div><div class='num'>{cases}</div></div>
+          <div class='stat'><div class='eyebrow'>DRAFT</div><div class='num'>{draft}</div></div>
+          <div class='stat'><div class='eyebrow'>EXECUTED</div><div class='num'>{executed}</div></div>
+          <div class='stat'><div class='eyebrow'>CLOSED</div><div class='num'>{closed}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-policy-compliance'>🧾 POLICY COMPLIANCE</a><a href='/hunter-policy-effectiveness'>⚖️ EFFECTIVENESS</a><a href='/api/hunter-compliance-corrective-actions'>JSON</a></div>
+        <div class='rule'><strong>V33.8 rule:</strong> corrective action never disables enforcement automatically. Remediation must be explicit, verified, and separately closed.</div>
+      </section>
+      <section class='grid'>{cards}</section>
+    </div>
+    <script>
+    async function v338submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        cases=esc(c.get("corrective_cases",0)),
+        draft=esc(c.get("draft",0)),
+        executed=esc(c.get("executed",0)),
+        closed=esc(c.get("closed",0)),
+        cards="".join(cards) if cards else "<article class='card'><p>No corrective-action compliance outcomes are waiting for remediation.</p></article>"
+    )
+
+
+try:
+    _v338_prev_page = app.view_functions.get("v337_page")
+    if _v338_prev_page:
+        def _v338_compliance_with_corrective(*args, **kwargs):
+            response = _v338_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-compliance-corrective-actions" not in response:
+                anchor = "<a href='/api/hunter-policy-compliance'>JSON</a>"
+                link = "<a href='/hunter-compliance-corrective-actions'>🛠️ CORRECTIVE ACTIONS</a>"
+                if anchor in response:
+                    response = response.replace(anchor, anchor + link, 1)
+                elif "</section>" in response:
+                    response = response.replace("</section>", link + "</section>", 1)
+            return response
+        app.view_functions["v337_page"] = _v338_compliance_with_corrective
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
