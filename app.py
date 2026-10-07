@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.1 Build Attestation</title><style>
+    <title>BL3 V32.2 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V32.1 Hunter Command Deck</title>
+    <title>BL3 V32.2 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -53780,6 +53780,438 @@ try:
                 )
             return response
         app.view_functions["v316_governance_page"] = _v321_governance_page_with_post_closure_watch
+except Exception:
+    pass
+
+# ===== V32.2 REGRESSION TRIAGE + REOPEN PROPOSALS =====
+V322_VERSION = "V32.2"
+V322_DECISIONS = {"APPROVED", "REJECTED", "DEFERRED"}
+
+
+def _v322_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_regression_reopen_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                receipt_id INTEGER NOT NULL,
+                directive_id INTEGER NOT NULL,
+                strategy TEXT,
+                proposal_reason TEXT,
+                regression_score INTEGER,
+                decision_state TEXT NOT NULL DEFAULT 'PENDING',
+                decision_note TEXT,
+                created_at TEXT NOT NULL,
+                decided_at TEXT
+            )
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_v322_user_state
+            ON hunter_regression_reopen_proposals(username, decision_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v322_init()
+except Exception:
+    pass
+
+
+def _v322_proposals(username, limit=250):
+    _v322_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT *
+            FROM hunter_regression_reopen_proposals
+            WHERE username=?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (username, int(limit))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v322_get(username, proposal_id):
+    _v322_init()
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT *
+            FROM hunter_regression_reopen_proposals
+            WHERE username=? AND id=?
+            LIMIT 1
+        """, (username, int(proposal_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v322_create(username, receipt_id, reason=""):
+    receipt = _v321_receipt(username, receipt_id)
+    if not receipt:
+        return False, "receipt_not_found", None
+
+    vr = _v321_verifications(username, receipt_id=receipt_id, limit=1)
+    latest = vr[0] if vr else None
+    if not latest:
+        return False, "verification_required", None
+
+    verify_state = str(latest.get("verification_state") or "").upper()
+    if verify_state not in {"REGRESSION", "NEEDS_REVIEW"}:
+        return False, "verification_not_eligible", None
+
+    for p in _v322_proposals(username, 300):
+        if int(p.get("receipt_id") or 0) == int(receipt_id) and str(p.get("decision_state") or "") == "PENDING":
+            return False, "pending_proposal_exists", int(p.get("id") or 0)
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_regression_reopen_proposals (
+                username, receipt_id, directive_id, strategy,
+                proposal_reason, regression_score, decision_state, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        """, (
+            username,
+            int(receipt_id),
+            int(receipt.get("directive_id") or 0),
+            str(receipt.get("strategy") or "")[:500],
+            str(reason or latest.get("note") or "Regression requires reopen review.")[:2000],
+            latest.get("observed_score"),
+            now,
+        ))
+        con.commit()
+        proposal_id = int(cur.lastrowid)
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(receipt.get("strategy") or ""),
+            "REOPEN_PROPOSAL_CREATED",
+            directive_id=int(receipt.get("directive_id") or 0),
+            detail="V32.2 proposal #%s created from receipt #%s" % (proposal_id, receipt_id),
+        )
+    except Exception:
+        pass
+
+    return True, None, proposal_id
+
+
+def _v322_decide(username, proposal_id, decision, note=""):
+    proposal = _v322_get(username, proposal_id)
+    if not proposal:
+        return False, "proposal_not_found"
+
+    decision = str(decision or "").strip().upper()
+    if decision not in V322_DECISIONS:
+        return False, "invalid_decision"
+
+    if str(proposal.get("decision_state") or "") != "PENDING":
+        return False, "proposal_already_decided"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_regression_reopen_proposals
+            SET decision_state=?, decision_note=?, decided_at=?
+            WHERE username=? AND id=? AND decision_state='PENDING'
+        """, (decision, str(note or "")[:2000], now, username, int(proposal_id)))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            str(proposal.get("strategy") or ""),
+            "REOPEN_PROPOSAL_%s" % decision,
+            directive_id=int(proposal.get("directive_id") or 0),
+            detail="V32.2 proposal #%s -> %s" % (proposal_id, decision),
+        )
+    except Exception:
+        pass
+
+    return True, None
+
+
+def _v322_snapshot(username):
+    proposals = _v322_proposals(username)
+    counts = {"total": 0, "pending": 0, "approved": 0, "rejected": 0, "deferred": 0}
+    for p in proposals:
+        counts["total"] += 1
+        s = str(p.get("decision_state") or "").lower()
+        if s in counts:
+            counts[s] += 1
+
+    pending_receipts = {
+        int(p.get("receipt_id") or 0)
+        for p in proposals
+        if str(p.get("decision_state") or "") == "PENDING"
+    }
+
+    eligible = []
+    watch = _v321_watch_snapshot(username)
+    for item in watch.get("items") or []:
+        state = str(item.get("watch_state") or "")
+        receipt = item.get("receipt") or {}
+        rid = int(receipt.get("id") or 0)
+        if state in {"REGRESSION", "NEEDS_REVIEW"}:
+            eligible.append({
+                "receipt": receipt,
+                "latest_verification": item.get("latest_verification"),
+                "has_pending_proposal": rid in pending_receipts,
+            })
+
+    return {
+        "version": V322_VERSION,
+        "counts": counts,
+        "eligible_receipts": eligible,
+        "proposals": proposals,
+        "automatic_reopen": False,
+    }
+
+
+@app.route("/api/hunter-regression-triage")
+def v322_regression_triage_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    snap = _v322_snapshot(username)
+    snap["success"] = True
+    return jsonify(snap)
+
+
+@app.route("/api/hunter-regression-triage/propose/<int:receipt_id>", methods=["POST"])
+def v322_regression_triage_propose_api(receipt_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err, proposal_id = _v322_create(username, receipt_id, payload.get("reason") or "")
+    if not ok:
+        return jsonify({"success": False, "error": err, "proposal_id": proposal_id}), 400
+
+    return jsonify({
+        "success": True,
+        "version": V322_VERSION,
+        "proposal_id": proposal_id,
+        "automatic_reopen": False,
+    })
+
+
+@app.route("/api/hunter-regression-triage/proposal/<int:proposal_id>/decide", methods=["POST"])
+def v322_regression_triage_decide_api(proposal_id):
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    ok, err = _v322_decide(
+        username,
+        proposal_id,
+        payload.get("decision_state") or payload.get("decision"),
+        payload.get("decision_note") or payload.get("note") or "",
+    )
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+
+    return jsonify({
+        "success": True,
+        "version": V322_VERSION,
+        "proposal": _v322_get(username, proposal_id),
+        "automatic_reopen": False,
+    })
+
+
+@app.route("/hunter-regression-triage")
+def v322_regression_triage_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Regression Triage</title>
+        <body style='background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>🚨 Regression Triage</h1><p>Sign in to continue.</p><a style='color:#8bd6ff' href='/'>BACK</a></body>""", 401
+
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+    snap = _v322_snapshot(username)
+    counts = snap.get("counts") or {}
+
+    eligible_cards = []
+    for item in snap.get("eligible_receipts") or []:
+        r = item.get("receipt") or {}
+        v = item.get("latest_verification") or {}
+        rid = int(r.get("id") or 0)
+
+        if item.get("has_pending_proposal"):
+            control = "<span class='chip'>PENDING PROPOSAL EXISTS</span>"
+        else:
+            control = """
+            <form action='/api/hunter-regression-triage/propose/{rid}' onsubmit='return v322propose(this,event)'>
+              <label>Proposal reason</label>
+              <textarea name='reason' rows='3' placeholder='Why should this closure be reviewed?'></textarea>
+              <button type='submit'>CREATE REOPEN PROPOSAL</button>
+            </form>
+            """.format(rid=rid)
+
+        eligible_cards.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>RECEIPT #{rid} · DIRECTIVE #{did}</span><h3>{strategy}</h3></div>
+          <span class='pill regression'>{state}</span></div>
+          <div class='grid'>
+            <div><span>OBSERVED SCORE</span><b>{score}</b></div>
+            <div><span>VERIFIED</span><b>{verified}</b></div>
+            <div><span>CLOSURE CONFIDENCE</span><b>{confidence}/100</b></div>
+            <div><span>AUTO REOPEN</span><b>OFF</b></div>
+          </div>
+          <p><strong>Verification note:</strong> {note}</p>
+          {control}
+        </article>
+        """.format(
+            rid=esc(rid),
+            did=esc(r.get("directive_id")),
+            strategy=esc(r.get("strategy")),
+            state=esc(v.get("verification_state")),
+            score=esc(v.get("observed_score")),
+            verified=esc(v.get("verified_at")),
+            confidence=esc(r.get("confidence_score")),
+            note=esc(v.get("note")),
+            control=control,
+        ))
+
+    proposal_cards = []
+    for p in snap.get("proposals") or []:
+        pid = int(p.get("id") or 0)
+        state = str(p.get("decision_state") or "PENDING")
+        if state == "PENDING":
+            controls = """
+            <form action='/api/hunter-regression-triage/proposal/{pid}/decide' onsubmit='return v322decide(this,event)'>
+              <label>Decision</label>
+              <select name='decision_state'>
+                <option value='APPROVED'>APPROVED</option>
+                <option value='REJECTED'>REJECTED</option>
+                <option value='DEFERRED'>DEFERRED</option>
+              </select>
+              <label>Decision note</label>
+              <textarea name='decision_note' rows='3'></textarea>
+              <button type='submit'>SAVE DECISION</button>
+            </form>
+            """.format(pid=pid)
+        else:
+            controls = "<p><strong>Decision note:</strong> %s</p>" % esc(p.get("decision_note"))
+
+        proposal_cards.append("""
+        <article class='card'>
+          <div class='top'><div><span class='eyebrow'>PROPOSAL #{pid} · RECEIPT #{rid}</span><h3>{strategy}</h3></div>
+          <span class='pill {stateclass}'>{state}</span></div>
+          <p><strong>Reason:</strong> {reason}</p>
+          <div class='grid'>
+            <div><span>REGRESSION SCORE</span><b>{score}</b></div>
+            <div><span>CREATED</span><b>{created}</b></div>
+            <div><span>DECIDED</span><b>{decided}</b></div>
+            <div><span>AUTO REOPEN</span><b>OFF</b></div>
+          </div>
+          {controls}
+        </article>
+        """.format(
+            pid=esc(pid),
+            rid=esc(p.get("receipt_id")),
+            strategy=esc(p.get("strategy")),
+            state=esc(state),
+            stateclass=esc(state.lower()),
+            reason=esc(p.get("proposal_reason")),
+            score=esc(p.get("regression_score")),
+            created=esc(p.get("created_at")),
+            decided=esc(p.get("decided_at")),
+            controls=controls,
+        ))
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V32.2 Regression Triage</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#311f28,#0a0c0f 58%,#020203);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1180px;margin:auto}}.panel{{background:#0c1115ef;border:1px solid #694753;border-radius:24px;padding:24px}}
+    .eyebrow{{color:#ff9ebd;font-size:10px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0 5px}}h3{{margin:5px 0}}
+    p{{color:#eadce1;line-height:1.55}}.hero,.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}}
+    .hero div,.grid div{{background:#181014;border:1px solid #633b49;border-radius:12px;padding:12px}}.hero span,.grid span{{display:block;color:#c9a7b2;font-size:9px;font-weight:900}}
+    .hero b,.grid b{{display:block;margin-top:6px;font-size:17px;overflow-wrap:anywhere}}.card{{background:#151014;border:1px solid #60414b;border-radius:18px;padding:17px;margin:12px 0}}
+    .top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.pill{{font-size:10px;font-weight:900;border:1px solid #7a5863;border-radius:999px;padding:6px 9px}}
+    .pill.pending{{border-color:#c59a55}}.pill.approved{{border-color:#4d9b6c}}.pill.rejected{{border-color:#c05e64}}.pill.deferred{{border-color:#846bb3}}.pill.regression{{border-color:#c05e64}}
+    .rule{{border-left:4px solid #ff7aa6;padding:11px 14px;background:#1a1115;border-radius:8px}}
+    a,button{{display:inline-block;margin:8px 7px 0 0;padding:10px 13px;border:1px solid #744c59;border-radius:10px;background:#1c1217;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}}
+    form{{margin-top:14px;padding-top:12px;border-top:1px solid #4b2e38}}label{{display:block;margin-top:9px;color:#d2aeba;font-size:10px;font-weight:900}}
+    select,textarea{{width:100%;margin-top:5px;background:#0f0b0d;color:#fff;border:1px solid #5f3c48;border-radius:10px;padding:10px}}
+    .chip{{display:inline-block;margin:3px;padding:6px 8px;border:1px solid #6b4753;border-radius:999px;font-size:10px;color:#e2b9c7}}
+    .section{{margin-top:28px;padding-top:18px;border-top:1px solid #3f2931}}
+    @media(max-width:900px){{.hero,.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style>
+    <script>
+    async function v322propose(form,event){{
+      event.preventDefault(); const fd=new FormData(form);
+      const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:fd.get('reason')}})}});
+      const data=await res.json(); if(data.success){{location.reload();return false;}} alert(data.error||'proposal_failed'); return false;
+    }}
+    async function v322decide(form,event){{
+      event.preventDefault(); const fd=new FormData(form);
+      const res=await fetch(form.action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{decision_state:fd.get('decision_state'),decision_note:fd.get('decision_note')}})}});
+      const data=await res.json(); if(data.success){{location.reload();return false;}} alert(data.error||'decision_failed'); return false;
+    }}
+    </script></head><body><div class='wrap'><section class='panel'>
+      <div class='eyebrow'>BL3 V32.2 // REGRESSION TRIAGE + REOPEN PROPOSALS</div>
+      <h1>🚨 REGRESSION TRIAGE</h1>
+      <p>{username}, REGRESSION and NEEDS_REVIEW evidence can now become a formal reopen proposal. The proposal is reviewable and auditable, but it never silently mutates the original closed directive.</p>
+
+      <div class='hero'>
+        <div><span>TOTAL</span><b>{total}</b></div>
+        <div><span>PENDING</span><b>{pending}</b></div>
+        <div><span>APPROVED</span><b>{approved}</b></div>
+        <div><span>REJECTED / DEFERRED</span><b>{closed}</b></div>
+      </div>
+
+      <div class='rule'><strong>V32.2 rule:</strong> regression can trigger review, never automatic reopening. APPROVED means “approved for reopen/re-evaluation” as a governance record; the original directive still remains unchanged until a later explicit action.</div>
+
+      <a href='/hunter-closure-verification'>🔎 POST-CLOSURE VERIFICATION</a>
+      <a href='/hunter-closure-adjudication'>⚖️ CLOSURE ADJUDICATION</a>
+      <a href='/hunter-recalibration-retests'>🧪 RETESTS</a>
+      <a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>
+
+      <div class='section'><div class='eyebrow'>ELIGIBLE REGRESSION SIGNALS</div>{eligible}</div>
+      <div class='section'><div class='eyebrow'>REOPEN PROPOSALS</div>{proposals}</div>
+    </section></div></body></html>""".format(
+        username=esc(username),
+        total=esc(counts.get("total")),
+        pending=esc(counts.get("pending")),
+        approved=esc(counts.get("approved")),
+        closed=esc(int(counts.get("rejected") or 0) + int(counts.get("deferred") or 0)),
+        eligible="".join(eligible_cards) if eligible_cards else "<p>No eligible REGRESSION / NEEDS_REVIEW receipts right now.</p>",
+        proposals="".join(proposal_cards) if proposal_cards else "<p>No reopen proposals yet.</p>",
+    )
+
+
+try:
+    _v322_prev_verification = app.view_functions.get("v321_closure_verification_page")
+    if _v322_prev_verification:
+        def _v322_verification_with_triage(*args, **kwargs):
+            response = _v322_prev_verification(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-regression-triage" not in response:
+                response = response.replace(
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a>",
+                    "<a href='/hunter-playbook-governance'>🛡️ GOVERNANCE</a><a href='/hunter-regression-triage'>🚨 REGRESSION TRIAGE</a>",
+                    1
+                )
+            return response
+        app.view_functions["v321_closure_verification_page"] = _v322_verification_with_triage
 except Exception:
     pass
 
