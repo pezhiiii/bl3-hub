@@ -31062,7 +31062,7 @@ def v248_build_attestation_page():
     state=data.get("state") or "UNATTESTED"
     cls="bad" if state=="DRIFT" else ("warn" if state=="UNATTESTED" else "ok")
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.9 Build Attestation</title><style>
+    <title>BL3 V31.0 Build Attestation</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113b 0,#08070b 48%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1050px;margin:auto;padding:34px 18px 72px}}.hero,.panel{{background:#0c0a11e8;border:1px solid #42245e;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0008}}
     .eyebrow{{font:900 11px Arial;letter-spacing:3px;color:#bd79ff}}.title{{font-size:42px;font-weight:1000;margin:7px 0}}.sub{{color:#bbb;line-height:1.6}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:17px}}
@@ -32938,7 +32938,7 @@ def v258_hunter_command_page():
     )
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.9 Hunter Command Deck</title>
+    <title>BL3 V31.0 Hunter Command Deck</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#24113f 0,#09070d 46%,#030304 100%);color:#fff;font-family:Arial,sans-serif}}
     .wrap{{max-width:1180px;margin:auto;padding:30px 18px 72px}}.hero,.panel{{background:#0b0911ed;border:1px solid #4b2b68;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 24px 70px #0007}}
@@ -48343,7 +48343,7 @@ def v309_experiment_contract_page():
     status = "LOCKED BEFORE EVIDENCE" if locked else ("EVIDENCE ALREADY STARTED" if int(data.get("sample_count") or 0) > 0 else "DRAFT — LOCK BEFORE FIRST SAMPLE")
 
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>BL3 V30.9 Experiment Hypothesis Contract</title>
+    <title>BL3 V31.0 Experiment Hypothesis Contract</title>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#21172f,#08070c 58%,#020204);color:#fff;font-family:Arial;padding:24px}}
     .wrap{{max-width:1050px;margin:auto}}.panel{{background:#0b0911ef;border:1px solid #704477;border-radius:24px;padding:22px}}
@@ -48445,6 +48445,341 @@ try:
                 response = response.replace("</body>", link + "</body>", 1)
             return response
         app.view_functions["v308_experiment_coach_page"] = _v309_coach_page_with_contract_link
+except Exception:
+    pass
+
+
+# ===== V31.0 EXPERIMENT VERDICT LEDGER =====
+# Adjudicates completed experiments against their locked pre-outcome hypothesis contract.
+# Stores predicted-vs-actual outcomes in an immutable ledger so BL3 can distinguish
+# confirmed, falsified, inconclusive, and uncontracted experiments.
+
+V310_VERSION = "V31.0"
+
+
+def _v310_ensure_schema():
+    _v309_ensure_schema()
+    conn = sqlite3.connect(DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hunter_experiment_verdicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experiment_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                strategy TEXT NOT NULL,
+                contract_state TEXT NOT NULL,
+                hypothesis TEXT NOT NULL DEFAULT '',
+                expected_delta REAL,
+                success_delta REAL,
+                failure_delta REAL,
+                baseline_signal REAL NOT NULL DEFAULT 0,
+                sample_signal REAL NOT NULL DEFAULT 0,
+                actual_delta REAL NOT NULL DEFAULT 0,
+                verdict TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                explanation TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(experiment_id, username)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_experiment_verdicts_user "
+            "ON hunter_experiment_verdicts(username, id DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _v310_adjudicate(contract, delta):
+    delta = float(delta or 0)
+    if not contract:
+        return (
+            "UNCONTRACTED",
+            "LOW",
+            "No locked pre-outcome hypothesis was available, so this result is recorded but cannot be treated as a clean prediction test."
+        )
+
+    if not contract.get("locked_at"):
+        return (
+            "UNLOCKED_CONTRACT",
+            "LOW",
+            "A hypothesis draft existed but was not locked before evidence, so BL3 will not score it as a strict prediction."
+        )
+
+    success_delta = float(contract.get("success_delta") or V309_DEFAULT_SUCCESS_DELTA)
+    failure_delta = float(contract.get("failure_delta") or V309_DEFAULT_FAILURE_DELTA)
+
+    if delta >= success_delta:
+        return (
+            "CONFIRMED",
+            "HIGH",
+            "Actual verified delta met or exceeded the pre-registered success threshold."
+        )
+    if delta <= failure_delta:
+        return (
+            "FALSIFIED",
+            "HIGH",
+            "Actual verified delta met or crossed the pre-registered failure threshold."
+        )
+    return (
+        "INCONCLUSIVE",
+        "MEDIUM",
+        "Actual verified delta landed between the pre-registered success and failure thresholds."
+    )
+
+
+def _v310_record_verdict(username, experiment, snap, contract):
+    _v310_ensure_schema()
+    experiment_id = int((experiment or {}).get("id") or 0)
+    if not experiment_id:
+        return None
+
+    delta = float((snap or {}).get("delta") or 0)
+    verdict, confidence, explanation = _v310_adjudicate(contract, delta)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO hunter_experiment_verdicts
+               (experiment_id, username, strategy, contract_state, hypothesis,
+                expected_delta, success_delta, failure_delta,
+                baseline_signal, sample_signal, actual_delta,
+                verdict, confidence, explanation, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                experiment_id,
+                username,
+                str((experiment or {}).get("strategy") or ""),
+                (
+                    "LOCKED"
+                    if (contract or {}).get("locked_at")
+                    else ("DRAFT" if contract else "NONE")
+                ),
+                str((contract or {}).get("hypothesis") or ""),
+                (contract or {}).get("expected_delta"),
+                (contract or {}).get("success_delta"),
+                (contract or {}).get("failure_delta"),
+                float((snap or {}).get("baseline_signal") or 0),
+                float((snap or {}).get("sample_signal") or 0),
+                delta,
+                verdict,
+                confidence,
+                explanation,
+                now,
+            )
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM hunter_experiment_verdicts WHERE username=? AND experiment_id=? LIMIT 1",
+            (username, experiment_id)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _v310_verdict_history(username, limit=30):
+    _v310_ensure_schema()
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT * FROM hunter_experiment_verdicts
+               WHERE username=?
+               ORDER BY id DESC LIMIT ?""",
+            (username, max(1, min(100, int(limit or 30))))
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _v310_scorecard(rows):
+    rows = list(rows or [])
+    total = len(rows)
+    counts = {"CONFIRMED": 0, "FALSIFIED": 0, "INCONCLUSIVE": 0, "UNCONTRACTED": 0, "UNLOCKED_CONTRACT": 0}
+    for row in rows:
+        verdict = str(row.get("verdict") or "")
+        counts[verdict] = counts.get(verdict, 0) + 1
+
+    strict = counts["CONFIRMED"] + counts["FALSIFIED"] + counts["INCONCLUSIVE"]
+    hit_rate = round((counts["CONFIRMED"] / strict) * 100, 1) if strict else None
+    avg_delta = round(sum(float(r.get("actual_delta") or 0) for r in rows) / total, 1) if total else 0
+
+    return {
+        "total": total,
+        "strict_tests": strict,
+        "confirmed": counts["CONFIRMED"],
+        "falsified": counts["FALSIFIED"],
+        "inconclusive": counts["INCONCLUSIVE"],
+        "uncontracted": counts["UNCONTRACTED"] + counts["UNLOCKED_CONTRACT"],
+        "prediction_hit_rate": hit_rate,
+        "average_delta": avg_delta,
+    }
+
+
+@app.route("/api/hunter-experiment-verdicts")
+def v310_experiment_verdicts_api():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    rows = _v310_verdict_history(username, request.args.get("limit", 30))
+    return jsonify({
+        "success": True,
+        "version": V310_VERSION,
+        "username": username,
+        "scorecard": _v310_scorecard(rows),
+        "verdicts": rows,
+        "policy": (
+            "Only locked pre-outcome contracts are scored as strict prediction tests. "
+            "Draft or missing contracts are preserved in the ledger but excluded from the prediction hit rate."
+        ),
+    })
+
+
+@app.route("/hunter-experiment-verdicts")
+def v310_experiment_verdicts_page():
+    username = str(session.get("authenticated_username") or "").strip()
+    if not username:
+        return """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>BL3 Experiment Verdict Ledger</title><body style='margin:0;background:#05070a;color:#fff;font-family:Arial;padding:40px'>
+        <h1>⚖️ Experiment Verdict Ledger</h1><p>Sign in to review prediction outcomes.</p>
+        <a style='color:#8bd6ff' href='/'>BACK TO BL3</a></body>""", 401
+
+    rows = _v310_verdict_history(username, 50)
+    score = _v310_scorecard(rows)
+    esc = lambda v: html.escape(str(v if v is not None else "—"))
+
+    cards = []
+    for row in rows:
+        verdict = str(row.get("verdict") or "UNKNOWN")
+        cards.append("""<article class='card'>
+          <div class='top'><span class='verdict {vc}'>{verdict}</span><span>Experiment #{eid}</span></div>
+          <h3>{strategy}</h3>
+          <p class='hyp'>{hypothesis}</p>
+          <div class='grid'>
+            <div><span>EXPECTED Δ</span><b>{expected}</b></div>
+            <div><span>ACTUAL Δ</span><b>{actual}</b></div>
+            <div><span>SUCCESS ≥</span><b>{success}</b></div>
+            <div><span>FAILURE ≤</span><b>{failure}</b></div>
+          </div>
+          <p>{explanation}</p>
+          <small>{created}</small>
+        </article>""".format(
+            vc=esc(verdict.lower()),
+            verdict=esc(verdict),
+            eid=esc(row.get("experiment_id")),
+            strategy=esc(row.get("strategy")),
+            hypothesis=esc(row.get("hypothesis") or "No locked hypothesis was available."),
+            expected=esc(row.get("expected_delta")),
+            actual=esc(row.get("actual_delta")),
+            success=esc(row.get("success_delta")),
+            failure=esc(row.get("failure_delta")),
+            explanation=esc(row.get("explanation")),
+            created=esc(row.get("created_at")),
+        ))
+
+    empty = "<div class='empty'>No completed experiment verdicts yet.</div>" if not cards else ""
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V31.0 Experiment Verdict Ledger</title>
+    <style>
+    *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top,#172333,#07090d 58%,#020304);color:#fff;font-family:Arial;padding:24px}}
+    .wrap{{max-width:1100px;margin:auto}}.panel{{background:#090d12ef;border:1px solid #32506d;border-radius:24px;padding:22px}}
+    .k{{color:#7dd8ff;font-size:11px;font-weight:900;letter-spacing:1.4px}}h1{{font-size:42px;margin:8px 0}}p{{color:#b8c8d5;line-height:1.5}}
+    .score{{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:18px 0}}.score div,.grid div{{background:#080b0f;border:1px solid #253a4c;border-radius:12px;padding:12px}}.score span,.grid span{{display:block;color:#7895a9;font-size:9px;font-weight:900}}.score b,.grid b{{display:block;margin-top:5px;font-size:20px}}
+    .card{{background:#0c1118;border:1px solid #2c4357;border-radius:18px;padding:17px;margin:12px 0}}.top{{display:flex;justify-content:space-between;gap:12px;color:#7895a9;font-size:11px}}.verdict{{font-weight:900}}.confirmed{{color:#6ff2a8}}.falsified{{color:#ff7f92}}.inconclusive{{color:#ffd66f}}.uncontracted,.unlocked_contract{{color:#9cb0bf}}
+    .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}}.hyp{{color:#e5edf3}}a{{display:inline-block;margin:12px 6px 0 0;padding:10px 13px;border:1px solid #4d7899;border-radius:10px;color:#fff;text-decoration:none;font-weight:900}}small{{color:#60798b}}.empty{{padding:28px;color:#7895a9;text-align:center}}
+    @media(max-width:850px){{.score{{grid-template-columns:1fr 1fr}}.grid{{grid-template-columns:1fr 1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='panel'>
+      <div class='k'>BL3 V31.0 // PREDICTION VS REALITY</div>
+      <h1>⚖️ EXPERIMENT VERDICT LEDGER</h1>
+      <p>{username}, this ledger compares locked pre-outcome predictions with verified experiment results. Unlocked drafts are preserved, but they do not count toward prediction accuracy.</p>
+
+      <div class='score'>
+        <div><span>STRICT TESTS</span><b>{strict}</b></div>
+        <div><span>CONFIRMED</span><b>{confirmed}</b></div>
+        <div><span>FALSIFIED</span><b>{falsified}</b></div>
+        <div><span>INCONCLUSIVE</span><b>{inconclusive}</b></div>
+        <div><span>HIT RATE</span><b>{hit}</b></div>
+        <div><span>AVG Δ</span><b>{avg}</b></div>
+      </div>
+
+      <a href='/hunter-experiment-contract'>🧾 HYPOTHESIS CONTRACT</a>
+      <a href='/hunter-run-experiment'>🧪 ACTIVE EXPERIMENT</a>
+      <a href='/hunter-experiment-coach'>🧭 COACH</a>
+      {empty}
+      {cards}
+    </section></div></body></html>""".format(
+        username=esc(username),
+        strict=esc(score["strict_tests"]),
+        confirmed=esc(score["confirmed"]),
+        falsified=esc(score["falsified"]),
+        inconclusive=esc(score["inconclusive"]),
+        hit=("—" if score["prediction_hit_rate"] is None else esc(score["prediction_hit_rate"]) + "%"),
+        avg=esc(score["average_delta"]),
+        empty=empty,
+        cards="".join(cards),
+    )
+
+
+# Wrap the existing experiment finish endpoint: capture the pre-close snapshot,
+# let the proven V30.x close logic run, then persist the immutable adjudication.
+try:
+    _v310_prev_finish = app.view_functions.get("v301_run_experiment_finish_api")
+    if _v310_prev_finish:
+        def _v310_finish_with_verdict(*args, **kwargs):
+            username = str(session.get("authenticated_username") or "").strip()
+            pre_snap = _v301_experiment_snapshot(username) if username else {}
+            pre_exp = (pre_snap or {}).get("active") or {}
+            pre_contract = _v309_contract(username, pre_exp.get("id")) if username and pre_exp else None
+
+            result = _v310_prev_finish(*args, **kwargs)
+
+            response_obj = result[0] if isinstance(result, tuple) else result
+            status_code = result[1] if isinstance(result, tuple) and len(result) > 1 else getattr(response_obj, "status_code", 200)
+
+            payload = None
+            try:
+                payload = response_obj.get_json(silent=True)
+            except Exception:
+                payload = None
+
+            if int(status_code or 200) < 300 and isinstance(payload, dict) and payload.get("success") and pre_exp:
+                ledger_row = _v310_record_verdict(username, pre_exp, pre_snap, pre_contract)
+                if ledger_row:
+                    payload["contract_verdict"] = ledger_row.get("verdict")
+                    payload["contract_confidence"] = ledger_row.get("confidence")
+                    payload["verdict_ledger"] = "/hunter-experiment-verdicts"
+                    payload["message"] = (
+                        "Experiment closed and adjudicated against the pre-outcome contract. "
+                        + str(ledger_row.get("explanation") or "")
+                    )
+                    response_obj.set_data(json.dumps(payload))
+                    response_obj.mimetype = "application/json"
+
+            return result
+
+        app.view_functions["v301_run_experiment_finish_api"] = _v310_finish_with_verdict
+except Exception:
+    pass
+
+
+# Add the ledger link to the V30.9 hypothesis contract page and experiment coach.
+try:
+    _v310_prev_contract_page = app.view_functions.get("v309_experiment_contract_page")
+    if _v310_prev_contract_page:
+        def _v310_contract_page_with_ledger(*args, **kwargs):
+            response = _v310_prev_contract_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-experiment-verdicts" not in response:
+                link = "<a href='/hunter-experiment-verdicts' style='display:inline-block;margin:8px;padding:10px 14px;border:1px solid #4d7899;border-radius:10px;color:#fff;text-decoration:none'>⚖️ VERDICT LEDGER</a>"
+                response = response.replace("</body>", link + "</body>", 1)
+            return response
+        app.view_functions["v309_experiment_contract_page"] = _v310_contract_page_with_ledger
 except Exception:
     pass
 
