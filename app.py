@@ -80986,6 +80986,350 @@ try:
 except Exception:
     pass
 
+
+
+# ===== V35.25 EXTERNAL REVIEW PACKAGE + STARTUP DEMO HANDOFF GATE =====
+# V35.24 seals restored operational readiness into an immutable internal dossier.
+# V35.25 creates a deliberately minimized, portable review package for a startup,
+# partner, evaluator, or external reviewer without exposing unrelated application
+# state, sessions, secrets, wallets, request bodies, or admin configuration.
+#
+# CURRENT READINESS DOSSIER -> SANITIZED PACKAGE -> VERIFY -> JSON / CSV EXPORT
+#
+# Packages are created from an allowlist of evidence fields. Operator names may
+# be pseudonymized at creation time. The sealed package never mutates; live
+# verification can later report STALE if its source dossier is no longer current.
+
+V3525_VERSION = "V35.25"
+V3525_STATES = {"SEALED", "STALE"}
+
+
+def _v3525_now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _v3525_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3525_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_external_review_packages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            dossier_id INTEGER NOT NULL,
+            package_key TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            audience TEXT NOT NULL DEFAULT 'startup_review',
+            public_summary TEXT NOT NULL DEFAULT '',
+            mask_operators INTEGER NOT NULL DEFAULT 1,
+            sealed_by TEXT NOT NULL,
+            sealed_at TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            UNIQUE(username, dossier_id, audience)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3525_user_id ON hunter_external_review_packages(username,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3525_dossier ON hunter_external_review_packages(username,dossier_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_external_review_package_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            package_id INTEGER NOT NULL,
+            current_state TEXT NOT NULL,
+            source_dossier_state TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3525_checks_package ON hunter_external_review_package_checks(username,package_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3525_init()
+except Exception:
+    pass
+
+
+def _v3525_masked_operator(index):
+    return f"Operator {index + 1}"
+
+
+def _v3525_source_state(username, dossier_id):
+    dossier = _v3524_get(username, int(dossier_id))
+    if not dossier:
+        return "STALE", None
+    return ("SEALED" if str(dossier.get("current_state") or "").upper() == "SEALED" else "STALE"), dossier
+
+
+def _v3525_build_payload(username, dossier, title, audience, public_summary, mask_operators, sealed_by, sealed_at):
+    evidence = dossier.get("evidence") or {}
+    targets = []
+    for i, t in enumerate(evidence.get("targets") or []):
+        targets.append({
+            "certification_id": int(t.get("certification_id") or 0),
+            "operator": _v3525_masked_operator(i) if mask_operators else str(t.get("operator") or "")[:160],
+            "certification_scope": str(t.get("certification_scope") or "")[:240],
+            "certification_state": str(t.get("certification_state") or "")[:40],
+            "recertified_at": str(t.get("recertified_at") or "")[:80],
+            "due_at": str(t.get("due_at") or "")[:80],
+            "trigger_sha256": str(t.get("trigger_sha256") or "")[:128],
+        })
+    metrics = evidence.get("readiness_metrics") or {}
+    payload = {
+        "version": V3525_VERSION,
+        "evidence_type": "external_review_package",
+        "title": title,
+        "audience": audience,
+        "public_summary": public_summary,
+        "source": {
+            "dossier_key": dossier.get("dossier_key") or "",
+            "dossier_sha256": dossier.get("evidence_sha256") or "",
+            "campaign_id": int(evidence.get("campaign_id") or 0),
+            "promotion_id": int(evidence.get("promotion_id") or 0),
+            "certification_scope": evidence.get("certification_scope") or dossier.get("certification_scope") or "",
+            "campaign_name": evidence.get("campaign_name") or "",
+            "campaign_restored_at": evidence.get("campaign_restored_at") or "",
+        },
+        "readiness": {
+            "targets": int(metrics.get("targets") or len(targets)),
+            "recertified": int(metrics.get("recertified") or 0),
+            "noncurrent": int(metrics.get("noncurrent") or 0),
+            "campaign_state": str(metrics.get("campaign_state") or ""),
+        },
+        "certifications": targets,
+        "integrity": {
+            "source_event_digests": [str(x)[:128] for x in (evidence.get("campaign_event_digests") or []) if x],
+            "source_dossier_state_at_seal": "SEALED",
+        },
+        "privacy": {
+            "operators_masked": bool(mask_operators),
+            "allowlist_export": True,
+            "excluded": ["sessions", "admin_tokens", "wallets", "request_bodies", "database_paths", "environment_secrets"],
+        },
+        "sealed_by": sealed_by,
+        "sealed_at": sealed_at,
+        "policy": "External review package generated from a minimized allowlist of BL3 application evidence. It is not an external audit, employment credential, legal certification, security guarantee, or promise of future system state.",
+    }
+    return payload
+
+
+def _v3525_get(username, package_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_external_review_packages WHERE username=? AND id=?", (username, int(package_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["payload"] = json.loads(d.get("payload_json") or "{}")
+        except Exception:
+            d["payload"] = {}
+        checks = con.execute("SELECT * FROM hunter_external_review_package_checks WHERE username=? AND package_id=? ORDER BY id DESC LIMIT 25", (username, int(package_id))).fetchall()
+        d["checks"] = [dict(r) for r in checks]
+    finally:
+        con.close()
+    state, dossier = _v3525_source_state(username, d["dossier_id"])
+    d["current_state"] = state
+    d["source_dossier_state"] = dossier.get("current_state") if dossier else "MISSING"
+    return d
+
+
+def _v3525_create(username, dossier_id, title="", audience="startup_review", public_summary="", mask_operators=True, sealed_by=""):
+    try:
+        dossier_id = int(dossier_id)
+    except Exception:
+        return False, "invalid_dossier_id", None
+    source_state, dossier = _v3525_source_state(username, dossier_id)
+    if not dossier:
+        return False, "dossier_not_found", None
+    if source_state != "SEALED":
+        return False, "current_readiness_dossier_required", None
+    title = str(title or "").strip()[:240] or f"BL3 External Review · {dossier.get('certification_scope') or 'Operational Readiness'}"
+    audience = str(audience or "startup_review").strip().lower()[:80] or "startup_review"
+    public_summary = " ".join(str(public_summary or "").replace("\r", " ").replace("\n", " ").split())[:1200]
+    sealed_by = str(sealed_by or username).strip()[:160] or username
+    mask_operators = bool(mask_operators)
+    now = _v3525_now_iso()
+    payload = _v3525_build_payload(username, dossier, title, audience, public_summary, mask_operators, sealed_by, now)
+    digest, canonical = _v3525_digest(payload)
+    package_key = "BL3-EXT-" + datetime.now().strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(4).upper()
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_external_review_packages
+                (username,dossier_id,package_key,title,audience,public_summary,mask_operators,sealed_by,sealed_at,evidence_sha256,payload_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (username,dossier_id,package_key,title,audience,public_summary,1 if mask_operators else 0,sealed_by,now,digest,canonical))
+            pid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            row = con.execute("SELECT id FROM hunter_external_review_packages WHERE username=? AND dossier_id=? AND audience=?", (username,dossier_id,audience)).fetchone()
+            return False, "package_already_exists_for_audience", int(row[0]) if row else None
+        check_payload = {"package_id": pid, "state": "SEALED", "source_dossier_state": "SEALED", "checked_at": now}
+        check_digest, _ = _v3525_digest(check_payload)
+        con.execute("""INSERT INTO hunter_external_review_package_checks
+            (username,package_id,current_state,source_dossier_state,detail,evidence_sha256,created_at)
+            VALUES(?,?,?,?,?,?,?)""", (username,pid,"SEALED","SEALED","Initial external package seal verification passed.",check_digest,now))
+        con.commit()
+        return True, None, pid
+    finally:
+        con.close()
+
+
+def _v3525_verify(username, package_id):
+    d = _v3525_get(username, package_id)
+    if not d:
+        return False, "package_not_found", None
+    try:
+        payload = json.loads(d.get("payload_json") or "{}")
+    except Exception:
+        payload = {}
+    recomputed, _ = _v3525_digest(payload)
+    digest_valid = secrets.compare_digest(str(recomputed), str(d.get("evidence_sha256") or ""))
+    source_state, dossier = _v3525_source_state(username, d["dossier_id"])
+    state = "SEALED" if digest_valid and source_state == "SEALED" else "STALE"
+    detail = "Package digest and live source dossier are current." if state == "SEALED" else ("Package digest mismatch." if not digest_valid else "Source readiness dossier is no longer current.")
+    now = _v3525_now_iso()
+    check_payload = {"package_id": int(package_id), "state": state, "source_dossier_state": source_state, "digest_valid": bool(digest_valid), "checked_at": now}
+    check_digest, _ = _v3525_digest(check_payload)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""INSERT INTO hunter_external_review_package_checks
+            (username,package_id,current_state,source_dossier_state,detail,evidence_sha256,created_at)
+            VALUES(?,?,?,?,?,?,?)""", (username,int(package_id),state,source_state,detail,check_digest,now))
+        con.commit()
+    finally:
+        con.close()
+    result = _v3525_get(username, package_id) or {}
+    result["digest_valid"] = digest_valid
+    return True, None, result
+
+
+def _v3525_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("SELECT id FROM hunter_external_review_packages WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()
+    finally:
+        con.close()
+    packages = [_v3525_get(username, int(r["id"])) for r in rows]
+    packages = [x for x in packages if x]
+    counts = {"SEALED":0,"STALE":0}
+    for x in packages:
+        counts[x.get("current_state") if x.get("current_state") in counts else "STALE"] += 1
+    d24 = _v3524_snapshot(username)
+    existing_dossiers = {int(x.get("dossier_id") or 0) for x in packages}
+    eligible = [x for x in (d24.get("dossiers") or []) if str(x.get("current_state") or "").upper()=="SEALED" and int(x.get("id") or 0) not in existing_dossiers]
+    return {"success":True,"version":V3525_VERSION,"counts":counts,"packages":packages,"eligible_dossiers":eligible}
+
+
+@app.route('/api/hunter-external-review-packages', methods=['GET','POST'])
+def v3525_api_packages():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3525_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    mask_raw = p.get('mask_operators', '1')
+    mask = str(mask_raw).lower() not in {'0','false','no','off'}
+    ok,e,pid = _v3525_create(u,p.get('dossier_id'),p.get('title') or '',p.get('audience') or 'startup_review',p.get('public_summary') or '',mask,p.get('sealed_by') or u)
+    return jsonify({'success':ok,'error':e,'package_id':pid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-external-review-packages/<int:package_id>')
+def v3525_api_package(package_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3525_get(u, package_id)
+    if not d:
+        return jsonify({'success':False,'error':'package_not_found'}), 404
+    out = dict(d); out.pop('payload_json', None)
+    return jsonify({'success':True,'version':V3525_VERSION,'package':out})
+
+
+@app.route('/api/hunter-external-review-packages/<int:package_id>/verify', methods=['POST'])
+def v3525_api_verify(package_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    ok,e,d = _v3525_verify(u, package_id)
+    return jsonify({'success':ok,'error':e,'package':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-external-review-packages/<int:package_id>/export.csv')
+def v3525_api_csv(package_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3525_get(u, package_id)
+    if not d:
+        return jsonify({'success':False,'error':'package_not_found'}), 404
+    p = d.get('payload') or {}
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(['BL3 External Review Package', d.get('package_key')])
+    w.writerow(['Title', p.get('title')])
+    w.writerow(['Audience', p.get('audience')])
+    w.writerow(['Public summary', p.get('public_summary')])
+    w.writerow(['Evidence SHA-256', d.get('evidence_sha256')])
+    w.writerow(['Current state', d.get('current_state')])
+    w.writerow([])
+    w.writerow(['certification_id','operator','scope','state','recertified_at','due_at','trigger_sha256'])
+    for t in p.get('certifications') or []:
+        w.writerow([t.get('certification_id'),t.get('operator'),t.get('certification_scope'),t.get('certification_state'),t.get('recertified_at'),t.get('due_at'),t.get('trigger_sha256')])
+    filename = (d.get('package_key') or f'BL3-external-review-{package_id}') + '.csv'
+    return Response(buf.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"', 'Cache-Control':'no-store'})
+
+
+@app.route('/hunter-external-review-packages')
+def v3525_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3525_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join("<option value='{}'>{} · {}</option>".format(int(x.get('id') or 0), esc(x.get('dossier_key') or 'Readiness dossier'), esc(x.get('certification_scope') or 'scope')) for x in d['eligible_dossiers'])
+    cards=[]
+    for x in d['packages']:
+        pid=int(x['id']); state=str(x.get('current_state') or 'STALE').upper(); p=x.get('payload') or {}; src=p.get('source') or {}; privacy=p.get('privacy') or {}; readiness=p.get('readiness') or {}
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('package_key') or '')}</span><span class='pill {esc(state.lower())}'>{esc(state)}</span></div>
+        <h2>{esc(x.get('title') or '')}</h2><p>{esc(x.get('public_summary') or '')}</p><p class='muted'>Audience {esc(x.get('audience') or '')} · Source {esc(src.get('dossier_key') or '')} · Scope {esc(src.get('certification_scope') or '')}</p>
+        <div class='score'><b>{int(readiness.get('recertified') or 0)}/{int(readiness.get('targets') or 0)}</b> RECERTIFIED · Operators {'MASKED' if privacy.get('operators_masked') else 'VISIBLE'}</div>
+        <p class='muted'>Evidence SHA-256 <code>{esc(x.get('evidence_sha256') or '')}</code></p>
+        <form action='/api/hunter-external-review-packages/{pid}/verify' onsubmit='return v3525submit(this,event)'><button>VERIFY PACKAGE + SOURCE</button></form>
+        <p><a href='/api/hunter-external-review-packages/{pid}'>JSON</a> · <a href='/api/hunter-external-review-packages/{pid}/export.csv'>CSV EXPORT</a></p></article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.25 External Review Packages</title><style>
+    body{{margin:0;background:#05070a;color:#edf8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #334b54;background:#091016;border-radius:20px;padding:18px}}.eyebrow{{color:#61f4ff;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a6ae}}.stats{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}}.stats>div{{border:1px solid #263d45;border-radius:14px;padding:12px}}.num{{font-size:26px;font-weight:900;color:#61f4ff}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.pill{{border:1px solid #3e7c54;border-radius:999px;padding:5px 9px}}.stale{{border-color:#a94455!important}}.score{{margin:12px 0;padding:12px;border:1px solid #29404b;border-radius:12px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}textarea{{min-height:90px}}button{{cursor:pointer;font-weight:900}}a,code{{color:#61f4ff}}code{{overflow-wrap:anywhere}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.25 · EXTERNAL REVIEW PACKAGE + STARTUP DEMO HANDOFF GATE</div><h1>Share the proof, not the secrets.</h1><p class='muted'>Create a minimized, SHA-256 sealed package from a current readiness dossier for startup review, partner evaluation, or external demo handoff.</p><div class='stats'><div><div class='num'>{}</div>SEALED + CURRENT</div><div><div class='num'>{}</div>STALE</div></div><p><a href='/hunter-readiness-dossiers'>← Readiness Dossiers</a> · <a href='/api/hunter-external-review-packages'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Create external review package</h2><form action='/api/hunter-external-review-packages' onsubmit='return v3525submit(this,event)'><select name='dossier_id' required><option value=''>Current readiness dossier</option>{}</select><input name='title' placeholder='Package title'><select name='audience'><option value='startup_review'>Startup review</option><option value='partner_review'>Partner review</option><option value='technical_demo'>Technical demo</option><option value='investor_demo'>Investor demo</option></select><textarea name='public_summary' placeholder='Short public-safe summary'></textarea><select name='mask_operators'><option value='1'>Mask operator names (recommended)</option><option value='0'>Show operator names</option></select><input name='sealed_by' value='{}' placeholder='Prepared by'><button>SEAL EXTERNAL REVIEW PACKAGE</button></form></section><section class='grid'>{}</section></div>
+    <script>async function v3525submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('SEALED',0),c.get('STALE',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No external review packages yet.</p></article>")
+
+
+# Add navigation from V35.24 into V35.25.
+try:
+    _v3525_prev_page = app.view_functions.get('v3524_page')
+    if _v3525_prev_page:
+        def _v3525_dossiers_with_external_review(*args, **kwargs):
+            response = _v3525_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-external-review-packages' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-readiness-dossiers'>JSON</a>",
+                    "<a href='/api/hunter-readiness-dossiers'>JSON</a> · <a href='/hunter-external-review-packages'>🚀 EXTERNAL REVIEW</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3524_page'] = _v3525_dossiers_with_external_review
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -81103,6 +81447,7 @@ if __name__ == "__main__":
     print("📚 Incident Learning Promotion + Recertification Trigger Gate enabled")
     print("🔁 Recertification Campaign + Compliance Restoration Gate enabled")
     print("📦 Operational Readiness Dossier + Evidence Export Gate enabled")
+    print("🚀 External Review Package + Startup Demo Handoff Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
