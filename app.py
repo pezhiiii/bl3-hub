@@ -74119,6 +74119,627 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.9 CONTROL DEPENDENCY + BLAST RADIUS GATE =====
+# V35.8 keeps control trust fresh.
+# V35.9 models dependencies between controls so one degraded / breached control
+# can propagate risk to dependent controls and assurance domains.
+#
+# CONTROL A
+#   -> DEPENDS ON CONTROL B
+#   -> B DEGRADES / BREACHES
+#   -> A becomes AT_RISK
+#   -> DEPENDENCY BLAST RADIUS SNAPSHOT
+#   -> ASSURANCE REVALIDATION REQUIRED
+#
+# Goal: prevent isolated-looking control failures from hiding systemic risk.
+
+V359_VERSION = "V35.9"
+
+V359_DEP_TYPES = {
+    "REQUIRES",
+    "SUPPORTS",
+    "BLOCKS",
+    "EVIDENCE_FROM"
+}
+
+V359_RISK_STATES = {
+    "CLEAR",
+    "WATCH",
+    "AT_RISK",
+    "CRITICAL"
+}
+
+
+def _v359_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_dependencies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_id INTEGER NOT NULL,
+            depends_on_control_id INTEGER NOT NULL,
+            dependency_type TEXT NOT NULL DEFAULT 'REQUIRES',
+            weight INTEGER NOT NULL DEFAULT 1,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, control_id, depends_on_control_id, dependency_type)
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_dependency_risk (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_id INTEGER NOT NULL,
+            risk_state TEXT NOT NULL DEFAULT 'CLEAR',
+            risk_score INTEGER NOT NULL DEFAULT 0,
+            blast_radius INTEGER NOT NULL DEFAULT 0,
+            source_control_ids TEXT,
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, control_id)
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v359_dep_user
+        ON hunter_control_dependencies(username, control_id, depends_on_control_id)
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v359_risk_user
+        ON hunter_control_dependency_risk(username, risk_state, risk_score DESC)
+        """)
+
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v359_init()
+except Exception:
+    pass
+
+
+def _v359_controls(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT c.*,
+                   h.health_state
+            FROM hunter_preventive_controls c
+            LEFT JOIN hunter_control_health h
+              ON h.username=c.username AND h.control_id=c.id
+            WHERE c.username=?
+            ORDER BY c.id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v359_dependencies(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_dependencies
+            WHERE username=?
+            ORDER BY id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v359_add_dependency(username, control_id, depends_on_control_id, dependency_type="REQUIRES", weight=1, note=""):
+    try:
+        control_id = int(control_id)
+        depends_on_control_id = int(depends_on_control_id)
+        weight = max(1, min(int(weight or 1), 10))
+    except Exception:
+        return False, "invalid_dependency_input", None
+
+    if control_id == depends_on_control_id:
+        return False, "self_dependency_not_allowed", None
+
+    dependency_type = str(dependency_type or "REQUIRES").strip().upper()
+    if dependency_type not in V359_DEP_TYPES:
+        return False, "invalid_dependency_type", None
+
+    controls = {int(c["id"]) for c in _v359_controls(username)}
+    if control_id not in controls or depends_on_control_id not in controls:
+        return False, "control_not_found", None
+
+    now = _v358_iso(_v358_now())
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT OR IGNORE INTO hunter_control_dependencies
+            (username, control_id, depends_on_control_id, dependency_type, weight, note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            control_id,
+            depends_on_control_id,
+            dependency_type,
+            weight,
+            str(note or "").strip()[:5000],
+            now,
+            now
+        ))
+        con.commit()
+        dep_id = int(cur.lastrowid or 0)
+    finally:
+        con.close()
+
+    _v359_recompute(username)
+    return True, None, dep_id
+
+
+def _v359_delete_dependency(username, dep_id):
+    try:
+        dep_id = int(dep_id)
+    except Exception:
+        return False, "invalid_dependency_id"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            DELETE FROM hunter_control_dependencies
+            WHERE id=? AND username=?
+        """, (dep_id, username))
+        con.commit()
+    finally:
+        con.close()
+
+    _v359_recompute(username)
+    return True, None
+
+
+def _v359_direct_status_score(control):
+    state = str(control.get("control_state") or "")
+    health = str(control.get("health_state") or "")
+
+    score = 0
+    reasons = []
+
+    if state == "BREACHED":
+        score += 80
+        reasons.append("control_breached")
+    elif state == "DEGRADED":
+        score += 40
+        reasons.append("control_degraded")
+    elif state == "LOCKED":
+        score += 0
+    elif state == "ACTIVE":
+        score += 5
+
+    if health == "EXPIRED":
+        score += 50
+        reasons.append("health_expired")
+    elif health == "STALE":
+        score += 30
+        reasons.append("health_stale")
+    elif health == "DUE_SOON":
+        score += 10
+        reasons.append("health_due_soon")
+    elif health == "SUSPENDED":
+        score += 60
+        reasons.append("health_suspended")
+
+    return min(score, 100), reasons
+
+
+def _v359_recompute(username):
+    try:
+        _v358_refresh_states(username)
+    except Exception:
+        pass
+
+    controls = _v359_controls(username)
+    deps = _v359_dependencies(username)
+
+    by_id = {int(c["id"]): c for c in controls}
+    outgoing = {}
+    incoming = {}
+
+    for d in deps:
+        cid = int(d["control_id"])
+        did = int(d["depends_on_control_id"])
+        outgoing.setdefault(cid, []).append(d)
+        incoming.setdefault(did, []).append(d)
+
+    results = {}
+
+    for cid, c in by_id.items():
+        direct_score, reasons = _v359_direct_status_score(c)
+        dep_score = 0
+        source_ids = set()
+        dep_reasons = []
+
+        for d in outgoing.get(cid, []):
+            upstream = by_id.get(int(d["depends_on_control_id"]))
+            if not upstream:
+                continue
+
+            upstream_score, upstream_reasons = _v359_direct_status_score(upstream)
+            weight = max(1, min(int(d.get("weight") or 1), 10))
+            contribution = min(100, upstream_score * weight // 2)
+
+            if contribution > 0:
+                dep_score += contribution
+                source_ids.add(int(d["depends_on_control_id"]))
+                dep_reasons.append(
+                    f"{d.get('dependency_type')}:{d.get('depends_on_control_id')}:{','.join(upstream_reasons) or 'risk'}"
+                )
+
+        risk_score = min(100, direct_score + dep_score)
+
+        if risk_score >= 80:
+            risk_state = "CRITICAL"
+        elif risk_score >= 40:
+            risk_state = "AT_RISK"
+        elif risk_score >= 10:
+            risk_state = "WATCH"
+        else:
+            risk_state = "CLEAR"
+
+        blast = len(incoming.get(cid, []))
+
+        results[cid] = {
+            "risk_state": risk_state,
+            "risk_score": risk_score,
+            "blast_radius": blast,
+            "source_control_ids": sorted(source_ids),
+            "reason": "; ".join(reasons + dep_reasons)[:5000]
+        }
+
+    now = _v358_iso(_v358_now())
+
+    con = sqlite3.connect(DB)
+    try:
+        for cid, r in results.items():
+            con.execute("""
+                INSERT INTO hunter_control_dependency_risk
+                (username, control_id, risk_state, risk_score, blast_radius,
+                 source_control_ids, reason, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(username, control_id) DO UPDATE SET
+                    risk_state=excluded.risk_state,
+                    risk_score=excluded.risk_score,
+                    blast_radius=excluded.blast_radius,
+                    source_control_ids=excluded.source_control_ids,
+                    reason=excluded.reason,
+                    updated_at=excluded.updated_at
+            """, (
+                username,
+                cid,
+                r["risk_state"],
+                r["risk_score"],
+                r["blast_radius"],
+                ",".join(str(x) for x in r["source_control_ids"]),
+                r["reason"],
+                now,
+                now
+            ))
+
+            if r["risk_state"] in ("AT_RISK", "CRITICAL"):
+                row = con.execute("""
+                    SELECT assurance_profile_id
+                    FROM hunter_preventive_controls
+                    WHERE id=? AND username=?
+                """, (cid, username)).fetchone()
+
+                if row:
+                    con.execute("""
+                        UPDATE hunter_control_assurance_profiles
+                        SET assurance_state='REVALIDATION_REQUIRED'
+                        WHERE id=? AND username=?
+                    """, (int(row[0]), username))
+
+        con.commit()
+    finally:
+        con.close()
+
+
+def _v359_snapshot(username):
+    _v359_recompute(username)
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        risk_rows = con.execute("""
+            SELECT r.*,
+                   c.control_name,
+                   c.control_description,
+                   c.owner_label,
+                   c.control_state,
+                   h.health_state
+            FROM hunter_control_dependency_risk r
+            JOIN hunter_preventive_controls c
+              ON c.id=r.control_id AND c.username=r.username
+            LEFT JOIN hunter_control_health h
+              ON h.control_id=r.control_id AND h.username=r.username
+            WHERE r.username=?
+            ORDER BY r.risk_score DESC, r.blast_radius DESC, r.id DESC
+        """, (username,)).fetchall()
+
+        risk = [dict(r) for r in risk_rows]
+    finally:
+        con.close()
+
+    deps = _v359_dependencies(username)
+
+    state_counts = {s: 0 for s in V359_RISK_STATES}
+    for r in risk:
+        state_counts[str(r.get("risk_state") or "CLEAR")] = state_counts.get(str(r.get("risk_state") or "CLEAR"), 0) + 1
+
+    return {
+        "version": V359_VERSION,
+        "counts": {
+            "controls": len(risk),
+            "dependencies": len(deps),
+            "clear": state_counts.get("CLEAR", 0),
+            "watch": state_counts.get("WATCH", 0),
+            "at_risk": state_counts.get("AT_RISK", 0),
+            "critical": state_counts.get("CRITICAL", 0)
+        },
+        "risk": risk,
+        "dependencies": deps,
+        "policy": "Dependent controls inherit risk from degraded, breached, stale or expired upstream controls."
+    }
+
+
+@app.route("/api/hunter-control-dependencies")
+def v359_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    return jsonify({"success": True, **_v359_snapshot(u)})
+
+
+@app.route("/api/hunter-control-dependencies", methods=["POST"])
+def v359_add_dependency_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, dep_id = _v359_add_dependency(
+        u,
+        p.get("control_id"),
+        p.get("depends_on_control_id"),
+        p.get("dependency_type") or "REQUIRES",
+        p.get("weight") or 1,
+        p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "dependency_id": dep_id}), 400
+
+    return jsonify({"success": True, "dependency_id": dep_id})
+
+
+@app.route("/api/hunter-control-dependencies/<int:dep_id>/delete", methods=["POST"])
+def v359_delete_dependency_api(dep_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    ok, e = _v359_delete_dependency(u, dep_id)
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-control-dependencies")
+def v359_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🕸 Control Dependencies</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v359_snapshot(u)
+    c = d["counts"]
+    controls = _v359_controls(u)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    options = "".join(
+        f"<option value='{int(x['id'])}'>#{int(x['id'])} · {esc(x.get('control_name'))}</option>"
+        for x in controls
+    )
+
+    risk_cards = []
+
+    for r in d["risk"]:
+        risk_cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>Control #{int(r['control_id'])}</span>
+            <span class='pill'>{esc(r.get('risk_state'))}</span>
+          </div>
+          <h2>{esc(r.get('control_name'))}</h2>
+          <p class='muted'>{esc(r.get('control_description'))}</p>
+          <div class='risk'>
+            SCORE <b>{int(r.get('risk_score') or 0)}</b>
+            · BLAST <b>{int(r.get('blast_radius') or 0)}</b><br>
+            <small>
+              control {esc(r.get('control_state'))}
+              · health {esc(r.get('health_state'))}
+              · owner {esc(r.get('owner_label'))}
+            </small>
+          </div>
+          <p class='muted'>{esc(r.get('reason')) or 'No propagated risk.'}</p>
+        </article>
+        """)
+
+    dep_rows = []
+
+    for dep in d["dependencies"]:
+        dep_rows.append(f"""
+        <tr>
+          <td>#{int(dep['control_id'])}</td>
+          <td>{esc(dep.get('dependency_type'))}</td>
+          <td>#{int(dep['depends_on_control_id'])}</td>
+          <td>{int(dep.get('weight') or 1)}</td>
+          <td>{esc(dep.get('note'))}</td>
+          <td>
+            <form action='/api/hunter-control-dependencies/{int(dep["id"])}/delete'
+                  onsubmit='return v359submit(this,event)'>
+              <button class='danger'>DELETE</button>
+            </form>
+          </td>
+        </tr>
+        """)
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.9 Control Dependencies</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1240px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ff7f9d;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ff9bb1}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #7b263c;border-radius:999px;padding:5px 8px;color:#ffb3c3;font-size:11px}}
+    .risk{{margin-top:10px;padding:12px;border:1px solid #7b263c;border-radius:12px;background:#18090d}}
+    select,input,textarea{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#ff7f9d;font-weight:900}}
+    .danger{{background:#d84c62;color:white}}
+    table{{width:100%;border-collapse:collapse;margin-top:14px}}
+    th,td{{padding:10px;border-bottom:1px solid #16303b;text-align:left;font-size:13px}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:1000px){{.stats{{grid-template-columns:repeat(3,1fr)}}}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.9 // CONTROL DEPENDENCY + BLAST RADIUS GATE</div>
+        <h1>🕸 SYSTEMIC CONTROL RISK</h1>
+        <p class='muted'>A control can look healthy in isolation while depending on a failing upstream control. V35.9 exposes and propagates that risk.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>CONTROLS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DEPENDENCIES</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CLEAR</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>WATCH</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>AT RISK</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CRITICAL</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-control-health'>⏳ HEALTH</a>
+          <a href='/hunter-preventive-controls'>🔒 CONTROLS</a>
+          <a href='/api/hunter-control-dependencies'>JSON</a>
+        </div>
+      </section>
+
+      <section class='hero' style='margin-top:16px'>
+        <div class='eyebrow'>ADD DEPENDENCY</div>
+        <form action='/api/hunter-control-dependencies' onsubmit='return v359submit(this,event)'>
+          <select name='control_id' required>
+            <option value=''>Dependent control</option>
+            {}
+          </select>
+          <select name='dependency_type'>
+            <option>REQUIRES</option>
+            <option>SUPPORTS</option>
+            <option>BLOCKS</option>
+            <option>EVIDENCE_FROM</option>
+          </select>
+          <select name='depends_on_control_id' required>
+            <option value=''>Upstream control</option>
+            {}
+          </select>
+          <input name='weight' type='number' min='1' max='10' value='1'>
+          <textarea name='note' rows='2' placeholder='Why does this dependency exist?'></textarea>
+          <button>ADD DEPENDENCY</button>
+        </form>
+      </section>
+
+      <section class='grid'>{}</section>
+
+      <section class='hero' style='margin-top:18px;overflow:auto'>
+        <div class='eyebrow'>DEPENDENCY GRAPH EDGES</div>
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Depends on</th><th>Weight</th><th>Note</th><th></th></tr></thead>
+          <tbody>{}</tbody>
+        </table>
+      </section>
+
+    </div>
+
+    <script>
+    async function v359submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["controls"],
+        c["dependencies"],
+        c["clear"],
+        c["watch"],
+        c["at_risk"],
+        c["critical"],
+        options,
+        options,
+        "".join(risk_cards) or "<article class='card'><p>No dependency risk profiles yet.</p></article>",
+        "".join(dep_rows) or "<tr><td colspan='6'>No dependencies yet.</td></tr>"
+    )
+
+
+try:
+    _v359_prev_page = app.view_functions.get("v358_page")
+    if _v359_prev_page:
+        def _v359_health_with_dependencies(*args, **kwargs):
+            response = _v359_prev_page(*args, **kwargs)
+
+            if isinstance(response, str) and "/hunter-control-dependencies" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-control-health'>JSON</a>",
+                    "<a href='/api/hunter-control-health'>JSON</a><a href='/hunter-control-dependencies'>🕸 DEPENDENCIES</a>",
+                    1
+                )
+
+            return response
+
+        app.view_functions["v358_page"] = _v359_health_with_dependencies
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
