@@ -82161,6 +82161,500 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.28 PILOT PROPOSAL + EVALUATION SUCCESS GATE =====
+# V35.27 turns post-demo feedback into a tracked opportunity.
+# V35.28 turns a serious opportunity into a bounded pilot proposal with explicit
+# success criteria and an auditable evaluation outcome:
+#
+# ADVANCING OPPORTUNITY -> PILOT DRAFT -> READY -> ACTIVE
+#                        -> SUCCESS / PARTIAL / FAILED / CANCELLED
+#                        -> EVALUATION SEALED
+#
+# This gate records user-entered pilot planning and evaluation evidence only.
+# It does not prove third-party approval, contractual acceptance, employment,
+# funding, immigration eligibility, partnership, payment, or deployment.
+
+V3528_VERSION = "V35.28"
+V3528_STATES = {"DRAFT", "READY", "ACTIVE", "SUCCESS", "PARTIAL", "FAILED", "CANCELLED", "STALE"}
+V3528_METRIC_STATES = {"PENDING", "MET", "PARTIAL", "MISSED", "WAIVED"}
+V3528_TERMINAL = {"SUCCESS", "PARTIAL", "FAILED", "CANCELLED"}
+
+
+def _v3528_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3528_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3528_parse_iso(value):
+    try:
+        return datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _v3528_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_pilots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_id INTEGER NOT NULL,
+            pilot_key TEXT NOT NULL UNIQUE,
+            pilot_title TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            pilot_scope TEXT NOT NULL,
+            duration_days INTEGER NOT NULL DEFAULT 14,
+            sponsor TEXT DEFAULT '',
+            owner TEXT DEFAULT '',
+            decision_due_at TEXT DEFAULT '',
+            pilot_state TEXT NOT NULL DEFAULT 'DRAFT',
+            proposal_note TEXT DEFAULT '',
+            evaluation_summary TEXT DEFAULT '',
+            source_opportunity_sha256 TEXT NOT NULL,
+            pilot_sha256 TEXT NOT NULL,
+            evaluation_sha256 TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            activated_at TEXT,
+            evaluated_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, opportunity_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3528_user_state ON hunter_startup_pilots(username,pilot_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3528_opp ON hunter_startup_pilots(username,opportunity_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_pilot_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            pilot_id INTEGER NOT NULL,
+            metric_name TEXT NOT NULL,
+            target TEXT NOT NULL,
+            measurement_method TEXT DEFAULT '',
+            metric_state TEXT NOT NULL DEFAULT 'PENDING',
+            observed_result TEXT DEFAULT '',
+            evidence_note TEXT DEFAULT '',
+            metric_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username,pilot_id,metric_name)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3528_metric_pilot ON hunter_startup_pilot_metrics(username,pilot_id,metric_state,id)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_pilot_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            pilot_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3528_events_pilot ON hunter_startup_pilot_events(username,pilot_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3528_init()
+except Exception:
+    pass
+
+
+def _v3528_opportunity(username, opportunity_id):
+    opp = _v3527_refresh(username, int(opportunity_id))
+    if not opp:
+        return "STALE", None
+    state = str(opp.get("opportunity_state") or "").upper()
+    if state in {"ADVANCING", "WON"}:
+        return state, opp
+    return "STALE", opp
+
+
+def _v3528_event(con, username, pilot_id, event_type, detail=""):
+    now = _v3528_now_iso()
+    clean = " ".join(str(detail or "").replace("\r", " ").replace("\n", " ").split())[:1200]
+    payload = {
+        "version": V3528_VERSION,
+        "pilot_id": int(pilot_id),
+        "event_type": str(event_type or "event")[:80],
+        "detail": clean,
+        "created_at": now,
+    }
+    digest, _ = _v3528_digest(payload)
+    con.execute("""INSERT INTO hunter_startup_pilot_events
+        (username,pilot_id,event_type,detail,evidence_sha256,created_at)
+        VALUES(?,?,?,?,?,?)""",
+        (username,int(pilot_id),payload["event_type"],clean,digest,now))
+    return digest
+
+
+def _v3528_create(username, opportunity_id, pilot_title="", objective="", pilot_scope="", duration_days=14, sponsor="", owner="", decision_due_at="", proposal_note=""):
+    try:
+        opportunity_id = int(opportunity_id)
+        duration_days = max(1, min(int(duration_days or 14), 365))
+    except Exception:
+        return False, "invalid_input", None
+    opp_state, opp = _v3528_opportunity(username, opportunity_id)
+    if not opp:
+        return False, "opportunity_not_found", None
+    if opp_state not in {"ADVANCING", "WON"}:
+        return False, "advancing_opportunity_required", None
+    pilot_title = " ".join(str(pilot_title or "BL3 Pilot").replace("\r", " ").replace("\n", " ").split())[:220]
+    objective = str(objective or "").strip()[:2400]
+    pilot_scope = str(pilot_scope or "").strip()[:2400]
+    if not objective or not pilot_scope:
+        return False, "objective_and_scope_required", None
+    sponsor = " ".join(str(sponsor or opp.get("decision_maker") or "").replace("\r", " ").replace("\n", " ").split())[:180]
+    owner = " ".join(str(owner or username).replace("\r", " ").replace("\n", " ").split())[:180]
+    decision_due_at = str(decision_due_at or "").strip()[:80]
+    if decision_due_at and not _v3528_parse_iso(decision_due_at):
+        return False, "invalid_decision_due_at", None
+    proposal_note = str(proposal_note or "").strip()[:2400]
+    now = _v3528_now_iso()
+    pilot_key = "BL3-PILOT-" + datetime.now().strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(4).upper()
+    evidence = {
+        "version": V3528_VERSION,
+        "evidence_type": "pilot_proposal_created",
+        "pilot_key": pilot_key,
+        "opportunity_id": opportunity_id,
+        "opportunity_key": opp.get("opportunity_key") or "",
+        "source_opportunity_sha256": opp.get("opportunity_sha256") or "",
+        "pilot_title": pilot_title,
+        "objective": objective,
+        "pilot_scope": pilot_scope,
+        "duration_days": duration_days,
+        "sponsor": sponsor,
+        "owner": owner,
+        "decision_due_at": decision_due_at,
+        "created_at": now,
+        "policy": "This proposal is user-authored planning evidence. It does not prove third-party acceptance, contract formation, payment, employment, funding, partnership, immigration status, or production deployment.",
+    }
+    digest, _ = _v3528_digest(evidence)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_startup_pilots
+                (username,opportunity_id,pilot_key,pilot_title,objective,pilot_scope,duration_days,sponsor,owner,decision_due_at,pilot_state,proposal_note,evaluation_summary,source_opportunity_sha256,pilot_sha256,evaluation_sha256,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,'',?,?)""",
+                (username,opportunity_id,pilot_key,pilot_title,objective,pilot_scope,duration_days,sponsor,owner,decision_due_at,proposal_note,"",str(opp.get("opportunity_sha256") or ""),digest,now,now))
+            pid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            row = con.execute("SELECT id FROM hunter_startup_pilots WHERE username=? AND opportunity_id=?", (username,opportunity_id)).fetchone()
+            return False, "pilot_already_exists", int(row[0]) if row else None
+        _v3528_event(con, username, pid, "PILOT_DRAFT_CREATED", f"Opportunity #{opportunity_id}; duration={duration_days}d.")
+        con.commit()
+        return True, None, pid
+    finally:
+        con.close()
+
+
+def _v3528_refresh(username, pilot_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_pilots WHERE username=? AND id=?", (username,int(pilot_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        metrics = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_pilot_metrics WHERE username=? AND pilot_id=? ORDER BY id", (username,int(pilot_id))).fetchall()]
+        events = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_pilot_events WHERE username=? AND pilot_id=? ORDER BY id DESC LIMIT 50", (username,int(pilot_id))).fetchall()]
+    finally:
+        con.close()
+    opp_state, opp = _v3528_opportunity(username, d["opportunity_id"])
+    stored = str(d.get("pilot_state") or "DRAFT").upper()
+    if stored in V3528_TERMINAL:
+        live = stored
+    elif opp_state == "STALE":
+        live = "STALE"
+    else:
+        live = stored
+    if live != stored:
+        con = sqlite3.connect(DB)
+        try:
+            now = _v3528_now_iso()
+            con.execute("UPDATE hunter_startup_pilots SET pilot_state=?,updated_at=? WHERE username=? AND id=?", (live,now,username,int(pilot_id)))
+            _v3528_event(con, username, pilot_id, "PILOT_STATE_REFRESHED", f"{stored} -> {live}")
+            con.commit()
+        finally:
+            con.close()
+        d["pilot_state"] = live
+        d["updated_at"] = now
+    counts = {k:0 for k in V3528_METRIC_STATES}
+    for m in metrics:
+        s = str(m.get("metric_state") or "PENDING").upper()
+        if s in counts: counts[s] += 1
+    d["metrics"] = metrics
+    d["metric_counts"] = counts
+    d["events"] = events
+    d["opportunity"] = opp
+    d["source_opportunity_state"] = opp_state
+    d["ready_for_activation"] = bool(metrics) and all(str(m.get("metric_state") or "PENDING").upper() == "PENDING" for m in metrics) and live in {"DRAFT","READY"}
+    d["ready_for_evaluation"] = bool(metrics) and all(str(m.get("metric_state") or "PENDING").upper() in {"MET","PARTIAL","MISSED","WAIVED"} for m in metrics) and live == "ACTIVE"
+    return d
+
+
+def _v3528_add_metric(username, pilot_id, metric_name, target, measurement_method=""):
+    p = _v3528_refresh(username, pilot_id)
+    if not p:
+        return False, "pilot_not_found", None
+    if p.get("pilot_state") not in {"DRAFT","READY"}:
+        return False, "pilot_not_editable", p
+    metric_name = " ".join(str(metric_name or "").replace("\r", " ").replace("\n", " ").split())[:220]
+    target = str(target or "").strip()[:1000]
+    measurement_method = str(measurement_method or "").strip()[:1200]
+    if not metric_name or not target:
+        return False, "metric_name_and_target_required", p
+    now = _v3528_now_iso()
+    payload = {"version":V3528_VERSION,"pilot_id":int(pilot_id),"metric_name":metric_name,"target":target,"measurement_method":measurement_method,"created_at":now}
+    digest,_ = _v3528_digest(payload)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_startup_pilot_metrics
+                (username,pilot_id,metric_name,target,measurement_method,metric_state,observed_result,evidence_note,metric_sha256,created_at,updated_at)
+                VALUES(?,?,?,?,?,'PENDING','','',?,?,?)""",
+                (username,int(pilot_id),metric_name,target,measurement_method,digest,now,now))
+            mid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            return False, "metric_already_exists", p
+        con.execute("UPDATE hunter_startup_pilots SET pilot_state='READY',updated_at=? WHERE username=? AND id=? AND pilot_state='DRAFT'", (now,username,int(pilot_id)))
+        _v3528_event(con, username, pilot_id, "SUCCESS_METRIC_ADDED", f"Metric #{mid}: {metric_name}")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3528_refresh(username, pilot_id)
+
+
+def _v3528_activate(username, pilot_id):
+    p = _v3528_refresh(username, pilot_id)
+    if not p:
+        return False, "pilot_not_found", None
+    if p.get("source_opportunity_state") == "STALE":
+        return False, "source_opportunity_not_current", p
+    if not p.get("metrics"):
+        return False, "success_metric_required", p
+    if p.get("pilot_state") not in {"DRAFT","READY"}:
+        return False, "pilot_not_activatable", p
+    now = _v3528_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_startup_pilots SET pilot_state='ACTIVE',activated_at=?,updated_at=? WHERE username=? AND id=?", (now,now,username,int(pilot_id)))
+        _v3528_event(con, username, pilot_id, "PILOT_ACTIVATED", "Pilot moved to ACTIVE. This records user workflow state only; it does not prove third-party acceptance or deployment.")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3528_refresh(username, pilot_id)
+
+
+def _v3528_metric_result(username, pilot_id, metric_id, metric_state, observed_result="", evidence_note=""):
+    p = _v3528_refresh(username, pilot_id)
+    if not p:
+        return False, "pilot_not_found", None
+    if p.get("pilot_state") != "ACTIVE":
+        return False, "active_pilot_required", p
+    metric_state = str(metric_state or "").upper().strip()
+    if metric_state not in {"MET","PARTIAL","MISSED","WAIVED"}:
+        return False, "invalid_metric_state", p
+    observed_result = str(observed_result or "").strip()[:1600]
+    evidence_note = str(evidence_note or "").strip()[:1800]
+    if metric_state != "WAIVED" and not observed_result:
+        return False, "observed_result_required", p
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_pilot_metrics WHERE username=? AND pilot_id=? AND id=?", (username,int(pilot_id),int(metric_id))).fetchone()
+        if not row:
+            return False, "metric_not_found", p
+        now = _v3528_now_iso()
+        payload = {"version":V3528_VERSION,"pilot_id":int(pilot_id),"metric_id":int(metric_id),"metric_state":metric_state,"observed_result":observed_result,"evidence_note":evidence_note,"updated_at":now}
+        digest,_ = _v3528_digest(payload)
+        con.execute("""UPDATE hunter_startup_pilot_metrics
+            SET metric_state=?,observed_result=?,evidence_note=?,metric_sha256=?,updated_at=?
+            WHERE username=? AND pilot_id=? AND id=?""",
+            (metric_state,observed_result,evidence_note,digest,now,username,int(pilot_id),int(metric_id)))
+        _v3528_event(con, username, pilot_id, "METRIC_EVALUATED", f"Metric #{int(metric_id)} -> {metric_state}")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3528_refresh(username, pilot_id)
+
+
+def _v3528_evaluate(username, pilot_id, outcome, evaluation_summary=""):
+    p = _v3528_refresh(username, pilot_id)
+    if not p:
+        return False, "pilot_not_found", None
+    outcome = str(outcome or "").upper().strip()
+    if outcome not in {"SUCCESS","PARTIAL","FAILED","CANCELLED"}:
+        return False, "invalid_outcome", p
+    if outcome != "CANCELLED" and not p.get("ready_for_evaluation"):
+        return False, "all_metrics_must_be_evaluated", p
+    evaluation_summary = str(evaluation_summary or "").strip()[:3000]
+    if outcome != "CANCELLED" and not evaluation_summary:
+        return False, "evaluation_summary_required", p
+    now = _v3528_now_iso()
+    evidence = {
+        "version": V3528_VERSION,
+        "evidence_type": "pilot_evaluation_sealed",
+        "pilot_id": int(pilot_id),
+        "pilot_key": p.get("pilot_key") or "",
+        "outcome": outcome,
+        "evaluation_summary": evaluation_summary,
+        "metrics": [
+            {"id":int(m.get("id") or 0),"metric_name":m.get("metric_name") or "","target":m.get("target") or "","metric_state":m.get("metric_state") or "","observed_result":m.get("observed_result") or "","metric_sha256":m.get("metric_sha256") or ""}
+            for m in (p.get("metrics") or [])
+        ],
+        "evaluated_at": now,
+        "policy": "This sealed evaluation is based on user-entered observations and does not independently verify third-party acceptance, commercial success, employment, funding, partnership, payment, or production deployment.",
+    }
+    digest,_ = _v3528_digest(evidence)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_startup_pilots
+            SET pilot_state=?,evaluation_summary=?,evaluation_sha256=?,evaluated_at=?,updated_at=?
+            WHERE username=? AND id=?""",
+            (outcome,evaluation_summary,digest,now,now,username,int(pilot_id)))
+        _v3528_event(con, username, pilot_id, "PILOT_EVALUATION_SEALED", f"Outcome={outcome}; sha256={digest[:12]}")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3528_refresh(username, pilot_id)
+
+
+def _v3528_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r["id"]) for r in con.execute("SELECT id FROM hunter_startup_pilots WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    pilots = [_v3528_refresh(username, pid) for pid in ids]
+    pilots = [p for p in pilots if p]
+    counts = {k:0 for k in V3528_STATES}
+    for p in pilots:
+        s = str(p.get("pilot_state") or "STALE").upper()
+        counts[s if s in counts else "STALE"] += 1
+    d27 = _v3527_snapshot(username)
+    used = {int(p.get("opportunity_id") or 0) for p in pilots}
+    eligible = [o for o in (d27.get("opportunities") or []) if str(o.get("opportunity_state") or "").upper() in {"ADVANCING","WON"} and int(o.get("id") or 0) not in used]
+    return {"success":True,"version":V3528_VERSION,"counts":counts,"pilots":pilots,"eligible_opportunities":eligible}
+
+
+@app.route('/api/hunter-startup-pilots', methods=['GET','POST'])
+def v3528_api_pilots():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3528_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,pid = _v3528_create(u,p.get('opportunity_id'),p.get('pilot_title') or '',p.get('objective') or '',p.get('pilot_scope') or '',p.get('duration_days') or 14,p.get('sponsor') or '',p.get('owner') or u,p.get('decision_due_at') or '',p.get('proposal_note') or '')
+    return jsonify({'success':ok,'error':e,'pilot_id':pid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-pilots/<int:pilot_id>')
+def v3528_api_pilot(pilot_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3528_refresh(u,pilot_id)
+    if not d:
+        return jsonify({'success':False,'error':'pilot_not_found'}), 404
+    return jsonify({'success':True,'version':V3528_VERSION,'pilot':d})
+
+
+@app.route('/api/hunter-startup-pilots/<int:pilot_id>/metric', methods=['POST'])
+def v3528_api_metric(pilot_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3528_add_metric(u,pilot_id,p.get('metric_name') or '',p.get('target') or '',p.get('measurement_method') or '')
+    return jsonify({'success':ok,'error':e,'pilot':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-pilots/<int:pilot_id>/activate', methods=['POST'])
+def v3528_api_activate(pilot_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    ok,e,d = _v3528_activate(u,pilot_id)
+    return jsonify({'success':ok,'error':e,'pilot':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-pilots/<int:pilot_id>/metric/<int:metric_id>/result', methods=['POST'])
+def v3528_api_metric_result(pilot_id, metric_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3528_metric_result(u,pilot_id,metric_id,p.get('metric_state') or '',p.get('observed_result') or '',p.get('evidence_note') or '')
+    return jsonify({'success':ok,'error':e,'pilot':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-pilots/<int:pilot_id>/evaluate', methods=['POST'])
+def v3528_api_evaluate(pilot_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3528_evaluate(u,pilot_id,p.get('outcome') or '',p.get('evaluation_summary') or '')
+    return jsonify({'success':ok,'error':e,'pilot':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-startup-pilots')
+def v3528_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3528_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join(
+        f"<option value='{int(o['id'])}'>{esc(o.get('opportunity_key') or '')} — {esc(o.get('organization') or 'Advancing opportunity')}</option>"
+        for o in d['eligible_opportunities']
+    )
+    cards = []
+    for p in d['pilots']:
+        pid = int(p['id']); state = esc(p.get('pilot_state') or '')
+        metrics_html = []
+        for m in p.get('metrics') or []:
+            mid = int(m['id']); ms = esc(m.get('metric_state') or 'PENDING')
+            action = ''
+            if p.get('pilot_state') == 'ACTIVE' and m.get('metric_state') == 'PENDING':
+                action = f"""<form action='/api/hunter-startup-pilots/{pid}/metric/{mid}/result' onsubmit='return v3528submit(this,event)'><select name='metric_state'><option>MET</option><option>PARTIAL</option><option>MISSED</option><option>WAIVED</option></select><input name='observed_result' placeholder='Observed result'><textarea name='evidence_note' placeholder='Evidence / context'></textarea><button class='small'>RECORD RESULT</button></form>"""
+            metrics_html.append(f"<div class='metric'><div><b>{esc(m.get('metric_name') or '')}</b> · {ms}<div class='muted'>Target: {esc(m.get('target') or '')}</div><div class='muted'>{esc(m.get('observed_result') or '')}</div></div>{action}</div>")
+        controls = ''
+        if p.get('pilot_state') in {'DRAFT','READY'}:
+            controls += f"""<form action='/api/hunter-startup-pilots/{pid}/metric' onsubmit='return v3528submit(this,event)'><input name='metric_name' placeholder='Success metric' required><input name='target' placeholder='Target / threshold' required><textarea name='measurement_method' placeholder='How will this be measured?'></textarea><button>ADD SUCCESS METRIC</button></form>"""
+            if p.get('metrics'):
+                controls += f"""<form action='/api/hunter-startup-pilots/{pid}/activate' onsubmit='return v3528submit(this,event)'><button class='safe'>ACTIVATE PILOT</button></form>"""
+        elif p.get('pilot_state') == 'ACTIVE':
+            controls += f"""<form action='/api/hunter-startup-pilots/{pid}/evaluate' onsubmit='return v3528submit(this,event)'><select name='outcome'><option>SUCCESS</option><option>PARTIAL</option><option>FAILED</option><option>CANCELLED</option></select><textarea name='evaluation_summary' placeholder='Evaluation summary / decision evidence'></textarea><button class='safe'>SEAL EVALUATION</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(p.get('pilot_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(p.get('pilot_title') or '')}</h2><p><b>Objective:</b> {esc(p.get('objective') or '')}</p><p><b>Scope:</b> {esc(p.get('pilot_scope') or '')}</p><p class='muted'>Duration {int(p.get('duration_days') or 0)}d · Sponsor {esc(p.get('sponsor') or '-')} · Owner {esc(p.get('owner') or '-')}</p><div class='metrics'>{''.join(metrics_html) or '<div class="muted">No success metrics yet.</div>'}</div>{controls}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.28 Startup Pilots</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304958;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#9fffc8;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:25px;font-weight:900;color:#9fffc8}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.metric{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}}.metric{{border-top:1px solid #223541;padding:10px 0}}.pill{{border:1px solid #378d68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.small{{width:auto;padding:8px 10px}}a{{color:#9fffc8}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.28 · PILOT PROPOSAL + EVALUATION SUCCESS GATE</div><h1>Turn interest into a bounded experiment.</h1><p class='muted'>Create a pilot from an advancing opportunity, define measurable success, record observed results, and seal the evaluation without claiming third-party acceptance.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>ACTIVE</div><div><div class='num'>{}</div>SUCCESS</div></div><p><a href='/hunter-startup-opportunities'>← Opportunities</a> · <a href='/api/hunter-startup-pilots'>JSON</a></p></section><section class='card'><h2>Create pilot proposal</h2><form action='/api/hunter-startup-pilots' onsubmit='return v3528submit(this,event)'><select name='opportunity_id' required><option value=''>Advancing opportunity</option>{}</select><input name='pilot_title' placeholder='Pilot title' value='BL3 Pilot'><textarea name='objective' placeholder='Pilot objective' required></textarea><textarea name='pilot_scope' placeholder='Bounded scope / what is in and out' required></textarea><input name='duration_days' type='number' min='1' max='365' value='14'><input name='sponsor' placeholder='Sponsor / decision owner'><input name='owner' value='{}' placeholder='Pilot owner'><input name='decision_due_at' placeholder='Decision due ISO, e.g. 2026-11-01T12:00:00Z'><textarea name='proposal_note' placeholder='Proposal notes'></textarea><button>CREATE PILOT DRAFT</button></form></section><section class='grid'>{}</section></div><script>async function v3528submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0),c.get('READY',0),c.get('ACTIVE',0),c.get('SUCCESS',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No startup pilots yet.</p></article>")
+
+
+# Add navigation from V35.27 into V35.28.
+try:
+    _v3528_prev_page = app.view_functions.get('v3527_page')
+    if _v3528_prev_page:
+        def _v3528_opportunities_with_pilot(*args, **kwargs):
+            response = _v3528_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-startup-pilots' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-startup-opportunities'>JSON</a>",
+                    "<a href='/api/hunter-startup-opportunities'>JSON</a> · <a href='/hunter-startup-pilots'>🧪 PILOT PROPOSAL</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3527_page'] = _v3528_opportunities_with_pilot
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
