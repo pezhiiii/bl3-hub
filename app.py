@@ -78670,6 +78670,528 @@ except Exception:
     pass
 
 
+
+# ===== V35.20 LIVE INCIDENT ACTIVATION + RESPONSE SLA GATE =====
+# V35.19 proves that a covered scope has a real Primary + Backup duty assignment.
+# V35.20 proves that the live assignment can actually respond to an incident:
+#
+# ACTIVE ROSTER -> OPEN INCIDENT -> PRIMARY ACK WITHIN SLA
+#               -> (SLA MISS / MANUAL ESCALATION) -> BACKUP TAKEOVER
+#               -> RESOLVED WITH EVIDENCE / CANCELLED
+#
+# Incident events are immutable and SHA-256 digest-stamped. This gate does not
+# mutate operator certifications; it consumes V35.19 roster + certification state.
+
+V3520_VERSION = "V35.20"
+V3520_STATES = {"OPEN", "ACKNOWLEDGED", "ESCALATED", "RESOLVED", "CANCELLED"}
+V3520_SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+V3520_EVENT_TYPES = {"OPENED", "PRIMARY_ACK", "ESCALATED", "BACKUP_TAKEOVER", "RESOLVED", "CANCELLED"}
+
+
+def _v3520_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            roster_id INTEGER NOT NULL,
+            certification_scope TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'MEDIUM',
+            summary TEXT NOT NULL,
+            response_sla_minutes INTEGER NOT NULL DEFAULT 15,
+            incident_state TEXT NOT NULL DEFAULT 'OPEN',
+            assigned_role TEXT NOT NULL DEFAULT 'PRIMARY',
+            assigned_operator TEXT NOT NULL,
+            opened_at TEXT NOT NULL,
+            response_due_at TEXT NOT NULL,
+            acknowledged_at TEXT,
+            resolved_at TEXT,
+            resolution_evidence TEXT DEFAULT '',
+            cancel_reason TEXT DEFAULT '',
+            cancelled_at TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_incident_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3520_inc_user_state ON hunter_operator_incidents(username,incident_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3520_inc_roster ON hunter_operator_incidents(username,roster_id,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3520_evt_incident ON hunter_operator_incident_events(username,incident_id,id ASC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3520_init()
+except Exception:
+    pass
+
+
+def _v3520_now_iso():
+    return datetime.now().astimezone().isoformat(timespec='seconds')
+
+
+def _v3520_parse_time(value):
+    return _v3519_parse_time(value)
+
+
+def _v3520_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest(), canonical
+
+
+def _v3520_add_event(con, username, incident_id, event_type, actor, note='', extra=None):
+    event_type = str(event_type or '').upper().strip()
+    if event_type not in V3520_EVENT_TYPES:
+        raise ValueError('invalid_event_type')
+    now = _v3520_now_iso()
+    payload = {
+        'version': V3520_VERSION,
+        'incident_id': int(incident_id),
+        'event_type': event_type,
+        'actor': str(actor or '')[:160],
+        'note': str(note or '')[:2000],
+        'created_at': now,
+        'extra': extra or {}
+    }
+    digest, canonical = _v3520_digest(payload)
+    cur = con.execute("""INSERT INTO hunter_operator_incident_events
+      (username,incident_id,event_type,actor,note,evidence_sha256,payload_json,created_at)
+      VALUES(?,?,?,?,?,?,?,?)""",
+      (username, int(incident_id), event_type, payload['actor'], payload['note'], digest, canonical, now))
+    return int(cur.lastrowid), digest
+
+
+def _v3520_incident(username, incident_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM hunter_operator_incidents WHERE username=? AND id=?",
+            (username, int(incident_id))
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3520_events(username, incident_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT * FROM hunter_operator_incident_events WHERE username=? AND incident_id=? ORDER BY id ASC",
+            (username, int(incident_id))
+        ).fetchall()
+        out = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d['payload'] = json.loads(d.get('payload_json') or '{}')
+            except Exception:
+                d['payload'] = {}
+            out.append(d)
+        return out
+    finally:
+        con.close()
+
+
+def _v3520_roster_context(username, roster_id):
+    roster = _v3519_roster(username, roster_id)
+    if not roster:
+        return None
+    return _v3519_evaluate(username, roster)
+
+
+def _v3520_evaluate(username, incident):
+    d = dict(incident or {})
+    if not d:
+        return None
+    state = str(d.get('incident_state') or 'OPEN').upper()
+    roster = _v3520_roster_context(username, int(d.get('roster_id') or 0))
+    d['roster'] = roster
+    d['events'] = _v3520_events(username, int(d['id']))
+    due = _v3520_parse_time(d.get('response_due_at'))
+    now = _v3520_parse_time(_v3520_now_iso())
+    d['sla_breached'] = bool(due and now and now >= due and state == 'OPEN')
+    d['roster_healthy'] = bool(roster and roster.get('roster_state') == 'ACTIVE' and roster.get('handoff_ready'))
+
+    # A missed PRIMARY response SLA automatically escalates to the BACKUP role.
+    if d['sla_breached']:
+        backup = str((roster or {}).get('backup_operator') or '').strip()
+        con = sqlite3.connect(DB)
+        try:
+            con.execute("""UPDATE hunter_operator_incidents
+                SET incident_state='ESCALATED',assigned_role='BACKUP',assigned_operator=?,updated_at=?
+                WHERE username=? AND id=? AND incident_state='OPEN'""",
+                (backup, _v3520_now_iso(), username, int(d['id'])))
+            if con.total_changes:
+                _v3520_add_event(con, username, int(d['id']), 'ESCALATED', 'system',
+                    'Primary response SLA expired; incident escalated to backup.',
+                    {'reason': 'sla_expired', 'backup_operator': backup})
+            con.commit()
+        finally:
+            con.close()
+        d = _v3520_incident(username, int(d['id'])) or d
+        d['roster'] = roster
+        d['events'] = _v3520_events(username, int(d['id']))
+        d['sla_breached'] = True
+        d['roster_healthy'] = bool(roster and roster.get('roster_state') == 'ACTIVE' and roster.get('handoff_ready'))
+
+    return d
+
+
+def _v3520_open(username, roster_id, severity, summary, response_sla_minutes=15):
+    roster = _v3520_roster_context(username, roster_id)
+    if not roster:
+        return False, 'roster_not_found', None
+    if roster.get('roster_state') != 'ACTIVE' or not roster.get('handoff_ready'):
+        return False, 'active_handoff_ready_roster_required', None
+    severity = str(severity or 'MEDIUM').upper().strip()
+    if severity not in V3520_SEVERITIES:
+        return False, 'invalid_severity', None
+    summary = ' '.join(str(summary or '').split())[:1000]
+    if not summary:
+        return False, 'summary_required', None
+    try:
+        sla = max(1, min(int(response_sla_minutes or 15), 1440))
+    except Exception:
+        return False, 'invalid_response_sla', None
+
+    opened = _v3520_parse_time(_v3520_now_iso())
+    due = opened + timedelta(minutes=sla)
+    opened_iso = opened.isoformat(timespec='seconds')
+    due_iso = due.isoformat(timespec='seconds')
+    primary = str(roster.get('primary_operator') or '').strip()
+    scope = str(roster.get('certification_scope') or '')[:500]
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_operator_incidents
+          (username,roster_id,certification_scope,severity,summary,response_sla_minutes,incident_state,
+           assigned_role,assigned_operator,opened_at,response_due_at,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (username, int(roster_id), scope, severity, summary, sla, 'OPEN', 'PRIMARY', primary,
+           opened_iso, due_iso, opened_iso))
+        iid = int(cur.lastrowid)
+        _v3520_add_event(con, username, iid, 'OPENED', username, summary,
+                        {'roster_id': int(roster_id), 'severity': severity, 'response_sla_minutes': sla,
+                         'assigned_role': 'PRIMARY', 'assigned_operator': primary, 'response_due_at': due_iso})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, iid
+
+
+def _v3520_ack(username, incident_id, role, operator, acknowledgement_note=''):
+    incident = _v3520_evaluate(username, _v3520_incident(username, incident_id))
+    if not incident:
+        return False, 'incident_not_found', None
+    state = str(incident.get('incident_state') or '').upper()
+    if state not in {'OPEN', 'ESCALATED'}:
+        return False, 'incident_not_acknowledgeable', None
+    role = str(role or '').upper().strip()
+    expected_role = 'PRIMARY' if state == 'OPEN' else 'BACKUP'
+    if role != expected_role:
+        return False, 'wrong_response_role', None
+    roster = incident.get('roster') or _v3520_roster_context(username, incident['roster_id'])
+    expected = str(roster.get('primary_operator') if role == 'PRIMARY' else roster.get('backup_operator') or '').strip()
+    supplied = str(operator or '').strip() or expected
+    if supplied.casefold() != expected.casefold():
+        return False, 'operator_does_not_match_role', None
+
+    # Reuse V35.19's live certification check so stale/revoked certifications cannot respond.
+    req, active_map, _cov = _v3519_active_operator_map(username, int(roster.get('requirement_id') or 0))
+    if supplied.casefold() not in active_map:
+        return False, 'operator_not_currently_certified', None
+
+    now = _v3520_now_iso()
+    event_type = 'PRIMARY_ACK' if role == 'PRIMARY' else 'BACKUP_TAKEOVER'
+    note = str(acknowledgement_note or '').strip()[:2000]
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_operator_incidents
+            SET incident_state='ACKNOWLEDGED',assigned_role=?,assigned_operator=?,acknowledged_at=?,updated_at=?
+            WHERE username=? AND id=?""",
+            (role, supplied, now, now, username, int(incident_id)))
+        event_id, digest = _v3520_add_event(con, username, int(incident_id), event_type, supplied, note,
+            {'role': role, 'operator': supplied, 'roster_id': int(incident['roster_id'])})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {'event_id': event_id, 'evidence_sha256': digest}
+
+
+def _v3520_escalate(username, incident_id, reason=''):
+    incident = _v3520_evaluate(username, _v3520_incident(username, incident_id))
+    if not incident:
+        return False, 'incident_not_found'
+    if str(incident.get('incident_state') or '').upper() != 'OPEN':
+        return False, 'only_open_incidents_can_escalate'
+    roster = incident.get('roster') or {}
+    backup = str(roster.get('backup_operator') or '').strip()
+    if not backup:
+        return False, 'backup_operator_missing'
+    now = _v3520_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_operator_incidents
+            SET incident_state='ESCALATED',assigned_role='BACKUP',assigned_operator=?,updated_at=?
+            WHERE username=? AND id=?""",
+            (backup, now, username, int(incident_id)))
+        _v3520_add_event(con, username, int(incident_id), 'ESCALATED', username,
+                         str(reason or '')[:2000], {'reason': 'manual', 'backup_operator': backup})
+        con.commit()
+    finally:
+        con.close()
+    return True, None
+
+
+def _v3520_resolve(username, incident_id, resolution_evidence=''):
+    incident = _v3520_evaluate(username, _v3520_incident(username, incident_id))
+    if not incident:
+        return False, 'incident_not_found', None
+    if str(incident.get('incident_state') or '').upper() != 'ACKNOWLEDGED':
+        return False, 'incident_must_be_acknowledged_first', None
+    evidence = str(resolution_evidence or '').strip()[:4000]
+    if not evidence:
+        return False, 'resolution_evidence_required', None
+    now = _v3520_now_iso()
+    actor = str(incident.get('assigned_operator') or username)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_operator_incidents
+            SET incident_state='RESOLVED',resolution_evidence=?,resolved_at=?,updated_at=?
+            WHERE username=? AND id=?""",
+            (evidence, now, now, username, int(incident_id)))
+        event_id, digest = _v3520_add_event(con, username, int(incident_id), 'RESOLVED', actor, evidence,
+            {'assigned_role': incident.get('assigned_role'), 'assigned_operator': actor})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {'event_id': event_id, 'evidence_sha256': digest}
+
+
+def _v3520_cancel(username, incident_id, reason=''):
+    incident = _v3520_evaluate(username, _v3520_incident(username, incident_id))
+    if not incident:
+        return False, 'incident_not_found'
+    if str(incident.get('incident_state') or '').upper() in {'RESOLVED', 'CANCELLED'}:
+        return False, 'incident_closed'
+    reason = str(reason or '').strip()[:2000]
+    if not reason:
+        return False, 'cancel_reason_required'
+    now = _v3520_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_operator_incidents
+            SET incident_state='CANCELLED',cancel_reason=?,cancelled_at=?,updated_at=?
+            WHERE username=? AND id=?""",
+            (reason, now, now, username, int(incident_id)))
+        _v3520_add_event(con, username, int(incident_id), 'CANCELLED', username, reason, {})
+        con.commit()
+    finally:
+        con.close()
+    return True, None
+
+
+def _v3520_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT * FROM hunter_operator_incidents WHERE username=? ORDER BY id DESC LIMIT 100",
+            (username,)
+        ).fetchall()
+    finally:
+        con.close()
+    incidents = []
+    for row in rows:
+        item = _v3520_evaluate(username, dict(row))
+        if item:
+            incidents.append(item)
+    counts = {k: 0 for k in V3520_STATES}
+    for x in incidents:
+        s = str(x.get('incident_state') or '').upper()
+        if s in counts:
+            counts[s] += 1
+
+    # Only currently ACTIVE + handoff-ready rosters can activate a new incident.
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        roster_rows = con.execute(
+            "SELECT * FROM hunter_operator_duty_rosters WHERE username=? ORDER BY id DESC LIMIT 100",
+            (username,)
+        ).fetchall()
+    finally:
+        con.close()
+    active_rosters = []
+    for row in roster_rows:
+        roster = _v3519_evaluate(username, dict(row))
+        if roster and roster.get('roster_state') == 'ACTIVE' and roster.get('handoff_ready'):
+            active_rosters.append(roster)
+
+    unresolved = [x for x in incidents if x.get('incident_state') not in {'RESOLVED', 'CANCELLED'}]
+    response_gate_ready = not any(x.get('incident_state') in {'OPEN', 'ESCALATED'} for x in unresolved)
+    return {
+        'success': True,
+        'version': V3520_VERSION,
+        'incidents': incidents,
+        'counts': counts,
+        'active_rosters': active_rosters,
+        'response_gate_ready': response_gate_ready,
+        'open_or_escalated': len([x for x in unresolved if x.get('incident_state') in {'OPEN', 'ESCALATED'}]),
+        'generated_at': _v3520_now_iso()
+    }
+
+
+@app.route('/api/hunter-incident-response')
+def v3520_api_snapshot():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    return jsonify(_v3520_snapshot(u))
+
+
+@app.route('/api/hunter-incident-response', methods=['POST'])
+def v3520_api_open():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, incident_id = _v3520_open(
+        u, p.get('roster_id'), p.get('severity') or 'MEDIUM', p.get('summary') or '',
+        p.get('response_sla_minutes') or 15
+    )
+    return jsonify({'success': ok, 'error': error, 'incident_id': incident_id}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-incident-response/<int:incident_id>/ack', methods=['POST'])
+def v3520_api_ack(incident_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, evidence = _v3520_ack(
+        u, incident_id, p.get('role') or '', p.get('operator') or '', p.get('acknowledgement_note') or ''
+    )
+    return jsonify({'success': ok, 'error': error, 'evidence': evidence}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-incident-response/<int:incident_id>/escalate', methods=['POST'])
+def v3520_api_escalate(incident_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error = _v3520_escalate(u, incident_id, p.get('reason') or '')
+    return jsonify({'success': ok, 'error': error}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-incident-response/<int:incident_id>/resolve', methods=['POST'])
+def v3520_api_resolve(incident_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, evidence = _v3520_resolve(u, incident_id, p.get('resolution_evidence') or '')
+    return jsonify({'success': ok, 'error': error, 'evidence': evidence}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-incident-response/<int:incident_id>/cancel', methods=['POST'])
+def v3520_api_cancel(incident_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error = _v3520_cancel(u, incident_id, p.get('cancel_reason') or '')
+    return jsonify({'success': ok, 'error': error}), (200 if ok else 400)
+
+
+@app.route('/hunter-incident-response')
+def v3520_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3520_snapshot(u); esc = html.escape; c = d['counts']
+    roster_opts = ''.join(
+        "<option value='{}'>Roster #{} · {} · {} + {}</option>".format(
+            int(r['id']), int(r['id']), esc(r.get('certification_scope') or ''),
+            esc(r.get('primary_operator') or ''), esc(r.get('backup_operator') or '')
+        ) for r in d['active_rosters']
+    )
+    cards = []
+    for x in d['incidents']:
+        iid = int(x['id']); state = str(x.get('incident_state') or '')
+        state_cls = 'safe' if state == 'RESOLVED' else ('danger' if state == 'ESCALATED' else ('warn' if state == 'OPEN' else 'neutral'))
+        roster = x.get('roster') or {}
+        events = x.get('events') or []
+        evidence = ' · '.join((str(e.get('evidence_sha256') or '')[:10] for e in events[-4:])) or 'none'
+        actions = ''
+        if state == 'OPEN':
+            actions += f"""<form action='/api/hunter-incident-response/{iid}/ack' onsubmit='return v3520submit(this,event)'><input type='hidden' name='role' value='PRIMARY'><input type='hidden' name='operator' value='{esc(roster.get('primary_operator') or '')}'><textarea name='acknowledgement_note' placeholder='Primary acknowledgement / first response evidence'></textarea><button class='safeBtn'>PRIMARY ACK</button></form>"""
+            actions += f"""<form action='/api/hunter-incident-response/{iid}/escalate' onsubmit='return v3520submit(this,event)'><input name='reason' placeholder='Escalation reason'><button class='warnBtn'>ESCALATE TO BACKUP</button></form>"""
+        elif state == 'ESCALATED':
+            actions += f"""<form action='/api/hunter-incident-response/{iid}/ack' onsubmit='return v3520submit(this,event)'><input type='hidden' name='role' value='BACKUP'><input type='hidden' name='operator' value='{esc(roster.get('backup_operator') or '')}'><textarea name='acknowledgement_note' placeholder='Backup takeover evidence'></textarea><button class='warnBtn'>BACKUP TAKEOVER</button></form>"""
+        elif state == 'ACKNOWLEDGED':
+            actions += f"""<form action='/api/hunter-incident-response/{iid}/resolve' onsubmit='return v3520submit(this,event)'><textarea name='resolution_evidence' placeholder='Resolution evidence / observable recovery proof' required></textarea><button class='safeBtn'>RESOLVE INCIDENT</button></form>"""
+        if state not in {'RESOLVED', 'CANCELLED'}:
+            actions += f"""<form action='/api/hunter-incident-response/{iid}/cancel' onsubmit='return v3520submit(this,event)'><input name='cancel_reason' placeholder='Cancellation reason' required><button class='dangerBtn'>CANCEL</button></form>"""
+        cards.append(f"""<article class='card'>
+          <div class='top'><span>Incident #{iid} · {esc(x.get('severity') or '')}</span><span class='pill {state_cls}'>{esc(state)}</span></div>
+          <h2>{esc(x.get('summary') or '')}</h2>
+          <p><b>Scope:</b> {esc(x.get('certification_scope') or '')}</p>
+          <p><b>Assigned:</b> {esc(x.get('assigned_role') or '')} · {esc(x.get('assigned_operator') or '')}</p>
+          <p class='muted'>Opened {esc(x.get('opened_at') or '')} · response due {esc(x.get('response_due_at') or '')}</p>
+          <p class='muted'>Roster #{int(x.get('roster_id') or 0)} · current state {esc(roster.get('roster_state') or 'missing')} · evidence <code>{esc(evidence)}</code></p>
+          {actions}
+        </article>""")
+    gate = 'READY' if d['response_gate_ready'] else 'ACTION REQUIRED'
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.20 Incident Response SLA</title><style>
+    body{{margin:0;background:#05070a;color:#edf8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304654;background:#091016;border-radius:20px;padding:18px}}.eyebrow{{color:#8fffd0;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}h2{{line-height:1.15}}.muted{{color:#8fa6b2}}.stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}.stats>div{{border:1px solid #223944;border-radius:14px;padding:12px}}.num{{font-size:24px;font-weight:900;color:#8fffd0}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3d6070;border-radius:999px;padding:5px 9px}}.pill.safe{{border-color:#2f9e67;color:#8dffc0}}.pill.warn{{border-color:#a48331;color:#ffd978}}.pill.danger{{border-color:#b24b5b;color:#ff9eaa}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safeBtn{{border-color:#2f9e67}}.warnBtn{{border-color:#a48331}}.dangerBtn{{border-color:#a94455}}a,code{{color:#8fffd0}}@media(max-width:760px){{.stats{{grid-template-columns:repeat(2,1fr)}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.20 · LIVE INCIDENT ACTIVATION + RESPONSE SLA GATE</div><h1>The roster exists. Now prove it responds.</h1><p class='muted'>Activate incidents only against an ACTIVE, handoff-ready duty roster. Primary response is time-bounded; an SLA miss automatically escalates to the certified Backup. Resolution requires explicit evidence.</p>
+    <div class='stats'><div><div class='num'>{}</div>OPEN</div><div><div class='num'>{}</div>ACKNOWLEDGED</div><div><div class='num'>{}</div>ESCALATED</div><div><div class='num'>{}</div>RESOLVED</div><div><div class='num'>{}</div>ACTIVE ROSTERS</div><div><div class='num'>{}</div>RESPONSE GATE</div></div>
+    <p><a href='/hunter-duty-rosters'>← Live Duty Roster</a> · <a href='/api/hunter-incident-response'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Activate live incident</h2><form action='/api/hunter-incident-response' onsubmit='return v3520submit(this,event)'><select name='roster_id' required><option value=''>Select ACTIVE handoff-ready roster</option>{}</select><select name='severity'><option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select><input name='response_sla_minutes' type='number' min='1' max='1440' value='15'><textarea name='summary' placeholder='Incident signal / observable failure' required></textarea><button>OPEN INCIDENT</button></form></section>
+    <section class='grid'>{}</section></div><script>
+    async function v3520submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c.get('OPEN',0), c.get('ACKNOWLEDGED',0), c.get('ESCALATED',0), c.get('RESOLVED',0), len(d['active_rosters']), gate,
+        roster_opts, ''.join(cards) or "<article class='card'><p>No incidents yet. Activate one from a live, handoff-ready roster.</p></article>"
+    )
+
+
+# Add navigation from V35.19 into V35.20.
+try:
+    _v3520_prev_page = app.view_functions.get('v3519_page')
+    if _v3520_prev_page:
+        def _v3520_roster_with_incidents(*args, **kwargs):
+            response = _v3520_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-incident-response' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-duty-rosters'>JSON</a>",
+                    "<a href='/api/hunter-duty-rosters'>JSON</a> · <a href='/hunter-incident-response'>🚨 INCIDENT RESPONSE</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3519_page'] = _v3520_roster_with_incidents
+except Exception:
+    pass
+
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -78782,6 +79304,7 @@ if __name__ == "__main__":
     print("💌 Guestbook Control Center enabled")
     print("🛡️ Operator Coverage + Failover Readiness Gate enabled")
     print("🕒 Live Duty Roster + Handoff Acknowledgement Gate enabled")
+    print("🚨 Live Incident Activation + Response SLA Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
