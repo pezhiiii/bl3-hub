@@ -83260,6 +83260,335 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.31 OUTCOME VALIDATION + REFERENCE CONSENT GATE =====
+# V35.30 proves delivery was explicitly accepted.
+# V35.31 proves what measurable outcome followed that accepted delivery and
+# whether any external reference/case-study use is explicitly permitted.
+#
+# ACCEPTED ENGAGEMENT -> OUTCOME EVIDENCE -> VALIDATED -> REFERENCE CONSENT
+#
+# No testimonial, customer endorsement, or public success claim is inferred.
+# External reference use requires explicit consent evidence and a bounded mode.
+
+V3531_VERSION = "V35.31"
+V3531_STATES = {"DRAFT", "EVIDENCE_READY", "VALIDATED", "REFERENCE_READY", "STALE", "RETIRED"}
+V3531_REFERENCE_MODES = {"INTERNAL_ONLY", "ANONYMIZED", "NAMED_REFERENCE"}
+
+
+def _v3531_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3531_hash(payload):
+    raw=json.dumps(payload, sort_keys=True, separators=(",",":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _v3531_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_engagement_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            engagement_id INTEGER NOT NULL UNIQUE,
+            outcome_key TEXT NOT NULL UNIQUE,
+            outcome_title TEXT NOT NULL,
+            outcome_summary TEXT NOT NULL,
+            stakeholder_role TEXT DEFAULT '',
+            validation_state TEXT NOT NULL DEFAULT 'DRAFT',
+            reference_mode TEXT NOT NULL DEFAULT 'INTERNAL_ONLY',
+            stakeholder_attestation TEXT DEFAULT '',
+            consent_evidence TEXT DEFAULT '',
+            consent_recorded_at TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            validated_at TEXT DEFAULT '',
+            retired_at TEXT DEFAULT '',
+            validation_digest TEXT DEFAULT '',
+            reference_digest TEXT DEFAULT ''
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3531_user_state ON hunter_engagement_outcomes(username,validation_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_engagement_outcome_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            outcome_id INTEGER NOT NULL,
+            metric_name TEXT NOT NULL,
+            baseline_value TEXT DEFAULT '',
+            observed_value TEXT NOT NULL,
+            measurement_method TEXT NOT NULL,
+            evidence_note TEXT NOT NULL,
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(outcome_id) REFERENCES hunter_engagement_outcomes(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3531_metric_outcome ON hunter_engagement_outcome_metrics(outcome_id,id)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_engagement_outcome_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            outcome_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(outcome_id) REFERENCES hunter_engagement_outcomes(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3531_event_outcome ON hunter_engagement_outcome_events(outcome_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3531_init()
+except Exception:
+    pass
+
+
+def _v3531_engagement(username, engagement_id):
+    try:
+        return _v3530_refresh(username, int(engagement_id))
+    except Exception:
+        return None
+
+
+def _v3531_event(con, outcome_id, event_type, detail, extra=None):
+    created=_v3531_now_iso()
+    payload={"outcome_id":int(outcome_id),"event_type":str(event_type),"detail":str(detail or ""),"created_at":created,"extra":extra or {}}
+    dig=_v3531_hash(payload)
+    con.execute("INSERT INTO hunter_engagement_outcome_events(outcome_id,event_type,detail,evidence_digest,created_at) VALUES(?,?,?,?,?)",
+                (int(outcome_id),str(event_type)[:80],str(detail or '')[:1000],dig,created))
+    return dig
+
+
+def _v3531_metrics(con, outcome_id):
+    con.row_factory=sqlite3.Row
+    rows=con.execute("SELECT * FROM hunter_engagement_outcome_metrics WHERE outcome_id=? ORDER BY id",(int(outcome_id),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _v3531_refresh(username, outcome_id):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        row=con.execute("SELECT * FROM hunter_engagement_outcomes WHERE username=? AND id=?",(username,int(outcome_id))).fetchone()
+        if not row: return None
+        d=dict(row)
+        engagement=_v3531_engagement(username,d['engagement_id'])
+        metrics=_v3531_metrics(con,d['id'])
+        d['engagement']=engagement
+        d['metrics']=metrics
+        state=str(d.get('validation_state') or 'DRAFT')
+        source_ok=bool(engagement and engagement.get('engagement_state')=='ACCEPTED')
+        if not source_ok and state not in {'RETIRED','STALE'}:
+            state='STALE'
+            con.execute("UPDATE hunter_engagement_outcomes SET validation_state=?,updated_at=? WHERE id=?",(state,_v3531_now_iso(),d['id']))
+            _v3531_event(con,d['id'],'SOURCE_STALE','Accepted engagement is no longer current.')
+            con.commit()
+        elif source_ok and state=='STALE':
+            # Never silently restore externally publishable status. Return only to VALIDATED/EVIDENCE_READY.
+            state='VALIDATED' if d.get('validated_at') else ('EVIDENCE_READY' if metrics else 'DRAFT')
+            con.execute("UPDATE hunter_engagement_outcomes SET validation_state=?,updated_at=? WHERE id=?",(state,_v3531_now_iso(),d['id']))
+            _v3531_event(con,d['id'],'SOURCE_RECOVERED',f'Restored to {state}; external reference consent must be re-confirmed.')
+            if state!='REFERENCE_READY':
+                con.execute("UPDATE hunter_engagement_outcomes SET reference_mode='INTERNAL_ONLY',consent_evidence='',consent_recorded_at='',reference_digest='' WHERE id=?",(d['id'],))
+            con.commit()
+        d['validation_state']=state
+        d['reference_allowed']=bool(state=='REFERENCE_READY' and d.get('reference_mode') in {'ANONYMIZED','NAMED_REFERENCE'} and d.get('consent_evidence'))
+        return d
+    finally:
+        con.close()
+
+
+def _v3531_snapshot(username):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        rows=con.execute("SELECT id FROM hunter_engagement_outcomes WHERE username=? ORDER BY id DESC",(username,)).fetchall()
+        engagements=con.execute("SELECT id FROM hunter_startup_engagements WHERE username=? ORDER BY id DESC",(username,)).fetchall()
+    finally:
+        con.close()
+    items=[]
+    for r in rows:
+        x=_v3531_refresh(username,r['id'])
+        if x: items.append(x)
+    existing={int(x['engagement_id']) for x in items}
+    eligible=[]
+    for r in engagements:
+        e=_v3531_engagement(username,r['id'])
+        if e and e.get('engagement_state')=='ACCEPTED' and int(e['id']) not in existing:
+            eligible.append(e)
+    counts={k:0 for k in V3531_STATES}
+    for x in items: counts[x.get('validation_state','DRAFT')]=counts.get(x.get('validation_state','DRAFT'),0)+1
+    return {'success':True,'version':V3531_VERSION,'outcomes':items,'eligible_engagements':eligible,'counts':counts}
+
+
+def _v3531_create(username, engagement_id, title, summary, stakeholder_role=''):
+    e=_v3531_engagement(username,engagement_id)
+    if not e or e.get('engagement_state')!='ACCEPTED': return False,'accepted_engagement_required',None
+    title=' '.join(str(title or '').split())[:180]; summary=str(summary or '').strip()[:4000]
+    if not title or not summary: return False,'title_and_summary_required',None
+    now=_v3531_now_iso(); key=f"OUT-{secrets.token_hex(5).upper()}"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO hunter_engagement_outcomes(username,engagement_id,outcome_key,outcome_title,outcome_summary,stakeholder_role,validation_state,reference_mode,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?,'DRAFT','INTERNAL_ONLY',?,?)""",
+                        (username,int(engagement_id),key,title,summary,str(stakeholder_role or '')[:180],now,now))
+        oid=cur.lastrowid
+        _v3531_event(con,oid,'OUTCOME_CREATED',f'Outcome validation created for engagement #{int(engagement_id)}.')
+        con.commit(); return True,None,int(oid)
+    except sqlite3.IntegrityError:
+        return False,'outcome_already_exists',None
+    finally:
+        con.close()
+
+
+def _v3531_add_metric(username, outcome_id, name, baseline, observed, method, evidence):
+    d=_v3531_refresh(username,outcome_id)
+    if not d: return False,'outcome_not_found',None
+    if d.get('validation_state') in {'REFERENCE_READY','RETIRED','STALE'}: return False,'outcome_locked',None
+    name=' '.join(str(name or '').split())[:180]; observed=str(observed or '').strip()[:500]; method=str(method or '').strip()[:1000]; evidence=str(evidence or '').strip()[:3000]
+    if not name or not observed or not method or not evidence: return False,'metric_observed_method_evidence_required',None
+    created=_v3531_now_iso()
+    payload={'outcome_id':int(outcome_id),'metric_name':name,'baseline_value':str(baseline or '')[:500],'observed_value':observed,'measurement_method':method,'evidence_note':evidence,'created_at':created}
+    dig=_v3531_hash(payload)
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO hunter_engagement_outcome_metrics(outcome_id,metric_name,baseline_value,observed_value,measurement_method,evidence_note,evidence_digest,created_at)
+                           VALUES(?,?,?,?,?,?,?,?)""",(int(outcome_id),name,payload['baseline_value'],observed,method,evidence,dig,created))
+        con.execute("UPDATE hunter_engagement_outcomes SET validation_state='EVIDENCE_READY',updated_at=? WHERE id=?",(created,int(outcome_id)))
+        _v3531_event(con,outcome_id,'METRIC_ADDED',name,{'metric_digest':dig})
+        con.commit(); return True,None,int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3531_validate(username, outcome_id, attestation):
+    d=_v3531_refresh(username,outcome_id)
+    if not d: return False,'outcome_not_found',None
+    if d.get('validation_state') not in {'EVIDENCE_READY','VALIDATED'}: return False,'outcome_evidence_required',d
+    att=str(attestation or '').strip()[:4000]
+    if not att: return False,'stakeholder_attestation_required',d
+    if not d.get('metrics'): return False,'at_least_one_metric_required',d
+    now=_v3531_now_iso()
+    payload={'outcome_id':int(outcome_id),'engagement_id':int(d['engagement_id']),'outcome_summary':d.get('outcome_summary'),'stakeholder_attestation':att,
+             'metrics':[{'metric_name':m['metric_name'],'baseline_value':m['baseline_value'],'observed_value':m['observed_value'],'measurement_method':m['measurement_method'],'evidence_digest':m['evidence_digest']} for m in d['metrics']],
+             'validated_at':now}
+    dig=_v3531_hash(payload)
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_engagement_outcomes SET validation_state='VALIDATED',stakeholder_attestation=?,validated_at=?,validation_digest=?,reference_mode='INTERNAL_ONLY',consent_evidence='',consent_recorded_at='',reference_digest='',updated_at=? WHERE username=? AND id=?""",
+                    (att,now,dig,now,username,int(outcome_id)))
+        _v3531_event(con,outcome_id,'OUTCOME_VALIDATED','Measured outcome validated with explicit attestation.',{'validation_digest':dig})
+        con.commit()
+    finally: con.close()
+    return True,None,_v3531_refresh(username,outcome_id)
+
+
+def _v3531_reference_consent(username, outcome_id, mode, consent_evidence):
+    d=_v3531_refresh(username,outcome_id)
+    if not d: return False,'outcome_not_found',None
+    if d.get('validation_state')!='VALIDATED': return False,'validated_outcome_required',d
+    mode=str(mode or '').upper().strip()
+    if mode not in V3531_REFERENCE_MODES: return False,'invalid_reference_mode',d
+    evidence=str(consent_evidence or '').strip()[:4000]
+    if mode in {'ANONYMIZED','NAMED_REFERENCE'} and not evidence: return False,'explicit_consent_evidence_required',d
+    now=_v3531_now_iso()
+    next_state='REFERENCE_READY' if mode in {'ANONYMIZED','NAMED_REFERENCE'} else 'VALIDATED'
+    payload={'outcome_id':int(outcome_id),'validation_digest':d.get('validation_digest'),'reference_mode':mode,'consent_evidence':evidence,'consent_recorded_at':now}
+    dig=_v3531_hash(payload)
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_engagement_outcomes SET validation_state=?,reference_mode=?,consent_evidence=?,consent_recorded_at=?,reference_digest=?,updated_at=? WHERE username=? AND id=?",
+                    (next_state,mode,evidence,now,dig,now,username,int(outcome_id)))
+        _v3531_event(con,outcome_id,'REFERENCE_CONSENT_RECORDED',f'Reference mode set to {mode}.',{'reference_digest':dig})
+        con.commit()
+    finally: con.close()
+    return True,None,_v3531_refresh(username,outcome_id)
+
+
+@app.route('/api/hunter-engagement-outcomes', methods=['GET','POST'])
+def v3531_api_outcomes():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET': return jsonify(_v3531_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,oid=_v3531_create(u,p.get('engagement_id'),p.get('outcome_title'),p.get('outcome_summary'),p.get('stakeholder_role') or '')
+    return jsonify({'success':ok,'error':e,'outcome_id':oid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-engagement-outcomes/<int:outcome_id>')
+def v3531_api_outcome(outcome_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    d=_v3531_refresh(u,outcome_id)
+    if not d: return jsonify({'success':False,'error':'outcome_not_found'}),404
+    return jsonify({'success':True,'version':V3531_VERSION,'outcome':d})
+
+
+@app.route('/api/hunter-engagement-outcomes/<int:outcome_id>/metrics', methods=['POST'])
+def v3531_api_metric(outcome_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,mid=_v3531_add_metric(u,outcome_id,p.get('metric_name'),p.get('baseline_value') or '',p.get('observed_value'),p.get('measurement_method'),p.get('evidence_note'))
+    return jsonify({'success':ok,'error':e,'metric_id':mid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-engagement-outcomes/<int:outcome_id>/validate', methods=['POST'])
+def v3531_api_validate(outcome_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3531_validate(u,outcome_id,p.get('stakeholder_attestation') or '')
+    return jsonify({'success':ok,'error':e,'outcome':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-engagement-outcomes/<int:outcome_id>/reference-consent', methods=['POST'])
+def v3531_api_reference(outcome_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3531_reference_consent(u,outcome_id,p.get('reference_mode'),p.get('consent_evidence') or '')
+    return jsonify({'success':ok,'error':e,'outcome':d}),(200 if ok else 400)
+
+
+@app.route('/hunter-engagement-outcomes')
+def v3531_page():
+    u=session.get('authenticated_username')
+    if not u: return redirect('/')
+    d=_v3531_snapshot(u); esc=html.escape; c=d['counts']
+    opts=''.join(f"<option value='{int(x['id'])}'>{esc(x.get('engagement_key') or '')} — {esc(x.get('engagement_title') or '')}</option>" for x in d['eligible_engagements'])
+    cards=[]
+    for x in d['outcomes']:
+        oid=int(x['id']); state=esc(x.get('validation_state') or '')
+        mets=''.join(f"<div class='metric'><b>{esc(m.get('metric_name') or '')}</b><p>{esc(m.get('baseline_value') or '—')} → {esc(m.get('observed_value') or '')}</p><small>{esc(m.get('measurement_method') or '')}</small></div>" for m in x.get('metrics') or [])
+        controls=''
+        if x.get('validation_state') in {'DRAFT','EVIDENCE_READY'}:
+            controls+=f"""<form action='/api/hunter-engagement-outcomes/{oid}/metrics' onsubmit='return v3531submit(this,event)'><input name='metric_name' placeholder='Outcome metric' required><input name='baseline_value' placeholder='Baseline (optional)'><input name='observed_value' placeholder='Observed result' required><textarea name='measurement_method' placeholder='How this was measured' required></textarea><textarea name='evidence_note' placeholder='Evidence / source note' required></textarea><button>ADD OUTCOME METRIC</button></form>"""
+        if x.get('validation_state')=='EVIDENCE_READY':
+            controls+=f"""<form action='/api/hunter-engagement-outcomes/{oid}/validate' onsubmit='return v3531submit(this,event)'><textarea name='stakeholder_attestation' placeholder='Stakeholder attestation / validation statement' required></textarea><button class='safe'>VALIDATE OUTCOME</button></form>"""
+        if x.get('validation_state')=='VALIDATED':
+            controls+=f"""<form action='/api/hunter-engagement-outcomes/{oid}/reference-consent' onsubmit='return v3531submit(this,event)'><select name='reference_mode'><option>INTERNAL_ONLY</option><option>ANONYMIZED</option><option>NAMED_REFERENCE</option></select><textarea name='consent_evidence' placeholder='Explicit consent evidence required for external reference'></textarea><button class='safe'>RECORD REFERENCE CONSENT</button></form>"""
+        ref="YES" if x.get('reference_allowed') else "NO"
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('outcome_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(x.get('outcome_title') or '')}</h2><p>{esc(x.get('outcome_summary') or '')}</p><p class='muted'>Reference mode: {esc(x.get('reference_mode') or 'INTERNAL_ONLY')} · External reference allowed: <b>{ref}</b></p>{mets or '<p class="muted">No measured outcome yet.</p>'}{controls}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.31 Outcome Validation</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304958;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#9fffc8;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:25px;font-weight:900;color:#9fffc8}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #378d68;border-radius:999px;padding:5px 9px}}.metric{{margin-top:10px;padding:11px;border:1px solid #223846;border-radius:13px;background:#071017}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}a{{color:#9fffc8}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.31 · OUTCOME VALIDATION + REFERENCE CONSENT GATE</div><h1>Prove the outcome. Ask before you quote it.</h1><p class='muted'>Accepted delivery can become a validated outcome, but no external case-study/reference claim is permitted without explicit consent evidence.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>EVIDENCE READY</div><div><div class='num'>{}</div>VALIDATED</div><div><div class='num'>{}</div>REFERENCE READY</div></div><p><a href='/hunter-startup-engagements'>← Engagements</a> · <a href='/api/hunter-engagement-outcomes'>JSON</a></p></section><section class='card'><h2>Create outcome validation</h2><form action='/api/hunter-engagement-outcomes' onsubmit='return v3531submit(this,event)'><select name='engagement_id' required><option value=''>Accepted engagement</option>{}</select><input name='outcome_title' placeholder='Outcome title' required><textarea name='outcome_summary' placeholder='What changed after accepted delivery?' required></textarea><input name='stakeholder_role' placeholder='Stakeholder role'><button>CREATE OUTCOME RECORD</button></form></section><section class='grid'>{}</section></div><script>async function v3531submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0),c.get('EVIDENCE_READY',0),c.get('VALIDATED',0),c.get('REFERENCE_READY',0),opts,''.join(cards) or "<article class='card'><p>No outcome validations yet.</p></article>")
+
+
+# Add navigation from V35.30 into V35.31.
+try:
+    _v3531_prev_page=app.view_functions.get('v3530_page')
+    if _v3531_prev_page:
+        def _v3531_engagements_with_outcomes(*args,**kwargs):
+            response=_v3531_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-engagement-outcomes' not in response:
+                response=response.replace("<a href='/api/hunter-startup-engagements'>JSON</a>","<a href='/api/hunter-startup-engagements'>JSON</a> · <a href='/hunter-engagement-outcomes'>📈 OUTCOME VALIDATION</a>",1)
+            return response
+        app.view_functions['v3530_page']=_v3531_engagements_with_outcomes
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -83382,6 +83711,7 @@ if __name__ == "__main__":
     print("🎯 Startup Feedback Capture + Opportunity Follow-up Gate enabled")
     print("🤝 Commercial Conversion + Decision Gate enabled")
     print("🚀 Engagement Activation + Delivery Acceptance Gate enabled")
+    print("📈 Outcome Validation + Reference Consent Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
