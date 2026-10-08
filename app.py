@@ -76646,6 +76646,417 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.14 POST-INCIDENT LEARNING + CORRECTIVE ACTION GATE =====
+# V35.13 certifies that recovery is stable and closes the operational incident.
+# V35.14 makes sure that closure becomes institutional learning instead of a forgotten event:
+#
+# CERTIFIED STABILITY
+#   -> CREATE LEARNING REVIEW
+#   -> ROOT CAUSE + CONTRIBUTING FACTORS
+#   -> CORRECTIVE / PREVENTIVE ACTIONS
+#   -> VERIFY ACTION COMPLETION
+#   -> CLOSE REVIEW ONLY WHEN REQUIRED ACTIONS ARE DONE
+#
+# This is intentionally lightweight: it is an auditable post-incident layer built on top of
+# the existing V35.13 certificate rather than a second incident system.
+
+V3514_VERSION = "V35.14"
+V3514_REVIEW_STATES = {"DRAFT", "ACTION_REQUIRED", "READY", "CLOSED", "REOPENED"}
+V3514_SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+V3514_ACTION_TYPES = {"CORRECTIVE", "PREVENTIVE", "DETECTION", "RUNBOOK", "CAPACITY", "CUSTOM"}
+V3514_ACTION_STATES = {"OPEN", "IN_PROGRESS", "VERIFIED", "WAIVED"}
+
+
+def _v3514_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_learning_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            certificate_id INTEGER NOT NULL,
+            review_name TEXT NOT NULL,
+            review_state TEXT NOT NULL DEFAULT 'DRAFT',
+            incident_severity TEXT NOT NULL DEFAULT 'MEDIUM',
+            root_cause TEXT,
+            contributing_factors TEXT,
+            lessons_learned TEXT,
+            owner TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            closed_at TEXT,
+            reopened_at TEXT
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_learning_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_id INTEGER NOT NULL,
+            action_type TEXT NOT NULL DEFAULT 'CORRECTIVE',
+            action_title TEXT NOT NULL,
+            action_state TEXT NOT NULL DEFAULT 'OPEN',
+            owner TEXT,
+            due_at TEXT,
+            verification_note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            verified_at TEXT
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3514_review_user ON hunter_learning_reviews(username, review_state, id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3514_review_cert ON hunter_learning_reviews(username, certificate_id, id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3514_action_review ON hunter_learning_actions(username, review_id, action_state, id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3514_init()
+except Exception:
+    pass
+
+
+def _v3514_now_iso():
+    return _v3513_now_iso()
+
+
+def _v3514_certificate(username, certificate_id):
+    try:
+        return _v3513_case(username, int(certificate_id))
+    except Exception:
+        return None
+
+
+def _v3514_open_review(username, certificate_id, review_name="", severity="MEDIUM", owner=""):
+    try:
+        certificate_id = int(certificate_id)
+    except Exception:
+        return False, "invalid_certificate_id", None
+    cert = _v3514_certificate(username, certificate_id)
+    if not cert:
+        return False, "certificate_not_found", None
+    if str(cert.get('case_state') or '').upper() != 'CERTIFIED':
+        return False, "certified_stability_required", None
+    severity = str(severity or 'MEDIUM').upper().strip()
+    if severity not in V3514_SEVERITIES:
+        return False, "invalid_incident_severity", None
+    con = sqlite3.connect(DB)
+    try:
+        existing = con.execute("""
+            SELECT id FROM hunter_learning_reviews
+            WHERE username=? AND certificate_id=? AND review_state!='CLOSED'
+            ORDER BY id DESC LIMIT 1
+        """, (username, certificate_id)).fetchone()
+        if existing:
+            return False, "active_learning_review_exists", int(existing[0])
+        now = _v3514_now_iso()
+        name = str(review_name or '').strip() or f"Learning review for certificate #{certificate_id}"
+        cur = con.execute("""
+            INSERT INTO hunter_learning_reviews
+            (username, certificate_id, review_name, review_state, incident_severity,
+             root_cause, contributing_factors, lessons_learned, owner,
+             created_at, updated_at)
+            VALUES (?, ?, ?, 'DRAFT', ?, '', '', '', ?, ?, ?)
+        """, (username, certificate_id, name[:240], severity, str(owner or username)[:160], now, now))
+        con.commit()
+        return True, None, int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3514_review(username, review_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        r = con.execute("SELECT * FROM hunter_learning_reviews WHERE username=? AND id=?", (username, int(review_id))).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d['certificate'] = _v3514_certificate(username, d['certificate_id'])
+        d['actions'] = [dict(x) for x in con.execute("SELECT * FROM hunter_learning_actions WHERE username=? AND review_id=? ORDER BY id ASC", (username, int(review_id))).fetchall()]
+        return d
+    finally:
+        con.close()
+
+
+def _v3514_gate(review):
+    if not review:
+        return {'gate':'MISSING','open':0,'in_progress':0,'verified':0,'waived':0,'required_remaining':0}
+    counts = {'OPEN':0,'IN_PROGRESS':0,'VERIFIED':0,'WAIVED':0}
+    for a in review.get('actions') or []:
+        st = str(a.get('action_state') or 'OPEN').upper()
+        counts[st] = counts.get(st,0) + 1
+    remaining = counts.get('OPEN',0) + counts.get('IN_PROGRESS',0)
+    has_rca = bool(str(review.get('root_cause') or '').strip())
+    has_lessons = bool(str(review.get('lessons_learned') or '').strip())
+    if remaining:
+        gate='ACTION_REQUIRED'
+    elif not has_rca or not has_lessons:
+        gate='DRAFT'
+    elif len(review.get('actions') or []) == 0:
+        gate='ACTION_REQUIRED'
+    else:
+        gate='READY'
+    return {
+        'gate':gate,
+        'open':counts.get('OPEN',0),
+        'in_progress':counts.get('IN_PROGRESS',0),
+        'verified':counts.get('VERIFIED',0),
+        'waived':counts.get('WAIVED',0),
+        'required_remaining':remaining,
+    }
+
+
+def _v3514_update_review(username, review_id, root_cause="", contributing_factors="", lessons_learned="", owner=""):
+    review = _v3514_review(username, review_id)
+    if not review:
+        return False, "review_not_found", None
+    if review.get('review_state') == 'CLOSED':
+        return False, "closed_review_readonly", review
+    now = _v3514_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_learning_reviews
+            SET root_cause=?, contributing_factors=?, lessons_learned=?, owner=?, updated_at=?
+            WHERE username=? AND id=?
+        """, (
+            str(root_cause or '')[:12000],
+            str(contributing_factors or '')[:12000],
+            str(lessons_learned or '')[:12000],
+            str(owner or review.get('owner') or username)[:160],
+            now, username, int(review_id)
+        ))
+        con.commit()
+    finally:
+        con.close()
+    fresh = _v3514_review(username, review_id)
+    gate = _v3514_gate(fresh)
+    if fresh and fresh.get('review_state') not in ('REOPENED','CLOSED'):
+        state = gate['gate'] if gate['gate'] in ('DRAFT','ACTION_REQUIRED','READY') else 'DRAFT'
+        con = sqlite3.connect(DB)
+        try:
+            con.execute("UPDATE hunter_learning_reviews SET review_state=?, updated_at=? WHERE username=? AND id=?", (state, now, username, int(review_id)))
+            con.commit()
+        finally:
+            con.close()
+    return True, None, _v3514_review(username, review_id)
+
+
+def _v3514_add_action(username, review_id, action_type, title, owner="", due_at=""):
+    review = _v3514_review(username, review_id)
+    if not review:
+        return False, "review_not_found", None
+    if review.get('review_state') == 'CLOSED':
+        return False, "closed_review_readonly", None
+    action_type = str(action_type or 'CORRECTIVE').upper().strip()
+    if action_type not in V3514_ACTION_TYPES:
+        return False, "invalid_action_type", None
+    title = str(title or '').strip()
+    if not title:
+        return False, "action_title_required", None
+    now = _v3514_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_learning_actions
+            (username, review_id, action_type, action_title, action_state, owner, due_at,
+             verification_note, created_at, updated_at, verified_at)
+            VALUES (?, ?, ?, ?, 'OPEN', ?, ?, '', ?, ?, NULL)
+        """, (username, int(review_id), action_type, title[:500], str(owner or username)[:160], str(due_at or '')[:80], now, now))
+        con.execute("UPDATE hunter_learning_reviews SET review_state='ACTION_REQUIRED', updated_at=? WHERE username=? AND id=?", (now, username, int(review_id)))
+        con.commit()
+        return True, None, int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3514_action_decide(username, action_id, decision, verification_note=""):
+    decision = str(decision or '').upper().strip()
+    target = {'START':'IN_PROGRESS','VERIFY':'VERIFIED','WAIVE':'WAIVED','REOPEN':'OPEN'}.get(decision)
+    if not target:
+        return False, "invalid_action_decision", None
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_learning_actions WHERE username=? AND id=?", (username, int(action_id))).fetchone()
+        if not row:
+            return False, "action_not_found", None
+        review = con.execute("SELECT * FROM hunter_learning_reviews WHERE username=? AND id=?", (username, int(row['review_id']))).fetchone()
+        if not review:
+            return False, "review_not_found", None
+        if str(review['review_state']) == 'CLOSED':
+            return False, "closed_review_readonly", None
+        now = _v3514_now_iso()
+        verified_at = now if target in ('VERIFIED','WAIVED') else None
+        con.execute("""
+            UPDATE hunter_learning_actions
+            SET action_state=?, verification_note=?, updated_at=?, verified_at=?
+            WHERE username=? AND id=?
+        """, (target, str(verification_note or '')[:5000], now, verified_at, username, int(action_id)))
+        con.commit()
+        rid = int(row['review_id'])
+    finally:
+        con.close()
+    fresh = _v3514_review(username, rid)
+    gate = _v3514_gate(fresh)
+    state = gate['gate'] if gate['gate'] in ('DRAFT','ACTION_REQUIRED','READY') else 'DRAFT'
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_learning_reviews SET review_state=?, updated_at=? WHERE username=? AND id=? AND review_state!='REOPENED'", (state, _v3514_now_iso(), username, rid))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3514_review(username, rid)
+
+
+def _v3514_review_decide(username, review_id, decision):
+    review = _v3514_review(username, review_id)
+    if not review:
+        return False, "review_not_found", None
+    decision = str(decision or '').upper().strip()
+    now = _v3514_now_iso()
+    if decision == 'CLOSE':
+        gate = _v3514_gate(review)
+        if gate['gate'] != 'READY':
+            return False, "review_gate_not_ready", review
+        new_state='CLOSED'; closed_at=now; reopened_at=review.get('reopened_at')
+    elif decision == 'REOPEN':
+        if review.get('review_state') != 'CLOSED':
+            return False, "closed_review_required", review
+        new_state='REOPENED'; closed_at=review.get('closed_at'); reopened_at=now
+    else:
+        return False, "invalid_review_decision", review
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_learning_reviews
+            SET review_state=?, updated_at=?, closed_at=?, reopened_at=?
+            WHERE username=? AND id=?
+        """, (new_state, now, closed_at, reopened_at, username, int(review_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3514_review(username, review_id)
+
+
+def _v3514_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        reviews = [dict(r) for r in con.execute("SELECT * FROM hunter_learning_reviews WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+        counts = {}
+        for r in reviews:
+            full = _v3514_review(username, r['id'])
+            r['certificate'] = full.get('certificate') if full else None
+            r['actions'] = full.get('actions') if full else []
+            r['gate'] = _v3514_gate(full)
+            counts[r['review_state']] = counts.get(r['review_state'],0)+1
+        certs = [dict(r) for r in con.execute("SELECT * FROM hunter_stability_certificates WHERE username=? AND case_state='CERTIFIED' ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+        return {'version':V3514_VERSION,'reviews':reviews,'counts':counts,'certified_certificates':certs}
+    finally:
+        con.close()
+
+
+@app.route('/api/hunter-learning-reviews', methods=['GET','POST'])
+def v3514_api_reviews():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        return jsonify({'success':True, **_v3514_snapshot(u)})
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,rid=_v3514_open_review(u,p.get('certificate_id'),p.get('review_name') or '',p.get('incident_severity') or 'MEDIUM',p.get('owner') or '')
+    return jsonify({'success':ok,'error':e,'review_id':rid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-learning-reviews/<int:review_id>', methods=['POST'])
+def v3514_api_update_review(review_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data=_v3514_update_review(u,review_id,p.get('root_cause') or '',p.get('contributing_factors') or '',p.get('lessons_learned') or '',p.get('owner') or '')
+    return jsonify({'success':ok,'error':e,'review':data}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-learning-reviews/<int:review_id>/actions', methods=['POST'])
+def v3514_api_add_action(review_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,aid=_v3514_add_action(u,review_id,p.get('action_type') or 'CORRECTIVE',p.get('action_title') or '',p.get('owner') or '',p.get('due_at') or '')
+    return jsonify({'success':ok,'error':e,'action_id':aid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-learning-actions/<int:action_id>/decision', methods=['POST'])
+def v3514_api_action_decision(action_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data=_v3514_action_decide(u,action_id,p.get('decision'),p.get('verification_note') or '')
+    return jsonify({'success':ok,'error':e,'review':data}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-learning-reviews/<int:review_id>/decision', methods=['POST'])
+def v3514_api_review_decision(review_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data=_v3514_review_decide(u,review_id,p.get('decision'))
+    return jsonify({'success':ok,'error':e,'review':data}), (200 if ok else 400)
+
+
+@app.route('/hunter-learning-review')
+def v3514_page():
+    u=session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d=_v3514_snapshot(u)
+    esc=html.escape
+    options=''.join(f"<option value='{int(c['id'])}'>Certificate #{int(c['id'])} — {esc(c['certificate_name'])}</option>" for c in d['certified_certificates'])
+    cards=[]
+    for r in d['reviews']:
+        gate=r.get('gate') or {}; actions=r.get('actions') or []
+        action_html=[]
+        for a in actions:
+            st=esc(a.get('action_state') or '')
+            buttons=''
+            if a.get('action_state')=='OPEN':
+                buttons=f"<form action='/api/hunter-learning-actions/{int(a['id'])}/decision' onsubmit='return v3514submit(this,event)'><input type='hidden' name='decision' value='START'><button>START ACTION</button></form>"
+            elif a.get('action_state')=='IN_PROGRESS':
+                buttons=f"<form action='/api/hunter-learning-actions/{int(a['id'])}/decision' onsubmit='return v3514submit(this,event)'><input type='hidden' name='decision' value='VERIFY'><input name='verification_note' placeholder='verification evidence / note' required><button class='safe'>VERIFY COMPLETE</button></form>"
+            action_html.append(f"<div class='action'><div class='top'><b>#{int(a['id'])} {esc(a['action_title'])}</b><span class='pill'>{st}</span></div><p class='muted'>{esc(a['action_type'])} · owner {esc(a.get('owner') or '-')} · due {esc(a.get('due_at') or '-')}</p>{buttons}</div>")
+        close_action=''
+        if r.get('review_state')!='CLOSED' and gate.get('gate')=='READY':
+            close_action=f"<form action='/api/hunter-learning-reviews/{int(r['id'])}/decision' onsubmit='return v3514submit(this,event)'><input type='hidden' name='decision' value='CLOSE'><button class='safe'>CLOSE LEARNING REVIEW</button></form>"
+        elif r.get('review_state')=='CLOSED':
+            close_action=f"<form action='/api/hunter-learning-reviews/{int(r['id'])}/decision' onsubmit='return v3514submit(this,event)'><input type='hidden' name='decision' value='REOPEN'><button class='danger'>REOPEN REVIEW</button></form>"
+        edit='' if r.get('review_state')=='CLOSED' else f"""<form action='/api/hunter-learning-reviews/{int(r['id'])}' onsubmit='return v3514submit(this,event)'><textarea name='root_cause' placeholder='Root cause' required>{esc(r.get('root_cause') or '')}</textarea><textarea name='contributing_factors' placeholder='Contributing factors'>{esc(r.get('contributing_factors') or '')}</textarea><textarea name='lessons_learned' placeholder='Lessons learned' required>{esc(r.get('lessons_learned') or '')}</textarea><input name='owner' value='{esc(r.get('owner') or u)}' placeholder='Review owner'><button>SAVE RCA + LESSONS</button></form><form action='/api/hunter-learning-reviews/{int(r['id'])}/actions' onsubmit='return v3514submit(this,event)'><select name='action_type'>{''.join(f'<option>{x}</option>' for x in sorted(V3514_ACTION_TYPES))}</select><input name='action_title' placeholder='Corrective / preventive action' required><input name='owner' value='{esc(u)}' placeholder='Action owner'><input name='due_at' placeholder='Due date / target (optional)'><button>ADD ACTION</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>Learning review #{int(r['id'])}</span><span class='pill'>{esc(r.get('review_state') or '')}</span></div><h2>{esc(r['review_name'])}</h2><p class='muted'>Certificate #{int(r['certificate_id'])} · Severity <b>{esc(r['incident_severity'])}</b> · Owner {esc(r.get('owner') or '-')}</p><div class='score'><b>GATE {esc(gate.get('gate') or '')}</b><span>OPEN {int(gate.get('open') or 0)} · IN PROGRESS {int(gate.get('in_progress') or 0)} · VERIFIED {int(gate.get('verified') or 0)} · WAIVED {int(gate.get('waived') or 0)}</span></div>{edit}<details open><summary>Action register</summary>{''.join(action_html) or '<p class="muted">No actions yet. Add at least one verified or waived action before closure.</p>'}</details>{close_action}</article>""")
+    co=d['counts']
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.14 Learning Review</title><style>body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #3b274f;background:#0d0912;border-radius:20px;padding:18px}}.eyebrow{{color:#e3a2ff;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#a997b4}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#e3a2ff}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.score{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #8c4ab1;border-radius:999px;padding:5px 8px;color:#f0c8ff;font-size:11px}}.score{{margin:12px 0;padding:14px;border:1px solid #63377d;border-radius:14px;background:#160b20}}select,input,textarea{{width:100%;box-sizing:border-box;background:#090710;color:white;border:1px solid #44314f;border-radius:12px;padding:10px;margin-top:8px}}textarea{{min-height:78px;resize:vertical}}button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#d49aee;font-weight:900}}.safe{{background:#8ee9aa}}.danger{{background:#ff8c8c}}.action{{border:1px solid #33243e;border-radius:14px;padding:12px;margin-top:10px}}.nav a{{display:inline-block;color:#c99cff;margin:12px 10px 0 0;text-decoration:none}}details{{margin-top:14px}}@media(max-width:900px){{.stats{{grid-template-columns:1fr 1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.14 // POST-INCIDENT LEARNING + CORRECTIVE ACTION GATE</div><h1>🧠 RECOVERY ENDS. LEARNING MUST CONTINUE.</h1><p class='muted'>V35.13 certifies stability. V35.14 captures root cause, turns lessons into owned actions, verifies completion, and prevents a post-incident review from closing with unfinished work.</p><div class='stats'><div class='card'><div class='eyebrow'>DRAFT</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>ACTION REQUIRED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>READY</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>CLOSED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>REOPENED</div><div class='num'>{}</div></div></div><div class='nav'><a href='/hunter-stability-certification'>✅ STABILITY CERT</a><a href='/api/hunter-learning-reviews'>JSON</a></div></section><section class='hero' style='margin-top:16px'><div class='eyebrow'>CREATE LEARNING REVIEW</div><form action='/api/hunter-learning-reviews' onsubmit='return v3514submit(this,event)'><select name='certificate_id' required><option value=''>Certified stability case</option>{}</select><input name='review_name' placeholder='Review name'><select name='incident_severity'><option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select><input name='owner' value='{}' placeholder='Review owner'><button>OPEN LEARNING REVIEW</button></form></section><section class='grid'>{}</section></div><script>async function v3514submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(co.get('DRAFT',0),co.get('ACTION_REQUIRED',0),co.get('READY',0),co.get('CLOSED',0),co.get('REOPENED',0),options,esc(u),''.join(cards) or "<article class='card'><p>No post-incident learning reviews yet.</p></article>")
+
+
+# Add navigation from V35.13 into V35.14.
+try:
+    _v3514_prev_page=app.view_functions.get('v3513_page')
+    if _v3514_prev_page:
+        def _v3514_cert_with_learning(*args,**kwargs):
+            response=_v3514_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-learning-review' not in response:
+                response=response.replace("<a href='/api/hunter-stability-certificates'>JSON</a>","<a href='/api/hunter-stability-certificates'>JSON</a><a href='/hunter-learning-review'>🧠 LEARNING REVIEW</a>",1)
+            return response
+        app.view_functions['v3513_page']=_v3514_cert_with_learning
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
