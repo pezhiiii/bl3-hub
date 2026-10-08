@@ -75530,6 +75530,521 @@ except Exception:
     pass
 
 
+
+# ===== V35.11 PROGRESSIVE RESUME + CANARY REINTEGRATION GATE =====
+# V35.10 can contain, recover and validate a systemic failure.
+# V35.11 makes resume progressive instead of binary:
+#
+# RECOVERY RESOLVED
+#   -> OPEN CANARY TRIAL
+#   -> 10% / 25% / 50% / 100% PHASES
+#   -> RECORD HEALTH / ERROR / LATENCY / DEPENDENCY SIGNALS
+#   -> ADVANCE ONLY WHEN CURRENT PHASE HAS EVIDENCE AND NO FAIL
+#   -> COMPLETE OR ROLLBACK
+#
+# Goal:
+# Prevent a freshly recovered dependency graph from being re-enabled all at once.
+
+V3511_VERSION = "V35.11"
+V3511_TRIAL_STATES = {"OPEN", "RUNNING", "PAUSED", "COMPLETED", "ROLLED_BACK"}
+V3511_SIGNAL_TYPES = {"HEALTH", "ERROR", "LATENCY", "DEPENDENCY", "CUSTOM"}
+V3511_SIGNAL_STATES = {"PASS", "WARN", "FAIL"}
+V3511_PHASES = (10, 25, 50, 100)
+
+
+def _v3511_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resume_trials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            plan_id INTEGER NOT NULL,
+            trial_name TEXT NOT NULL,
+            trial_state TEXT NOT NULL DEFAULT 'OPEN',
+            phase_percent INTEGER NOT NULL DEFAULT 10,
+            affected_control_ids TEXT,
+            acceptance_note TEXT,
+            rollback_note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resume_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            trial_id INTEGER NOT NULL,
+            phase_percent INTEGER NOT NULL,
+            signal_type TEXT NOT NULL,
+            signal_state TEXT NOT NULL,
+            metric_name TEXT,
+            metric_value TEXT,
+            note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v3511_trials_user
+        ON hunter_resume_trials(username, trial_state, id DESC)
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v3511_signals_trial
+        ON hunter_resume_signals(username, trial_id, phase_percent, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3511_init()
+except Exception:
+    pass
+
+
+def _v3511_now_iso():
+    return _v3510_now_iso()
+
+
+def _v3511_plan(username, plan_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT p.*, c.control_name AS trigger_control_name
+            FROM hunter_recovery_plans p
+            LEFT JOIN hunter_preventive_controls c
+              ON c.username=p.username AND c.id=p.trigger_control_id
+            WHERE p.username=? AND p.id=?
+        """, (username, int(plan_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3511_open_trial(username, plan_id, trial_name="", acceptance_note=""):
+    try:
+        plan_id = int(plan_id)
+    except Exception:
+        return False, "invalid_plan_id", None
+
+    plan = _v3511_plan(username, plan_id)
+    if not plan:
+        return False, "plan_not_found", None
+
+    if str(plan.get("outcome") or "").upper() not in ("RESUME", "PARTIAL"):
+        return False, "resume_or_partial_outcome_required", None
+
+    con = sqlite3.connect(DB)
+    try:
+        exists = con.execute("""
+            SELECT id FROM hunter_resume_trials
+            WHERE username=? AND plan_id=? AND trial_state IN ('OPEN','RUNNING','PAUSED')
+            ORDER BY id DESC LIMIT 1
+        """, (username, plan_id)).fetchone()
+        if exists:
+            return False, "active_trial_exists", int(exists[0])
+
+        now = _v3511_now_iso()
+        name = str(trial_name or "").strip() or f"Canary resume for recovery plan #{plan_id}"
+        cur = con.execute("""
+            INSERT INTO hunter_resume_trials
+            (username, plan_id, trial_name, trial_state, phase_percent,
+             affected_control_ids, acceptance_note, rollback_note,
+             created_at, updated_at)
+            VALUES (?, ?, ?, 'OPEN', 10, ?, ?, '', ?, ?)
+        """, (
+            username,
+            plan_id,
+            name[:240],
+            str(plan.get("affected_control_ids") or ""),
+            str(acceptance_note or "").strip()[:5000],
+            now,
+            now,
+        ))
+        trial_id = int(cur.lastrowid)
+        con.commit()
+        return True, None, trial_id
+    finally:
+        con.close()
+
+
+def _v3511_update_state(username, trial_id, state):
+    try:
+        trial_id = int(trial_id)
+    except Exception:
+        return False, "invalid_trial_id"
+    state = str(state or "").strip().upper()
+    if state not in V3511_TRIAL_STATES:
+        return False, "invalid_trial_state"
+    if state in ("COMPLETED", "ROLLED_BACK"):
+        return False, "use_completion_or_rollback_action"
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("SELECT id FROM hunter_resume_trials WHERE username=? AND id=?", (username, trial_id)).fetchone()
+        if not row:
+            return False, "trial_not_found"
+        con.execute("UPDATE hunter_resume_trials SET trial_state=?, updated_at=? WHERE username=? AND id=?",
+                    (state, _v3511_now_iso(), username, trial_id))
+        con.commit()
+        return True, None
+    finally:
+        con.close()
+
+
+def _v3511_add_signal(username, trial_id, signal_type, signal_state, metric_name="", metric_value="", note=""):
+    try:
+        trial_id = int(trial_id)
+    except Exception:
+        return False, "invalid_trial_id", None
+
+    signal_type = str(signal_type or "").strip().upper()
+    signal_state = str(signal_state or "").strip().upper()
+    if signal_type not in V3511_SIGNAL_TYPES:
+        return False, "invalid_signal_type", None
+    if signal_state not in V3511_SIGNAL_STATES:
+        return False, "invalid_signal_state", None
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("""
+            SELECT phase_percent, trial_state FROM hunter_resume_trials
+            WHERE username=? AND id=?
+        """, (username, trial_id)).fetchone()
+        if not row:
+            return False, "trial_not_found", None
+        phase = int(row[0] or 10)
+        if str(row[1]) in ("COMPLETED", "ROLLED_BACK"):
+            return False, "trial_closed", None
+
+        now = _v3511_now_iso()
+        cur = con.execute("""
+            INSERT INTO hunter_resume_signals
+            (username, trial_id, phase_percent, signal_type, signal_state,
+             metric_name, metric_value, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username, trial_id, phase, signal_type, signal_state,
+            str(metric_name or "").strip()[:120],
+            str(metric_value or "").strip()[:240],
+            str(note or "").strip()[:3000], now
+        ))
+        con.execute("UPDATE hunter_resume_trials SET trial_state='RUNNING', updated_at=? WHERE username=? AND id=? AND trial_state='OPEN'",
+                    (now, username, trial_id))
+        con.commit()
+        return True, None, int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3511_phase_gate(username, trial_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        trial = con.execute("SELECT * FROM hunter_resume_trials WHERE username=? AND id=?", (username, int(trial_id))).fetchone()
+        if not trial:
+            return None
+        phase = int(trial["phase_percent"] or 10)
+        rows = con.execute("""
+            SELECT * FROM hunter_resume_signals
+            WHERE username=? AND trial_id=? AND phase_percent=?
+            ORDER BY id ASC
+        """, (username, int(trial_id), phase)).fetchall()
+        signals = [dict(r) for r in rows]
+        fails = sum(1 for r in signals if r["signal_state"] == "FAIL")
+        warns = sum(1 for r in signals if r["signal_state"] == "WARN")
+        passes = sum(1 for r in signals if r["signal_state"] == "PASS")
+        return {
+            "phase_percent": phase,
+            "signals": signals,
+            "counts": {"pass": passes, "warn": warns, "fail": fails, "total": len(signals)},
+            "gate": "BLOCK" if fails else ("READY" if len(signals) > 0 else "NO_EVIDENCE")
+        }
+    finally:
+        con.close()
+
+
+def _v3511_advance(username, trial_id):
+    gate = _v3511_phase_gate(username, trial_id)
+    if not gate:
+        return False, "trial_not_found", None
+    if gate["gate"] == "BLOCK":
+        return False, "phase_has_fail_signal", gate
+    if gate["gate"] == "NO_EVIDENCE":
+        return False, "phase_evidence_required", gate
+
+    phase = int(gate["phase_percent"])
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("SELECT plan_id FROM hunter_resume_trials WHERE username=? AND id=?", (username, int(trial_id))).fetchone()
+        if not row:
+            return False, "trial_not_found", gate
+        now = _v3511_now_iso()
+        if phase >= 100:
+            con.execute("""
+                UPDATE hunter_resume_trials
+                SET trial_state='COMPLETED', updated_at=?, completed_at=?
+                WHERE username=? AND id=?
+            """, (now, now, username, int(trial_id)))
+            con.commit()
+            return True, None, {**gate, "completed": True, "next_phase": None}
+
+        next_phase = next(x for x in V3511_PHASES if x > phase)
+        con.execute("""
+            UPDATE hunter_resume_trials
+            SET trial_state='RUNNING', phase_percent=?, updated_at=?
+            WHERE username=? AND id=?
+        """, (next_phase, now, username, int(trial_id)))
+        con.commit()
+        return True, None, {**gate, "completed": False, "next_phase": next_phase}
+    finally:
+        con.close()
+
+
+def _v3511_rollback(username, trial_id, note=""):
+    try:
+        trial_id = int(trial_id)
+    except Exception:
+        return False, "invalid_trial_id"
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("SELECT plan_id FROM hunter_resume_trials WHERE username=? AND id=?", (username, trial_id)).fetchone()
+        if not row:
+            return False, "trial_not_found"
+        plan_id = int(row[0])
+        now = _v3511_now_iso()
+        con.execute("""
+            UPDATE hunter_resume_trials
+            SET trial_state='ROLLED_BACK', rollback_note=?, updated_at=?, completed_at=?
+            WHERE username=? AND id=?
+        """, (str(note or "").strip()[:5000], now, now, username, trial_id))
+        con.commit()
+    finally:
+        con.close()
+
+    ok, err = _v3510_set_outcome(username, plan_id, "ROLLBACK", str(note or "Canary reintegration rollback"))
+    return (ok, err)
+
+
+def _v3511_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        trials = [dict(r) for r in con.execute("""
+            SELECT t.*, p.plan_name, p.trigger_control_id, p.outcome AS recovery_outcome,
+                   c.control_name AS trigger_control_name
+            FROM hunter_resume_trials t
+            JOIN hunter_recovery_plans p ON p.id=t.plan_id AND p.username=t.username
+            LEFT JOIN hunter_preventive_controls c ON c.id=p.trigger_control_id AND c.username=p.username
+            WHERE t.username=?
+            ORDER BY t.id DESC
+        """, (username,)).fetchall()]
+        for t in trials:
+            rows = con.execute("""
+                SELECT * FROM hunter_resume_signals
+                WHERE username=? AND trial_id=?
+                ORDER BY phase_percent ASC, id ASC
+            """, (username, int(t["id"]))).fetchall()
+            t["signals"] = [dict(r) for r in rows]
+            current = [r for r in t["signals"] if int(r.get("phase_percent") or 0) == int(t.get("phase_percent") or 0)]
+            t["current_gate"] = {
+                "pass": sum(1 for r in current if r["signal_state"] == "PASS"),
+                "warn": sum(1 for r in current if r["signal_state"] == "WARN"),
+                "fail": sum(1 for r in current if r["signal_state"] == "FAIL"),
+                "total": len(current),
+            }
+        counts = {s: 0 for s in V3511_TRIAL_STATES}
+        for t in trials:
+            counts[str(t.get("trial_state"))] = counts.get(str(t.get("trial_state")), 0) + 1
+        return {
+            "version": V3511_VERSION,
+            "counts": counts,
+            "trials": trials,
+            "policy": "Recovered dependency graphs re-enter service progressively; any FAIL signal blocks advancement and should trigger rollback."
+        }
+    finally:
+        con.close()
+
+
+@app.route("/api/hunter-resume-trials")
+def v3511_api_snapshot():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v3511_snapshot(u)})
+
+
+@app.route("/api/hunter-resume-trials", methods=["POST"])
+def v3511_api_create():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, trial_id = _v3511_open_trial(u, p.get("plan_id"), p.get("trial_name") or "", p.get("acceptance_note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "trial_id": trial_id}), 400
+    return jsonify({"success": True, "trial_id": trial_id})
+
+
+@app.route("/api/hunter-resume-trials/<int:trial_id>/state", methods=["POST"])
+def v3511_api_state(trial_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e = _v3511_update_state(u, trial_id, p.get("trial_state"))
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/api/hunter-resume-trials/<int:trial_id>/signals", methods=["POST"])
+def v3511_api_signal(trial_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, signal_id = _v3511_add_signal(
+        u, trial_id, p.get("signal_type"), p.get("signal_state"),
+        p.get("metric_name") or "", p.get("metric_value") or "", p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+    return jsonify({"success": True, "signal_id": signal_id})
+
+
+@app.route("/api/hunter-resume-trials/<int:trial_id>/advance", methods=["POST"])
+def v3511_api_advance(trial_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, e, result = _v3511_advance(u, trial_id)
+    if not ok:
+        return jsonify({"success": False, "error": e, "gate": result}), 400
+    return jsonify({"success": True, "gate": result})
+
+
+@app.route("/api/hunter-resume-trials/<int:trial_id>/rollback", methods=["POST"])
+def v3511_api_rollback(trial_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e = _v3511_rollback(u, trial_id, p.get("rollback_note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-resume-canary")
+def v3511_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🐤 Progressive Resume</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v3511_snapshot(u)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        plans = [dict(r) for r in con.execute("""
+            SELECT id, plan_name, outcome, plan_state
+            FROM hunter_recovery_plans
+            WHERE username=? AND outcome IN ('RESUME','PARTIAL')
+            ORDER BY id DESC
+        """, (u,)).fetchall()]
+    finally:
+        con.close()
+
+    plan_options = "".join(
+        f"<option value='{int(p['id'])}'>#{int(p['id'])} · {esc(p['plan_name'])} · {esc(p['outcome'])}</option>"
+        for p in plans
+    )
+
+    cards = []
+    for t in d["trials"]:
+        current_phase = int(t.get("phase_percent") or 10)
+        gate = t.get("current_gate") or {}
+        signal_rows = []
+        for s in t.get("signals") or []:
+            signal_rows.append(
+                f"<tr><td>{int(s['phase_percent'])}%</td><td>{esc(s['signal_type'])}</td><td>{esc(s['signal_state'])}</td><td>{esc(s.get('metric_name'))}</td><td>{esc(s.get('metric_value'))}</td><td>{esc(s.get('note'))}</td></tr>"
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Trial #{int(t['id'])}</span><span class='pill'>{esc(t['trial_state'])}</span></div>
+          <h2>{esc(t['trial_name'])}</h2>
+          <p class='muted'>Recovery plan #{int(t['plan_id'])} · {esc(t.get('plan_name'))}<br>Trigger: #{int(t.get('trigger_control_id') or 0)} · {esc(t.get('trigger_control_name'))}</p>
+          <div class='phase'><b>{current_phase}% CANARY</b><span>PASS {int(gate.get('pass') or 0)} · WARN {int(gate.get('warn') or 0)} · FAIL {int(gate.get('fail') or 0)}</span></div>
+
+          <form action='/api/hunter-resume-trials/{int(t['id'])}/signals' onsubmit='return v3511submit(this,event)'>
+            <div class='cols'>
+              <select name='signal_type'><option>HEALTH</option><option>ERROR</option><option>LATENCY</option><option>DEPENDENCY</option><option>CUSTOM</option></select>
+              <select name='signal_state'><option>PASS</option><option>WARN</option><option>FAIL</option></select>
+            </div>
+            <div class='cols'><input name='metric_name' placeholder='metric name'><input name='metric_value' placeholder='metric value'></div>
+            <input name='note' placeholder='evidence note'><button>ADD PHASE SIGNAL</button>
+          </form>
+
+          <div class='cols'>
+            <form action='/api/hunter-resume-trials/{int(t['id'])}/advance' onsubmit='return v3511submit(this,event)'><button class='safe'>ADVANCE / COMPLETE</button></form>
+            <form action='/api/hunter-resume-trials/{int(t['id'])}/rollback' onsubmit='return v3511submit(this,event)'><input name='rollback_note' placeholder='rollback reason'><button class='danger'>ROLLBACK</button></form>
+          </div>
+
+          <details><summary>Evidence history</summary>
+          <table><thead><tr><th>Phase</th><th>Type</th><th>State</th><th>Metric</th><th>Value</th><th>Note</th></tr></thead><tbody>{''.join(signal_rows) or '<tr><td colspan="6">No evidence yet.</td></tr>'}</tbody></table>
+          </details>
+        </article>
+        """)
+
+    c = d["counts"]
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.11 Progressive Resume</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}.eyebrow{{color:#88e5a8;font-size:11px;letter-spacing:1.5px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}.muted,small{{color:#8ca7b4}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#9af0b6}}
+    .grid{{display:grid;grid-template-columns:1fr;gap:14px;margin-top:18px}}.top,.phase{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #2b6f46;border-radius:999px;padding:5px 8px;color:#b9f6cf;font-size:11px}}
+    .phase{{margin:12px 0;padding:14px;border:1px solid #2b6f46;border-radius:14px;background:#071a10}}.cols{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
+    select,input,textarea{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#8ee9aa;font-weight:900}}
+    .safe{{background:#8ee9aa}}.danger{{background:#ff8c8c}}.nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:8px;border-bottom:1px solid #173342;text-align:left;font-size:12px}}
+    @media(max-width:900px){{.stats{{grid-template-columns:1fr 1fr}}.cols{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'><div class='eyebrow'>BL3 V35.11 // PROGRESSIVE RESUME + CANARY REINTEGRATION GATE</div><h1>🐤 RESUME SLOWLY. PROVE STABILITY.</h1><p class='muted'>V35.10 recovers the system. V35.11 prevents a full-blast reactivation by requiring phased evidence.</p>
+      <div class='stats'><div class='card'><div class='eyebrow'>OPEN</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>RUNNING</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>PAUSED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>COMPLETED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>ROLLED BACK</div><div class='num'>{}</div></div></div>
+      <div class='nav'><a href='/hunter-recovery-orchestration'>🧯 RECOVERY</a><a href='/hunter-control-dependencies'>🕸 DEPENDENCIES</a><a href='/api/hunter-resume-trials'>JSON</a></div></section>
+
+      <section class='hero' style='margin-top:16px'><div class='eyebrow'>OPEN CANARY TRIAL</div><form action='/api/hunter-resume-trials' onsubmit='return v3511submit(this,event)'><select name='plan_id' required><option value=''>Recovery plan</option>{}</select><input name='trial_name' placeholder='Trial name'><textarea name='acceptance_note' rows='3' placeholder='Acceptance criteria / burn-in expectations'></textarea><button>OPEN 10% CANARY</button></form></section>
+      <section class='grid'>{}</section>
+    </div><script>async function v3511submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(
+        c.get("OPEN",0), c.get("RUNNING",0), c.get("PAUSED",0), c.get("COMPLETED",0), c.get("ROLLED_BACK",0),
+        plan_options, "".join(cards) or "<article class='card'><p>No canary trials yet.</p></article>"
+    )
+
+
+# Add navigation from V35.10 recovery orchestration into V35.11 progressive resume.
+try:
+    _v3511_prev_page = app.view_functions.get("v3510_page")
+    if _v3511_prev_page:
+        def _v3511_recovery_with_canary(*args, **kwargs):
+            response = _v3511_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-resume-canary" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-recovery-plans'>JSON</a>",
+                    "<a href='/api/hunter-recovery-plans'>JSON</a><a href='/hunter-resume-canary'>🐤 CANARY RESUME</a>",
+                    1
+                )
+            return response
+        app.view_functions["v3510_page"] = _v3511_recovery_with_canary
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
