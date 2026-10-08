@@ -65230,6 +65230,627 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.4 CONTINUOUS RESILIENCE ASSURANCE + CERTIFICATE RENEWAL GATE =====
+# V34.3 can certify a durable rollout as RESILIENT.
+# V34.4 makes resilience certification renewable rather than permanent:
+# assurance checks -> assurance outcome -> renew / suspend / reopen.
+# A certificate is only considered CURRENT after explicit assurance renewal.
+
+V344_VERSION = "V34.4"
+V344_ASSURANCE_SIGNALS = {"HEALTHY", "DRIFT", "DEGRADED", "INCIDENT", "INCONCLUSIVE"}
+V344_OUTCOMES = {"RENEW_CERTIFICATION", "SUSPEND_CERTIFICATION", "REOPEN_RESILIENCE"}
+V344_MIN_CHECKS = 3
+
+
+def _v344_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resilience_assurance_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            resilience_certificate_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v344_assurance_impl
+        ON hunter_resilience_assurance_checks(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resilience_assurance_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            resilience_certificate_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resilience_certificate_renewals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            resilience_certificate_id INTEGER NOT NULL,
+            assurance_outcome_id INTEGER NOT NULL,
+            renewal_state TEXT NOT NULL DEFAULT 'CURRENT',
+            renewal_note TEXT,
+            renewed_at TEXT NOT NULL,
+            suspended_at TEXT,
+            suspension_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v344_renewal_state
+        ON hunter_resilience_certificate_renewals(username, renewal_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v344_init()
+except Exception:
+    pass
+
+
+def _v344_checks(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_resilience_assurance_checks
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC
+        """, (username, int(implementation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v344_outcome(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_resilience_assurance_outcomes
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v344_renewal(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_resilience_certificate_renewals
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v344_add_check(username, implementation_id, signal_state, note=""):
+    cert = _v343_certificate(username, implementation_id)
+    if not cert or str(cert.get("certificate_state") or "") != "CERTIFIED":
+        return False, "active_resilience_certificate_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V344_ASSURANCE_SIGNALS:
+        return False, "invalid_assurance_signal", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_resilience_assurance_checks
+            (username, implementation_id, resilience_certificate_id,
+             signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(cert["id"]),
+            signal,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v344_finalize_outcome(username, implementation_id, requested_outcome, note=""):
+    cert = _v343_certificate(username, implementation_id)
+    if not cert or str(cert.get("certificate_state") or "") != "CERTIFIED":
+        return False, "active_resilience_certificate_required", None
+
+    checks = _v344_checks(username, implementation_id)
+    if len(checks) < V344_MIN_CHECKS:
+        return False, "not_enough_assurance_checks", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V344_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v344_outcome(username, implementation_id)
+    if existing:
+        return False, "assurance_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_resilience_assurance_outcomes
+            (username, implementation_id, resilience_certificate_id,
+             outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(cert["id"]),
+            requested,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v344_renew(username, implementation_id, note=""):
+    outcome = _v344_outcome(username, implementation_id)
+    if not outcome:
+        return False, "assurance_outcome_required", None
+    if str(outcome.get("outcome") or "") != "RENEW_CERTIFICATION":
+        return False, "renew_certification_outcome_required", None
+
+    existing = _v344_renewal(username, implementation_id)
+    if existing:
+        return False, "renewal_already_recorded", int(existing["id"])
+
+    cert = _v343_certificate(username, implementation_id)
+    if not cert:
+        return False, "resilience_certificate_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_resilience_certificate_renewals
+            (username, implementation_id, resilience_certificate_id,
+             assurance_outcome_id, renewal_state, renewal_note, renewed_at)
+            VALUES (?, ?, ?, ?, 'CURRENT', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(cert["id"]),
+            int(outcome["id"]),
+            str(note or "").strip()[:2400],
+            now
+        ))
+        rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "RESILIENCE_CERTIFICATION_RENEWED",
+            detail="V34.4 resilience certification renewed for implementation #%s after continuous assurance checks." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, rid
+
+
+def _v344_suspend(username, implementation_id, note=""):
+    outcome = _v344_outcome(username, implementation_id)
+    if not outcome:
+        return False, "assurance_outcome_required", None
+    if str(outcome.get("outcome") or "") != "SUSPEND_CERTIFICATION":
+        return False, "suspend_certification_outcome_required", None
+
+    cert = _v343_certificate(username, implementation_id)
+    if not cert:
+        return False, "resilience_certificate_required", None
+
+    renewal = _v344_renewal(username, implementation_id)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        if renewal and str(renewal.get("renewal_state") or "") == "CURRENT":
+            con.execute("""
+                UPDATE hunter_resilience_certificate_renewals
+                SET renewal_state='SUSPENDED',
+                    suspended_at=?,
+                    suspension_note=?
+                WHERE id=? AND username=? AND renewal_state='CURRENT'
+            """, (
+                now,
+                str(note or "Explicit V34.4 certification suspension.").strip()[:2400],
+                int(renewal["id"]),
+                username
+            ))
+        else:
+            cur = con.execute("""
+                INSERT INTO hunter_resilience_certificate_renewals
+                (username, implementation_id, resilience_certificate_id,
+                 assurance_outcome_id, renewal_state, renewal_note, renewed_at,
+                 suspended_at, suspension_note)
+                VALUES (?, ?, ?, ?, 'SUSPENDED', '', ?, ?, ?)
+            """, (
+                username,
+                int(implementation_id),
+                int(cert["id"]),
+                int(outcome["id"]),
+                now,
+                now,
+                str(note or "Explicit V34.4 certification suspension.").strip()[:2400]
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(implementation_id)
+
+
+def _v344_reopen_resilience(username, implementation_id, note=""):
+    outcome = _v344_outcome(username, implementation_id)
+    if not outcome:
+        return False, "assurance_outcome_required", None
+    if str(outcome.get("outcome") or "") != "REOPEN_RESILIENCE":
+        return False, "reopen_resilience_outcome_required", None
+
+    cert = _v343_certificate(username, implementation_id)
+    if not cert:
+        return False, "resilience_certificate_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_resilience_certificates
+            SET certificate_state='REVOKED',
+                revoked_at=?,
+                revoke_note=?
+            WHERE id=? AND username=? AND certificate_state='CERTIFIED'
+        """, (
+            now,
+            str(note or "Reopened by V34.4 continuous assurance review.").strip()[:2400],
+            int(cert["id"]),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "RESILIENCE_CERTIFICATION_REOPENED",
+            detail="V34.4 resilience certification reopened for implementation #%s due to assurance drift/incident evidence." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, int(implementation_id)
+
+
+def _v344_snapshot(username):
+    base = _v343_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        cert = item0.get("resilience_certificate") or {}
+
+        if not impl or not cert:
+            continue
+        if str(cert.get("certificate_state") or "") != "CERTIFIED":
+            continue
+
+        iid = int(impl["id"])
+        checks = _v344_checks(username, iid)
+        outcome = _v344_outcome(username, iid)
+        renewal = _v344_renewal(username, iid)
+
+        item = dict(item0)
+        item["assurance_checks"] = checks[:20]
+        item["assurance_count"] = len(checks)
+        item["assurance_outcome"] = outcome
+        item["renewal"] = renewal
+        item["ready_for_outcome"] = len(checks) >= V344_MIN_CHECKS and not outcome
+        item["ready_to_renew"] = bool(outcome) and str(outcome.get("outcome") or "") == "RENEW_CERTIFICATION" and not renewal
+        item["ready_to_suspend"] = bool(outcome) and str(outcome.get("outcome") or "") == "SUSPEND_CERTIFICATION"
+        item["ready_to_reopen"] = bool(outcome) and str(outcome.get("outcome") or "") == "REOPEN_RESILIENCE"
+        items.append(item)
+
+    return {
+        "version": V344_VERSION,
+        "minimum_assurance_checks": V344_MIN_CHECKS,
+        "counts": {
+            "certified_resilient": len(items),
+            "checks": sum(int(i.get("assurance_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "current_renewals": sum(
+                1 for i in items
+                if i.get("renewal") and str(i["renewal"].get("renewal_state") or "") == "CURRENT"
+            ),
+        },
+        "items": items,
+        "policy": "Resilience certification is renewable, not permanent. Current status requires fresh assurance evidence and explicit renewal."
+    }
+
+
+@app.route("/api/hunter-resilience-assurance")
+def v344_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v344_snapshot(u)})
+
+
+@app.route("/api/hunter-resilience-assurance/implementation/<int:implementation_id>/check", methods=["POST"])
+def v344_check_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, cid = _v344_add_check(
+        u,
+        implementation_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-resilience-assurance/implementation/<int:implementation_id>/outcome", methods=["POST"])
+def v344_outcome_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, oid = _v344_finalize_outcome(
+        u,
+        implementation_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-resilience-assurance/implementation/<int:implementation_id>/renew", methods=["POST"])
+def v344_renew_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, rid = _v344_renew(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "renewal_id": rid}), 400
+    return jsonify({"success": True, "renewal_id": rid})
+
+
+@app.route("/api/hunter-resilience-assurance/implementation/<int:implementation_id>/suspend", methods=["POST"])
+def v344_suspend_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v344_suspend(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/api/hunter-resilience-assurance/implementation/<int:implementation_id>/reopen", methods=["POST"])
+def v344_reopen_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v344_reopen_resilience(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/hunter-resilience-assurance")
+def v344_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🛡️ Resilience Assurance</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v344_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        outcome = item.get("assurance_outcome") or {}
+        renewal = item.get("renewal") or {}
+        checks = item.get("assurance_checks") or []
+
+        actions = ""
+
+        if not outcome:
+            actions += f"""
+            <form action='/api/hunter-resilience-assurance/implementation/{iid}/check' onsubmit='return v344submit(this,event)'>
+              <select name='signal_state'>
+                <option>HEALTHY</option><option>DRIFT</option><option>DEGRADED</option><option>INCIDENT</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Continuous assurance evidence'></textarea>
+              <button>ADD ASSURANCE CHECK</button>
+            </form>
+            """
+
+        if item.get("ready_for_outcome"):
+            actions += f"""
+            <form action='/api/hunter-resilience-assurance/implementation/{iid}/outcome' onsubmit='return v344submit(this,event)'>
+              <select name='outcome'>
+                <option>RENEW_CERTIFICATION</option>
+                <option>SUSPEND_CERTIFICATION</option>
+                <option>REOPEN_RESILIENCE</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Assurance outcome rationale'></textarea>
+              <button>FINALIZE ASSURANCE OUTCOME</button>
+            </form>
+            """
+        elif outcome:
+            actions += "<div class='final'>ASSURANCE OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")),
+                esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_renew"):
+            actions += f"""
+            <form action='/api/hunter-resilience-assurance/implementation/{iid}/renew' onsubmit='return v344submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Renewal note'></textarea>
+              <button class='safe'>RENEW CERTIFICATION</button>
+            </form>
+            """
+
+        if item.get("ready_to_suspend"):
+            actions += f"""
+            <form action='/api/hunter-resilience-assurance/implementation/{iid}/suspend' onsubmit='return v344submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Suspension reason'></textarea>
+              <button class='warn'>SUSPEND CERTIFICATION</button>
+            </form>
+            """
+
+        if item.get("ready_to_reopen"):
+            actions += f"""
+            <form action='/api/hunter-resilience-assurance/implementation/{iid}/reopen' onsubmit='return v344submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Why resilience must reopen'></textarea>
+              <button class='danger'>REOPEN RESILIENCE</button>
+            </form>
+            """
+
+        renewal_html = ""
+        if renewal:
+            renewal_html = "<div class='renewal'>RENEWAL: <b>{}</b><br><small>{}</small></div>".format(
+                esc(renewal.get("renewal_state")),
+                esc(renewal.get("renewed_at"))
+            )
+
+        checks_html = "".join(
+            "<div class='check'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No assurance checks yet.</div>"
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>RESILIENT</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          <p class='muted'>{esc(item.get('proposal_text'))}</p>
+          {renewal_html}
+          {actions}
+          <div>{checks_html}</div>
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.4 Continuous Resilience Assurance</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#bda2ff;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#bda2ff}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #5d4b7d;border-radius:999px;padding:5px 8px;color:#bda2ff;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .warn{{background:#ffd66f}} .danger{{background:#ff8797}}
+    .final,.renewal{{margin-top:10px;padding:12px;border:1px solid #4d3b6e;border-radius:12px;background:#120d1c;color:#d8c9ff}}
+    .check{{border-top:1px solid #15313f;padding:8px 0}} .check b{{display:block;color:#bda2ff}} .check span{{display:block;margin:4px 0}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.4 // CONTINUOUS RESILIENCE ASSURANCE + CERTIFICATE RENEWAL GATE</div>
+        <h1>🛡️ KEEP RESILIENCE CURRENT</h1>
+        <p class='muted'>Resilience certification is not permanent. Keep collecting operational evidence and explicitly renew, suspend, or reopen it.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>CERTIFIED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CHECKS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>READY</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CURRENT RENEWALS</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-resilience-drills'>🧪 RESILIENCE DRILLS</a><a href='/api/hunter-resilience-assurance'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v344submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["certified_resilient"],
+        c["checks"],
+        c["ready_for_outcome"],
+        c["current_renewals"],
+        "".join(cards) or "<article class='card'><p>No certified resilient rollouts are waiting for continuous assurance.</p></article>"
+    )
+
+
+try:
+    _v344_prev_page = app.view_functions.get("v343_page")
+    if _v344_prev_page:
+        def _v344_resilience_with_assurance(*args, **kwargs):
+            response = _v344_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-resilience-assurance" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-resilience-drills'>JSON</a>",
+                    "<a href='/api/hunter-resilience-drills'>JSON</a><a href='/hunter-resilience-assurance'>🛡️ CONTINUOUS ASSURANCE</a>",
+                    1
+                )
+            return response
+        app.view_functions["v343_page"] = _v344_resilience_with_assurance
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
