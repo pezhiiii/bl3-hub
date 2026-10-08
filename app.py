@@ -76384,6 +76384,268 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.13 STABILITY CERTIFICATION + RECOVERY CLOSURE GATE =====
+# V35.12 observes the restored system through a burn-in window.
+# V35.13 turns a successful STABLE watch into an auditable closure artifact:
+#
+# STABLE BURN-IN
+#   -> CREATE CLOSURE CASE
+#   -> REVIEW EVIDENCE DIGEST + RESIDUAL RISK
+#   -> OPERATOR SIGN-OFF
+#   -> CERTIFIED / REVOKED
+#   -> RECOVERY PLAN CLOSED ONLY AFTER CERTIFICATION
+
+V3513_VERSION = "V35.13"
+V3513_CASE_STATES = {"DRAFT", "READY", "CERTIFIED", "REVOKED"}
+V3513_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+def _v3513_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_stability_certificates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            watch_id INTEGER NOT NULL,
+            certificate_name TEXT NOT NULL,
+            case_state TEXT NOT NULL DEFAULT 'DRAFT',
+            residual_risk TEXT NOT NULL DEFAULT 'LOW',
+            evidence_digest TEXT,
+            operator_note TEXT,
+            certified_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            certified_at TEXT,
+            revoked_at TEXT
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3513_cert_user ON hunter_stability_certificates(username, case_state, id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3513_cert_watch ON hunter_stability_certificates(username, watch_id, id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3513_init()
+except Exception:
+    pass
+
+
+def _v3513_now_iso():
+    return _v3512_now_iso()
+
+
+def _v3513_watch_bundle(username, watch_id):
+    g = _v3512_gate(username, watch_id)
+    if not g:
+        return None
+    trial = _v3512_trial(username, g['watch']['trial_id'])
+    g['trial'] = trial
+    return g
+
+
+def _v3513_digest(bundle):
+    c = bundle.get('counts') or {}
+    w = bundle.get('watch') or {}
+    obs = bundle.get('observations') or []
+    typed = {}
+    for row in obs:
+        key = str(row.get('observation_type') or 'CUSTOM')
+        typed[key] = typed.get(key, 0) + 1
+    return (
+        f"Burn-in watch #{w.get('id')} finished {w.get('watch_state')}; "
+        f"score={bundle.get('score')}/100; pass={c.get('pass',0)}, warn={c.get('warn',0)}, fail={c.get('fail',0)}; "
+        f"observations={len(obs)}; types={json.dumps(typed, sort_keys=True)}"
+    )[:5000]
+
+
+def _v3513_open_case(username, watch_id, certificate_name="", residual_risk="LOW", operator_note=""):
+    try:
+        watch_id = int(watch_id)
+    except Exception:
+        return False, "invalid_watch_id", None
+    residual_risk = str(residual_risk or 'LOW').strip().upper()
+    if residual_risk not in V3513_RISK_LEVELS:
+        return False, "invalid_residual_risk", None
+    bundle = _v3513_watch_bundle(username, watch_id)
+    if not bundle:
+        return False, "watch_not_found", None
+    if str(bundle['watch'].get('watch_state') or '').upper() != 'STABLE':
+        return False, "stable_burnin_required", None
+    con = sqlite3.connect(DB)
+    try:
+        existing = con.execute("""
+            SELECT id FROM hunter_stability_certificates
+            WHERE username=? AND watch_id=? AND case_state IN ('DRAFT','READY','CERTIFIED')
+            ORDER BY id DESC LIMIT 1
+        """, (username, watch_id)).fetchone()
+        if existing:
+            return False, "active_certificate_exists", int(existing[0])
+        now = _v3513_now_iso()
+        name = str(certificate_name or '').strip() or f"Stability certificate for burn-in #{watch_id}"
+        digest = _v3513_digest(bundle)
+        state = 'READY' if bundle.get('gate') == 'STABLE' and int((bundle.get('counts') or {}).get('fail', 0) or 0) == 0 else 'DRAFT'
+        cur = con.execute("""
+            INSERT INTO hunter_stability_certificates
+            (username, watch_id, certificate_name, case_state, residual_risk,
+             evidence_digest, operator_note, certified_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+        """, (username, watch_id, name[:240], state, residual_risk, digest,
+              str(operator_note or '')[:5000], now, now))
+        con.commit()
+        return True, None, int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3513_case(username, certificate_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_stability_certificates WHERE username=? AND id=?", (username, int(certificate_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d['bundle'] = _v3513_watch_bundle(username, d['watch_id'])
+        return d
+    finally:
+        con.close()
+
+
+def _v3513_decide(username, certificate_id, decision, operator_note="", certified_by=""):
+    case = _v3513_case(username, certificate_id)
+    if not case:
+        return False, "certificate_not_found", None
+    decision = str(decision or '').strip().upper()
+    note = str(operator_note or '')[:5000]
+    signer = str(certified_by or username or '')[:160]
+    now = _v3513_now_iso()
+    bundle = case.get('bundle') or {}
+    risk = str(case.get('residual_risk') or 'LOW').upper()
+    if decision == 'CERTIFY':
+        if case.get('case_state') not in ('READY','DRAFT'):
+            return False, "certificate_not_open", case
+        if str((bundle.get('watch') or {}).get('watch_state') or '').upper() != 'STABLE':
+            return False, "stable_burnin_required", case
+        if int((bundle.get('counts') or {}).get('fail',0) or 0) > 0:
+            return False, "fail_evidence_blocks_certification", case
+        if risk in ('HIGH','CRITICAL'):
+            return False, "residual_risk_too_high", case
+        new_state='CERTIFIED'; certified_at=now; revoked_at=None
+    elif decision == 'REVOKE':
+        if case.get('case_state') != 'CERTIFIED':
+            return False, "certified_case_required", case
+        new_state='REVOKED'; certified_at=case.get('certified_at'); revoked_at=now
+    else:
+        return False, "invalid_decision", case
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_stability_certificates
+            SET case_state=?, operator_note=?, certified_by=?, updated_at=?, certified_at=?, revoked_at=?
+            WHERE username=? AND id=?
+        """, (new_state, note or case.get('operator_note') or '', signer, now, certified_at, revoked_at, username, int(certificate_id)))
+        trial = (bundle.get('trial') or {})
+        plan_id = trial.get('plan_id')
+        if plan_id:
+            if new_state == 'CERTIFIED':
+                con.execute("""
+                    UPDATE hunter_recovery_plans
+                    SET plan_state='RESOLVED', outcome='RESUME', updated_at=?
+                    WHERE username=? AND id=?
+                """, (now, username, int(plan_id)))
+            elif new_state == 'REVOKED':
+                con.execute("""
+                    UPDATE hunter_recovery_plans
+                    SET plan_state='RECOVERING', outcome='BLOCK', updated_at=?
+                    WHERE username=? AND id=?
+                """, (now, username, int(plan_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3513_case(username, certificate_id)
+
+
+def _v3513_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        certs = [dict(r) for r in con.execute("SELECT * FROM hunter_stability_certificates WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+        counts = {}
+        for c in certs:
+            counts[c['case_state']] = counts.get(c['case_state'],0) + 1
+            c['bundle'] = _v3513_watch_bundle(username, c['watch_id'])
+        stable_watches = [dict(r) for r in con.execute("""
+            SELECT w.* FROM hunter_burnin_watches w
+            WHERE w.username=? AND w.watch_state='STABLE'
+            ORDER BY w.id DESC LIMIT 100
+        """, (username,)).fetchall()]
+        return {'version':V3513_VERSION,'certificates':certs,'counts':counts,'stable_watches':stable_watches}
+    finally:
+        con.close()
+
+
+@app.route('/api/hunter-stability-certificates', methods=['GET','POST'])
+def v3513_api_certificates():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        return jsonify({'success':True, **_v3513_snapshot(u)})
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,cid=_v3513_open_case(u,p.get('watch_id'),p.get('certificate_name') or '',p.get('residual_risk') or 'LOW',p.get('operator_note') or '')
+    code=200 if ok else 400
+    return jsonify({'success':ok,'error':e,'certificate_id':cid}),code
+
+
+@app.route('/api/hunter-stability-certificates/<int:certificate_id>/decision', methods=['POST'])
+def v3513_api_decision(certificate_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data=_v3513_decide(u,certificate_id,p.get('decision'),p.get('operator_note') or '',p.get('certified_by') or '')
+    return jsonify({'success':ok,'error':e,'certificate':data}), (200 if ok else 400)
+
+
+@app.route('/hunter-stability-certification')
+def v3513_page():
+    u=session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d=_v3513_snapshot(u)
+    esc=html.escape
+    options=''.join(f"<option value='{int(w['id'])}'>Burn-in #{int(w['id'])} — {esc(w['watch_name'])}</option>" for w in d['stable_watches'])
+    cards=[]
+    for c in d['certificates']:
+        b=c.get('bundle') or {}; counts=b.get('counts') or {}; w=b.get('watch') or {}
+        state=esc(c.get('case_state') or '')
+        actions=''
+        if c.get('case_state') in ('READY','DRAFT'):
+            actions=f"""<form action='/api/hunter-stability-certificates/{int(c['id'])}/decision' onsubmit='return v3513submit(this,event)'><input type='hidden' name='decision' value='CERTIFY'><input name='certified_by' placeholder='operator / signer' value='{esc(u)}'><input name='operator_note' placeholder='final sign-off note'><button class='safe'>CERTIFY & CLOSE RECOVERY</button></form>"""
+        elif c.get('case_state')=='CERTIFIED':
+            actions=f"""<form action='/api/hunter-stability-certificates/{int(c['id'])}/decision' onsubmit='return v3513submit(this,event)'><input type='hidden' name='decision' value='REVOKE'><input name='operator_note' placeholder='revocation reason' required><button class='danger'>REVOKE CERTIFICATE</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>Certificate #{int(c['id'])}</span><span class='pill'>{state}</span></div><h2>{esc(c['certificate_name'])}</h2><p class='muted'>Burn-in #{int(c['watch_id'])} · Residual risk <b>{esc(c['residual_risk'])}</b></p><div class='score'><b>STABILITY SCORE {int(b.get('score') or 0)}/100</b><span>PASS {int(counts.get('pass') or 0)} · WARN {int(counts.get('warn') or 0)} · FAIL {int(counts.get('fail') or 0)} · WATCH {esc(w.get('watch_state') or '')}</span></div><details><summary>Evidence digest</summary><p class='muted'>{esc(c.get('evidence_digest') or '')}</p><p>{esc(c.get('operator_note') or '')}</p></details>{actions}</article>""")
+    co=d['counts']
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.13 Stability Certification</title><style>body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #193848;background:#081116;border-radius:20px;padding:18px}}.eyebrow{{color:#8ee9aa;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#8ca7b4}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#8ee9aa}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.score{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #2f7a4a;border-radius:999px;padding:5px 8px;color:#baffca;font-size:11px}}.score{{margin:12px 0;padding:14px;border:1px solid #2f7a4a;border-radius:14px;background:#071b10}}select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#8ee9aa;font-weight:900}}.danger{{background:#ff8c8c}}.safe{{background:#8ee9aa}}.nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}@media(max-width:900px){{.stats{{grid-template-columns:1fr 1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.13 // STABILITY CERTIFICATION + RECOVERY CLOSURE GATE</div><h1>✅ RECOVERY IS NOT CLOSED UNTIL STABILITY IS CERTIFIED.</h1><p class='muted'>V35.12 proves the system stayed healthy after full traffic. V35.13 converts that proof into an auditable certificate and closes the recovery only after sign-off.</p><div class='stats'><div class='card'><div class='eyebrow'>DRAFT</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>READY</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>CERTIFIED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>REVOKED</div><div class='num'>{}</div></div></div><div class='nav'><a href='/hunter-burnin-watch'>🔥 BURN-IN WATCH</a><a href='/hunter-recovery-orchestration'>🧯 RECOVERY</a><a href='/api/hunter-stability-certificates'>JSON</a></div></section><section class='hero' style='margin-top:16px'><div class='eyebrow'>CREATE CLOSURE CASE</div><form action='/api/hunter-stability-certificates' onsubmit='return v3513submit(this,event)'><select name='watch_id' required><option value=''>Stable burn-in watch</option>{}</select><input name='certificate_name' placeholder='Certificate name'><select name='residual_risk'><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select><input name='operator_note' placeholder='closure context / note'><button>CREATE STABILITY CERTIFICATE</button></form></section><section class='grid'>{}</section></div><script>async function v3513submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(co.get('DRAFT',0),co.get('READY',0),co.get('CERTIFIED',0),co.get('REVOKED',0),options,''.join(cards) or "<article class='card'><p>No stability certificates yet.</p></article>")
+
+
+# Add navigation from V35.12 into V35.13.
+try:
+    _v3513_prev_page=app.view_functions.get('v3512_page')
+    if _v3513_prev_page:
+        def _v3513_burnin_with_certification(*args,**kwargs):
+            response=_v3513_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-stability-certification' not in response:
+                response=response.replace("<a href='/api/hunter-burnin-watches'>JSON</a>","<a href='/api/hunter-burnin-watches'>JSON</a><a href='/hunter-stability-certification'>✅ STABILITY CERT</a>",1)
+            return response
+        app.view_functions['v3512_page']=_v3513_burnin_with_certification
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
