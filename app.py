@@ -76045,6 +76045,345 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.12 POST-RESUME BURN-IN + REGRESSION WATCH =====
+# V35.11 proves that phased reactivation can reach 100% safely.
+# V35.12 adds a post-resume burn-in window so regressions that appear
+# after full traffic is restored are caught before the recovery is trusted.
+#
+# COMPLETED CANARY
+#   -> OPEN BURN-IN WATCH
+#   -> RECORD HEALTH / ERROR / LATENCY / DEPENDENCY / CAPACITY OBSERVATIONS
+#   -> REGRESSION SCORE + WATCH GATE
+#   -> STABLE / EXTEND / REOPEN RECOVERY
+
+V3512_VERSION = "V35.12"
+V3512_WATCH_STATES = {"OPEN", "OBSERVING", "EXTENDED", "STABLE", "REGRESSION"}
+V3512_OBSERVATION_TYPES = {"HEALTH", "ERROR", "LATENCY", "DEPENDENCY", "CAPACITY", "CUSTOM"}
+V3512_OBSERVATION_STATES = {"PASS", "WARN", "FAIL"}
+
+
+def _v3512_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_burnin_watches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            trial_id INTEGER NOT NULL,
+            watch_name TEXT NOT NULL,
+            watch_state TEXT NOT NULL DEFAULT 'OPEN',
+            burnin_hours INTEGER NOT NULL DEFAULT 24,
+            baseline_note TEXT,
+            decision_note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            closed_at TEXT
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_burnin_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            watch_id INTEGER NOT NULL,
+            observation_type TEXT NOT NULL,
+            observation_state TEXT NOT NULL,
+            metric_name TEXT,
+            metric_value TEXT,
+            baseline_value TEXT,
+            note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3512_watch_user ON hunter_burnin_watches(username, watch_state, id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3512_obs_watch ON hunter_burnin_observations(username, watch_id, id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3512_init()
+except Exception:
+    pass
+
+
+def _v3512_now_iso():
+    return _v3511_now_iso()
+
+
+def _v3512_trial(username, trial_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT t.*, p.plan_name, p.trigger_control_id,
+                   c.control_name AS trigger_control_name
+            FROM hunter_resume_trials t
+            LEFT JOIN hunter_recovery_plans p
+              ON p.username=t.username AND p.id=t.plan_id
+            LEFT JOIN hunter_preventive_controls c
+              ON c.username=p.username AND c.id=p.trigger_control_id
+            WHERE t.username=? AND t.id=?
+        """, (username, int(trial_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3512_open_watch(username, trial_id, watch_name="", burnin_hours=24, baseline_note=""):
+    try:
+        trial_id = int(trial_id)
+        burnin_hours = max(1, min(int(burnin_hours or 24), 720))
+    except Exception:
+        return False, "invalid_input", None
+    trial = _v3512_trial(username, trial_id)
+    if not trial:
+        return False, "trial_not_found", None
+    if str(trial.get("trial_state") or "").upper() != "COMPLETED":
+        return False, "completed_canary_required", None
+    con = sqlite3.connect(DB)
+    try:
+        existing = con.execute("""
+            SELECT id FROM hunter_burnin_watches
+            WHERE username=? AND trial_id=? AND watch_state IN ('OPEN','OBSERVING','EXTENDED')
+            ORDER BY id DESC LIMIT 1
+        """, (username, trial_id)).fetchone()
+        if existing:
+            return False, "active_watch_exists", int(existing[0])
+        now = _v3512_now_iso()
+        name = str(watch_name or "").strip() or f"Post-resume burn-in for canary #{trial_id}"
+        cur = con.execute("""
+            INSERT INTO hunter_burnin_watches
+            (username, trial_id, watch_name, watch_state, burnin_hours,
+             baseline_note, decision_note, created_at, updated_at)
+            VALUES (?, ?, ?, 'OPEN', ?, ?, '', ?, ?)
+        """, (username, trial_id, name[:240], burnin_hours, str(baseline_note or '')[:5000], now, now))
+        con.commit()
+        return True, None, int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3512_add_observation(username, watch_id, observation_type, observation_state,
+                           metric_name="", metric_value="", baseline_value="", note=""):
+    try:
+        watch_id = int(watch_id)
+    except Exception:
+        return False, "invalid_watch_id", None
+    observation_type = str(observation_type or "").strip().upper()
+    observation_state = str(observation_state or "").strip().upper()
+    if observation_type not in V3512_OBSERVATION_TYPES:
+        return False, "invalid_observation_type", None
+    if observation_state not in V3512_OBSERVATION_STATES:
+        return False, "invalid_observation_state", None
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("SELECT watch_state FROM hunter_burnin_watches WHERE username=? AND id=?", (username, watch_id)).fetchone()
+        if not row:
+            return False, "watch_not_found", None
+        if str(row[0]) in ("STABLE", "REGRESSION"):
+            return False, "watch_closed", None
+        now = _v3512_now_iso()
+        cur = con.execute("""
+            INSERT INTO hunter_burnin_observations
+            (username, watch_id, observation_type, observation_state,
+             metric_name, metric_value, baseline_value, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (username, watch_id, observation_type, observation_state,
+              str(metric_name or '')[:120], str(metric_value or '')[:240],
+              str(baseline_value or '')[:240], str(note or '')[:3000], now))
+        con.execute("""
+            UPDATE hunter_burnin_watches
+            SET watch_state=CASE WHEN watch_state='OPEN' THEN 'OBSERVING' ELSE watch_state END,
+                updated_at=?
+            WHERE username=? AND id=?
+        """, (now, username, watch_id))
+        con.commit()
+        return True, None, int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+def _v3512_gate(username, watch_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        w = con.execute("SELECT * FROM hunter_burnin_watches WHERE username=? AND id=?", (username, int(watch_id))).fetchone()
+        if not w:
+            return None
+        rows = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_burnin_observations
+            WHERE username=? AND watch_id=? ORDER BY id ASC
+        """, (username, int(watch_id))).fetchall()]
+        passes = sum(1 for r in rows if r['observation_state']=='PASS')
+        warns = sum(1 for r in rows if r['observation_state']=='WARN')
+        fails = sum(1 for r in rows if r['observation_state']=='FAIL')
+        score = max(0, 100 - fails*40 - warns*10)
+        if fails:
+            gate = 'REGRESSION'
+        elif not rows:
+            gate = 'NO_EVIDENCE'
+        elif warns:
+            gate = 'EXTEND'
+        else:
+            gate = 'STABLE'
+        return {'watch': dict(w), 'observations': rows, 'counts': {'pass':passes,'warn':warns,'fail':fails,'total':len(rows)}, 'score':score, 'gate':gate}
+    finally:
+        con.close()
+
+
+def _v3512_decide(username, watch_id, decision, note=""):
+    g = _v3512_gate(username, watch_id)
+    if not g:
+        return False, "watch_not_found", None
+    decision = str(decision or '').strip().upper()
+    now = _v3512_now_iso()
+    if decision == 'STABLE':
+        if g['gate'] not in ('STABLE',):
+            return False, "stable_gate_required", g
+        state='STABLE'; closed=now
+    elif decision == 'EXTEND':
+        if g['gate'] == 'REGRESSION':
+            return False, "regression_requires_reopen", g
+        state='EXTENDED'; closed=None
+    elif decision in ('REGRESSION','REOPEN'):
+        if g['gate'] != 'REGRESSION':
+            return False, "fail_evidence_required", g
+        state='REGRESSION'; closed=now
+    else:
+        return False, "invalid_decision", g
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_burnin_watches SET watch_state=?, decision_note=?, updated_at=?, closed_at=?
+            WHERE username=? AND id=?
+        """, (state, str(note or '')[:5000], now, closed, username, int(watch_id)))
+        if state == 'REGRESSION':
+            trial = _v3512_trial(username, g['watch']['trial_id'])
+            if trial and trial.get('plan_id'):
+                con.execute("""
+                    UPDATE hunter_recovery_plans
+                    SET plan_state='RECOVERING', outcome='BLOCK', updated_at=?
+                    WHERE username=? AND id=?
+                """, (now, username, int(trial['plan_id'])))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {'state':state, 'gate':g}
+
+
+def _v3512_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        watches=[dict(r) for r in con.execute("SELECT * FROM hunter_burnin_watches WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+        counts={}
+        for w in watches:
+            counts[w['watch_state']]=counts.get(w['watch_state'],0)+1
+            g=_v3512_gate(username,w['id'])
+            w['gate']=g
+            t=_v3512_trial(username,w['trial_id'])
+            w['trial']=t
+        return {'version':V3512_VERSION,'watches':watches,'counts':counts}
+    finally:
+        con.close()
+
+
+@app.route('/api/hunter-burnin-watches', methods=['GET','POST'])
+def v3512_api_watches():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        return jsonify({'success':True, **_v3512_snapshot(u)})
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,wid=_v3512_open_watch(u,p.get('trial_id'),p.get('watch_name') or '',p.get('burnin_hours') or 24,p.get('baseline_note') or '')
+    if not ok:
+        return jsonify({'success':False,'error':e,'watch_id':wid}),400
+    return jsonify({'success':True,'watch_id':wid})
+
+
+@app.route('/api/hunter-burnin-watches/<int:watch_id>/observations', methods=['POST'])
+def v3512_api_observation(watch_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,oid=_v3512_add_observation(u,watch_id,p.get('observation_type'),p.get('observation_state'),p.get('metric_name') or '',p.get('metric_value') or '',p.get('baseline_value') or '',p.get('note') or '')
+    if not ok:
+        return jsonify({'success':False,'error':e}),400
+    return jsonify({'success':True,'observation_id':oid})
+
+
+@app.route('/api/hunter-burnin-watches/<int:watch_id>/decision', methods=['POST'])
+def v3512_api_decision(watch_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,result=_v3512_decide(u,watch_id,p.get('decision'),p.get('note') or '')
+    if not ok:
+        return jsonify({'success':False,'error':e,'gate':result}),400
+    return jsonify({'success':True,'result':result})
+
+
+@app.route('/hunter-burnin-watch')
+def v3512_page():
+    u=session.get('authenticated_username')
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🔥 Post-Resume Burn-In</h1><p>Sign in to continue.</p></body>""",401
+    d=_v3512_snapshot(u)
+    esc=lambda v: html.escape(str(v if v is not None else ''))
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        trials=[dict(r) for r in con.execute("SELECT id,trial_name,trial_state FROM hunter_resume_trials WHERE username=? AND trial_state='COMPLETED' ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    options=''.join(f"<option value='{int(t['id'])}'>#{int(t['id'])} · {esc(t['trial_name'])}</option>" for t in trials)
+    cards=[]
+    for w in d['watches']:
+        g=w.get('gate') or {}; c=g.get('counts') or {}; obs=g.get('observations') or []
+        rows=''.join(f"<tr><td>{esc(o['observation_type'])}</td><td>{esc(o['observation_state'])}</td><td>{esc(o.get('metric_name'))}</td><td>{esc(o.get('metric_value'))}</td><td>{esc(o.get('baseline_value'))}</td><td>{esc(o.get('note'))}</td></tr>" for o in obs)
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Watch #{int(w['id'])}</span><span class='pill'>{esc(w['watch_state'])}</span></div>
+          <h2>{esc(w['watch_name'])}</h2>
+          <p class='muted'>Canary #{int(w['trial_id'])} · Burn-in {int(w['burnin_hours'])}h</p>
+          <div class='score'><b>REGRESSION SCORE {int(g.get('score') or 0)}/100</b><span>PASS {int(c.get('pass') or 0)} · WARN {int(c.get('warn') or 0)} · FAIL {int(c.get('fail') or 0)} · GATE {esc(g.get('gate'))}</span></div>
+          <form action='/api/hunter-burnin-watches/{int(w['id'])}/observations' onsubmit='return v3512submit(this,event)'>
+            <div class='cols'><select name='observation_type'><option>HEALTH</option><option>ERROR</option><option>LATENCY</option><option>DEPENDENCY</option><option>CAPACITY</option><option>CUSTOM</option></select><select name='observation_state'><option>PASS</option><option>WARN</option><option>FAIL</option></select></div>
+            <div class='cols'><input name='metric_name' placeholder='metric'><input name='metric_value' placeholder='current value'></div>
+            <input name='baseline_value' placeholder='baseline value'><input name='note' placeholder='observation note'><button>ADD OBSERVATION</button>
+          </form>
+          <div class='cols3'>
+            <form action='/api/hunter-burnin-watches/{int(w['id'])}/decision' onsubmit='return v3512submit(this,event)'><input type='hidden' name='decision' value='STABLE'><input name='note' placeholder='stable note'><button class='safe'>MARK STABLE</button></form>
+            <form action='/api/hunter-burnin-watches/{int(w['id'])}/decision' onsubmit='return v3512submit(this,event)'><input type='hidden' name='decision' value='EXTEND'><input name='note' placeholder='extension reason'><button class='warn'>EXTEND WATCH</button></form>
+            <form action='/api/hunter-burnin-watches/{int(w['id'])}/decision' onsubmit='return v3512submit(this,event)'><input type='hidden' name='decision' value='REGRESSION'><input name='note' placeholder='regression reason'><button class='danger'>REOPEN RECOVERY</button></form>
+          </div>
+          <details><summary>Observation history</summary><table><thead><tr><th>Type</th><th>State</th><th>Metric</th><th>Current</th><th>Baseline</th><th>Note</th></tr></thead><tbody>{rows or '<tr><td colspan="6">No observations yet.</td></tr>'}</tbody></table></details>
+        </article>""")
+    c=d['counts']
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.12 Burn-In Watch</title>
+    <style>body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}.eyebrow{{color:#ffca74;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#8ca7b4}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#ffd38c}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.score{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #8f6127;border-radius:999px;padding:5px 8px;color:#ffd9a0;font-size:11px}}.score{{margin:12px 0;padding:14px;border:1px solid #8f6127;border-radius:14px;background:#1b1206}}.cols{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}.cols3{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}}select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#ffd38c;font-weight:900}}.safe{{background:#8ee9aa}}.warn{{background:#ffd38c}}.danger{{background:#ff8c8c}}.nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{padding:8px;border-bottom:1px solid #173342;text-align:left;font-size:12px}}@media(max-width:900px){{.stats{{grid-template-columns:1fr 1fr}}.cols,.cols3{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.12 // POST-RESUME BURN-IN + REGRESSION WATCH</div><h1>🔥 FULL TRAFFIC IS NOT THE FINISH LINE.</h1><p class='muted'>V35.11 reaches 100%. V35.12 watches the system after full restoration and reopens recovery when delayed regressions appear.</p><div class='stats'><div class='card'><div class='eyebrow'>OPEN</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>OBSERVING</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>EXTENDED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>STABLE</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>REGRESSION</div><div class='num'>{}</div></div></div><div class='nav'><a href='/hunter-resume-canary'>🐤 CANARY RESUME</a><a href='/hunter-recovery-orchestration'>🧯 RECOVERY</a><a href='/api/hunter-burnin-watches'>JSON</a></div></section>
+    <section class='hero' style='margin-top:16px'><div class='eyebrow'>OPEN BURN-IN WATCH</div><form action='/api/hunter-burnin-watches' onsubmit='return v3512submit(this,event)'><select name='trial_id' required><option value=''>Completed canary trial</option>{}</select><input name='watch_name' placeholder='Watch name'><input name='burnin_hours' type='number' min='1' max='720' value='24'><input name='baseline_note' placeholder='Baseline / expectations'><button>OPEN POST-RESUME WATCH</button></form></section><section class='grid'>{}</section>
+    </div><script>async function v3512submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('OPEN',0),c.get('OBSERVING',0),c.get('EXTENDED',0),c.get('STABLE',0),c.get('REGRESSION',0),options,''.join(cards) or "<article class='card'><p>No burn-in watches yet.</p></article>")
+
+
+# Add navigation from V35.11 into V35.12.
+try:
+    _v3512_prev_page=app.view_functions.get('v3511_page')
+    if _v3512_prev_page:
+        def _v3512_canary_with_burnin(*args,**kwargs):
+            response=_v3512_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-burnin-watch' not in response:
+                response=response.replace("<a href='/api/hunter-resume-trials'>JSON</a>","<a href='/api/hunter-resume-trials'>JSON</a><a href='/hunter-burnin-watch'>🔥 BURN-IN WATCH</a>",1)
+            return response
+        app.view_functions['v3511_page']=_v3512_canary_with_burnin
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
