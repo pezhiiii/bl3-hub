@@ -79784,6 +79784,479 @@ except Exception:
 
 
 
+# ===== V35.22 INCIDENT LEARNING PROMOTION + RECERTIFICATION TRIGGER GATE =====
+# V35.21 closes a post-incident review only after RCA, lessons and corrective actions are complete.
+# V35.22 turns that closed evidence into reusable operational learning and, when explicitly required,
+# can mark matching operator certifications DUE so the changed knowledge is re-proven in practice.
+#
+# CLOSED PIR -> LEARNING DRAFT -> READY -> PUBLISHED
+#                                  -> OPTIONAL EXPLICIT RECERTIFICATION TRIGGER
+#                                  -> MATCHING CURRENT CERTIFICATIONS BECOME DUE
+#
+# Recertification is NEVER triggered implicitly. A signed-in operator must explicitly request it.
+# Promotion and trigger events are immutable SHA-256 digest-stamped evidence records.
+
+V3522_VERSION = "V35.22"
+V3522_STATES = {"DRAFT", "READY", "PUBLISHED", "RETIRED"}
+V3522_EVENTS = {
+    "LEARNING_CREATED", "LEARNING_UPDATED", "LEARNING_PUBLISHED",
+    "RECERTIFICATION_TRIGGERED", "LEARNING_RETIRED"
+}
+
+
+def _v3522_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_learning_promotions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            learning_summary TEXT DEFAULT '',
+            runbook_change TEXT DEFAULT '',
+            affected_scope TEXT DEFAULT '',
+            owner TEXT NOT NULL,
+            recertification_required INTEGER NOT NULL DEFAULT 0,
+            promotion_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            published_at TEXT,
+            recert_triggered_at TEXT,
+            retired_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, review_id)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_learning_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            promotion_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_recertification_triggers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            promotion_id INTEGER NOT NULL,
+            certification_id INTEGER NOT NULL,
+            operator TEXT NOT NULL,
+            certification_scope TEXT NOT NULL,
+            prior_state TEXT NOT NULL,
+            triggered_at TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL,
+            UNIQUE(username, promotion_id, certification_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3522_promo_user_state ON hunter_incident_learning_promotions(username,promotion_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3522_event_promo ON hunter_incident_learning_events(username,promotion_id,id ASC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3522_trigger_promo ON hunter_incident_recertification_triggers(username,promotion_id,id ASC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3522_init()
+except Exception:
+    pass
+
+
+def _v3522_now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _v3522_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3522_add_event(con, username, promotion_id, event_type, actor, note="", extra=None):
+    event_type = str(event_type or "").upper().strip()
+    if event_type not in V3522_EVENTS:
+        raise ValueError("invalid_event_type")
+    now = _v3522_now_iso()
+    payload = {
+        "version": V3522_VERSION,
+        "promotion_id": int(promotion_id),
+        "event_type": event_type,
+        "actor": str(actor or "")[:160],
+        "note": str(note or "")[:4000],
+        "extra": extra or {},
+        "created_at": now,
+    }
+    digest, canonical = _v3522_digest(payload)
+    con.execute("""INSERT INTO hunter_incident_learning_events
+        (username,promotion_id,event_type,actor,note,evidence_sha256,payload_json,created_at)
+        VALUES(?,?,?,?,?,?,?,?)""",
+        (username, int(promotion_id), event_type, payload["actor"], payload["note"], digest, canonical, now))
+    return digest
+
+
+def _v3522_review(username, review_id):
+    r = _v3521_review_row(username, int(review_id))
+    return _v3521_evaluate(username, r) if r else None
+
+
+def _v3522_entry(username, promotion_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_incident_learning_promotions WHERE username=? AND id=?",
+                          (username, int(promotion_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        events = con.execute("SELECT * FROM hunter_incident_learning_events WHERE username=? AND promotion_id=? ORDER BY id ASC",
+                             (username, int(promotion_id))).fetchall()
+        triggers = con.execute("SELECT * FROM hunter_incident_recertification_triggers WHERE username=? AND promotion_id=? ORDER BY id ASC",
+                               (username, int(promotion_id))).fetchall()
+        d["events"] = [dict(x) for x in events]
+        d["recertification_triggers"] = [dict(x) for x in triggers]
+        d["review"] = _v3522_review(username, int(d["review_id"]))
+        return d
+    finally:
+        con.close()
+
+
+def _v3522_readiness(row):
+    d = dict(row or {})
+    ready = bool(
+        str(d.get("title") or "").strip()
+        and str(d.get("learning_summary") or "").strip()
+        and str(d.get("runbook_change") or "").strip()
+        and str(d.get("affected_scope") or "").strip()
+        and str(d.get("owner") or "").strip()
+    )
+    return ready
+
+
+def _v3522_refresh(username, promotion_id):
+    d = _v3522_entry(username, promotion_id)
+    if not d:
+        return None
+    state = str(d.get("promotion_state") or "DRAFT").upper()
+    if state == "DRAFT" and _v3522_readiness(d):
+        con = sqlite3.connect(DB)
+        try:
+            con.execute("UPDATE hunter_incident_learning_promotions SET promotion_state='READY',updated_at=? WHERE username=? AND id=?",
+                        (_v3522_now_iso(), username, int(promotion_id)))
+            con.commit()
+        finally:
+            con.close()
+        d["promotion_state"] = "READY"
+    return d
+
+
+def _v3522_create(username, review_id, title, owner):
+    review = _v3522_review(username, review_id)
+    if not review:
+        return False, "review_not_found", None
+    if str(review.get("review_state") or "").upper() != "CLOSED":
+        return False, "closed_review_required", None
+    title = " ".join(str(title or "").split())[:240]
+    owner = " ".join(str(owner or username).split())[:160]
+    if not title:
+        return False, "title_required", None
+    if not owner:
+        return False, "owner_required", None
+    now = _v3522_now_iso()
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        existing = con.execute("SELECT id FROM hunter_incident_learning_promotions WHERE username=? AND review_id=?",
+                               (username, int(review_id))).fetchone()
+        if existing:
+            return False, "promotion_already_exists", int(existing["id"])
+        cur = con.execute("""INSERT INTO hunter_incident_learning_promotions
+            (username,review_id,title,learning_summary,runbook_change,affected_scope,owner,recertification_required,promotion_state,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (username, int(review_id), title, str(review.get("lessons_learned") or "")[:8000], "", "", owner, 0, "DRAFT", now, now))
+        pid = int(cur.lastrowid)
+        _v3522_add_event(con, username, pid, "LEARNING_CREATED", owner,
+                         "Incident learning promotion created from a closed post-incident review.",
+                         {"review_id": int(review_id), "incident_id": int(review.get("incident_id") or 0)})
+        con.commit()
+    finally:
+        con.close()
+    _v3522_refresh(username, pid)
+    return True, None, pid
+
+
+def _v3522_update(username, promotion_id, learning_summary, runbook_change, affected_scope, owner, recertification_required):
+    d = _v3522_entry(username, promotion_id)
+    if not d:
+        return False, "promotion_not_found", None
+    if str(d.get("promotion_state") or "").upper() in {"PUBLISHED", "RETIRED"}:
+        return False, "published_learning_is_immutable", None
+    summary = str(learning_summary or "").strip()[:8000]
+    runbook = str(runbook_change or "").strip()[:8000]
+    scope = " ".join(str(affected_scope or "").split())[:240]
+    owner = " ".join(str(owner or "").split())[:160]
+    required = 1 if str(recertification_required or "").lower() in {"1","true","yes","on"} else 0
+    now = _v3522_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_incident_learning_promotions
+            SET learning_summary=?,runbook_change=?,affected_scope=?,owner=?,recertification_required=?,promotion_state='DRAFT',updated_at=?
+            WHERE username=? AND id=?""",
+            (summary, runbook, scope, owner, required, now, username, int(promotion_id)))
+        _v3522_add_event(con, username, promotion_id, "LEARNING_UPDATED", owner or username,
+                         "Learning content and readiness fields updated.",
+                         {"affected_scope": scope, "recertification_required": bool(required)})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3522_refresh(username, promotion_id)
+
+
+def _v3522_publish(username, promotion_id):
+    d = _v3522_refresh(username, promotion_id)
+    if not d:
+        return False, "promotion_not_found", None
+    if str(d.get("promotion_state") or "").upper() != "READY":
+        return False, "promotion_not_ready", None
+    review = d.get("review") or {}
+    if str(review.get("review_state") or "").upper() != "CLOSED":
+        return False, "closed_review_required", None
+    now = _v3522_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_incident_learning_promotions SET promotion_state='PUBLISHED',published_at=?,updated_at=? WHERE username=? AND id=?",
+                    (now, now, username, int(promotion_id)))
+        digest = _v3522_add_event(con, username, promotion_id, "LEARNING_PUBLISHED", d.get("owner") or username,
+                                  "Incident learning published for operational reuse.",
+                                  {"affected_scope": d.get("affected_scope"), "recertification_required": bool(d.get("recertification_required"))})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {"promotion_id": int(promotion_id), "evidence_sha256": digest}
+
+
+def _v3522_trigger_recertification(username, promotion_id, rationale=""):
+    d = _v3522_entry(username, promotion_id)
+    if not d:
+        return False, "promotion_not_found", None
+    if str(d.get("promotion_state") or "").upper() != "PUBLISHED":
+        return False, "published_learning_required", None
+    if not int(d.get("recertification_required") or 0):
+        return False, "recertification_not_required", None
+    if d.get("recert_triggered_at"):
+        return False, "recertification_already_triggered", None
+    scope = str(d.get("affected_scope") or "").strip()
+    rationale = str(rationale or "").strip()[:4000]
+    if not rationale:
+        return False, "trigger_rationale_required", None
+    now = _v3522_now_iso()
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""SELECT id,operator,certification_scope,certification_state
+            FROM hunter_operator_certifications
+            WHERE username=? AND certification_scope=? AND certification_state IN ('CERTIFIED','RECERTIFIED')
+            ORDER BY id ASC""", (username, scope)).fetchall()
+        if not rows:
+            return False, "no_current_certifications_for_scope", None
+        cert_ids = []
+        trigger_digests = []
+        for row in rows:
+            payload = {
+                "version": V3522_VERSION,
+                "promotion_id": int(promotion_id),
+                "certification_id": int(row["id"]),
+                "operator": str(row["operator"] or ""),
+                "certification_scope": scope,
+                "prior_state": str(row["certification_state"] or ""),
+                "rationale": rationale,
+                "triggered_at": now,
+            }
+            digest, _ = _v3522_digest(payload)
+            con.execute("""INSERT OR IGNORE INTO hunter_incident_recertification_triggers
+                (username,promotion_id,certification_id,operator,certification_scope,prior_state,triggered_at,evidence_sha256)
+                VALUES(?,?,?,?,?,?,?,?)""",
+                (username, int(promotion_id), int(row["id"]), str(row["operator"] or ""), scope,
+                 str(row["certification_state"] or ""), now, digest))
+            con.execute("""UPDATE hunter_operator_certifications
+                SET certification_state='DUE',due_at=?,updated_at=?
+                WHERE username=? AND id=? AND certification_state IN ('CERTIFIED','RECERTIFIED')""",
+                (now, now, username, int(row["id"])))
+            cert_ids.append(int(row["id"]))
+            trigger_digests.append(digest)
+        con.execute("UPDATE hunter_incident_learning_promotions SET recert_triggered_at=?,updated_at=? WHERE username=? AND id=?",
+                    (now, now, username, int(promotion_id)))
+        event_digest = _v3522_add_event(con, username, promotion_id, "RECERTIFICATION_TRIGGERED", username,
+                                        rationale, {"affected_scope": scope, "certification_ids": cert_ids, "count": len(cert_ids)})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {
+        "promotion_id": int(promotion_id), "affected_scope": scope,
+        "certifications_marked_due": cert_ids, "count": len(cert_ids),
+        "event_evidence_sha256": event_digest, "trigger_digests": trigger_digests
+    }
+
+
+def _v3522_retire(username, promotion_id, note=""):
+    d = _v3522_entry(username, promotion_id)
+    if not d:
+        return False, "promotion_not_found", None
+    if str(d.get("promotion_state") or "").upper() != "PUBLISHED":
+        return False, "published_learning_required", None
+    note = str(note or "").strip()[:4000]
+    if not note:
+        return False, "retirement_note_required", None
+    now = _v3522_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_incident_learning_promotions SET promotion_state='RETIRED',retired_at=?,updated_at=? WHERE username=? AND id=?",
+                    (now, now, username, int(promotion_id)))
+        digest = _v3522_add_event(con, username, promotion_id, "LEARNING_RETIRED", username, note)
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {"promotion_id": int(promotion_id), "evidence_sha256": digest}
+
+
+def _v3522_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("SELECT * FROM hunter_incident_learning_promotions WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        existing = {int(r["review_id"]) for r in rows}
+        reviews = con.execute("SELECT * FROM hunter_incident_reviews WHERE username=? AND review_state='CLOSED' ORDER BY id DESC", (username,)).fetchall()
+    finally:
+        con.close()
+    promotions = []
+    counts = {s: 0 for s in V3522_STATES}
+    for row in rows:
+        d = _v3522_refresh(username, int(row["id"])) or dict(row)
+        state = str(d.get("promotion_state") or "DRAFT").upper()
+        counts[state] = counts.get(state, 0) + 1
+        promotions.append(d)
+    eligible = []
+    for row in reviews:
+        if int(row["id"]) not in existing:
+            d = _v3521_evaluate(username, dict(row))
+            if d:
+                eligible.append(d)
+    recert_pending = sum(1 for x in promotions if x.get("promotion_state") == "PUBLISHED" and int(x.get("recertification_required") or 0) and not x.get("recert_triggered_at"))
+    return {"success": True, "version": V3522_VERSION, "counts": counts, "eligible_reviews": eligible,
+            "promotions": promotions, "recertification_triggers_pending": recert_pending}
+
+
+@app.route('/api/hunter-incident-learning', methods=['GET','POST'])
+def v3522_api_learning():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3522_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    try:
+        review_id = int(p.get('review_id') or 0)
+    except Exception:
+        return jsonify({'success':False,'error':'invalid_review_id'}), 400
+    ok, error, pid = _v3522_create(u, review_id, p.get('title') or '', p.get('owner') or u)
+    return jsonify({'success':ok,'error':error,'promotion_id':pid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-incident-learning/<int:promotion_id>/update', methods=['POST'])
+def v3522_api_update(promotion_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, data = _v3522_update(u, promotion_id, p.get('learning_summary') or '', p.get('runbook_change') or '',
+                                    p.get('affected_scope') or '', p.get('owner') or u, p.get('recertification_required'))
+    return jsonify({'success':ok,'error':error,'promotion':data}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-incident-learning/<int:promotion_id>/decision', methods=['POST'])
+def v3522_api_decision(promotion_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    decision = str(p.get('decision') or '').upper().strip()
+    if decision == 'PUBLISH':
+        ok, error, data = _v3522_publish(u, promotion_id)
+    elif decision == 'TRIGGER_RECERTIFICATION':
+        ok, error, data = _v3522_trigger_recertification(u, promotion_id, p.get('rationale') or '')
+    elif decision == 'RETIRE':
+        ok, error, data = _v3522_retire(u, promotion_id, p.get('note') or '')
+    else:
+        ok, error, data = False, 'invalid_decision', None
+    return jsonify({'success':ok,'error':error,'result':data}), (200 if ok else 400)
+
+
+@app.route('/hunter-incident-learning')
+def v3522_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3522_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join(
+        "<option value='{}'>Review #{} · Incident #{} · {}</option>".format(int(r['id']), int(r['id']), int(r.get('incident_id') or 0), esc((r.get('incident') or {}).get('summary') or 'Closed review'))
+        for r in d['eligible_reviews']
+    )
+    cards = []
+    for x in d['promotions']:
+        pid = int(x['id']); state = str(x.get('promotion_state') or 'DRAFT').upper(); review = x.get('review') or {}
+        events = x.get('events') or []; triggers = x.get('recertification_triggers') or []
+        controls = ''
+        if state in {'DRAFT','READY'}:
+            checked = 'checked' if int(x.get('recertification_required') or 0) else ''
+            controls += f"""<form action='/api/hunter-incident-learning/{pid}/update' onsubmit='return v3522submit(this,event)'>
+            <textarea name='learning_summary' placeholder='Reusable incident learning' required>{esc(x.get('learning_summary') or '')}</textarea>
+            <textarea name='runbook_change' placeholder='Runbook / operating change' required>{esc(x.get('runbook_change') or '')}</textarea>
+            <input name='affected_scope' value='{esc(x.get('affected_scope') or '')}' placeholder='Affected certification scope (exact match)' required>
+            <input name='owner' value='{esc(x.get('owner') or u)}' placeholder='Knowledge owner' required>
+            <label class='check'><input type='checkbox' name='recertification_required' value='1' {checked}> Require operator recertification after publication</label>
+            <button>SAVE + EVALUATE</button></form>"""
+        if state == 'READY':
+            controls += f"""<form action='/api/hunter-incident-learning/{pid}/decision' onsubmit='return v3522submit(this,event)'><button class='safeBtn' name='decision' value='PUBLISH'>PUBLISH INCIDENT LEARNING</button></form>"""
+        if state == 'PUBLISHED' and int(x.get('recertification_required') or 0) and not x.get('recert_triggered_at'):
+            controls += f"""<form action='/api/hunter-incident-learning/{pid}/decision' onsubmit='return v3522submit(this,event)'><textarea name='rationale' placeholder='Why current operators must re-prove this changed knowledge' required></textarea><button class='warnBtn' name='decision' value='TRIGGER_RECERTIFICATION'>TRIGGER RECERTIFICATION</button></form>"""
+        if state == 'PUBLISHED':
+            controls += f"""<form action='/api/hunter-incident-learning/{pid}/decision' onsubmit='return v3522submit(this,event)'><input name='note' placeholder='Retirement reason' required><button class='dangerBtn' name='decision' value='RETIRE'>RETIRE LEARNING</button></form>"""
+        recert = 'NOT REQUIRED'
+        if int(x.get('recertification_required') or 0):
+            recert = 'TRIGGERED' if x.get('recert_triggered_at') else 'REQUIRED'
+        evidence = ' · '.join(str(e.get('evidence_sha256') or '')[:10] for e in events[-4:]) or 'none'
+        cards.append(f"""<article class='card'><div class='top'><span>Learning #{pid} · Review #{int(x.get('review_id') or 0)}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(x.get('title') or '')}</h2><p class='muted'>Incident #{int(review.get('incident_id') or 0)} · Scope {esc(x.get('affected_scope') or 'not set')} · Recert {esc(recert)} · triggers {len(triggers)}</p><p class='muted'>Evidence <code>{esc(evidence)}</code></p>{controls}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.22 Incident Learning</title><style>
+    body{{margin:0;background:#05070a;color:#edf8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304654;background:#091016;border-radius:20px;padding:18px}}.eyebrow{{color:#ffd36a;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#8fa6b2}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.stats>div{{border:1px solid #223944;border-radius:14px;padding:12px}}.num{{font-size:24px;font-weight:900;color:#ffd36a}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #806f3a;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safeBtn{{border-color:#2f9e67}}.warnBtn{{border-color:#b48a2f}}.dangerBtn{{border-color:#a94455}}a,code{{color:#ffd36a}}.check{{display:flex;gap:10px;align-items:center;margin-top:10px;color:#c5d2d8}}.check input{{width:auto;margin:0}}@media(max-width:760px){{.stats{{grid-template-columns:repeat(2,1fr)}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.22 · INCIDENT LEARNING PROMOTION + RECERTIFICATION TRIGGER GATE</div><h1>Close the learning loop.</h1><p class='muted'>Promote closed incident reviews into reusable operational knowledge. If the lesson changes an operator-critical scope, recertification can be triggered explicitly and every affected current certification is marked DUE with digest-stamped evidence.</p>
+    <div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>PUBLISHED</div><div><div class='num'>{}</div>RETIRED</div><div><div class='num'>{}</div>RECERT PENDING</div></div>
+    <p><a href='/hunter-post-incident-reviews'>← Post-Incident Reviews</a> · <a href='/hunter-operator-certifications'>🏅 Certifications</a> · <a href='/api/hunter-incident-learning'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Create incident learning promotion</h2><form action='/api/hunter-incident-learning' onsubmit='return v3522submit(this,event)'><select name='review_id' required><option value=''>Select closed post-incident review</option>{}</select><input name='title' placeholder='Learning / runbook title' required><input name='owner' value='{}' placeholder='Knowledge owner' required><button>CREATE LEARNING DRAFT</button></form></section>
+    <section class='grid'>{}</section></div><script>
+    async function v3522submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(c.get('DRAFT',0),c.get('READY',0),c.get('PUBLISHED',0),c.get('RETIRED',0),d['recertification_triggers_pending'],opts,esc(u),''.join(cards) or "<article class='card'><p>No incident learning promotions yet.</p></article>")
+
+
+# Add navigation from V35.21 into V35.22.
+try:
+    _v3522_prev_page = app.view_functions.get('v3521_page')
+    if _v3522_prev_page:
+        def _v3522_reviews_with_learning(*args, **kwargs):
+            response = _v3522_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-incident-learning' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-post-incident-reviews'>JSON</a>",
+                    "<a href='/api/hunter-post-incident-reviews'>JSON</a> · <a href='/hunter-incident-learning'>📚 INCIDENT LEARNING</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3521_page'] = _v3522_reviews_with_learning
+except Exception:
+    pass
+
+
 
 if __name__ == "__main__":
 
@@ -79899,6 +80372,7 @@ if __name__ == "__main__":
     print("🕒 Live Duty Roster + Handoff Acknowledgement Gate enabled")
     print("🚨 Live Incident Activation + Response SLA Gate enabled")
     print("🧠 Post-Incident Review + Corrective Action Closure Gate enabled")
+    print("📚 Incident Learning Promotion + Recertification Trigger Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
