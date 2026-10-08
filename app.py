@@ -74740,6 +74740,796 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.10 CASCADE CONTAINMENT + RECOVERY ORCHESTRATION GATE =====
+# V35.9 exposes systemic dependency risk.
+# V35.10 adds explicit containment and recovery orchestration so propagated
+# failures are not only visible — they are actively controlled.
+#
+# UPSTREAM FAILURE
+#   -> DEPENDENCY RISK PROPAGATES
+#   -> CONTAINMENT PLAN OPENS
+#   -> AFFECTED CONTROLS FREEZE / DEGRADE
+#   -> RECOVERY STEPS EXECUTE
+#   -> VALIDATION GATE
+#   -> RESUME / PARTIAL / ROLLBACK
+#
+# Goal:
+# Convert systemic blast radius from passive observability into governed recovery.
+
+V3510_VERSION = "V35.10"
+
+V3510_PLAN_STATES = {
+    "OPEN",
+    "CONTAINING",
+    "RECOVERING",
+    "VALIDATING",
+    "RESOLVED",
+    "ROLLED_BACK"
+}
+
+V3510_STEP_STATES = {
+    "PENDING",
+    "RUNNING",
+    "PASS",
+    "FAIL",
+    "SKIPPED"
+}
+
+V3510_OUTCOMES = {
+    "RESUME",
+    "PARTIAL",
+    "ROLLBACK",
+    "BLOCK"
+}
+
+
+def _v3510_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recovery_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            trigger_control_id INTEGER NOT NULL,
+            plan_name TEXT NOT NULL,
+            plan_state TEXT NOT NULL DEFAULT 'OPEN',
+            severity INTEGER NOT NULL DEFAULT 1,
+            blast_radius_snapshot INTEGER NOT NULL DEFAULT 0,
+            affected_control_ids TEXT,
+            containment_note TEXT,
+            recovery_note TEXT,
+            validation_note TEXT,
+            outcome TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recovery_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            plan_id INTEGER NOT NULL,
+            step_order INTEGER NOT NULL DEFAULT 1,
+            step_name TEXT NOT NULL,
+            step_type TEXT NOT NULL DEFAULT 'RECOVERY',
+            step_state TEXT NOT NULL DEFAULT 'PENDING',
+            control_id INTEGER,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v3510_plan_user
+        ON hunter_recovery_plans(username, plan_state, severity DESC, id DESC)
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v3510_step_plan
+        ON hunter_recovery_steps(username, plan_id, step_order)
+        """)
+
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3510_init()
+except Exception:
+    pass
+
+
+def _v3510_now_iso():
+    return _v358_iso(_v358_now())
+
+
+def _v3510_control(username, control_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT c.*,
+                   h.health_state,
+                   r.risk_state,
+                   r.risk_score,
+                   r.blast_radius
+            FROM hunter_preventive_controls c
+            LEFT JOIN hunter_control_health h
+              ON h.username=c.username AND h.control_id=c.id
+            LEFT JOIN hunter_control_dependency_risk r
+              ON r.username=c.username AND r.control_id=c.id
+            WHERE c.username=? AND c.id=?
+        """, (username, int(control_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3510_affected_controls(username, trigger_control_id):
+    trigger_control_id = int(trigger_control_id)
+    deps = _v359_dependencies(username)
+
+    reverse = {}
+    for d in deps:
+        upstream = int(d["depends_on_control_id"])
+        dependent = int(d["control_id"])
+        reverse.setdefault(upstream, set()).add(dependent)
+
+    visited = set()
+    stack = [trigger_control_id]
+
+    while stack:
+        cur = stack.pop()
+        for nxt in reverse.get(cur, set()):
+            if nxt not in visited and nxt != trigger_control_id:
+                visited.add(nxt)
+                stack.append(nxt)
+
+    return sorted(visited)
+
+
+def _v3510_create_plan(username, trigger_control_id, plan_name="", containment_note=""):
+    try:
+        trigger_control_id = int(trigger_control_id)
+    except Exception:
+        return False, "invalid_trigger_control", None
+
+    trigger = _v3510_control(username, trigger_control_id)
+    if not trigger:
+        return False, "trigger_control_not_found", None
+
+    affected = _v3510_affected_controls(username, trigger_control_id)
+
+    severity = 1
+    risk_score = int(trigger.get("risk_score") or 0)
+    if risk_score >= 80:
+        severity = 5
+    elif risk_score >= 60:
+        severity = 4
+    elif risk_score >= 40:
+        severity = 3
+    elif risk_score >= 10:
+        severity = 2
+
+    now = _v3510_now_iso()
+    name = str(plan_name or "").strip() or f"Recovery for control #{trigger_control_id}"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recovery_plans
+            (username, trigger_control_id, plan_name, plan_state, severity,
+             blast_radius_snapshot, affected_control_ids, containment_note,
+             created_at, updated_at)
+            VALUES (?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            trigger_control_id,
+            name[:240],
+            severity,
+            len(affected),
+            ",".join(str(x) for x in affected),
+            str(containment_note or "").strip()[:5000],
+            now,
+            now
+        ))
+        plan_id = int(cur.lastrowid)
+
+        default_steps = [
+            (1, "Freeze affected control execution", "CONTAINMENT", None),
+            (2, "Confirm upstream fault boundary", "CONTAINMENT", trigger_control_id),
+            (3, "Repair or replace failing upstream control", "RECOVERY", trigger_control_id),
+            (4, "Revalidate affected dependent controls", "VALIDATION", None),
+            (5, "Resume only validated controls", "RESUME", None),
+        ]
+
+        for order_no, step_name, step_type, control_id in default_steps:
+            con.execute("""
+                INSERT INTO hunter_recovery_steps
+                (username, plan_id, step_order, step_name, step_type, step_state,
+                 control_id, note, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'PENDING', ?, '', ?, ?)
+            """, (
+                username,
+                plan_id,
+                order_no,
+                step_name,
+                step_type,
+                control_id,
+                now,
+                now
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, plan_id
+
+
+def _v3510_update_plan_state(username, plan_id, plan_state, note=""):
+    try:
+        plan_id = int(plan_id)
+    except Exception:
+        return False, "invalid_plan_id"
+
+    plan_state = str(plan_state or "").strip().upper()
+    if plan_state not in V3510_PLAN_STATES:
+        return False, "invalid_plan_state"
+
+    now = _v3510_now_iso()
+    resolved_at = now if plan_state in ("RESOLVED", "ROLLED_BACK") else None
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("""
+            SELECT id FROM hunter_recovery_plans
+            WHERE id=? AND username=?
+        """, (plan_id, username)).fetchone()
+
+        if not row:
+            return False, "plan_not_found"
+
+        con.execute("""
+            UPDATE hunter_recovery_plans
+            SET plan_state=?,
+                recovery_note=CASE WHEN ? IN ('RECOVERING','VALIDATING','RESOLVED','ROLLED_BACK')
+                                   THEN ? ELSE recovery_note END,
+                updated_at=?,
+                resolved_at=COALESCE(?, resolved_at)
+            WHERE id=? AND username=?
+        """, (
+            plan_state,
+            plan_state,
+            str(note or "").strip()[:5000],
+            now,
+            resolved_at,
+            plan_id,
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None
+
+
+def _v3510_update_step(username, step_id, step_state, note=""):
+    try:
+        step_id = int(step_id)
+    except Exception:
+        return False, "invalid_step_id"
+
+    step_state = str(step_state or "").strip().upper()
+    if step_state not in V3510_STEP_STATES:
+        return False, "invalid_step_state"
+
+    now = _v3510_now_iso()
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("""
+            SELECT plan_id FROM hunter_recovery_steps
+            WHERE id=? AND username=?
+        """, (step_id, username)).fetchone()
+
+        if not row:
+            return False, "step_not_found"
+
+        plan_id = int(row[0])
+
+        con.execute("""
+            UPDATE hunter_recovery_steps
+            SET step_state=?, note=?, updated_at=?
+            WHERE id=? AND username=?
+        """, (
+            step_state,
+            str(note or "").strip()[:5000],
+            now,
+            step_id,
+            username
+        ))
+
+        states = [r[0] for r in con.execute("""
+            SELECT step_state FROM hunter_recovery_steps
+            WHERE plan_id=? AND username=?
+            ORDER BY step_order
+        """, (plan_id, username)).fetchall()]
+
+        if states and all(s in ("PASS", "SKIPPED") for s in states):
+            con.execute("""
+                UPDATE hunter_recovery_plans
+                SET plan_state='VALIDATING', updated_at=?
+                WHERE id=? AND username=? AND plan_state NOT IN ('RESOLVED','ROLLED_BACK')
+            """, (now, plan_id, username))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None
+
+
+def _v3510_set_outcome(username, plan_id, outcome, validation_note=""):
+    try:
+        plan_id = int(plan_id)
+    except Exception:
+        return False, "invalid_plan_id"
+
+    outcome = str(outcome or "").strip().upper()
+    if outcome not in V3510_OUTCOMES:
+        return False, "invalid_outcome"
+
+    now = _v3510_now_iso()
+
+    if outcome == "RESUME":
+        state = "RESOLVED"
+    elif outcome == "ROLLBACK":
+        state = "ROLLED_BACK"
+    elif outcome == "PARTIAL":
+        state = "VALIDATING"
+    else:
+        state = "CONTAINING"
+
+    con = sqlite3.connect(DB)
+    try:
+        row = con.execute("""
+            SELECT affected_control_ids, trigger_control_id
+            FROM hunter_recovery_plans
+            WHERE id=? AND username=?
+        """, (plan_id, username)).fetchone()
+
+        if not row:
+            return False, "plan_not_found"
+
+        affected_ids = []
+        raw = str(row[0] or "").strip()
+        if raw:
+            for x in raw.split(","):
+                try:
+                    affected_ids.append(int(x))
+                except Exception:
+                    pass
+
+        trigger_control_id = int(row[1])
+
+        con.execute("""
+            UPDATE hunter_recovery_plans
+            SET outcome=?,
+                plan_state=?,
+                validation_note=?,
+                updated_at=?,
+                resolved_at=CASE WHEN ? IN ('RESOLVED','ROLLED_BACK') THEN ? ELSE resolved_at END
+            WHERE id=? AND username=?
+        """, (
+            outcome,
+            state,
+            str(validation_note or "").strip()[:5000],
+            now,
+            state,
+            now,
+            plan_id,
+            username
+        ))
+
+        if outcome == "RESUME":
+            # Revalidation stays authoritative; only clear propagated dependency risk
+            # for affected controls if they are not directly breached / expired.
+            for cid in affected_ids:
+                c = _v3510_control(username, cid)
+                if not c:
+                    continue
+                if str(c.get("control_state")) not in ("BREACHED", "DEGRADED") and str(c.get("health_state")) not in ("EXPIRED", "STALE", "SUSPENDED"):
+                    con.execute("""
+                        UPDATE hunter_control_dependency_risk
+                        SET risk_state='CLEAR',
+                            risk_score=0,
+                            source_control_ids='',
+                            reason='Cleared by V35.10 validated recovery resume',
+                            updated_at=?
+                        WHERE username=? AND control_id=?
+                    """, (now, username, cid))
+
+        if outcome in ("ROLLBACK", "BLOCK"):
+            con.execute("""
+                UPDATE hunter_preventive_controls
+                SET control_state='DEGRADED'
+                WHERE username=? AND id=?
+            """, (username, trigger_control_id))
+
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v359_recompute(username)
+    except Exception:
+        pass
+
+    return True, None
+
+
+def _v3510_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        plans = [dict(r) for r in con.execute("""
+            SELECT p.*,
+                   c.control_name AS trigger_control_name,
+                   c.control_state AS trigger_control_state
+            FROM hunter_recovery_plans p
+            LEFT JOIN hunter_preventive_controls c
+              ON c.id=p.trigger_control_id AND c.username=p.username
+            WHERE p.username=?
+            ORDER BY
+              CASE p.plan_state
+                WHEN 'OPEN' THEN 0
+                WHEN 'CONTAINING' THEN 1
+                WHEN 'RECOVERING' THEN 2
+                WHEN 'VALIDATING' THEN 3
+                ELSE 4
+              END,
+              p.severity DESC,
+              p.id DESC
+        """, (username,)).fetchall()]
+
+        steps = [dict(r) for r in con.execute("""
+            SELECT * FROM hunter_recovery_steps
+            WHERE username=?
+            ORDER BY plan_id DESC, step_order ASC
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+
+    by_plan = {}
+    for s in steps:
+        by_plan.setdefault(int(s["plan_id"]), []).append(s)
+
+    for p in plans:
+        p["steps"] = by_plan.get(int(p["id"]), [])
+
+    counts = {s: 0 for s in V3510_PLAN_STATES}
+    for p in plans:
+        counts[str(p.get("plan_state") or "OPEN")] = counts.get(str(p.get("plan_state") or "OPEN"), 0) + 1
+
+    return {
+        "version": V3510_VERSION,
+        "counts": {
+            "plans": len(plans),
+            "open": counts.get("OPEN", 0),
+            "containing": counts.get("CONTAINING", 0),
+            "recovering": counts.get("RECOVERING", 0),
+            "validating": counts.get("VALIDATING", 0),
+            "resolved": counts.get("RESOLVED", 0),
+            "rolled_back": counts.get("ROLLED_BACK", 0),
+        },
+        "plans": plans,
+        "policy": "No systemic recovery may resume dependent controls without explicit validation outcome."
+    }
+
+
+@app.route("/api/hunter-recovery-plans")
+def v3510_api_snapshot():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v3510_snapshot(u)})
+
+
+@app.route("/api/hunter-recovery-plans", methods=["POST"])
+def v3510_api_create():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, plan_id = _v3510_create_plan(
+        u,
+        p.get("trigger_control_id"),
+        p.get("plan_name") or "",
+        p.get("containment_note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+
+    return jsonify({"success": True, "plan_id": plan_id})
+
+
+@app.route("/api/hunter-recovery-plans/<int:plan_id>/state", methods=["POST"])
+def v3510_api_state(plan_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e = _v3510_update_plan_state(
+        u,
+        plan_id,
+        p.get("plan_state"),
+        p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/api/hunter-recovery-steps/<int:step_id>", methods=["POST"])
+def v3510_api_step(step_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e = _v3510_update_step(
+        u,
+        step_id,
+        p.get("step_state"),
+        p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/api/hunter-recovery-plans/<int:plan_id>/outcome", methods=["POST"])
+def v3510_api_outcome(plan_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e = _v3510_set_outcome(
+        u,
+        plan_id,
+        p.get("outcome"),
+        p.get("validation_note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-recovery-orchestration")
+def v3510_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🧯 Recovery Orchestration</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v3510_snapshot(u)
+    controls = _v359_controls(u)
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    control_options = "".join(
+        f"<option value='{int(c['id'])}'>#{int(c['id'])} · {esc(c.get('control_name'))}</option>"
+        for c in controls
+    )
+
+    cards = []
+
+    for p in d["plans"]:
+        step_html = []
+        for s in p["steps"]:
+            step_html.append(f"""
+            <div class='step'>
+              <div>
+                <b>#{int(s['step_order'])} {esc(s.get('step_name'))}</b><br>
+                <small>{esc(s.get('step_type'))} · {esc(s.get('step_state'))}</small>
+              </div>
+              <form action='/api/hunter-recovery-steps/{int(s["id"])}'
+                    onsubmit='return v3510submit(this,event)'>
+                <select name='step_state'>
+                  <option>PENDING</option>
+                  <option>RUNNING</option>
+                  <option>PASS</option>
+                  <option>FAIL</option>
+                  <option>SKIPPED</option>
+                </select>
+                <input name='note' placeholder='step note'>
+                <button>UPDATE STEP</button>
+              </form>
+            </div>
+            """)
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>Plan #{int(p['id'])}</span>
+            <span class='pill'>{esc(p.get('plan_state'))}</span>
+          </div>
+          <h2>{esc(p.get('plan_name'))}</h2>
+          <p class='muted'>
+            Trigger: #{int(p.get('trigger_control_id'))} · {esc(p.get('trigger_control_name'))}<br>
+            Severity: {int(p.get('severity') or 1)} · Blast radius snapshot: {int(p.get('blast_radius_snapshot') or 0)}
+          </p>
+          <div class='risk'>
+            Affected controls: {esc(p.get('affected_control_ids')) or 'none'}<br>
+            Outcome: <b>{esc(p.get('outcome')) or 'PENDING'}</b>
+          </div>
+          <p class='muted'>{esc(p.get('containment_note'))}</p>
+
+          <div class='steps'>
+            {''.join(step_html)}
+          </div>
+
+          <form action='/api/hunter-recovery-plans/{int(p["id"])}/state'
+                onsubmit='return v3510submit(this,event)'>
+            <select name='plan_state'>
+              <option>OPEN</option>
+              <option>CONTAINING</option>
+              <option>RECOVERING</option>
+              <option>VALIDATING</option>
+              <option>RESOLVED</option>
+              <option>ROLLED_BACK</option>
+            </select>
+            <input name='note' placeholder='state transition note'>
+            <button>UPDATE PLAN STATE</button>
+          </form>
+
+          <form action='/api/hunter-recovery-plans/{int(p["id"])}/outcome'
+                onsubmit='return v3510submit(this,event)'>
+            <select name='outcome'>
+              <option>RESUME</option>
+              <option>PARTIAL</option>
+              <option>ROLLBACK</option>
+              <option>BLOCK</option>
+            </select>
+            <input name='validation_note' placeholder='validation / rollback note'>
+            <button>SET FINAL OUTCOME</button>
+          </form>
+        </article>
+        """)
+
+    c = d["counts"]
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.10 Recovery Orchestration</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1240px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ff9a71;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:1fr;gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ffb18f}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #7b4026;border-radius:999px;padding:5px 8px;color:#ffc8ae;font-size:11px}}
+    .risk{{margin:10px 0;padding:12px;border:1px solid #7b4026;border-radius:12px;background:#1a100b}}
+    .step{{display:grid;grid-template-columns:1fr 1.4fr;gap:12px;padding:12px 0;border-top:1px solid #16303b}}
+    select,input,textarea{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#ff9a71;font-weight:900}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:1000px){{.stats{{grid-template-columns:repeat(3,1fr)}}}}
+    @media(max-width:760px){{.stats{{grid-template-columns:1fr 1fr}}.step{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'>
+
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.10 // CASCADE CONTAINMENT + RECOVERY ORCHESTRATION GATE</div>
+        <h1>🧯 CONTAIN · RECOVER · VALIDATE · RESUME</h1>
+        <p class='muted'>V35.9 told us what breaks together. V35.10 governs what happens next.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>PLANS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>OPEN</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CONTAINING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>RECOVERING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>VALIDATING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>RESOLVED</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-control-dependencies'>🕸 DEPENDENCIES</a>
+          <a href='/hunter-control-health'>⏳ HEALTH</a>
+          <a href='/hunter-preventive-controls'>🔒 CONTROLS</a>
+          <a href='/api/hunter-recovery-plans'>JSON</a>
+        </div>
+      </section>
+
+      <section class='hero' style='margin-top:16px'>
+        <div class='eyebrow'>OPEN RECOVERY PLAN</div>
+        <form action='/api/hunter-recovery-plans' onsubmit='return v3510submit(this,event)'>
+          <select name='trigger_control_id' required>
+            <option value=''>Trigger control</option>
+            {}
+          </select>
+          <input name='plan_name' placeholder='Plan name'>
+          <textarea name='containment_note' rows='3' placeholder='Immediate containment note'></textarea>
+          <button>OPEN PLAN</button>
+        </form>
+      </section>
+
+      <section class='grid'>
+        {}
+      </section>
+
+    </div>
+
+    <script>
+    async function v3510submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["plans"],
+        c["open"],
+        c["containing"],
+        c["recovering"],
+        c["validating"],
+        c["resolved"],
+        control_options,
+        "".join(cards) or "<article class='card'><p>No recovery plans yet.</p></article>"
+    )
+
+
+# Add navigation from the V35.9 dependency page into V35.10 recovery orchestration.
+try:
+    _v3510_prev_page = app.view_functions.get("v359_page")
+    if _v3510_prev_page:
+        def _v3510_dependency_with_recovery(*args, **kwargs):
+            response = _v3510_prev_page(*args, **kwargs)
+
+            if isinstance(response, str) and "/hunter-recovery-orchestration" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-control-dependencies'>JSON</a>",
+                    "<a href='/api/hunter-control-dependencies'>JSON</a><a href='/hunter-recovery-orchestration'>🧯 RECOVERY</a>",
+                    1
+                )
+
+            return response
+
+        app.view_functions["v359_page"] = _v3510_dependency_with_recovery
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
