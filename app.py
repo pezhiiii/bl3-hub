@@ -64662,6 +64662,574 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.3 RESILIENCE STRESS TEST + INCIDENT DRILL GATE =====
+# V34.2 can confirm a rollout as DURABLE.
+# V34.3 tests whether a durable rollout survives deliberate stress and incident drills.
+# Durability is not treated as resilience until stress evidence and recovery behavior are reviewed.
+
+V343_VERSION = "V34.3"
+V343_DRILL_TYPES = {"LOAD_SPIKE", "DEPENDENCY_FAILURE", "BAD_INPUT", "PARTIAL_OUTAGE", "ROLLBACK_DRILL", "OPERATOR_ERROR"}
+V343_DRILL_SIGNALS = {"PASS", "DEGRADED", "FAIL", "INCONCLUSIVE"}
+V343_OUTCOMES = {"CERTIFY_RESILIENT", "REMEDIATE_AND_RETEST", "REOPEN_HARDENING"}
+V343_MIN_DRILLS = 2
+
+
+def _v343_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resilience_drills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            durability_id INTEGER NOT NULL,
+            drill_type TEXT NOT NULL,
+            scenario_note TEXT NOT NULL,
+            signal_state TEXT NOT NULL,
+            result_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v343_drill_impl
+        ON hunter_resilience_drills(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resilience_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            durability_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_resilience_certificates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            durability_id INTEGER NOT NULL,
+            resilience_outcome_id INTEGER NOT NULL,
+            certificate_state TEXT NOT NULL DEFAULT 'CERTIFIED',
+            certificate_note TEXT,
+            certified_at TEXT NOT NULL,
+            revoked_at TEXT,
+            revoke_note TEXT
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v343_init()
+except Exception:
+    pass
+
+
+def _v343_drills(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_resilience_drills
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC
+        """, (username, int(implementation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v343_outcome(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_resilience_outcomes
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v343_certificate(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_resilience_certificates
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v343_add_drill(username, implementation_id, drill_type, scenario_note, signal_state, result_note=""):
+    durability = _v342_durability(username, implementation_id)
+    if not durability or str(durability.get("durability_state") or "") != "DURABLE":
+        return False, "durable_rollout_required", None
+
+    dtype = str(drill_type or "").strip().upper()
+    signal = str(signal_state or "").strip().upper()
+
+    if dtype not in V343_DRILL_TYPES:
+        return False, "invalid_drill_type", None
+    if signal not in V343_DRILL_SIGNALS:
+        return False, "invalid_drill_signal", None
+
+    scenario_note = str(scenario_note or "").strip()
+    if not scenario_note:
+        return False, "scenario_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_resilience_drills
+            (username, implementation_id, durability_id, drill_type,
+             scenario_note, signal_state, result_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(durability["id"]),
+            dtype,
+            scenario_note[:3000],
+            signal,
+            str(result_note or "").strip()[:3000],
+            now
+        ))
+        did = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, did
+
+
+def _v343_finalize_outcome(username, implementation_id, requested_outcome, note=""):
+    durability = _v342_durability(username, implementation_id)
+    if not durability or str(durability.get("durability_state") or "") != "DURABLE":
+        return False, "durable_rollout_required", None
+
+    drills = _v343_drills(username, implementation_id)
+    if len(drills) < V343_MIN_DRILLS:
+        return False, "not_enough_drills", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V343_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v343_outcome(username, implementation_id)
+    if existing:
+        return False, "resilience_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_resilience_outcomes
+            (username, implementation_id, durability_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(durability["id"]),
+            requested,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v343_certify(username, implementation_id, note=""):
+    outcome = _v343_outcome(username, implementation_id)
+    if not outcome:
+        return False, "resilience_outcome_required", None
+    if str(outcome.get("outcome") or "") != "CERTIFY_RESILIENT":
+        return False, "certify_resilient_outcome_required", None
+
+    existing = _v343_certificate(username, implementation_id)
+    if existing:
+        return False, "resilience_already_certified", int(existing["id"])
+
+    durability = _v342_durability(username, implementation_id)
+    if not durability:
+        return False, "durability_record_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_resilience_certificates
+            (username, implementation_id, durability_id, resilience_outcome_id,
+             certificate_state, certificate_note, certified_at)
+            VALUES (?, ?, ?, ?, 'CERTIFIED', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(durability["id"]),
+            int(outcome["id"]),
+            str(note or "").strip()[:2400],
+            now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "HARDENING_RESILIENCE_CERTIFIED",
+            detail="V34.3 implementation #%s certified resilient after deliberate stress testing." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, cid
+
+
+def _v343_reopen_hardening(username, implementation_id, note=""):
+    outcome = _v343_outcome(username, implementation_id)
+    if not outcome:
+        return False, "resilience_outcome_required", None
+    if str(outcome.get("outcome") or "") != "REOPEN_HARDENING":
+        return False, "reopen_hardening_outcome_required", None
+
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+
+    cert = _v343_certificate(username, implementation_id)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_hardening_implementations
+            SET implementation_state='DEPLOYED',
+                rolled_back_at=NULL,
+                rollback_note=?
+            WHERE id=? AND username=?
+        """, (
+            "Reopened by V34.3 resilience drill. " + str(note or "").strip()[:1800],
+            int(implementation_id),
+            username
+        ))
+
+        if cert and str(cert.get("certificate_state") or "") == "CERTIFIED":
+            con.execute("""
+                UPDATE hunter_resilience_certificates
+                SET certificate_state='REVOKED',
+                    revoked_at=?,
+                    revoke_note=?
+                WHERE id=? AND username=? AND certificate_state='CERTIFIED'
+            """, (
+                now,
+                str(note or "Explicit V34.3 resilience revoke.").strip()[:2400],
+                int(cert["id"]),
+                username
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(implementation_id)
+
+
+def _v343_snapshot(username):
+    base = _v342_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        durability = item0.get("durability") or {}
+
+        if not impl or not durability:
+            continue
+        if str(durability.get("durability_state") or "") != "DURABLE":
+            continue
+
+        iid = int(impl["id"])
+        drills = _v343_drills(username, iid)
+        outcome = _v343_outcome(username, iid)
+        cert = _v343_certificate(username, iid)
+
+        item = dict(item0)
+        item["resilience_drills"] = drills[:20]
+        item["drill_count"] = len(drills)
+        item["resilience_outcome"] = outcome
+        item["resilience_certificate"] = cert
+        item["ready_for_outcome"] = len(drills) >= V343_MIN_DRILLS and not outcome
+        item["ready_to_certify"] = bool(outcome) and str(outcome.get("outcome") or "") == "CERTIFY_RESILIENT" and not cert
+        item["ready_to_reopen"] = bool(outcome) and str(outcome.get("outcome") or "") == "REOPEN_HARDENING"
+        items.append(item)
+
+    return {
+        "version": V343_VERSION,
+        "minimum_drills": V343_MIN_DRILLS,
+        "counts": {
+            "durable_rollouts": len(items),
+            "drills": sum(int(i.get("drill_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "certified_resilient": sum(
+                1 for i in items
+                if i.get("resilience_certificate") and str(i["resilience_certificate"].get("certificate_state") or "") == "CERTIFIED"
+            ),
+        },
+        "items": items,
+        "policy": "Durability is not resilience. Resilience requires deliberate stress drills, reviewed outcomes, and explicit certification."
+    }
+
+
+@app.route("/api/hunter-resilience-drills")
+def v343_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v343_snapshot(u)})
+
+
+@app.route("/api/hunter-resilience-drills/implementation/<int:implementation_id>/drill", methods=["POST"])
+def v343_drill_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, did = _v343_add_drill(
+        u,
+        implementation_id,
+        p.get("drill_type") or "",
+        p.get("scenario_note") or "",
+        p.get("signal_state") or "",
+        p.get("result_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "drill_id": did}), 400
+    return jsonify({"success": True, "drill_id": did})
+
+
+@app.route("/api/hunter-resilience-drills/implementation/<int:implementation_id>/outcome", methods=["POST"])
+def v343_outcome_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, oid = _v343_finalize_outcome(
+        u,
+        implementation_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-resilience-drills/implementation/<int:implementation_id>/certify", methods=["POST"])
+def v343_certify_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, cid = _v343_certify(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "certificate_id": cid}), 400
+    return jsonify({"success": True, "certificate_id": cid})
+
+
+@app.route("/api/hunter-resilience-drills/implementation/<int:implementation_id>/reopen", methods=["POST"])
+def v343_reopen_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v343_reopen_hardening(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/hunter-resilience-drills")
+def v343_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🧪 Resilience Drills</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v343_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        outcome = item.get("resilience_outcome") or {}
+        cert = item.get("resilience_certificate") or {}
+        drills = item.get("resilience_drills") or []
+
+        actions = ""
+
+        if not outcome:
+            actions += f"""
+            <form action='/api/hunter-resilience-drills/implementation/{iid}/drill' onsubmit='return v343submit(this,event)'>
+              <select name='drill_type'>
+                <option>LOAD_SPIKE</option><option>DEPENDENCY_FAILURE</option><option>BAD_INPUT</option>
+                <option>PARTIAL_OUTAGE</option><option>ROLLBACK_DRILL</option><option>OPERATOR_ERROR</option>
+              </select>
+              <textarea name='scenario_note' rows='2' placeholder='Stress / incident scenario'></textarea>
+              <select name='signal_state'>
+                <option>PASS</option><option>DEGRADED</option><option>FAIL</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='result_note' rows='2' placeholder='Observed recovery / failure behavior'></textarea>
+              <button>ADD RESILIENCE DRILL</button>
+            </form>
+            """
+
+        if item.get("ready_for_outcome"):
+            actions += f"""
+            <form action='/api/hunter-resilience-drills/implementation/{iid}/outcome' onsubmit='return v343submit(this,event)'>
+              <select name='outcome'>
+                <option>CERTIFY_RESILIENT</option>
+                <option>REMEDIATE_AND_RETEST</option>
+                <option>REOPEN_HARDENING</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Resilience outcome rationale'></textarea>
+              <button>FINALIZE RESILIENCE OUTCOME</button>
+            </form>
+            """
+        elif outcome:
+            actions += "<div class='final'>RESILIENCE OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")),
+                esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_certify"):
+            actions += f"""
+            <form action='/api/hunter-resilience-drills/implementation/{iid}/certify' onsubmit='return v343submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Resilience certification note'></textarea>
+              <button class='safe'>CERTIFY RESILIENT</button>
+            </form>
+            """
+
+        if item.get("ready_to_reopen"):
+            actions += f"""
+            <form action='/api/hunter-resilience-drills/implementation/{iid}/reopen' onsubmit='return v343submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Why hardening must reopen'></textarea>
+              <button class='danger'>REOPEN HARDENING</button>
+            </form>
+            """
+
+        cert_html = ""
+        if cert:
+            cert_html = "<div class='cert'>RESILIENCE: <b>{}</b><br><small>{}</small></div>".format(
+                esc(cert.get("certificate_state")),
+                esc(cert.get("certified_at"))
+            )
+
+        drills_html = "".join(
+            "<div class='drill'><b>{} · {}</b><span>{}</span><small>{}</small></div>".format(
+                esc(dr.get("drill_type")),
+                esc(dr.get("signal_state")),
+                esc(dr.get("result_note")),
+                esc(dr.get("created_at"))
+            ) for dr in drills[:8]
+        ) or "<div class='muted'>No resilience drills yet.</div>"
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>DURABLE</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          <p class='muted'>{esc(item.get('proposal_text'))}</p>
+          {cert_html}
+          {actions}
+          <div>{drills_html}</div>
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.3 Resilience Stress Tests</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ffcf70;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ffcf70}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #70562a;border-radius:999px;padding:5px 8px;color:#ffcf70;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .danger{{background:#ff8797}}
+    .final,.cert{{margin-top:10px;padding:12px;border:1px solid #216c52;border-radius:12px;background:#0e2a21;color:#9bf2cb}}
+    .drill{{border-top:1px solid #15313f;padding:8px 0}} .drill b{{display:block;color:#ffcf70}} .drill span{{display:block;margin:4px 0}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.3 // RESILIENCE STRESS TEST + INCIDENT DRILL GATE</div>
+        <h1>🧪 BREAK IT ON PURPOSE</h1>
+        <p class='muted'>A durable rollout still has to survive deliberate failure scenarios before it earns a resilience certificate.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>DURABLE ROLLOUTS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DRILLS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>READY</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CERTIFIED</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-rollout-stability'>📡 ROLLOUT STABILITY</a><a href='/api/hunter-resilience-drills'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v343submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["durable_rollouts"],
+        c["drills"],
+        c["ready_for_outcome"],
+        c["certified_resilient"],
+        "".join(cards) or "<article class='card'><p>No durable rollouts are ready for resilience drills.</p></article>"
+    )
+
+
+try:
+    _v343_prev_page = app.view_functions.get("v342_page")
+    if _v343_prev_page:
+        def _v343_stability_with_resilience(*args, **kwargs):
+            response = _v343_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-resilience-drills" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-rollout-stability'>JSON</a>",
+                    "<a href='/api/hunter-rollout-stability'>JSON</a><a href='/hunter-resilience-drills'>🧪 RESILIENCE DRILLS</a>",
+                    1
+                )
+            return response
+        app.view_functions["v342_page"] = _v343_stability_with_resilience
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
