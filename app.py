@@ -81701,6 +81701,466 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.27 STARTUP FEEDBACK CAPTURE + OPPORTUNITY FOLLOW-UP GATE =====
+# V35.26 makes the startup demo repeatable.
+# V35.27 makes the post-demo motion auditable and actionable:
+#
+# COMPLETED DEMO -> FEEDBACK CAPTURE -> OPPORTUNITY OPEN
+#                -> NEXT STEP + FOLLOW-UP DEADLINE
+#                -> ADVANCING / WON / LOST / CLOSED
+#                -> FOLLOW_UP_DUE if the deadline passes while still open
+#
+# This gate tracks presentation feedback and next-step discipline only. It never
+# claims third-party endorsement, employment, funding, immigration eligibility,
+# partnership approval, or any other external outcome.
+
+V3527_VERSION = "V35.27"
+V3527_STATES = {"OPEN", "FOLLOW_UP_DUE", "ADVANCING", "WON", "LOST", "CLOSED", "STALE"}
+V3527_INTEREST = {"UNKNOWN", "LOW", "MEDIUM", "HIGH"}
+V3527_SIGNAL_TYPES = {"FEEDBACK", "QUESTION", "OBJECTION", "REQUEST", "NEXT_STEP"}
+V3527_SIGNAL_STATES = {"OPEN", "RESOLVED"}
+
+
+def _v3527_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3527_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3527_parse_iso(value):
+    try:
+        return datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _v3527_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_opportunities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            demo_id INTEGER NOT NULL,
+            opportunity_key TEXT NOT NULL UNIQUE,
+            organization TEXT DEFAULT '',
+            contact_name TEXT DEFAULT '',
+            decision_maker TEXT DEFAULT '',
+            interest_level TEXT NOT NULL DEFAULT 'UNKNOWN',
+            opportunity_state TEXT NOT NULL DEFAULT 'OPEN',
+            meeting_summary TEXT DEFAULT '',
+            next_step TEXT DEFAULT '',
+            followup_due_at TEXT DEFAULT '',
+            outcome_note TEXT DEFAULT '',
+            source_demo_sha256 TEXT NOT NULL,
+            opportunity_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            closed_at TEXT,
+            UNIQUE(username, demo_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3527_user_state ON hunter_startup_opportunities(username,opportunity_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3527_demo ON hunter_startup_opportunities(username,demo_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_opportunity_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_id INTEGER NOT NULL,
+            signal_type TEXT NOT NULL,
+            signal_state TEXT NOT NULL DEFAULT 'OPEN',
+            detail TEXT NOT NULL,
+            owner TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3527_signal_opp ON hunter_startup_opportunity_signals(username,opportunity_id,signal_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_opportunity_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3527_events_opp ON hunter_startup_opportunity_events(username,opportunity_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3527_init()
+except Exception:
+    pass
+
+
+def _v3527_demo(username, demo_id):
+    d = _v3526_refresh(username, int(demo_id))
+    if not d:
+        return "STALE", None
+    if str(d.get("demo_state") or "").upper() == "COMPLETED" and str(d.get("source_package_state") or "").upper() == "SEALED":
+        return "COMPLETED", d
+    return "STALE", d
+
+
+def _v3527_event(con, username, opportunity_id, event_type, detail=""):
+    now = _v3527_now_iso()
+    clean = " ".join(str(detail or "").replace("\r", " ").replace("\n", " ").split())[:1000]
+    payload = {
+        "version": V3527_VERSION,
+        "opportunity_id": int(opportunity_id),
+        "event_type": str(event_type or "event")[:80],
+        "detail": clean,
+        "created_at": now,
+    }
+    digest, _ = _v3527_digest(payload)
+    con.execute("""INSERT INTO hunter_startup_opportunity_events
+        (username,opportunity_id,event_type,detail,evidence_sha256,created_at)
+        VALUES(?,?,?,?,?,?)""",
+        (username,int(opportunity_id),payload["event_type"],clean,digest,now))
+    return digest
+
+
+def _v3527_create(username, demo_id, organization="", contact_name="", decision_maker="", interest_level="UNKNOWN", meeting_summary="", next_step="", followup_due_at=""):
+    try:
+        demo_id = int(demo_id)
+    except Exception:
+        return False, "invalid_demo_id", None
+    demo_state, demo = _v3527_demo(username, demo_id)
+    if not demo:
+        return False, "demo_not_found", None
+    if demo_state != "COMPLETED":
+        return False, "completed_current_demo_required", None
+    interest_level = str(interest_level or "UNKNOWN").upper().strip()
+    if interest_level not in V3527_INTEREST:
+        return False, "invalid_interest_level", None
+    organization = " ".join(str(organization or demo.get("audience_name") or "").replace("\r", " ").replace("\n", " ").split())[:200]
+    contact_name = " ".join(str(contact_name or "").replace("\r", " ").replace("\n", " ").split())[:160]
+    decision_maker = " ".join(str(decision_maker or "").replace("\r", " ").replace("\n", " ").split())[:160]
+    meeting_summary = str(meeting_summary or "").strip()[:2500]
+    next_step = str(next_step or "").strip()[:1200]
+    followup_due_at = str(followup_due_at or "").strip()[:80]
+    if followup_due_at and not _v3527_parse_iso(followup_due_at):
+        return False, "invalid_followup_due_at", None
+    now = _v3527_now_iso()
+    opportunity_key = "BL3-OPP-" + datetime.now().strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(4).upper()
+    evidence = {
+        "version": V3527_VERSION,
+        "evidence_type": "startup_opportunity_opened",
+        "opportunity_key": opportunity_key,
+        "demo_id": demo_id,
+        "demo_key": demo.get("demo_key") or "",
+        "source_demo_sha256": demo.get("session_sha256") or "",
+        "organization": organization,
+        "contact_name": contact_name,
+        "decision_maker": decision_maker,
+        "interest_level": interest_level,
+        "meeting_summary": meeting_summary,
+        "next_step": next_step,
+        "followup_due_at": followup_due_at,
+        "created_at": now,
+        "policy": "This record captures user-entered post-demo feedback and follow-up intent. It does not prove third-party endorsement, employment, funding, investment, partnership, immigration eligibility, or acceptance.",
+    }
+    digest, _ = _v3527_digest(evidence)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_startup_opportunities
+                (username,demo_id,opportunity_key,organization,contact_name,decision_maker,interest_level,opportunity_state,meeting_summary,next_step,followup_due_at,outcome_note,source_demo_sha256,opportunity_sha256,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?)""",
+                (username,demo_id,opportunity_key,organization,contact_name,decision_maker,interest_level,meeting_summary,next_step,followup_due_at,"",str(demo.get("session_sha256") or ""),digest,now,now))
+            oid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            row = con.execute("SELECT id FROM hunter_startup_opportunities WHERE username=? AND demo_id=?", (username,demo_id)).fetchone()
+            return False, "opportunity_already_exists", int(row[0]) if row else None
+        _v3527_event(con, username, oid, "OPPORTUNITY_OPENED", f"Demo #{demo_id}; interest={interest_level}; next_step={'yes' if next_step else 'no'}.")
+        con.commit()
+        return True, None, oid
+    finally:
+        con.close()
+
+
+def _v3527_refresh(username, opportunity_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_opportunities WHERE username=? AND id=?", (username,int(opportunity_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        signals = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_opportunity_signals WHERE username=? AND opportunity_id=? ORDER BY id DESC", (username,int(opportunity_id))).fetchall()]
+        events = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_opportunity_events WHERE username=? AND opportunity_id=? ORDER BY id DESC LIMIT 40", (username,int(opportunity_id))).fetchall()]
+    finally:
+        con.close()
+    demo_state, demo = _v3527_demo(username, d["demo_id"])
+    stored = str(d.get("opportunity_state") or "OPEN").upper()
+    terminal = stored in {"WON", "LOST", "CLOSED"}
+    if demo_state != "COMPLETED" and not terminal:
+        live_state = "STALE"
+    elif terminal:
+        live_state = stored
+    elif stored == "ADVANCING":
+        live_state = "ADVANCING"
+    else:
+        due = _v3527_parse_iso(d.get("followup_due_at"))
+        now = _v3527_parse_iso(_v3527_now_iso())
+        live_state = "FOLLOW_UP_DUE" if due and now and due <= now else "OPEN"
+    if live_state != stored:
+        con = sqlite3.connect(DB)
+        try:
+            now = _v3527_now_iso()
+            con.execute("UPDATE hunter_startup_opportunities SET opportunity_state=?,updated_at=? WHERE username=? AND id=?", (live_state,now,username,int(opportunity_id)))
+            _v3527_event(con, username, opportunity_id, "STATE_REFRESH", f"Opportunity state -> {live_state}; source demo -> {demo_state}.")
+            con.commit()
+            d["opportunity_state"] = live_state
+        finally:
+            con.close()
+    else:
+        d["opportunity_state"] = live_state
+    d["signals"] = signals
+    d["events"] = events
+    d["source_demo_state"] = demo_state
+    d["source_demo"] = demo
+    d["open_signal_count"] = sum(1 for x in signals if str(x.get("signal_state") or "").upper() == "OPEN")
+    return d
+
+
+def _v3527_add_signal(username, opportunity_id, signal_type, detail, owner=""):
+    opp = _v3527_refresh(username, opportunity_id)
+    if not opp:
+        return False, "opportunity_not_found", None
+    if opp.get("opportunity_state") in {"WON", "LOST", "CLOSED", "STALE"}:
+        return False, "opportunity_not_open_for_feedback", opp
+    signal_type = str(signal_type or "FEEDBACK").upper().strip()
+    if signal_type not in V3527_SIGNAL_TYPES:
+        return False, "invalid_signal_type", opp
+    detail = str(detail or "").strip()[:1800]
+    if not detail:
+        return False, "detail_required", opp
+    owner = " ".join(str(owner or username).replace("\r", " ").replace("\n", " ").split())[:160]
+    now = _v3527_now_iso()
+    evidence = {
+        "version": V3527_VERSION,
+        "opportunity_id": int(opportunity_id),
+        "signal_type": signal_type,
+        "detail": detail,
+        "owner": owner,
+        "created_at": now,
+    }
+    digest, _ = _v3527_digest(evidence)
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_startup_opportunity_signals
+            (username,opportunity_id,signal_type,signal_state,detail,owner,evidence_sha256,created_at,updated_at)
+            VALUES(?,?,?,'OPEN',?,?,?,?,?)""",
+            (username,int(opportunity_id),signal_type,detail,owner,digest,now,now))
+        sid = int(cur.lastrowid)
+        _v3527_event(con, username, opportunity_id, "SIGNAL_ADDED", f"{signal_type} signal #{sid} added.")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3527_refresh(username, opportunity_id)
+
+
+def _v3527_resolve_signal(username, opportunity_id, signal_id):
+    opp = _v3527_refresh(username, opportunity_id)
+    if not opp:
+        return False, "opportunity_not_found", None
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_opportunity_signals WHERE username=? AND opportunity_id=? AND id=?", (username,int(opportunity_id),int(signal_id))).fetchone()
+        if not row:
+            return False, "signal_not_found", opp
+        if str(row["signal_state"] or "").upper() == "RESOLVED":
+            return True, None, opp
+        now = _v3527_now_iso()
+        con.execute("UPDATE hunter_startup_opportunity_signals SET signal_state='RESOLVED',resolved_at=?,updated_at=? WHERE username=? AND opportunity_id=? AND id=?", (now,now,username,int(opportunity_id),int(signal_id)))
+        _v3527_event(con, username, opportunity_id, "SIGNAL_RESOLVED", f"Signal #{int(signal_id)} resolved.")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3527_refresh(username, opportunity_id)
+
+
+def _v3527_update(username, opportunity_id, interest_level=None, decision_maker=None, next_step=None, followup_due_at=None, state=None, outcome_note=None):
+    opp = _v3527_refresh(username, opportunity_id)
+    if not opp:
+        return False, "opportunity_not_found", None
+    updates = {}; params = []
+    if interest_level is not None:
+        v = str(interest_level or "UNKNOWN").upper().strip()
+        if v not in V3527_INTEREST:
+            return False, "invalid_interest_level", opp
+        updates["interest_level"] = v
+    if decision_maker is not None:
+        updates["decision_maker"] = " ".join(str(decision_maker or "").replace("\r", " ").replace("\n", " ").split())[:160]
+    if next_step is not None:
+        updates["next_step"] = str(next_step or "").strip()[:1200]
+    if followup_due_at is not None:
+        v = str(followup_due_at or "").strip()[:80]
+        if v and not _v3527_parse_iso(v):
+            return False, "invalid_followup_due_at", opp
+        updates["followup_due_at"] = v
+    if state is not None:
+        v = str(state or "").upper().strip()
+        if v not in {"OPEN", "ADVANCING", "WON", "LOST", "CLOSED"}:
+            return False, "invalid_state", opp
+        updates["opportunity_state"] = v
+    if outcome_note is not None:
+        updates["outcome_note"] = str(outcome_note or "").strip()[:1800]
+    if not updates:
+        return False, "no_updates", opp
+    now = _v3527_now_iso()
+    if updates.get("opportunity_state") in {"WON", "LOST", "CLOSED"}:
+        updates["closed_at"] = now
+    updates["updated_at"] = now
+    set_sql = ",".join(f"{k}=?" for k in updates)
+    vals = list(updates.values()) + [username,int(opportunity_id)]
+    con = sqlite3.connect(DB)
+    try:
+        con.execute(f"UPDATE hunter_startup_opportunities SET {set_sql} WHERE username=? AND id=?", vals)
+        _v3527_event(con, username, opportunity_id, "OPPORTUNITY_UPDATED", ", ".join(f"{k}={v}" for k,v in updates.items() if k != 'outcome_note')[:900])
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3527_refresh(username, opportunity_id)
+
+
+def _v3527_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r["id"]) for r in con.execute("SELECT id FROM hunter_startup_opportunities WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    opportunities = [_v3527_refresh(username, oid) for oid in ids]
+    opportunities = [x for x in opportunities if x]
+    counts = {k: 0 for k in V3527_STATES}
+    for x in opportunities:
+        state = x.get("opportunity_state") if x.get("opportunity_state") in counts else "STALE"
+        counts[state] += 1
+    d26 = _v3526_snapshot(username)
+    used = {int(x.get("demo_id") or 0) for x in opportunities}
+    eligible = [d for d in (d26.get("demos") or []) if str(d.get("demo_state") or "").upper() == "COMPLETED" and str(d.get("source_package_state") or "").upper() == "SEALED" and int(d.get("id") or 0) not in used]
+    return {"success": True, "version": V3527_VERSION, "counts": counts, "opportunities": opportunities, "eligible_demos": eligible}
+
+
+@app.route('/api/hunter-startup-opportunities', methods=['GET','POST'])
+def v3527_api_opportunities():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3527_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,oid = _v3527_create(u,p.get('demo_id'),p.get('organization') or '',p.get('contact_name') or '',p.get('decision_maker') or '',p.get('interest_level') or 'UNKNOWN',p.get('meeting_summary') or '',p.get('next_step') or '',p.get('followup_due_at') or '')
+    return jsonify({'success':ok,'error':e,'opportunity_id':oid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-opportunities/<int:opportunity_id>')
+def v3527_api_opportunity(opportunity_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3527_refresh(u,opportunity_id)
+    if not d:
+        return jsonify({'success':False,'error':'opportunity_not_found'}), 404
+    return jsonify({'success':True,'version':V3527_VERSION,'opportunity':d})
+
+
+@app.route('/api/hunter-startup-opportunities/<int:opportunity_id>/signal', methods=['POST'])
+def v3527_api_signal(opportunity_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3527_add_signal(u,opportunity_id,p.get('signal_type') or 'FEEDBACK',p.get('detail') or '',p.get('owner') or u)
+    return jsonify({'success':ok,'error':e,'opportunity':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-opportunities/<int:opportunity_id>/signal/<int:signal_id>/resolve', methods=['POST'])
+def v3527_api_signal_resolve(opportunity_id, signal_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    ok,e,d = _v3527_resolve_signal(u,opportunity_id,signal_id)
+    return jsonify({'success':ok,'error':e,'opportunity':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-opportunities/<int:opportunity_id>/update', methods=['POST'])
+def v3527_api_update(opportunity_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3527_update(
+        u, opportunity_id,
+        p.get('interest_level') if 'interest_level' in p else None,
+        p.get('decision_maker') if 'decision_maker' in p else None,
+        p.get('next_step') if 'next_step' in p else None,
+        p.get('followup_due_at') if 'followup_due_at' in p else None,
+        p.get('state') if 'state' in p else None,
+        p.get('outcome_note') if 'outcome_note' in p else None,
+    )
+    return jsonify({'success':ok,'error':e,'opportunity':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-startup-opportunities')
+def v3527_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3527_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join(
+        f"<option value='{int(x['id'])}'>{esc(x.get('demo_key') or '')} — {esc(x.get('audience_name') or x.get('demo_title') or 'Completed demo')}</option>"
+        for x in d['eligible_demos']
+    )
+    cards = []
+    for x in d['opportunities']:
+        oid = int(x['id']); state = esc(x.get('opportunity_state') or ''); interest = esc(x.get('interest_level') or 'UNKNOWN')
+        signals = []
+        for s in x.get('signals') or []:
+            sid = int(s['id']); sstate = esc(s.get('signal_state') or ''); stype = esc(s.get('signal_type') or '')
+            action = ""
+            if s.get('signal_state') == 'OPEN' and x.get('opportunity_state') not in {'WON','LOST','CLOSED','STALE'}:
+                action = f"<form action='/api/hunter-startup-opportunities/{oid}/signal/{sid}/resolve' onsubmit='return v3527submit(this,event)'><button class='small'>RESOLVE</button></form>"
+            signals.append(f"<div class='signal'><div><b>{stype}</b> · {sstate}<div class='muted'>{esc(s.get('detail') or '')}</div></div>{action}</div>")
+        controls = ""
+        if x.get('opportunity_state') not in {'WON','LOST','CLOSED','STALE'}:
+            controls = f"""<form action='/api/hunter-startup-opportunities/{oid}/signal' onsubmit='return v3527submit(this,event)'><select name='signal_type'><option>FEEDBACK</option><option>QUESTION</option><option>OBJECTION</option><option>REQUEST</option><option>NEXT_STEP</option></select><textarea name='detail' placeholder='Feedback / question / objection / requested next step' required></textarea><button>ADD SIGNAL</button></form><form action='/api/hunter-startup-opportunities/{oid}/update' onsubmit='return v3527submit(this,event)'><select name='interest_level'><option>{interest}</option><option>UNKNOWN</option><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select><input name='decision_maker' value='{esc(x.get('decision_maker') or '')}' placeholder='Decision maker'><textarea name='next_step' placeholder='Concrete next step'>{esc(x.get('next_step') or '')}</textarea><input name='followup_due_at' value='{esc(x.get('followup_due_at') or '')}' placeholder='Follow-up due ISO, e.g. 2026-10-15T12:00:00Z'><select name='state'><option>{state}</option><option>OPEN</option><option>ADVANCING</option><option>WON</option><option>LOST</option><option>CLOSED</option></select><textarea name='outcome_note' placeholder='Outcome / follow-up note'>{esc(x.get('outcome_note') or '')}</textarea><button>UPDATE OPPORTUNITY</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('opportunity_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(x.get('organization') or 'Startup opportunity')}</h2><p class='muted'>Interest: <b>{interest}</b> · Contact: {esc(x.get('contact_name') or '—')} · Decision maker: {esc(x.get('decision_maker') or '—')}</p><p><b>Next step:</b> {esc(x.get('next_step') or 'Not set')}<br><b>Follow-up:</b> {esc(x.get('followup_due_at') or 'Not scheduled')} · <b>Open signals:</b> {int(x.get('open_signal_count') or 0)}</p>{''.join(signals) or "<p class='muted'>No feedback signals captured yet.</p>"}{controls}<p><a href='/api/hunter-startup-opportunities/{oid}'>JSON EVIDENCE</a> · <a href='/hunter-startup-demo'>SOURCE DEMO</a></p></article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.27 Startup Opportunities</title><style>
+    body{{margin:0;background:#05070a;color:#eef7fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304652;background:#0a1015;border-radius:20px;padding:18px}}.eyebrow{{color:#a7ffcf;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a6b2}}.stats{{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}}.num{{font-size:23px;font-weight:900;color:#a7ffcf}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.signal{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}}.pill{{border:1px solid #348f68;border-radius:999px;padding:5px 9px}}input,select,textarea,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}button.small{{width:auto;margin:0;padding:7px 10px}}a{{color:#a7ffcf}}.signal{{border-top:1px solid #1d3038;padding:11px 0}}@media(max-width:900px){{.stats{{grid-template-columns:repeat(2,1fr)}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.27 · STARTUP FEEDBACK CAPTURE + OPPORTUNITY FOLLOW-UP GATE</div><h1>Don't let a good demo die in the hallway.</h1><p class='muted'>Convert a completed startup demo into a bounded follow-up record: feedback, objections, decision makers, concrete next steps, deadlines and explicit outcomes.</p><div class='stats'><div><div class='num'>{}</div>OPEN</div><div><div class='num'>{}</div>DUE</div><div><div class='num'>{}</div>ADVANCING</div><div><div class='num'>{}</div>WON</div><div><div class='num'>{}</div>LOST</div><div><div class='num'>{}</div>CLOSED</div><div><div class='num'>{}</div>STALE</div></div><p><a href='/hunter-startup-demo'>← Guided Startup Demo</a> · <a href='/api/hunter-startup-opportunities'>JSON</a></p></section><section class='card' style='margin-top:16px'><h2>Open post-demo opportunity</h2><form action='/api/hunter-startup-opportunities' onsubmit='return v3527submit(this,event)'><select name='demo_id' required><option value=''>Completed current demo</option>{}</select><input name='organization' placeholder='Startup / organization'><input name='contact_name' placeholder='Main contact'><input name='decision_maker' placeholder='Decision maker (if known)'><select name='interest_level'><option>UNKNOWN</option><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select><textarea name='meeting_summary' placeholder='What happened in the meeting?'></textarea><textarea name='next_step' placeholder='Concrete next step'></textarea><input name='followup_due_at' placeholder='Follow-up due ISO, e.g. 2026-10-15T12:00:00Z'><button>OPEN OPPORTUNITY</button></form></section><section class='grid'>{}</section></div><script>async function v3527submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('OPEN',0),c.get('FOLLOW_UP_DUE',0),c.get('ADVANCING',0),c.get('WON',0),c.get('LOST',0),c.get('CLOSED',0),c.get('STALE',0),opts,''.join(cards) or "<article class='card'><p>No startup opportunities yet.</p></article>")
+
+
+# Add navigation from V35.26 into V35.27.
+try:
+    _v3527_prev_page = app.view_functions.get('v3526_page')
+    if _v3527_prev_page:
+        def _v3527_demo_with_followup(*args, **kwargs):
+            response = _v3527_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-startup-opportunities' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-startup-demos'>JSON</a>",
+                    "<a href='/api/hunter-startup-demos'>JSON</a> · <a href='/hunter-startup-opportunities'>🎯 POST-DEMO FOLLOW-UP</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3526_page'] = _v3527_demo_with_followup
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -81820,6 +82280,7 @@ if __name__ == "__main__":
     print("📦 Operational Readiness Dossier + Evidence Export Gate enabled")
     print("🚀 External Review Package + Startup Demo Handoff Gate enabled")
     print("🎤 Startup Demo Session + Guided Presentation Gate enabled")
+    print("🎯 Startup Feedback Capture + Opportunity Follow-up Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
