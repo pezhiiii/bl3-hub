@@ -80258,6 +80258,382 @@ except Exception:
 
 
 
+# ===== V35.23 RECERTIFICATION CAMPAIGN + COMPLIANCE RESTORATION GATE =====
+# V35.22 can explicitly mark current operator certifications DUE after a
+# published incident-learning change. V35.23 turns those affected records into
+# one auditable restoration campaign:
+#
+# RECERT TRIGGER -> CAMPAIGN -> OPEN / IN_PROGRESS / OVERDUE / BLOCKED -> RESTORED
+#
+# This gate never recertifies an operator by itself. Fresh evidence still flows
+# through V35.17. V35.23 only observes the exact triggered certification IDs,
+# tracks the restoration deadline, and seals evidence when every target has
+# actually reached RECERTIFIED.
+
+V3523_VERSION = "V35.23"
+V3523_STATES = {"OPEN", "IN_PROGRESS", "OVERDUE", "BLOCKED", "RESTORED"}
+
+
+def _v3523_now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _v3523_parse_iso(value):
+    try:
+        return datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _v3523_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3523_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recertification_campaigns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            promotion_id INTEGER NOT NULL,
+            certification_scope TEXT NOT NULL,
+            campaign_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            deadline_hours INTEGER NOT NULL DEFAULT 72,
+            campaign_state TEXT NOT NULL DEFAULT 'OPEN',
+            opened_at TEXT NOT NULL,
+            deadline_at TEXT NOT NULL,
+            restored_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, promotion_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3523_user_state ON hunter_recertification_campaigns(username,campaign_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3523_scope ON hunter_recertification_campaigns(username,certification_scope,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recertification_campaign_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            campaign_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3523_events_campaign ON hunter_recertification_campaign_events(username,campaign_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3523_init()
+except Exception:
+    pass
+
+
+def _v3523_add_event(con, username, campaign_id, event_type, actor, detail="", payload=None):
+    now = _v3523_now_iso()
+    envelope = {
+        "version": V3523_VERSION,
+        "campaign_id": int(campaign_id),
+        "event_type": str(event_type or "EVENT")[:80],
+        "actor": str(actor or username)[:160],
+        "detail": str(detail or "")[:4000],
+        "payload": payload or {},
+        "created_at": now,
+    }
+    digest, canonical = _v3523_digest(envelope)
+    con.execute("""INSERT INTO hunter_recertification_campaign_events
+        (username,campaign_id,event_type,actor,detail,payload_json,evidence_sha256,created_at)
+        VALUES(?,?,?,?,?,?,?,?)""",
+        (username, int(campaign_id), envelope["event_type"], envelope["actor"], envelope["detail"],
+         canonical, digest, now))
+    return digest
+
+
+def _v3523_trigger_targets(username, promotion_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""SELECT t.certification_id,t.operator,t.certification_scope,t.prior_state,t.triggered_at,
+            t.evidence_sha256 AS trigger_sha256,c.certification_state,c.due_at,c.recertified_at,c.revoked_at,c.updated_at
+            FROM hunter_incident_recertification_triggers t
+            LEFT JOIN hunter_operator_certifications c
+              ON c.username=t.username AND c.id=t.certification_id
+            WHERE t.username=? AND t.promotion_id=?
+            ORDER BY t.id ASC""", (username, int(promotion_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v3523_campaign_row(username, campaign_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_recertification_campaigns WHERE username=? AND id=?",
+                          (username, int(campaign_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3523_evaluate_state(campaign, targets):
+    if not campaign:
+        return "OPEN", {"targets": 0, "recertified": 0, "due": 0, "revoked": 0, "missing": 0}
+    total = len(targets)
+    recertified = 0; due = 0; revoked = 0; missing = 0
+    for t in targets:
+        state = str(t.get("certification_state") or "").upper()
+        if state == "RECERTIFIED": recertified += 1
+        elif state == "REVOKED": revoked += 1
+        elif state == "DUE": due += 1
+        elif not state: missing += 1
+        else: due += 1
+    metrics = {"targets": total, "recertified": recertified, "due": due, "revoked": revoked, "missing": missing}
+    if total and recertified == total:
+        return "RESTORED", metrics
+    if revoked or missing:
+        return "BLOCKED", metrics
+    deadline = _v3523_parse_iso(campaign.get("deadline_at"))
+    now = _v3523_parse_iso(_v3523_now_iso())
+    if deadline and now and now > deadline:
+        return "OVERDUE", metrics
+    if recertified > 0:
+        return "IN_PROGRESS", metrics
+    return "OPEN", metrics
+
+
+def _v3523_refresh(username, campaign_id):
+    campaign = _v3523_campaign_row(username, campaign_id)
+    if not campaign:
+        return None
+    targets = _v3523_trigger_targets(username, campaign["promotion_id"])
+    state, metrics = _v3523_evaluate_state(campaign, targets)
+    prior = str(campaign.get("campaign_state") or "OPEN").upper()
+    now = _v3523_now_iso()
+    if state != prior:
+        con = sqlite3.connect(DB)
+        try:
+            restored_at = now if state == "RESTORED" else campaign.get("restored_at")
+            con.execute("""UPDATE hunter_recertification_campaigns
+                SET campaign_state=?,restored_at=?,updated_at=? WHERE username=? AND id=?""",
+                (state, restored_at, now, username, int(campaign_id)))
+            _v3523_add_event(con, username, campaign_id, "CAMPAIGN_STATE_CHANGED", username,
+                            f"{prior} -> {state}", {"from": prior, "to": state, **metrics})
+            if state == "RESTORED":
+                _v3523_add_event(con, username, campaign_id, "COMPLIANCE_RESTORED", username,
+                                "Every triggered certification has fresh recertification evidence.",
+                                {"promotion_id": int(campaign["promotion_id"]), "scope": campaign["certification_scope"], **metrics})
+            con.commit()
+        finally:
+            con.close()
+        campaign = _v3523_campaign_row(username, campaign_id) or campaign
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        events = [dict(r) for r in con.execute("""SELECT * FROM hunter_recertification_campaign_events
+            WHERE username=? AND campaign_id=? ORDER BY id ASC""", (username, int(campaign_id))).fetchall()]
+    finally:
+        con.close()
+    campaign["campaign_state"] = state
+    campaign["metrics"] = metrics
+    campaign["targets"] = targets
+    campaign["events"] = events
+    campaign["restoration_ready"] = bool(state == "RESTORED")
+    return campaign
+
+
+def _v3523_create(username, promotion_id, campaign_name="", owner="", deadline_hours=72):
+    try:
+        promotion_id = int(promotion_id)
+    except Exception:
+        return False, "invalid_promotion_id", None
+    promotion = _v3522_entry(username, promotion_id)
+    if not promotion:
+        return False, "promotion_not_found", None
+    if str(promotion.get("promotion_state") or "").upper() != "PUBLISHED":
+        return False, "published_learning_required", None
+    if not promotion.get("recert_triggered_at"):
+        return False, "recertification_trigger_required", None
+    targets = _v3523_trigger_targets(username, promotion_id)
+    if not targets:
+        return False, "no_recertification_targets", None
+    try:
+        deadline_hours = max(1, min(24 * 90, int(deadline_hours or 72)))
+    except Exception:
+        deadline_hours = 72
+    owner = str(owner or username).strip()[:160] or username
+    name = str(campaign_name or "").strip()[:220] or f"Recertification · {promotion.get('affected_scope') or 'scope'}"
+    now_dt = datetime.now().astimezone(); now = now_dt.isoformat(timespec="seconds")
+    deadline_at = (now_dt + timedelta(hours=deadline_hours)).isoformat(timespec="seconds")
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_recertification_campaigns
+                (username,promotion_id,certification_scope,campaign_name,owner,deadline_hours,campaign_state,opened_at,deadline_at,updated_at)
+                VALUES(?,?,?,?,?,?,'OPEN',?,?,?)""",
+                (username, promotion_id, str(promotion.get("affected_scope") or ""), name, owner,
+                 deadline_hours, now, deadline_at, now))
+            cid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            row = con.execute("SELECT id FROM hunter_recertification_campaigns WHERE username=? AND promotion_id=?",
+                              (username, promotion_id)).fetchone()
+            return False, "campaign_already_exists", int(row[0]) if row else None
+        _v3523_add_event(con, username, cid, "CAMPAIGN_OPENED", owner,
+                        "Recertification restoration campaign opened.",
+                        {"promotion_id": promotion_id, "scope": promotion.get("affected_scope"),
+                         "deadline_hours": deadline_hours, "deadline_at": deadline_at,
+                         "target_certification_ids": [int(t["certification_id"]) for t in targets]})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, cid
+
+
+def _v3523_add_note(username, campaign_id, note=""):
+    campaign = _v3523_refresh(username, campaign_id)
+    if not campaign:
+        return False, "campaign_not_found", None
+    note = str(note or "").strip()[:4000]
+    if not note:
+        return False, "note_required", None
+    con = sqlite3.connect(DB)
+    try:
+        digest = _v3523_add_event(con, username, campaign_id, "OPERATOR_NOTE", username, note,
+                                  {"state": campaign.get("campaign_state"), **(campaign.get("metrics") or {})})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {"campaign_id": int(campaign_id), "evidence_sha256": digest}
+
+
+def _v3523_eligible_promotions(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""SELECT p.* FROM hunter_incident_learning_promotions p
+            WHERE p.username=? AND p.promotion_state='PUBLISHED' AND p.recert_triggered_at IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM hunter_recertification_campaigns c
+                              WHERE c.username=p.username AND c.promotion_id=p.id)
+            ORDER BY p.id DESC""", (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v3523_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r["id"]) for r in con.execute("SELECT id FROM hunter_recertification_campaigns WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    campaigns = []
+    counts = {s: 0 for s in V3523_STATES}
+    for cid in ids:
+        d = _v3523_refresh(username, cid)
+        if d:
+            state = str(d.get("campaign_state") or "OPEN").upper()
+            counts[state] = counts.get(state, 0) + 1
+            campaigns.append(d)
+    return {"success": True, "version": V3523_VERSION, "counts": counts,
+            "eligible_promotions": _v3523_eligible_promotions(username), "campaigns": campaigns,
+            "restored": counts.get("RESTORED", 0),
+            "attention_required": counts.get("OVERDUE", 0) + counts.get("BLOCKED", 0)}
+
+
+@app.route('/api/hunter-recertification-campaigns', methods=['GET','POST'])
+def v3523_api_campaigns():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3523_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, cid = _v3523_create(u, p.get('promotion_id'), p.get('campaign_name') or '',
+                                   p.get('owner') or u, p.get('deadline_hours') or 72)
+    return jsonify({'success':ok,'error':error,'campaign_id':cid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-recertification-campaigns/<int:campaign_id>')
+def v3523_api_campaign(campaign_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3523_refresh(u, campaign_id)
+    if not d:
+        return jsonify({'success':False,'error':'campaign_not_found'}), 404
+    return jsonify({'success':True,'version':V3523_VERSION,'campaign':d})
+
+
+@app.route('/api/hunter-recertification-campaigns/<int:campaign_id>/note', methods=['POST'])
+def v3523_api_note(campaign_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, data = _v3523_add_note(u, campaign_id, p.get('note') or '')
+    return jsonify({'success':ok,'error':error,'result':data}), (200 if ok else 400)
+
+
+@app.route('/hunter-recertification-campaigns')
+def v3523_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3523_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join("<option value='{}'>Learning #{} · {}</option>".format(
+        int(p['id']), int(p['id']), esc(p.get('affected_scope') or 'scope')) for p in d['eligible_promotions'])
+    cards = []
+    for x in d['campaigns']:
+        cid = int(x['id']); state = str(x.get('campaign_state') or 'OPEN').upper(); m = x.get('metrics') or {}
+        targets = x.get('targets') or []; events = x.get('events') or []
+        target_html = []
+        for t in targets:
+            cs = str(t.get('certification_state') or 'MISSING').upper()
+            target_html.append("<div class='target'><b>{}</b><span>Cert #{} · {}</span><span class='state {}'>{}</span></div>".format(
+                esc(t.get('operator') or 'operator'), int(t.get('certification_id') or 0), esc(t.get('certification_scope') or ''),
+                esc(cs.lower()), esc(cs)))
+        evidence = ' · '.join(str(e.get('evidence_sha256') or '')[:10] for e in events[-4:]) or 'none'
+        cards.append(f"""<article class='card'><div class='top'><span>Campaign #{cid}</span><span class='pill {esc(state.lower())}'>{esc(state)}</span></div>
+        <h2>{esc(x.get('campaign_name') or '')}</h2><p class='muted'>Scope {esc(x.get('certification_scope') or '')} · Owner {esc(x.get('owner') or '')} · Deadline {esc(x.get('deadline_at') or '-')}</p>
+        <div class='progress'><b>{int(m.get('recertified') or 0)}/{int(m.get('targets') or 0)}</b> RECERTIFIED · {int(m.get('due') or 0)} DUE · {int(m.get('revoked') or 0)} REVOKED</div>
+        <div class='targets'>{''.join(target_html)}</div><p class='muted'>Evidence <code>{esc(evidence)}</code></p>
+        <form action='/api/hunter-recertification-campaigns/{cid}/note' onsubmit='return v3523submit(this,event)'><input name='note' placeholder='Operator note / escalation context' required><button>ADD AUDIT NOTE</button></form>
+        <p><a href='/hunter-operator-certifications'>🏅 Submit fresh recertification evidence</a></p></article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.23 Recertification Campaigns</title><style>
+    body{{margin:0;background:#05070a;color:#edf8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304654;background:#091016;border-radius:20px;padding:18px}}.eyebrow{{color:#78f0ff;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#8fa6b2}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.stats>div{{border:1px solid #223944;border-radius:14px;padding:12px}}.num{{font-size:24px;font-weight:900;color:#78f0ff}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.target{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.pill,.state{{border:1px solid #356c76;border-radius:999px;padding:5px 9px}}.restored{{border-color:#2f9e67!important}}.overdue,.blocked{{border-color:#a94455!important}}input,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}a,code{{color:#78f0ff}}.progress{{margin:12px 0;padding:12px;border:1px solid #223944;border-radius:12px}}.targets{{display:grid;gap:8px}}.target{{padding:10px;border:1px solid #20343e;border-radius:12px}}@media(max-width:760px){{.stats{{grid-template-columns:repeat(2,1fr)}}.target{{align-items:flex-start;flex-direction:column}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.23 · RECERTIFICATION CAMPAIGN + COMPLIANCE RESTORATION GATE</div>
+    <h1>Do not stop at DUE. Prove the scope is restored.</h1><p class='muted'>Track every certification explicitly marked DUE by incident learning until each exact target presents fresh evidence and reaches RECERTIFIED. Deadlines, revocations and restoration are visible and digest-stamped.</p>
+    <div class='stats'><div><div class='num'>{}</div>OPEN</div><div><div class='num'>{}</div>IN PROGRESS</div><div><div class='num'>{}</div>OVERDUE</div><div><div class='num'>{}</div>BLOCKED</div><div><div class='num'>{}</div>RESTORED</div></div>
+    <p><a href='/hunter-incident-learning'>← Incident Learning</a> · <a href='/hunter-operator-certifications'>🏅 Certifications</a> · <a href='/api/hunter-recertification-campaigns'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Open restoration campaign</h2><form action='/api/hunter-recertification-campaigns' onsubmit='return v3523submit(this,event)'><select name='promotion_id' required><option value=''>Triggered incident learning</option>{}</select><input name='campaign_name' placeholder='Campaign name'><input name='owner' value='{}' placeholder='Campaign owner' required><input name='deadline_hours' type='number' min='1' max='2160' value='72'><button>OPEN RECERTIFICATION CAMPAIGN</button></form></section>
+    <section class='grid'>{}</section></div><script>async function v3523submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(
+        c.get('OPEN',0),c.get('IN_PROGRESS',0),c.get('OVERDUE',0),c.get('BLOCKED',0),c.get('RESTORED',0),opts,esc(u),
+        ''.join(cards) or "<article class='card'><p>No recertification campaigns yet.</p></article>")
+
+
+# Add navigation from V35.22 into V35.23.
+try:
+    _v3523_prev_page = app.view_functions.get('v3522_page')
+    if _v3523_prev_page:
+        def _v3523_learning_with_campaigns(*args, **kwargs):
+            response = _v3523_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-recertification-campaigns' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-incident-learning'>JSON</a>",
+                    "<a href='/api/hunter-incident-learning'>JSON</a> · <a href='/hunter-recertification-campaigns'>🔁 RECERT CAMPAIGNS</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3522_page'] = _v3523_learning_with_campaigns
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -80373,6 +80749,7 @@ if __name__ == "__main__":
     print("🚨 Live Incident Activation + Response SLA Gate enabled")
     print("🧠 Post-Incident Review + Corrective Action Closure Gate enabled")
     print("📚 Incident Learning Promotion + Recertification Trigger Gate enabled")
+    print("🔁 Recertification Campaign + Compliance Restoration Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
