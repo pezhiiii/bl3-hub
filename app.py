@@ -65851,6 +65851,443 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.5 ASSURANCE CYCLE + EVIDENCE DECAY GATE =====
+# V34.4 can renew resilience certification from fresh assurance evidence.
+# V34.5 makes assurance evidence age-aware:
+# evidence can become stale, confidence can decay, and renewal can no longer
+# rely indefinitely on old checks. This creates explicit freshness windows.
+
+V345_VERSION = "V34.5"
+V345_DECAY_STATES = {"FRESH", "AGING", "STALE"}
+V345_CYCLE_OUTCOMES = {"KEEP_CURRENT", "REQUIRE_RECHECK", "EXPIRE_RENEWAL"}
+V345_FRESH_HOURS = 72
+V345_AGING_HOURS = 168
+
+
+def _v345_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_decay_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            renewal_id INTEGER NOT NULL,
+            freshness_state TEXT NOT NULL,
+            freshest_evidence_at TEXT,
+            oldest_evidence_at TEXT,
+            evidence_count INTEGER NOT NULL DEFAULT 0,
+            review_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v345_decay_impl
+        ON hunter_assurance_decay_reviews(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_cycle_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            renewal_id INTEGER NOT NULL,
+            decay_review_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v345_init()
+except Exception:
+    pass
+
+
+def _v345_parse_ts(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _v345_decay_state(checks):
+    if not checks:
+        return "STALE", None, None
+
+    parsed = []
+    for ch in checks:
+        ts = _v345_parse_ts(ch.get("created_at"))
+        if ts:
+            parsed.append(ts)
+
+    if not parsed:
+        return "STALE", None, None
+
+    freshest = max(parsed)
+    oldest = min(parsed)
+    now = datetime.now(freshest.tzinfo) if freshest.tzinfo else datetime.utcnow()
+    age_hours = max(0.0, (now - freshest).total_seconds() / 3600.0)
+
+    if age_hours <= V345_FRESH_HOURS:
+        state = "FRESH"
+    elif age_hours <= V345_AGING_HOURS:
+        state = "AGING"
+    else:
+        state = "STALE"
+
+    return state, freshest.isoformat(), oldest.isoformat()
+
+
+def _v345_latest_review(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_decay_reviews
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v345_outcome(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_cycle_outcomes
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v345_review_decay(username, implementation_id, note=""):
+    renewal = _v344_renewal(username, implementation_id)
+    if not renewal or str(renewal.get("renewal_state") or "") != "CURRENT":
+        return False, "current_renewal_required", None
+
+    checks = _v344_checks(username, implementation_id)
+    state, freshest, oldest = _v345_decay_state(checks)
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_decay_reviews
+            (username, implementation_id, renewal_id, freshness_state,
+             freshest_evidence_at, oldest_evidence_at, evidence_count,
+             review_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(renewal["id"]),
+            state,
+            freshest,
+            oldest,
+            len(checks),
+            str(note or "").strip()[:2400],
+            now
+        ))
+        rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v345_finalize(username, implementation_id, requested_outcome, note=""):
+    renewal = _v344_renewal(username, implementation_id)
+    if not renewal or str(renewal.get("renewal_state") or "") != "CURRENT":
+        return False, "current_renewal_required", None
+
+    review = _v345_latest_review(username, implementation_id)
+    if not review:
+        return False, "decay_review_required", None
+
+    existing = _v345_outcome(username, implementation_id)
+    if existing:
+        return False, "cycle_outcome_already_finalized", int(existing["id"])
+
+    outcome = str(requested_outcome or "").strip().upper()
+    if outcome not in V345_CYCLE_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    freshness = str(review.get("freshness_state") or "")
+    if outcome == "KEEP_CURRENT" and freshness != "FRESH":
+        return False, "fresh_evidence_required_to_keep_current", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_cycle_outcomes
+            (username, implementation_id, renewal_id, decay_review_id,
+             outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(renewal["id"]),
+            int(review["id"]),
+            outcome,
+            str(note or "").strip()[:2400],
+            now
+        ))
+        oid = int(cur.lastrowid)
+
+        if outcome == "EXPIRE_RENEWAL":
+            con.execute("""
+                UPDATE hunter_resilience_certificate_renewals
+                SET renewal_state='EXPIRED',
+                    suspended_at=?,
+                    suspension_note=?
+                WHERE id=? AND username=? AND renewal_state='CURRENT'
+            """, (
+                now,
+                str(note or "Expired by V34.5 assurance evidence decay.").strip()[:2400],
+                int(renewal["id"]),
+                username
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "ASSURANCE_CYCLE_OUTCOME",
+            detail="V34.5 implementation #%s assurance cycle outcome=%s freshness=%s." % (
+                int(implementation_id), outcome, freshness
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, oid
+
+
+def _v345_snapshot(username):
+    base = _v344_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        renewal = item0.get("renewal") or {}
+
+        if not impl or not renewal:
+            continue
+        if str(renewal.get("renewal_state") or "") != "CURRENT":
+            continue
+
+        iid = int(impl["id"])
+        checks = _v344_checks(username, iid)
+        live_state, freshest, oldest = _v345_decay_state(checks)
+        review = _v345_latest_review(username, iid)
+        outcome = _v345_outcome(username, iid)
+
+        item = dict(item0)
+        item["live_freshness_state"] = live_state
+        item["freshest_evidence_at"] = freshest
+        item["oldest_evidence_at"] = oldest
+        item["decay_review"] = review
+        item["cycle_outcome"] = outcome
+        item["needs_decay_review"] = not review
+        item["ready_for_cycle_outcome"] = bool(review) and not outcome
+        items.append(item)
+
+    return {
+        "version": V345_VERSION,
+        "fresh_hours": V345_FRESH_HOURS,
+        "aging_hours": V345_AGING_HOURS,
+        "counts": {
+            "current_renewals": len(items),
+            "fresh": sum(1 for i in items if i["live_freshness_state"] == "FRESH"),
+            "aging": sum(1 for i in items if i["live_freshness_state"] == "AGING"),
+            "stale": sum(1 for i in items if i["live_freshness_state"] == "STALE"),
+        },
+        "items": items,
+        "policy": "Current certification depends on fresh evidence. Assurance confidence decays as evidence ages."
+    }
+
+
+@app.route("/api/hunter-assurance-decay")
+def v345_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v345_snapshot(u)})
+
+
+@app.route("/api/hunter-assurance-decay/implementation/<int:implementation_id>/review", methods=["POST"])
+def v345_review_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, rid = _v345_review_decay(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "review_id": rid}), 400
+    return jsonify({"success": True, "review_id": rid})
+
+
+@app.route("/api/hunter-assurance-decay/implementation/<int:implementation_id>/outcome", methods=["POST"])
+def v345_outcome_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, oid = _v345_finalize(
+        u,
+        implementation_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/hunter-assurance-decay")
+def v345_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>⏳ Assurance Decay</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v345_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        state = str(item.get("live_freshness_state") or "STALE")
+        review = item.get("decay_review") or {}
+        outcome = item.get("cycle_outcome") or {}
+
+        actions = ""
+
+        if item.get("needs_decay_review"):
+            actions += f"""
+            <form action='/api/hunter-assurance-decay/implementation/{iid}/review' onsubmit='return v345submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Evidence freshness review note'></textarea>
+              <button>CAPTURE DECAY REVIEW</button>
+            </form>
+            """
+
+        if item.get("ready_for_cycle_outcome"):
+            actions += f"""
+            <form action='/api/hunter-assurance-decay/implementation/{iid}/outcome' onsubmit='return v345submit(this,event)'>
+              <select name='outcome'>
+                <option>KEEP_CURRENT</option>
+                <option>REQUIRE_RECHECK</option>
+                <option>EXPIRE_RENEWAL</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Cycle outcome rationale'></textarea>
+              <button>FINALIZE ASSURANCE CYCLE</button>
+            </form>
+            """
+        elif outcome:
+            actions += "<div class='final'>CYCLE OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")),
+                esc(outcome.get("outcome_note"))
+            )
+
+        review_html = ""
+        if review:
+            review_html = "<div class='review'>RECORDED FRESHNESS: <b>{}</b><br><small>{}</small></div>".format(
+                esc(review.get("freshness_state")),
+                esc(review.get("created_at"))
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill {state.lower()}'>{esc(state)}</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          <p class='muted'>Freshest evidence: {esc(item.get('freshest_evidence_at'))}</p>
+          <p class='muted'>Oldest evidence: {esc(item.get('oldest_evidence_at'))}</p>
+          {review_html}
+          {actions}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.5 Assurance Evidence Decay</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ff9fd6;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ff9fd6}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #6b4560;border-radius:999px;padding:5px 8px;font-size:11px}}
+    .fresh{{color:#8bf0c8}} .aging{{color:#ffd66f}} .stale{{color:#ff8797}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .final,.review{{margin-top:10px;padding:12px;border:1px solid #4f3a52;border-radius:12px;background:#160d17}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.5 // ASSURANCE CYCLE + EVIDENCE DECAY GATE</div>
+        <h1>⏳ EVIDENCE GETS OLD</h1>
+        <p class='muted'>Renewed resilience stays trustworthy only while its evidence remains fresh. Old evidence decays, forcing re-checks or expiry.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>CURRENT</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>FRESH</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>AGING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>STALE</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-resilience-assurance'>🛡️ CONTINUOUS ASSURANCE</a><a href='/api/hunter-assurance-decay'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v345submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["current_renewals"], c["fresh"], c["aging"], c["stale"],
+        "".join(cards) or "<article class='card'><p>No current renewals are waiting for evidence-decay review.</p></article>"
+    )
+
+
+try:
+    _v345_prev_page = app.view_functions.get("v344_page")
+    if _v345_prev_page:
+        def _v345_assurance_with_decay(*args, **kwargs):
+            response = _v345_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-assurance-decay" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-resilience-assurance'>JSON</a>",
+                    "<a href='/api/hunter-resilience-assurance'>JSON</a><a href='/hunter-assurance-decay'>⏳ EVIDENCE DECAY</a>",
+                    1
+                )
+            return response
+        app.view_functions["v344_page"] = _v345_assurance_with_decay
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
