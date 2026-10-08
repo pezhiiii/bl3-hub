@@ -83589,6 +83589,379 @@ try:
 except Exception:
     pass
 
+# ===== V35.32 CASE STUDY PUBLICATION + PROOF-BACKED REFERENCE GATE =====
+# V35.31 proves a measurable outcome and records bounded reference consent.
+# V35.32 turns only consented, validated outcomes into publishable case studies.
+#
+# REFERENCE_READY -> CASE STUDY DRAFT -> PROOF-BACKED CLAIMS -> APPROVED -> PUBLISHED
+#
+# Claims must point to measured V35.31 metrics. Publication mode can never exceed
+# the source consent mode. No testimonial or endorsement text is inferred.
+
+V3532_VERSION = "V35.32"
+V3532_STATES = {"DRAFT", "CLAIMS_READY", "APPROVED", "PUBLISHED", "STALE", "RETIRED"}
+V3532_MODES = {"ANONYMIZED", "NAMED_REFERENCE"}
+
+
+def _v3532_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3532_hash(payload):
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _v3532_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_case_studies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            outcome_id INTEGER NOT NULL UNIQUE,
+            case_key TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            audience TEXT DEFAULT '',
+            executive_summary TEXT NOT NULL,
+            publication_mode TEXT NOT NULL,
+            publication_state TEXT NOT NULL DEFAULT 'DRAFT',
+            approval_note TEXT DEFAULT '',
+            approved_at TEXT DEFAULT '',
+            published_at TEXT DEFAULT '',
+            retired_at TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            approval_digest TEXT DEFAULT '',
+            publication_digest TEXT DEFAULT ''
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3532_user_state ON hunter_case_studies(username,publication_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_case_study_claims (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            metric_id INTEGER NOT NULL,
+            claim_text TEXT NOT NULL,
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(case_id, metric_id),
+            FOREIGN KEY(case_id) REFERENCES hunter_case_studies(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3532_claim_case ON hunter_case_study_claims(case_id,id)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_case_study_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(case_id) REFERENCES hunter_case_studies(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3532_event_case ON hunter_case_study_events(case_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3532_init()
+except Exception:
+    pass
+
+
+def _v3532_event(con, case_id, event_type, detail, extra=None):
+    created = _v3532_now_iso()
+    payload = {"case_id": int(case_id), "event_type": str(event_type), "detail": str(detail or ""), "extra": extra or {}, "created_at": created}
+    dig = _v3532_hash(payload)
+    con.execute("INSERT INTO hunter_case_study_events(case_id,event_type,detail,evidence_digest,created_at) VALUES(?,?,?,?,?)",
+                (int(case_id), str(event_type)[:80], str(detail or '')[:1200], dig, created))
+    return dig
+
+
+def _v3532_source(username, outcome_id):
+    try:
+        return _v3531_refresh(username, int(outcome_id))
+    except Exception:
+        return None
+
+
+def _v3532_claims(con, case_id):
+    con.row_factory = sqlite3.Row
+    rows = con.execute("SELECT * FROM hunter_case_study_claims WHERE case_id=? ORDER BY id", (int(case_id),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _v3532_refresh(username, case_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_case_studies WHERE username=? AND id=?", (username, int(case_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        src = _v3532_source(username, d['outcome_id'])
+        claims = _v3532_claims(con, d['id'])
+        d['outcome'] = src
+        d['claims'] = claims
+        state = str(d.get('publication_state') or 'DRAFT')
+        source_ok = bool(src and src.get('validation_state') == 'REFERENCE_READY' and src.get('reference_allowed'))
+        mode_ok = bool(src and (d.get('publication_mode') == 'ANONYMIZED' or src.get('reference_mode') == 'NAMED_REFERENCE'))
+        if (not source_ok or not mode_ok) and state not in {'STALE','RETIRED'}:
+            state = 'STALE'
+            con.execute("UPDATE hunter_case_studies SET publication_state=?,updated_at=? WHERE id=?", (state, _v3532_now_iso(), d['id']))
+            _v3532_event(con, d['id'], 'SOURCE_STALE', 'Reference consent or publication mode is no longer valid.')
+            con.commit()
+        elif source_ok and mode_ok and state == 'STALE':
+            # Never silently republish; recover only to a reviewable state.
+            state = 'APPROVED' if d.get('approved_at') else ('CLAIMS_READY' if claims else 'DRAFT')
+            con.execute("UPDATE hunter_case_studies SET publication_state=?,published_at='',publication_digest='',updated_at=? WHERE id=?",
+                        (state, _v3532_now_iso(), d['id']))
+            _v3532_event(con, d['id'], 'SOURCE_RECOVERED', f'Restored to {state}; republish requires an explicit action.')
+            con.commit()
+        d['publication_state'] = state
+        d['source_current'] = bool(source_ok and mode_ok)
+        return d
+    finally:
+        con.close()
+
+
+def _v3532_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("SELECT id FROM hunter_case_studies WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        outs = con.execute("SELECT id FROM hunter_engagement_outcomes WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+    finally:
+        con.close()
+    items = [x for x in (_v3532_refresh(username, r['id']) for r in rows) if x]
+    existing = {int(x['outcome_id']) for x in items}
+    eligible = []
+    for r in outs:
+        o = _v3532_source(username, r['id'])
+        if o and o.get('validation_state') == 'REFERENCE_READY' and o.get('reference_allowed') and int(o['id']) not in existing:
+            eligible.append(o)
+    counts = {k: 0 for k in V3532_STATES}
+    for x in items:
+        s = x.get('publication_state', 'DRAFT'); counts[s] = counts.get(s, 0) + 1
+    return {'success': True, 'version': V3532_VERSION, 'case_studies': items, 'eligible_outcomes': eligible, 'counts': counts}
+
+
+def _v3532_create(username, outcome_id, title, summary, audience='', publication_mode='ANONYMIZED'):
+    src = _v3532_source(username, outcome_id)
+    if not src or src.get('validation_state') != 'REFERENCE_READY' or not src.get('reference_allowed'):
+        return False, 'reference_ready_outcome_required', None
+    mode = str(publication_mode or 'ANONYMIZED').upper()
+    if mode not in V3532_MODES:
+        return False, 'invalid_publication_mode', None
+    if mode == 'NAMED_REFERENCE' and src.get('reference_mode') != 'NAMED_REFERENCE':
+        return False, 'named_reference_consent_required', None
+    title = ' '.join(str(title or '').split())[:200]
+    summary = str(summary or '').strip()[:5000]
+    if not title or not summary:
+        return False, 'title_and_summary_required', None
+    now = _v3532_now_iso(); key = f"CASE-{secrets.token_hex(5).upper()}"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_case_studies(username,outcome_id,case_key,title,audience,executive_summary,publication_mode,publication_state,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?,?,'DRAFT',?,?)""",
+                          (username, int(outcome_id), key, title, str(audience or '')[:250], summary, mode, now, now))
+        cid = int(cur.lastrowid)
+        _v3532_event(con, cid, 'CASE_CREATED', f'Case study created from outcome #{int(outcome_id)}.', {'mode': mode})
+        con.commit(); return True, None, cid
+    except sqlite3.IntegrityError:
+        return False, 'case_study_already_exists', None
+    finally:
+        con.close()
+
+
+def _v3532_add_claim(username, case_id, metric_id, claim_text):
+    d = _v3532_refresh(username, case_id)
+    if not d: return False, 'case_study_not_found', None
+    if d.get('publication_state') not in {'DRAFT','CLAIMS_READY'}: return False, 'case_study_locked', None
+    src = d.get('outcome') or {}
+    metrics = {int(m['id']): m for m in (src.get('metrics') or [])}
+    try: mid = int(metric_id)
+    except Exception: return False, 'metric_id_required', None
+    metric = metrics.get(mid)
+    if not metric: return False, 'metric_not_in_source_outcome', None
+    text = str(claim_text or '').strip()[:1200]
+    if not text: return False, 'claim_text_required', None
+    created = _v3532_now_iso()
+    payload = {'case_id': int(case_id), 'metric_id': mid, 'claim_text': text, 'source_metric_digest': metric.get('evidence_digest') or '', 'created_at': created}
+    dig = _v3532_hash(payload)
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("INSERT INTO hunter_case_study_claims(case_id,metric_id,claim_text,evidence_digest,created_at) VALUES(?,?,?,?,?)",
+                          (int(case_id), mid, text, dig, created))
+        con.execute("UPDATE hunter_case_studies SET publication_state='CLAIMS_READY',updated_at=? WHERE id=?", (created, int(case_id)))
+        _v3532_event(con, case_id, 'CLAIM_ADDED', f'Proof-backed claim linked to metric #{mid}.', {'claim_digest': dig})
+        con.commit(); return True, None, int(cur.lastrowid)
+    except sqlite3.IntegrityError:
+        return False, 'metric_already_claimed', None
+    finally:
+        con.close()
+
+
+def _v3532_approve(username, case_id, approval_note):
+    d = _v3532_refresh(username, case_id)
+    if not d: return False, 'case_study_not_found', None
+    if d.get('publication_state') != 'CLAIMS_READY' or not d.get('claims'):
+        return False, 'proof_backed_claims_required', None
+    note = str(approval_note or '').strip()[:2500]
+    if not note: return False, 'approval_note_required', None
+    now = _v3532_now_iso()
+    payload = {'case_id': int(case_id), 'outcome_id': int(d['outcome_id']), 'publication_mode': d.get('publication_mode'),
+               'claims': [{'metric_id': int(c['metric_id']), 'claim_text': c['claim_text'], 'evidence_digest': c['evidence_digest']} for c in d['claims']],
+               'approval_note': note, 'approved_at': now}
+    dig = _v3532_hash(payload)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_case_studies SET publication_state='APPROVED',approval_note=?,approved_at=?,approval_digest=?,updated_at=? WHERE id=?",
+                    (note, now, dig, now, int(case_id)))
+        _v3532_event(con, case_id, 'CASE_APPROVED', 'Case study approved for publication review.', {'approval_digest': dig})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3532_refresh(username, case_id)
+
+
+def _v3532_publish(username, case_id):
+    d = _v3532_refresh(username, case_id)
+    if not d: return False, 'case_study_not_found', None
+    if d.get('publication_state') != 'APPROVED': return False, 'approved_case_study_required', None
+    if not d.get('source_current'): return False, 'source_reference_not_current', None
+    now = _v3532_now_iso()
+    public_payload = {
+        'case_key': d.get('case_key'), 'title': d.get('title'), 'audience': d.get('audience'),
+        'executive_summary': d.get('executive_summary'), 'publication_mode': d.get('publication_mode'),
+        'claims': [{'claim_text': c.get('claim_text'), 'metric_id': int(c.get('metric_id') or 0), 'evidence_digest': c.get('evidence_digest')} for c in d.get('claims') or []],
+        'source_outcome_key': (d.get('outcome') or {}).get('outcome_key'), 'published_at': now,
+        'policy': 'Published claims are limited to measured source metrics and bounded by explicit V35.31 reference consent.'
+    }
+    dig = _v3532_hash(public_payload)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_case_studies SET publication_state='PUBLISHED',published_at=?,publication_digest=?,updated_at=? WHERE id=?",
+                    (now, dig, now, int(case_id)))
+        _v3532_event(con, case_id, 'CASE_PUBLISHED', 'Case study explicitly published.', {'publication_digest': dig})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3532_refresh(username, case_id)
+
+
+def _v3532_public_payload(d):
+    if not d or d.get('publication_state') != 'PUBLISHED' or not d.get('source_current'):
+        return None
+    src = d.get('outcome') or {}
+    return {
+        'version': V3532_VERSION,
+        'case_key': d.get('case_key'),
+        'title': d.get('title'),
+        'audience': d.get('audience'),
+        'executive_summary': d.get('executive_summary'),
+        'publication_mode': d.get('publication_mode'),
+        'source_outcome_key': src.get('outcome_key'),
+        'claims': [{'claim_text': c.get('claim_text'), 'metric_id': int(c.get('metric_id') or 0), 'evidence_digest': c.get('evidence_digest')} for c in d.get('claims') or []],
+        'published_at': d.get('published_at'),
+        'publication_digest': d.get('publication_digest'),
+        'reference_policy': 'No testimonial or endorsement is inferred. Claims are bounded by explicit source consent and measured evidence.'
+    }
+
+
+@app.route('/api/hunter-case-studies', methods=['GET','POST'])
+def v3532_api_cases():
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method == 'GET': return jsonify(_v3532_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,cid = _v3532_create(u,p.get('outcome_id'),p.get('title'),p.get('executive_summary'),p.get('audience') or '',p.get('publication_mode') or 'ANONYMIZED')
+    return jsonify({'success':ok,'error':e,'case_id':cid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-case-studies/<int:case_id>')
+def v3532_api_case(case_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    d = _v3532_refresh(u,case_id)
+    if not d: return jsonify({'success':False,'error':'case_study_not_found'}),404
+    return jsonify({'success':True,'version':V3532_VERSION,'case_study':d})
+
+
+@app.route('/api/hunter-case-studies/<int:case_id>/claims', methods=['POST'])
+def v3532_api_claim(case_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,cid = _v3532_add_claim(u,case_id,p.get('metric_id'),p.get('claim_text'))
+    return jsonify({'success':ok,'error':e,'claim_id':cid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-case-studies/<int:case_id>/approve', methods=['POST'])
+def v3532_api_approve(case_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3532_approve(u,case_id,p.get('approval_note') or '')
+    return jsonify({'success':ok,'error':e,'case_study':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-case-studies/<int:case_id>/publish', methods=['POST'])
+def v3532_api_publish(case_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d = _v3532_publish(u,case_id)
+    return jsonify({'success':ok,'error':e,'case_study':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-case-studies/<int:case_id>/public')
+def v3532_api_public(case_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    d = _v3532_refresh(u,case_id); payload = _v3532_public_payload(d)
+    if not payload: return jsonify({'success':False,'error':'published_current_case_required'}),400
+    return jsonify({'success':True,'case_study':payload})
+
+
+@app.route('/hunter-case-studies')
+def v3532_page():
+    u = session.get('authenticated_username')
+    if not u: return redirect('/')
+    d = _v3532_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join(f"<option value='{int(x['id'])}'>{esc(x.get('outcome_key') or '')} — {esc(x.get('outcome_title') or '')} [{esc(x.get('reference_mode') or '')}]</option>" for x in d['eligible_outcomes'])
+    cards=[]
+    for x in d['case_studies']:
+        cid=int(x['id']); state=esc(x.get('publication_state') or '')
+        src=x.get('outcome') or {}; metrics=src.get('metrics') or []
+        metric_opts=''.join(f"<option value='{int(m['id'])}'>{esc(m.get('metric_name') or '')}: {esc(m.get('baseline_value') or '—')} → {esc(m.get('observed_value') or '')}</option>" for m in metrics)
+        claims=''.join(f"<div class='claim'><b>Metric #{int(q.get('metric_id') or 0)}</b><p>{esc(q.get('claim_text') or '')}</p><small>{esc((q.get('evidence_digest') or '')[:16])}…</small></div>" for q in x.get('claims') or [])
+        controls=''
+        if x.get('publication_state') in {'DRAFT','CLAIMS_READY'} and metric_opts:
+            controls+=f"""<form action='/api/hunter-case-studies/{cid}/claims' onsubmit='return v3532submit(this,event)'><select name='metric_id' required><option value=''>Measured source metric</option>{metric_opts}</select><textarea name='claim_text' placeholder='Claim text — must stay within the measured evidence' required></textarea><button>ADD PROOF-BACKED CLAIM</button></form>"""
+        if x.get('publication_state')=='CLAIMS_READY':
+            controls+=f"""<form action='/api/hunter-case-studies/{cid}/approve' onsubmit='return v3532submit(this,event)'><textarea name='approval_note' placeholder='Editorial approval note' required></textarea><button class='safe'>APPROVE CASE STUDY</button></form>"""
+        if x.get('publication_state')=='APPROVED':
+            controls+=f"""<form action='/api/hunter-case-studies/{cid}/publish' onsubmit='return v3532submit(this,event)'><button class='safe'>PUBLISH CASE STUDY</button></form>"""
+        public_link=f"<a href='/api/hunter-case-studies/{cid}/public'>PUBLIC JSON</a>" if x.get('publication_state')=='PUBLISHED' and x.get('source_current') else ''
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('case_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(x.get('title') or '')}</h2><p>{esc(x.get('executive_summary') or '')}</p><p class='muted'>Mode: <b>{esc(x.get('publication_mode') or '')}</b> · Source: {esc(src.get('outcome_key') or '')} · {public_link}</p>{claims or '<p class="muted">No proof-backed claims yet.</p>'}{controls}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.32 Case Studies</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304958;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#ffd98d;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:25px;font-weight:900;color:#ffd98d}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #8e7040;border-radius:999px;padding:5px 9px}}.claim{{margin-top:10px;padding:11px;border:1px solid #3a3424;border-radius:13px;background:#111007}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}a{{color:#ffd98d}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.32 · CASE STUDY PUBLICATION + PROOF-BACKED REFERENCE GATE</div><h1>Publish only what the evidence and consent allow.</h1><p class='muted'>Case studies are built only from validated outcomes with active reference consent. Every external claim must link back to a measured source metric.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>CLAIMS READY</div><div><div class='num'>{}</div>APPROVED</div><div><div class='num'>{}</div>PUBLISHED</div></div><p><a href='/hunter-engagement-outcomes'>← Outcomes</a> · <a href='/api/hunter-case-studies'>JSON</a></p></section><section class='card'><h2>Create proof-backed case study</h2><form action='/api/hunter-case-studies' onsubmit='return v3532submit(this,event)'><select name='outcome_id' required><option value=''>Reference-ready outcome</option>{}</select><input name='title' placeholder='Case study title' required><input name='audience' placeholder='Audience / reviewer'><textarea name='executive_summary' placeholder='Executive summary' required></textarea><select name='publication_mode'><option>ANONYMIZED</option><option>NAMED_REFERENCE</option></select><button>CREATE CASE STUDY</button></form></section><section class='grid'>{}</section></div><script>async function v3532submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0),c.get('CLAIMS_READY',0),c.get('APPROVED',0),c.get('PUBLISHED',0),opts,''.join(cards) or "<article class='card'><p>No case studies yet.</p></article>")
+
+
+# Add navigation from V35.31 into V35.32.
+try:
+    _v3532_prev_page = app.view_functions.get('v3531_page')
+    if _v3532_prev_page:
+        def _v3532_outcomes_with_case_studies(*args, **kwargs):
+            response = _v3532_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-case-studies' not in response:
+                response = response.replace("<a href='/api/hunter-engagement-outcomes'>JSON</a>", "<a href='/api/hunter-engagement-outcomes'>JSON</a> · <a href='/hunter-case-studies'>📚 CASE STUDIES</a>", 1)
+            return response
+        app.view_functions['v3531_page'] = _v3532_outcomes_with_case_studies
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -83712,6 +84085,7 @@ if __name__ == "__main__":
     print("🤝 Commercial Conversion + Decision Gate enabled")
     print("🚀 Engagement Activation + Delivery Acceptance Gate enabled")
     print("📈 Outcome Validation + Reference Consent Gate enabled")
+    print("📚 Case Study Publication + Proof-backed Reference Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
