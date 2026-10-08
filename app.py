@@ -82655,6 +82655,250 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.29 COMMERCIAL CONVERSION + DECISION GATE =====
+# V35.28 proves a bounded pilot can be evaluated against explicit success metrics.
+# V35.29 converts a successful/partial pilot into an auditable next-stage decision path.
+# It never claims third-party acceptance on its own: CONVERTED requires explicit decision evidence.
+
+V3529_VERSION = "V35.29"
+V3529_STATES = {"PROPOSAL", "ADVANCING", "EXTENDED", "CONVERTED", "DECLINED", "STALE"}
+V3529_PATHS = {"PAID_PILOT", "COMMERCIAL_CONTRACT", "PARTNERSHIP", "JOB_INTERVIEW", "OTHER"}
+
+
+def _v3529_now_iso():
+    return _v3528_now_iso()
+
+
+def _v3529_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_conversions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            pilot_id INTEGER NOT NULL,
+            conversion_key TEXT NOT NULL UNIQUE,
+            conversion_path TEXT NOT NULL,
+            proposal_summary TEXT NOT NULL,
+            ask_text TEXT NOT NULL,
+            decision_owner TEXT,
+            decision_due_at TEXT,
+            conversion_state TEXT NOT NULL DEFAULT 'PROPOSAL',
+            decision_note TEXT,
+            decision_evidence TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT,
+            evidence_sha256 TEXT NOT NULL,
+            UNIQUE(username, pilot_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3529_user_state ON hunter_startup_conversions(username,conversion_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_conversion_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversion_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            event_sha256 TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3529_events_conversion ON hunter_startup_conversion_events(conversion_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3529_init()
+except Exception:
+    pass
+
+
+def _v3529_hash(payload):
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",",":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _v3529_event(con, conversion_id, username, event_type, detail=""):
+    created = _v3529_now_iso()
+    payload = {"conversion_id":int(conversion_id),"username":username,"event_type":event_type,"detail":str(detail or ""),"created_at":created}
+    digest = _v3529_hash(payload)
+    con.execute("INSERT INTO hunter_startup_conversion_events (conversion_id,username,event_type,detail,created_at,event_sha256) VALUES (?,?,?,?,?,?)",
+                (int(conversion_id), username, event_type, str(detail or "")[:1200], created, digest))
+    return digest
+
+
+def _v3529_entry(username, conversion_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_conversions WHERE username=? AND id=?", (username, int(conversion_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        pilot = _v3528_refresh(username, int(d.get('pilot_id') or 0))
+        d['pilot'] = pilot
+        if not pilot or str(pilot.get('pilot_state') or '').upper() not in {'SUCCESS','PARTIAL'}:
+            if d.get('conversion_state') not in {'CONVERTED','DECLINED','STALE'}:
+                d['conversion_state'] = 'STALE'
+                con.execute("UPDATE hunter_startup_conversions SET conversion_state='STALE',updated_at=? WHERE username=? AND id=?", (_v3529_now_iso(),username,int(conversion_id)))
+                _v3529_event(con, conversion_id, username, 'SOURCE_STALE', 'Pilot is no longer SUCCESS/PARTIAL.')
+                con.commit()
+        events = con.execute("SELECT * FROM hunter_startup_conversion_events WHERE username=? AND conversion_id=? ORDER BY id DESC LIMIT 50", (username,int(conversion_id))).fetchall()
+        d['events'] = [dict(x) for x in events]
+        return d
+    finally:
+        con.close()
+
+
+def _v3529_create(username, pilot_id, conversion_path, proposal_summary, ask_text, decision_owner='', decision_due_at=''):
+    try:
+        pilot_id = int(pilot_id)
+    except Exception:
+        return False, 'invalid_pilot_id', None
+    pilot = _v3528_refresh(username, pilot_id)
+    if not pilot:
+        return False, 'pilot_not_found', None
+    if str(pilot.get('pilot_state') or '').upper() not in {'SUCCESS','PARTIAL'}:
+        return False, 'pilot_not_eligible', None
+    conversion_path = str(conversion_path or 'OTHER').upper().strip()
+    if conversion_path not in V3529_PATHS:
+        return False, 'invalid_conversion_path', None
+    proposal_summary = str(proposal_summary or '').strip()
+    ask_text = str(ask_text or '').strip()
+    if not proposal_summary or not ask_text:
+        return False, 'proposal_and_ask_required', None
+    now = _v3529_now_iso()
+    key = 'CNV-' + secrets.token_hex(5).upper()
+    payload = {"username":username,"pilot_id":pilot_id,"conversion_key":key,"conversion_path":conversion_path,"proposal_summary":proposal_summary,"ask_text":ask_text,"decision_owner":str(decision_owner or ''),"decision_due_at":str(decision_due_at or ''),"created_at":now}
+    digest = _v3529_hash(payload)
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_startup_conversions
+            (username,pilot_id,conversion_key,conversion_path,proposal_summary,ask_text,decision_owner,decision_due_at,conversion_state,created_at,updated_at,evidence_sha256)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (username,pilot_id,key,conversion_path,proposal_summary,ask_text,str(decision_owner or '')[:160],str(decision_due_at or '')[:80],'PROPOSAL',now,now,digest))
+        cid = int(cur.lastrowid)
+        _v3529_event(con,cid,username,'CONVERSION_CREATED',f'{conversion_path} · pilot {pilot_id}')
+        con.commit()
+        return True, '', cid
+    except sqlite3.IntegrityError:
+        return False, 'conversion_already_exists', None
+    finally:
+        con.close()
+
+
+def _v3529_decide(username, conversion_id, decision, decision_note='', decision_evidence=''):
+    d = _v3529_entry(username, conversion_id)
+    if not d:
+        return False, 'conversion_not_found', None
+    if d.get('conversion_state') in {'CONVERTED','DECLINED','STALE'}:
+        return False, 'conversion_final', d
+    decision = str(decision or '').upper().strip()
+    mapping = {'ADVANCE':'ADVANCING','EXTEND':'EXTENDED','CONVERT':'CONVERTED','DECLINE':'DECLINED'}
+    if decision not in mapping:
+        return False, 'invalid_decision', d
+    evidence = str(decision_evidence or '').strip()
+    if decision in {'CONVERT','DECLINE'} and not evidence:
+        return False, 'decision_evidence_required', d
+    state = mapping[decision]
+    now = _v3529_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        payload = {"conversion_id":int(conversion_id),"decision":decision,"state":state,"decision_note":str(decision_note or ''),"decision_evidence":evidence,"decided_at":now}
+        digest = _v3529_hash(payload)
+        con.execute("""UPDATE hunter_startup_conversions SET conversion_state=?,decision_note=?,decision_evidence=?,updated_at=?,decided_at=?,evidence_sha256=? WHERE username=? AND id=?""",
+                    (state,str(decision_note or '')[:1600],evidence[:2400],now,now,digest,username,int(conversion_id)))
+        _v3529_event(con,conversion_id,username,'DECISION_'+decision,(str(decision_note or '')+' | '+evidence)[:1200])
+        con.commit()
+    finally:
+        con.close()
+    return True, '', _v3529_entry(username, conversion_id)
+
+
+def _v3529_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r['id']) for r in con.execute("SELECT id FROM hunter_startup_conversions WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    conversions = [_v3529_entry(username, i) for i in ids]
+    conversions = [x for x in conversions if x]
+    counts = {k:0 for k in V3529_STATES}
+    for x in conversions:
+        s = str(x.get('conversion_state') or 'STALE').upper()
+        counts[s if s in counts else 'STALE'] += 1
+    d28 = _v3528_snapshot(username)
+    used = {int(x.get('pilot_id') or 0) for x in conversions}
+    eligible = [p for p in (d28.get('pilots') or []) if str(p.get('pilot_state') or '').upper() in {'SUCCESS','PARTIAL'} and int(p.get('id') or 0) not in used]
+    return {'success':True,'version':V3529_VERSION,'counts':counts,'conversions':conversions,'eligible_pilots':eligible}
+
+
+@app.route('/api/hunter-startup-conversions', methods=['GET','POST'])
+def v3529_api_conversions():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3529_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,cid = _v3529_create(u,p.get('pilot_id'),p.get('conversion_path'),p.get('proposal_summary'),p.get('ask_text'),p.get('decision_owner') or '',p.get('decision_due_at') or '')
+    return jsonify({'success':ok,'error':e,'conversion_id':cid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-conversions/<int:conversion_id>')
+def v3529_api_conversion(conversion_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3529_entry(u,conversion_id)
+    if not d:
+        return jsonify({'success':False,'error':'conversion_not_found'}),404
+    return jsonify({'success':True,'version':V3529_VERSION,'conversion':d})
+
+
+@app.route('/api/hunter-startup-conversions/<int:conversion_id>/decision', methods=['POST'])
+def v3529_api_decision(conversion_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3529_decide(u,conversion_id,p.get('decision'),p.get('decision_note') or '',p.get('decision_evidence') or '')
+    return jsonify({'success':ok,'error':e,'conversion':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-startup-conversions')
+def v3529_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3529_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join(f"<option value='{int(p['id'])}'>{esc(p.get('pilot_key') or '')} — {esc(p.get('pilot_title') or 'Evaluated pilot')} ({esc(p.get('pilot_state') or '')})</option>" for p in d['eligible_pilots'])
+    cards=[]
+    for x in d['conversions']:
+        cid=int(x['id']); state=esc(x.get('conversion_state') or '')
+        controls=''
+        if x.get('conversion_state') not in {'CONVERTED','DECLINED','STALE'}:
+            controls=f"""<form action='/api/hunter-startup-conversions/{cid}/decision' onsubmit='return v3529submit(this,event)'><select name='decision'><option value='ADVANCE'>ADVANCE</option><option value='EXTEND'>EXTEND</option><option value='CONVERT'>CONVERT</option><option value='DECLINE'>DECLINE</option></select><textarea name='decision_note' placeholder='Decision / next-step note'></textarea><textarea name='decision_evidence' placeholder='Evidence required for CONVERT or DECLINE'></textarea><button class='safe'>RECORD DECISION</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('conversion_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(x.get('conversion_path') or '')}</h2><p><b>Proposal:</b> {esc(x.get('proposal_summary') or '')}</p><p><b>Ask:</b> {esc(x.get('ask_text') or '')}</p><p class='muted'>Pilot #{int(x.get('pilot_id') or 0)} · Decision owner {esc(x.get('decision_owner') or '-')} · Due {esc(x.get('decision_due_at') or '-')}</p>{controls}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.29 Startup Conversions</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304958;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#9fffc8;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:25px;font-weight:900;color:#9fffc8}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #378d68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}a{{color:#9fffc8}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.29 · COMMERCIAL CONVERSION + DECISION GATE</div><h1>Turn pilot evidence into a real next step.</h1><p class='muted'>Create a bounded conversion proposal from SUCCESS/PARTIAL pilot evidence and record explicit external decision evidence without inventing acceptance.</p><div class='stats'><div><div class='num'>{}</div>PROPOSAL</div><div><div class='num'>{}</div>ADVANCING</div><div><div class='num'>{}</div>CONVERTED</div><div><div class='num'>{}</div>DECLINED</div></div><p><a href='/hunter-startup-pilots'>← Startup Pilots</a> · <a href='/api/hunter-startup-conversions'>JSON</a></p></section><section class='card'><h2>Create conversion proposal</h2><form action='/api/hunter-startup-conversions' onsubmit='return v3529submit(this,event)'><select name='pilot_id' required><option value=''>Evaluated SUCCESS/PARTIAL pilot</option>{}</select><select name='conversion_path'><option>PAID_PILOT</option><option>COMMERCIAL_CONTRACT</option><option>PARTNERSHIP</option><option>JOB_INTERVIEW</option><option>OTHER</option></select><textarea name='proposal_summary' placeholder='What are we proposing next?' required></textarea><textarea name='ask_text' placeholder='Explicit ask / next step' required></textarea><input name='decision_owner' placeholder='Decision owner / contact role'><input name='decision_due_at' placeholder='Decision due ISO'><button>CREATE CONVERSION PROPOSAL</button></form></section><section class='grid'>{}</section></div><script>async function v3529submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('PROPOSAL',0),c.get('ADVANCING',0),c.get('CONVERTED',0),c.get('DECLINED',0),opts,''.join(cards) or "<article class='card'><p>No commercial conversion proposals yet.</p></article>")
+
+
+# Add navigation from V35.28 into V35.29.
+try:
+    _v3529_prev_page = app.view_functions.get('v3528_page')
+    if _v3529_prev_page:
+        def _v3529_pilots_with_conversion(*args, **kwargs):
+            response = _v3529_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-startup-conversions' not in response:
+                response = response.replace("<a href='/api/hunter-startup-pilots'>JSON</a>", "<a href='/api/hunter-startup-pilots'>JSON</a> · <a href='/hunter-startup-conversions'>🤝 CONVERSION GATE</a>", 1)
+            return response
+        app.view_functions['v3528_page'] = _v3529_pilots_with_conversion
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -82775,6 +83019,7 @@ if __name__ == "__main__":
     print("🚀 External Review Package + Startup Demo Handoff Gate enabled")
     print("🎤 Startup Demo Session + Guided Presentation Gate enabled")
     print("🎯 Startup Feedback Capture + Opportunity Follow-up Gate enabled")
+    print("🤝 Commercial Conversion + Decision Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
