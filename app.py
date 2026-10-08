@@ -67277,6 +67277,519 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.8 ADAPTIVE MONITORING + ESCALATION POLICY GATE =====
+# V34.7 detects cross-epoch trends and allows escalation actions.
+# V34.8 turns those actions into an explicit monitoring policy so the system
+# can react proportionally to long-term health:
+#
+# STABLE/IMPROVING -> NORMAL
+# WATCH             -> ELEVATED
+# DEGRADING         -> CRITICAL
+#
+# Monitoring policy is recorded separately from trend review history.
+
+V348_VERSION = "V34.8"
+V348_LEVELS = {"NORMAL", "ELEVATED", "CRITICAL"}
+V348_ACTIONS = {"APPLY_POLICY", "DEESCALATE_POLICY", "REOPEN_RESILIENCE"}
+
+
+def _v348_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_monitoring_policies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            trend_review_id INTEGER NOT NULL,
+            policy_level TEXT NOT NULL,
+            policy_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            policy_note TEXT,
+            created_at TEXT NOT NULL,
+            closed_at TEXT,
+            close_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v348_policy_impl
+        ON hunter_monitoring_policies(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_monitoring_policy_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            monitoring_policy_id INTEGER NOT NULL,
+            action_state TEXT NOT NULL,
+            action_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v348_policy_events
+        ON hunter_monitoring_policy_events(username, implementation_id, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v348_init()
+except Exception:
+    pass
+
+
+def _v348_latest_policy(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_monitoring_policies
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v348_policy_events(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_monitoring_policy_events
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC
+        """, (username, int(implementation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v348_recommended_level(trend_state):
+    trend = str(trend_state or "").strip().upper()
+    if trend == "DEGRADING":
+        return "CRITICAL"
+    if trend == "WATCH":
+        return "ELEVATED"
+    return "NORMAL"
+
+
+def _v348_apply_policy(username, implementation_id, policy_level, note=""):
+    review = _v347_latest_review(username, implementation_id)
+    if not review:
+        return False, "trend_review_required", None
+
+    level = str(policy_level or "").strip().upper()
+    if level not in V348_LEVELS:
+        return False, "invalid_policy_level", None
+
+    recommended = _v348_recommended_level(review.get("trend_state"))
+
+    # Do not allow weaker policy than the current trend requires.
+    rank = {"NORMAL": 1, "ELEVATED": 2, "CRITICAL": 3}
+    if rank[level] < rank[recommended]:
+        return False, "policy_below_recommended_level", None
+
+    current = _v348_latest_policy(username, implementation_id)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        if current and str(current.get("policy_state") or "") == "ACTIVE":
+            con.execute("""
+                UPDATE hunter_monitoring_policies
+                SET policy_state='CLOSED',
+                    closed_at=?,
+                    close_note=?
+                WHERE id=? AND username=? AND policy_state='ACTIVE'
+            """, (
+                now,
+                "Superseded by a newer V34.8 monitoring policy.",
+                int(current["id"]),
+                username
+            ))
+
+        cur = con.execute("""
+            INSERT INTO hunter_monitoring_policies
+            (username, implementation_id, trend_review_id,
+             policy_level, policy_state, policy_note, created_at)
+            VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(review["id"]),
+            level,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        pid = int(cur.lastrowid)
+
+        con.execute("""
+            INSERT INTO hunter_monitoring_policy_events
+            (username, implementation_id, monitoring_policy_id,
+             action_state, action_note, created_at)
+            VALUES (?, ?, ?, 'APPLY_POLICY', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            pid,
+            str(note or "").strip()[:3000],
+            now
+        ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, pid
+
+
+def _v348_deescalate(username, implementation_id, target_level, note=""):
+    current = _v348_latest_policy(username, implementation_id)
+    if not current or str(current.get("policy_state") or "") != "ACTIVE":
+        return False, "active_policy_required", None
+
+    review = _v347_latest_review(username, implementation_id)
+    if not review:
+        return False, "trend_review_required", None
+
+    target = str(target_level or "").strip().upper()
+    if target not in V348_LEVELS:
+        return False, "invalid_policy_level", None
+
+    recommended = _v348_recommended_level(review.get("trend_state"))
+    rank = {"NORMAL": 1, "ELEVATED": 2, "CRITICAL": 3}
+
+    if rank[target] < rank[recommended]:
+        return False, "cannot_deescalate_below_recommended_level", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_monitoring_policies
+            SET policy_state='CLOSED',
+                closed_at=?,
+                close_note=?
+            WHERE id=? AND username=? AND policy_state='ACTIVE'
+        """, (
+            now,
+            str(note or "De-escalated by V34.8 policy action.").strip()[:2400],
+            int(current["id"]),
+            username
+        ))
+
+        cur = con.execute("""
+            INSERT INTO hunter_monitoring_policies
+            (username, implementation_id, trend_review_id,
+             policy_level, policy_state, policy_note, created_at)
+            VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(review["id"]),
+            target,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        pid = int(cur.lastrowid)
+
+        con.execute("""
+            INSERT INTO hunter_monitoring_policy_events
+            (username, implementation_id, monitoring_policy_id,
+             action_state, action_note, created_at)
+            VALUES (?, ?, ?, 'DEESCALATE_POLICY', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            pid,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, pid
+
+
+def _v348_reopen(username, implementation_id, note=""):
+    review = _v347_latest_review(username, implementation_id)
+    if not review:
+        return False, "trend_review_required", None
+
+    cert = _v343_certificate(username, implementation_id)
+    if not cert:
+        return False, "resilience_certificate_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        if str(cert.get("certificate_state") or "") == "CERTIFIED":
+            con.execute("""
+                UPDATE hunter_resilience_certificates
+                SET certificate_state='REVOKED',
+                    revoked_at=?,
+                    revoke_note=?
+                WHERE id=? AND username=? AND certificate_state='CERTIFIED'
+            """, (
+                now,
+                str(note or "Reopened by V34.8 adaptive monitoring policy.").strip()[:2400],
+                int(cert["id"]),
+                username
+            ))
+
+        current = _v348_latest_policy(username, implementation_id)
+        pid = int(current["id"]) if current else 0
+
+        con.execute("""
+            INSERT INTO hunter_monitoring_policy_events
+            (username, implementation_id, monitoring_policy_id,
+             action_state, action_note, created_at)
+            VALUES (?, ?, ?, 'REOPEN_RESILIENCE', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            pid,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "ADAPTIVE_MONITORING_REOPEN",
+            detail="V34.8 reopened resilience for implementation #%s." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, int(implementation_id)
+
+
+def _v348_snapshot(username):
+    base = _v347_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        review = item0.get("trend_review") or {}
+
+        if not impl or not review:
+            continue
+
+        iid = int(impl["id"])
+        policy = _v348_latest_policy(username, iid)
+        events = _v348_policy_events(username, iid)
+        recommended = _v348_recommended_level(review.get("trend_state"))
+
+        item = dict(item0)
+        item["recommended_policy_level"] = recommended
+        item["monitoring_policy"] = policy
+        item["policy_events"] = events[:20]
+        item["needs_policy"] = not policy or str(policy.get("policy_state") or "") != "ACTIVE"
+        items.append(item)
+
+    return {
+        "version": V348_VERSION,
+        "counts": {
+            "eligible": len(items),
+            "normal": sum(1 for i in items if i["recommended_policy_level"] == "NORMAL"),
+            "elevated": sum(1 for i in items if i["recommended_policy_level"] == "ELEVATED"),
+            "critical": sum(1 for i in items if i["recommended_policy_level"] == "CRITICAL"),
+        },
+        "items": items,
+        "policy": "Monitoring intensity must match long-term trend severity. A degrading system cannot remain on a weaker monitoring level."
+    }
+
+
+@app.route("/api/hunter-adaptive-monitoring")
+def v348_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v348_snapshot(u)})
+
+
+@app.route("/api/hunter-adaptive-monitoring/implementation/<int:implementation_id>/apply", methods=["POST"])
+def v348_apply_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, pid = _v348_apply_policy(
+        u,
+        implementation_id,
+        p.get("policy_level") or "",
+        p.get("policy_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "policy_id": pid}), 400
+    return jsonify({"success": True, "policy_id": pid})
+
+
+@app.route("/api/hunter-adaptive-monitoring/implementation/<int:implementation_id>/deescalate", methods=["POST"])
+def v348_deescalate_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, pid = _v348_deescalate(
+        u,
+        implementation_id,
+        p.get("policy_level") or "",
+        p.get("policy_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "policy_id": pid}), 400
+    return jsonify({"success": True, "policy_id": pid})
+
+
+@app.route("/api/hunter-adaptive-monitoring/implementation/<int:implementation_id>/reopen", methods=["POST"])
+def v348_reopen_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v348_reopen(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/hunter-adaptive-monitoring")
+def v348_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🎛 Adaptive Monitoring</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v348_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        review = item.get("trend_review") or {}
+        policy = item.get("monitoring_policy") or {}
+        recommended = item.get("recommended_policy_level") or "NORMAL"
+
+        policy_html = ""
+        if policy:
+            policy_html = "<div class='policy'>ACTIVE POLICY: <b>{}</b><br><small>{}</small></div>".format(
+                esc(policy.get("policy_level")),
+                esc(policy.get("created_at"))
+            )
+
+        actions = f"""
+        <form action='/api/hunter-adaptive-monitoring/implementation/{iid}/apply' onsubmit='return v348submit(this,event)'>
+          <select name='policy_level'>
+            <option>NORMAL</option><option>ELEVATED</option><option>CRITICAL</option>
+          </select>
+          <textarea name='policy_note' rows='2' placeholder='Monitoring policy rationale'></textarea>
+          <button>APPLY MONITORING POLICY</button>
+        </form>
+        """
+
+        if policy and str(policy.get("policy_state") or "") == "ACTIVE":
+            actions += f"""
+            <form action='/api/hunter-adaptive-monitoring/implementation/{iid}/deescalate' onsubmit='return v348submit(this,event)'>
+              <select name='policy_level'>
+                <option>NORMAL</option><option>ELEVATED</option><option>CRITICAL</option>
+              </select>
+              <textarea name='policy_note' rows='2' placeholder='De-escalation rationale'></textarea>
+              <button class='warn'>DE-ESCALATE POLICY</button>
+            </form>
+            """
+
+        if str(review.get("trend_state") or "") == "DEGRADING":
+            actions += f"""
+            <form action='/api/hunter-adaptive-monitoring/implementation/{iid}/reopen' onsubmit='return v348submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Why resilience must reopen'></textarea>
+              <button class='danger'>REOPEN RESILIENCE</button>
+            </form>
+            """
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>{esc(review.get('trend_state'))}</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>Recommended monitoring:</b> {esc(recommended)}</p>
+          {policy_html}
+          {actions}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.8 Adaptive Monitoring</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#8cf5c7;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#8cf5c7}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #2d6453;border-radius:999px;padding:5px 8px;color:#8cf5c7;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .warn{{background:#ffd66f}} .danger{{background:#ff8797}}
+    .policy{{margin-top:10px;padding:12px;border:1px solid #2d6453;border-radius:12px;background:#0a1814;color:#9bf2cb}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.8 // ADAPTIVE MONITORING + ESCALATION POLICY GATE</div>
+        <h1>🎛 MATCH MONITORING TO RISK</h1>
+        <p class='muted'>Long-term trend now drives monitoring intensity. Stable stays normal, watch becomes elevated, degrading becomes critical.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>NORMAL</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>ELEVATED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CRITICAL</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-cross-epoch-trends'>📈 CROSS-EPOCH TRENDS</a><a href='/api/hunter-adaptive-monitoring'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v348submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["eligible"], c["normal"], c["elevated"], c["critical"],
+        "".join(cards) or "<article class='card'><p>No cross-epoch trend reviews are ready for adaptive monitoring.</p></article>"
+    )
+
+
+try:
+    _v348_prev_page = app.view_functions.get("v347_page")
+    if _v348_prev_page:
+        def _v348_trends_with_monitoring(*args, **kwargs):
+            response = _v348_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-adaptive-monitoring" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-cross-epoch-trends'>JSON</a>",
+                    "<a href='/api/hunter-cross-epoch-trends'>JSON</a><a href='/hunter-adaptive-monitoring'>🎛 ADAPTIVE MONITORING</a>",
+                    1
+                )
+            return response
+        app.view_functions["v347_page"] = _v348_trends_with_monitoring
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
