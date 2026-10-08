@@ -68424,6 +68424,725 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.0 INCIDENT RESPONSE + REMEDIATION CLOSURE GATE =====
+# V34.9 turns SLO breaches into routed alerts.
+# V35.0 closes the loop:
+#
+# ALERT -> INCIDENT -> RESPONSE -> REMEDIATION -> VERIFICATION -> CLOSURE
+#
+# Incidents can no longer be treated as a simple alert state.
+# Every incident gets its own durable record, response timeline,
+# remediation evidence, verification result, and explicit closure decision.
+
+V350_VERSION = "V35.0"
+V350_INCIDENT_STATES = {"OPEN", "MITIGATING", "VERIFYING", "RESOLVED", "REOPENED"}
+V350_SEVERITIES = {"SEV3", "SEV2", "SEV1"}
+V350_RESPONSE_ACTIONS = {"ACK", "MITIGATE", "ESCALATE", "VERIFY", "RESOLVE", "REOPEN"}
+V350_VERDICTS = {"PASS", "FAIL", "INCONCLUSIVE"}
+
+
+def _v350_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            alert_id INTEGER NOT NULL,
+            severity TEXT NOT NULL,
+            incident_state TEXT NOT NULL DEFAULT 'OPEN',
+            title TEXT NOT NULL,
+            summary TEXT,
+            opened_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolution_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v350_incident_impl
+        ON hunter_incidents(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            action_state TEXT NOT NULL,
+            event_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v350_incident_events
+        ON hunter_incident_events(username, incident_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_remediations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            remediation_text TEXT NOT NULL,
+            evidence_note TEXT,
+            remediation_state TEXT NOT NULL DEFAULT 'PROPOSED',
+            created_at TEXT NOT NULL,
+            applied_at TEXT
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            remediation_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            verification_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v350_init()
+except Exception:
+    pass
+
+
+def _v350_latest_incident(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_incidents
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v350_events(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_incident_events
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC
+        """, (username, int(incident_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v350_remediations(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_incident_remediations
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC
+        """, (username, int(incident_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v350_verifications(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_incident_verifications
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC
+        """, (username, int(incident_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v350_severity_from_alert(alert):
+    priority = str((alert or {}).get("priority") or "P3").upper()
+    if priority == "P1":
+        return "SEV1"
+    if priority == "P2":
+        return "SEV2"
+    return "SEV3"
+
+
+def _v350_open_incident(username, implementation_id, title="", summary=""):
+    alert = _v349_latest_alert(username, implementation_id)
+    if not alert:
+        return False, "slo_alert_required", None
+
+    existing = _v350_latest_incident(username, implementation_id)
+    if existing and str(existing.get("incident_state") or "") in {"OPEN", "MITIGATING", "VERIFYING", "REOPENED"}:
+        return False, "active_incident_already_exists", int(existing["id"])
+
+    severity = _v350_severity_from_alert(alert)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    incident_title = str(title or "").strip()
+    if not incident_title:
+        incident_title = "BL3 SLO incident for implementation #%s" % int(implementation_id)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_incidents
+            (username, implementation_id, alert_id, severity, incident_state,
+             title, summary, opened_at)
+            VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(alert["id"]),
+            severity,
+            incident_title[:500],
+            str(summary or "").strip()[:4000],
+            now
+        ))
+        iid = int(cur.lastrowid)
+
+        con.execute("""
+            INSERT INTO hunter_incident_events
+            (username, incident_id, implementation_id, action_state, event_note, created_at)
+            VALUES (?, ?, ?, 'ACK', ?, ?)
+        """, (
+            username,
+            iid,
+            int(implementation_id),
+            "Incident opened from V34.9 SLO alert.",
+            now
+        ))
+
+        con.execute("""
+            UPDATE hunter_slo_alerts
+            SET alert_state='INCIDENT_OPEN'
+            WHERE id=? AND username=?
+        """, (int(alert["id"]), username))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, iid
+
+
+def _v350_incident_action(username, incident_id, action_state, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_incidents
+            WHERE username=? AND id=?
+        """, (username, int(incident_id))).fetchone()
+        incident = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not incident:
+        return False, "incident_not_found", None
+
+    action = str(action_state or "").strip().upper()
+    if action not in V350_RESPONSE_ACTIONS:
+        return False, "invalid_incident_action", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    state_map = {
+        "ACK": str(incident.get("incident_state") or "OPEN"),
+        "MITIGATE": "MITIGATING",
+        "ESCALATE": "MITIGATING",
+        "VERIFY": "VERIFYING",
+        "RESOLVE": "RESOLVED",
+        "REOPEN": "REOPENED",
+    }
+    new_state = state_map[action]
+
+    if action == "RESOLVE":
+        verdicts = _v350_verifications(username, int(incident["id"]))
+        if not verdicts or str(verdicts[0].get("verdict") or "") != "PASS":
+            return False, "passing_verification_required", None
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            INSERT INTO hunter_incident_events
+            (username, incident_id, implementation_id, action_state, event_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(incident["id"]),
+            int(incident["implementation_id"]),
+            action,
+            str(note or "").strip()[:3000],
+            now
+        ))
+
+        if action == "RESOLVE":
+            con.execute("""
+                UPDATE hunter_incidents
+                SET incident_state='RESOLVED',
+                    resolved_at=?,
+                    resolution_note=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                str(note or "").strip()[:3000],
+                int(incident["id"]),
+                username
+            ))
+        else:
+            con.execute("""
+                UPDATE hunter_incidents
+                SET incident_state=?
+                WHERE id=? AND username=?
+            """, (
+                new_state,
+                int(incident["id"]),
+                username
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(incident["id"])
+
+
+def _v350_add_remediation(username, incident_id, remediation_text, evidence_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_incidents
+            WHERE username=? AND id=?
+        """, (username, int(incident_id))).fetchone()
+        incident = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not incident:
+        return False, "incident_not_found", None
+
+    text = str(remediation_text or "").strip()
+    if not text:
+        return False, "remediation_text_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_incident_remediations
+            (username, incident_id, implementation_id, remediation_text,
+             evidence_note, remediation_state, created_at, applied_at)
+            VALUES (?, ?, ?, ?, ?, 'APPLIED', ?, ?)
+        """, (
+            username,
+            int(incident["id"]),
+            int(incident["implementation_id"]),
+            text[:5000],
+            str(evidence_note or "").strip()[:4000],
+            now,
+            now
+        ))
+        rid = int(cur.lastrowid)
+
+        con.execute("""
+            UPDATE hunter_incidents
+            SET incident_state='MITIGATING'
+            WHERE id=? AND username=? AND incident_state!='RESOLVED'
+        """, (int(incident["id"]), username))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v350_verify(username, incident_id, remediation_id, verdict, note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V350_VERDICTS:
+        return False, "invalid_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        incident_row = con.execute("""
+            SELECT * FROM hunter_incidents WHERE username=? AND id=?
+        """, (username, int(incident_id))).fetchone()
+        remediation_row = con.execute("""
+            SELECT * FROM hunter_incident_remediations
+            WHERE username=? AND id=? AND incident_id=?
+        """, (username, int(remediation_id), int(incident_id))).fetchone()
+        incident = dict(incident_row) if incident_row else None
+        remediation = dict(remediation_row) if remediation_row else None
+    finally:
+        con.close()
+
+    if not incident:
+        return False, "incident_not_found", None
+    if not remediation:
+        return False, "remediation_not_found", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_incident_verifications
+            (username, incident_id, implementation_id, remediation_id,
+             verdict, verification_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(incident_id),
+            int(incident["implementation_id"]),
+            int(remediation_id),
+            verdict,
+            str(note or "").strip()[:4000],
+            now
+        ))
+        vid = int(cur.lastrowid)
+
+        con.execute("""
+            UPDATE hunter_incidents
+            SET incident_state=?
+            WHERE id=? AND username=?
+        """, (
+            "VERIFYING" if verdict != "PASS" else "VERIFYING",
+            int(incident_id),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, vid
+
+
+def _v350_snapshot(username):
+    base = _v349_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        alert = item0.get("latest_alert") or {}
+        if not impl or not alert:
+            continue
+
+        iid = int(impl["id"])
+        incident = _v350_latest_incident(username, iid)
+        events = _v350_events(username, int(incident["id"])) if incident else []
+        remediations = _v350_remediations(username, int(incident["id"])) if incident else []
+        verifications = _v350_verifications(username, int(incident["id"])) if incident else []
+
+        item = dict(item0)
+        item["incident"] = incident
+        item["incident_events"] = events[:30]
+        item["remediations"] = remediations[:20]
+        item["verifications"] = verifications[:20]
+        item["can_open_incident"] = (
+            str(alert.get("alert_state") or "") in {"OPEN", "ACKNOWLEDGED", "INCIDENT_OPEN"}
+            and (not incident or str(incident.get("incident_state") or "") == "RESOLVED")
+        )
+        item["can_resolve"] = bool(
+            incident and verifications and str(verifications[0].get("verdict") or "") == "PASS"
+            and str(incident.get("incident_state") or "") != "RESOLVED"
+        )
+        items.append(item)
+
+    return {
+        "version": V350_VERSION,
+        "counts": {
+            "eligible": len(items),
+            "active_incidents": sum(
+                1 for i in items
+                if i.get("incident") and str(i["incident"].get("incident_state") or "") != "RESOLVED"
+            ),
+            "resolved": sum(
+                1 for i in items
+                if i.get("incident") and str(i["incident"].get("incident_state") or "") == "RESOLVED"
+            ),
+            "sev1": sum(
+                1 for i in items
+                if i.get("incident") and str(i["incident"].get("severity") or "") == "SEV1"
+            ),
+        },
+        "items": items,
+        "policy": "Alerts must terminate in a verifiable operational outcome: mitigation, evidence, verification, and explicit closure."
+    }
+
+
+@app.route("/api/hunter-incidents")
+def v350_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v350_snapshot(u)})
+
+
+@app.route("/api/hunter-incidents/implementation/<int:implementation_id>/open", methods=["POST"])
+def v350_open_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v350_open_incident(
+        u,
+        implementation_id,
+        p.get("title") or "",
+        p.get("summary") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "incident_id": iid}), 400
+    return jsonify({"success": True, "incident_id": iid})
+
+
+@app.route("/api/hunter-incidents/<int:incident_id>/action", methods=["POST"])
+def v350_action_api(incident_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v350_incident_action(
+        u,
+        incident_id,
+        p.get("action_state") or "",
+        p.get("event_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "incident_id": iid}), 400
+    return jsonify({"success": True, "incident_id": iid})
+
+
+@app.route("/api/hunter-incidents/<int:incident_id>/remediation", methods=["POST"])
+def v350_remediation_api(incident_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, rid = _v350_add_remediation(
+        u,
+        incident_id,
+        p.get("remediation_text") or "",
+        p.get("evidence_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "remediation_id": rid}), 400
+    return jsonify({"success": True, "remediation_id": rid})
+
+
+@app.route("/api/hunter-incidents/<int:incident_id>/verify", methods=["POST"])
+def v350_verify_api(incident_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    try:
+        remediation_id = int(p.get("remediation_id"))
+    except Exception:
+        return jsonify({"success": False, "error": "invalid_remediation_id"}), 400
+
+    ok, e, vid = _v350_verify(
+        u,
+        incident_id,
+        remediation_id,
+        p.get("verdict") or "",
+        p.get("verification_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "verification_id": vid}), 400
+    return jsonify({"success": True, "verification_id": vid})
+
+
+@app.route("/hunter-incidents")
+def v350_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🧯 Incident Response</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v350_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        alert = item.get("latest_alert") or {}
+        incident = item.get("incident") or {}
+        remediations = item.get("remediations") or []
+        verifications = item.get("verifications") or []
+
+        actions = ""
+
+        if item.get("can_open_incident"):
+            actions += f"""
+            <form action='/api/hunter-incidents/implementation/{iid}/open' onsubmit='return v350submit(this,event)'>
+              <input name='title' placeholder='Incident title'>
+              <textarea name='summary' rows='2' placeholder='Incident summary'></textarea>
+              <button class='danger'>OPEN INCIDENT</button>
+            </form>
+            """
+
+        if incident and str(incident.get("incident_state") or "") != "RESOLVED":
+            inc_id = int(incident["id"])
+            actions += f"""
+            <form action='/api/hunter-incidents/{inc_id}/action' onsubmit='return v350submit(this,event)'>
+              <select name='action_state'>
+                <option>ACK</option><option>MITIGATE</option><option>ESCALATE</option><option>VERIFY</option><option>REOPEN</option>
+              </select>
+              <textarea name='event_note' rows='2' placeholder='Incident action note'></textarea>
+              <button>ADD INCIDENT ACTION</button>
+            </form>
+
+            <form action='/api/hunter-incidents/{inc_id}/remediation' onsubmit='return v350submit(this,event)'>
+              <textarea name='remediation_text' rows='2' placeholder='Remediation applied' required></textarea>
+              <textarea name='evidence_note' rows='2' placeholder='Evidence / change reference'></textarea>
+              <button class='safe'>ADD REMEDIATION</button>
+            </form>
+            """
+
+            if remediations:
+                remediation_options = "".join(
+                    "<option value='{}'>#{} {}</option>".format(
+                        int(r["id"]), int(r["id"]), esc(r.get("remediation_text"))[:80]
+                    )
+                    for r in remediations[:10]
+                )
+                actions += f"""
+                <form action='/api/hunter-incidents/{inc_id}/verify' onsubmit='return v350submit(this,event)'>
+                  <select name='remediation_id'>{remediation_options}</select>
+                  <select name='verdict'>
+                    <option>PASS</option><option>FAIL</option><option>INCONCLUSIVE</option>
+                  </select>
+                  <textarea name='verification_note' rows='2' placeholder='Verification evidence'></textarea>
+                  <button class='warn'>VERIFY REMEDIATION</button>
+                </form>
+                """
+
+            if item.get("can_resolve"):
+                actions += f"""
+                <form action='/api/hunter-incidents/{inc_id}/action' onsubmit='return v350submit(this,event)'>
+                  <input type='hidden' name='action_state' value='RESOLVE'>
+                  <textarea name='event_note' rows='2' placeholder='Final resolution note'></textarea>
+                  <button class='safe'>RESOLVE INCIDENT</button>
+                </form>
+                """
+
+        incident_html = ""
+        if incident:
+            incident_html = """
+            <div class='incident'>
+              INCIDENT <b>#{}</b> · <b>{}</b> · <b>{}</b><br>
+              <small>{}</small>
+            </div>
+            """.format(
+                esc(incident.get("id")),
+                esc(incident.get("severity")),
+                esc(incident.get("incident_state")),
+                esc(incident.get("opened_at"))
+            )
+
+        verification_html = ""
+        if verifications:
+            v = verifications[0]
+            verification_html = """
+            <div class='verify'>LATEST VERIFICATION: <b>{}</b><br><small>{}</small></div>
+            """.format(
+                esc(v.get("verdict")),
+                esc(v.get("created_at"))
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>Implementation #{iid}</span>
+            <span class='pill'>{esc(alert.get('priority'))} / {esc(alert.get('slo_state'))}</span>
+          </div>
+          <h2>{esc(item.get('title'))}</h2>
+          {incident_html}
+          {verification_html}
+          {actions}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.0 Incident Response</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ff8f9c;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ff8f9c}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #733640;border-radius:999px;padding:5px 8px;color:#ff9faa;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .warn{{background:#ffd66f}} .danger{{background:#ff8797}}
+    .incident,.verify{{margin-top:10px;padding:12px;border:1px solid #65333b;border-radius:12px;background:#170c10}}
+    .verify{{border-color:#7a6631;background:#17140b}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.0 // INCIDENT RESPONSE + REMEDIATION CLOSURE GATE</div>
+        <h1>🧯 CLOSE THE LOOP</h1>
+        <p class='muted'>SLO alerts now become full incident records with response actions, remediation evidence, verification, and explicit closure.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>ACTIVE INCIDENTS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>RESOLVED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>SEV1</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-slo-budget'>🚨 SLO BUDGET</a><a href='/api/hunter-incidents'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v350submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["eligible"], c["active_incidents"], c["resolved"], c["sev1"],
+        "".join(cards) or "<article class='card'><p>No SLO alerts are ready for incident workflow.</p></article>"
+    )
+
+
+try:
+    _v350_prev_page = app.view_functions.get("v349_page")
+    if _v350_prev_page:
+        def _v350_slo_with_incidents(*args, **kwargs):
+            response = _v350_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-incidents" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-slo-budget'>JSON</a>",
+                    "<a href='/api/hunter-slo-budget'>JSON</a><a href='/hunter-incidents'>🧯 INCIDENTS</a>",
+                    1
+                )
+            return response
+        app.view_functions["v349_page"] = _v350_slo_with_incidents
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
