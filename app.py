@@ -80634,6 +80634,358 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.24 OPERATIONAL READINESS DOSSIER + EVIDENCE EXPORT GATE =====
+# V35.23 proves that every certification explicitly affected by incident
+# learning has been freshly RECERTIFIED. V35.24 seals that restored state into
+# a portable, immutable readiness dossier for operator review and external
+# evidence exchange:
+#
+# RESTORED CAMPAIGN -> SEALED DOSSIER -> VERIFY -> JSON / CSV EXPORT
+#
+# A dossier can only be sealed from a RESTORED campaign whose exact target
+# certifications are still RECERTIFIED at seal time. The sealed evidence never
+# mutates; later checks may mark the *current posture* STALE without changing
+# the original evidence or digest.
+
+V3524_VERSION = "V35.24"
+V3524_STATES = {"SEALED", "STALE"}
+
+
+def _v3524_now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _v3524_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3524_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operational_readiness_dossiers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            campaign_id INTEGER NOT NULL,
+            promotion_id INTEGER NOT NULL,
+            certification_scope TEXT NOT NULL,
+            dossier_key TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            sealed_by TEXT NOT NULL,
+            sealed_at TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            UNIQUE(username, campaign_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3524_user_id ON hunter_operational_readiness_dossiers(username,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3524_scope_id ON hunter_operational_readiness_dossiers(username,certification_scope,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operational_readiness_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            dossier_id INTEGER NOT NULL,
+            current_state TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3524_checks_dossier ON hunter_operational_readiness_checks(username,dossier_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3524_init()
+except Exception:
+    pass
+
+
+def _v3524_live_targets(username, campaign):
+    targets = _v3523_trigger_targets(username, int(campaign["promotion_id"]))
+    refreshed = []
+    for t in targets:
+        d = dict(t)
+        cid = int(d.get("certification_id") or 0)
+        cert = _v3517_entry(username, cid) if cid else None
+        if cert:
+            d["certification_state"] = cert.get("certification_state")
+            d["due_at"] = cert.get("due_at")
+            d["recertified_at"] = cert.get("recertified_at")
+            d["revoked_at"] = cert.get("revoked_at")
+            d["updated_at"] = cert.get("updated_at")
+        refreshed.append(d)
+    return refreshed
+
+
+def _v3524_current_posture(username, campaign):
+    if not campaign:
+        return "STALE", {"targets": 0, "recertified": 0, "noncurrent": 0, "reason": "campaign_missing"}, []
+    # Refresh V35.23 first so deadline / campaign state is current.
+    campaign = _v3523_refresh(username, int(campaign["id"])) or campaign
+    targets = _v3524_live_targets(username, campaign)
+    recertified = sum(1 for t in targets if str(t.get("certification_state") or "").upper() == "RECERTIFIED")
+    noncurrent = max(0, len(targets) - recertified)
+    state = "SEALED" if str(campaign.get("campaign_state") or "").upper() == "RESTORED" and targets and noncurrent == 0 else "STALE"
+    metrics = {
+        "targets": len(targets),
+        "recertified": recertified,
+        "noncurrent": noncurrent,
+        "campaign_state": str(campaign.get("campaign_state") or ""),
+    }
+    return state, metrics, targets
+
+
+def _v3524_get(username, dossier_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_operational_readiness_dossiers WHERE username=? AND id=?", (username, int(dossier_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["evidence"] = json.loads(d.get("evidence_json") or "{}")
+        except Exception:
+            d["evidence"] = {}
+        checks = con.execute("SELECT * FROM hunter_operational_readiness_checks WHERE username=? AND dossier_id=? ORDER BY id DESC LIMIT 25", (username, int(dossier_id))).fetchall()
+        d["checks"] = [dict(r) for r in checks]
+    finally:
+        con.close()
+    campaign = _v3523_refresh(username, int(d["campaign_id"]))
+    state, metrics, targets = _v3524_current_posture(username, campaign)
+    d["current_state"] = state
+    d["current_metrics"] = metrics
+    d["current_targets"] = targets
+    return d
+
+
+def _v3524_seal(username, campaign_id, title="", sealed_by=""):
+    try:
+        campaign_id = int(campaign_id)
+    except Exception:
+        return False, "invalid_campaign_id", None
+    campaign = _v3523_refresh(username, campaign_id)
+    if not campaign:
+        return False, "campaign_not_found", None
+    if str(campaign.get("campaign_state") or "").upper() != "RESTORED":
+        return False, "restored_campaign_required", None
+    state, metrics, targets = _v3524_current_posture(username, campaign)
+    if state != "SEALED":
+        return False, "all_targets_must_be_currently_recertified", None
+    now = _v3524_now_iso()
+    sealed_by = str(sealed_by or username).strip()[:160] or username
+    title = str(title or "").strip()[:240] or f"Operational Readiness · {campaign.get('certification_scope') or 'scope'}"
+    event_digests = [str(e.get("evidence_sha256") or "") for e in (campaign.get("events") or []) if e.get("evidence_sha256")]
+    evidence = {
+        "version": V3524_VERSION,
+        "evidence_type": "operational_readiness_dossier",
+        "username": username,
+        "campaign_id": campaign_id,
+        "promotion_id": int(campaign.get("promotion_id") or 0),
+        "certification_scope": campaign.get("certification_scope") or "",
+        "campaign_name": campaign.get("campaign_name") or "",
+        "campaign_restored_at": campaign.get("restored_at") or "",
+        "campaign_event_digests": event_digests,
+        "readiness_metrics": metrics,
+        "targets": [
+            {
+                "certification_id": int(t.get("certification_id") or 0),
+                "operator": t.get("operator") or "",
+                "certification_scope": t.get("certification_scope") or "",
+                "certification_state": t.get("certification_state") or "",
+                "recertified_at": t.get("recertified_at") or "",
+                "due_at": t.get("due_at") or "",
+                "trigger_sha256": t.get("trigger_sha256") or "",
+            } for t in targets
+        ],
+        "sealed_by": sealed_by,
+        "sealed_at": now,
+        "policy": "This dossier is an application-level evidence snapshot. It does not constitute an external audit, legal certification, security guarantee, employment credential, or guarantee that future operator readiness will remain unchanged.",
+    }
+    digest, canonical = _v3524_digest(evidence)
+    dossier_key = "BL3-RDY-" + datetime.now().strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(4).upper()
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_operational_readiness_dossiers
+                (username,campaign_id,promotion_id,certification_scope,dossier_key,title,sealed_by,sealed_at,evidence_sha256,evidence_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (username, campaign_id, int(campaign.get("promotion_id") or 0), campaign.get("certification_scope") or "", dossier_key,
+                 title, sealed_by, now, digest, canonical))
+            did = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            row = con.execute("SELECT id FROM hunter_operational_readiness_dossiers WHERE username=? AND campaign_id=?", (username, campaign_id)).fetchone()
+            return False, "dossier_already_exists", int(row[0]) if row else None
+        check_payload = {"dossier_id": did, "state": "SEALED", "metrics": metrics, "checked_at": now}
+        check_digest, _ = _v3524_digest(check_payload)
+        con.execute("""INSERT INTO hunter_operational_readiness_checks
+            (username,dossier_id,current_state,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?,?)""",
+            (username, did, "SEALED", "Initial seal verification passed.", check_digest, now))
+        con.commit()
+        return True, None, did
+    finally:
+        con.close()
+
+
+def _v3524_verify(username, dossier_id):
+    d = _v3524_get(username, dossier_id)
+    if not d:
+        return False, "dossier_not_found", None
+    try:
+        evidence = json.loads(d.get("evidence_json") or "{}")
+    except Exception:
+        evidence = {}
+    recomputed, _ = _v3524_digest(evidence)
+    digest_valid = secrets.compare_digest(str(recomputed), str(d.get("evidence_sha256") or ""))
+    campaign = _v3523_refresh(username, int(d["campaign_id"]))
+    state, metrics, targets = _v3524_current_posture(username, campaign)
+    if not digest_valid:
+        state = "STALE"
+    now = _v3524_now_iso()
+    payload = {"dossier_id": int(dossier_id), "digest_valid": bool(digest_valid), "current_state": state, "metrics": metrics, "checked_at": now}
+    check_digest, _ = _v3524_digest(payload)
+    detail = ("Evidence digest valid. " if digest_valid else "Evidence digest mismatch. ") + f"Current posture: {state}."
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""INSERT INTO hunter_operational_readiness_checks
+            (username,dossier_id,current_state,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?,?)""",
+            (username, int(dossier_id), state, detail, check_digest, now))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {"digest_valid": digest_valid, "current_state": state, "metrics": metrics, "targets": targets, "check_sha256": check_digest}
+
+
+def _v3524_eligible_campaigns(username):
+    snap = _v3523_snapshot(username)
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        existing = {int(r["campaign_id"]) for r in con.execute("SELECT campaign_id FROM hunter_operational_readiness_dossiers WHERE username=?", (username,)).fetchall()}
+    finally:
+        con.close()
+    return [c for c in (snap.get("campaigns") or []) if str(c.get("campaign_state") or "").upper() == "RESTORED" and int(c.get("id") or 0) not in existing]
+
+
+def _v3524_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r["id"]) for r in con.execute("SELECT id FROM hunter_operational_readiness_dossiers WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    dossiers = []; counts = {s: 0 for s in V3524_STATES}
+    for did in ids:
+        d = _v3524_get(username, did)
+        if d:
+            state = str(d.get("current_state") or "STALE").upper()
+            counts[state] = counts.get(state, 0) + 1
+            dossiers.append(d)
+    return {"success": True, "version": V3524_VERSION, "counts": counts, "eligible_campaigns": _v3524_eligible_campaigns(username), "dossiers": dossiers}
+
+
+@app.route('/api/hunter-readiness-dossiers', methods=['GET','POST'])
+def v3524_api_dossiers():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3524_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, did = _v3524_seal(u, p.get('campaign_id'), p.get('title') or '', p.get('sealed_by') or u)
+    return jsonify({'success':ok,'error':error,'dossier_id':did}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-readiness-dossiers/<int:dossier_id>')
+def v3524_api_dossier(dossier_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3524_get(u, dossier_id)
+    if not d:
+        return jsonify({'success':False,'error':'dossier_not_found'}), 404
+    return jsonify({'success':True,'version':V3524_VERSION,'dossier':d})
+
+
+@app.route('/api/hunter-readiness-dossiers/<int:dossier_id>/verify', methods=['POST'])
+def v3524_api_verify(dossier_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    ok, error, result = _v3524_verify(u, dossier_id)
+    return jsonify({'success':ok,'error':error,'result':result}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-readiness-dossiers/<int:dossier_id>/export.csv')
+def v3524_export_csv(dossier_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3524_get(u, dossier_id)
+    if not d:
+        return jsonify({'success':False,'error':'dossier_not_found'}), 404
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(['BL3 readiness dossier', d.get('dossier_key') or ''])
+    w.writerow(['version', V3524_VERSION]); w.writerow(['title', d.get('title') or '']); w.writerow(['scope', d.get('certification_scope') or ''])
+    w.writerow(['sealed_by', d.get('sealed_by') or '']); w.writerow(['sealed_at', d.get('sealed_at') or '']); w.writerow(['evidence_sha256', d.get('evidence_sha256') or ''])
+    w.writerow(['current_state', d.get('current_state') or '']); w.writerow([])
+    w.writerow(['certification_id','operator','scope','state','recertified_at','due_at','trigger_sha256'])
+    for t in (d.get('evidence') or {}).get('targets', []):
+        w.writerow([t.get('certification_id'),t.get('operator'),t.get('certification_scope'),t.get('certification_state'),t.get('recertified_at'),t.get('due_at'),t.get('trigger_sha256')])
+    data = buf.getvalue()
+    filename = (d.get('dossier_key') or f'BL3-readiness-{dossier_id}') + '.csv'
+    return Response(data, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"', 'Cache-Control':'no-store'})
+
+
+@app.route('/hunter-readiness-dossiers')
+def v3524_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3524_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join("<option value='{}'>Campaign #{} · {}</option>".format(int(x['id']), int(x['id']), esc(x.get('certification_scope') or 'scope')) for x in d['eligible_campaigns'])
+    cards = []
+    for x in d['dossiers']:
+        did = int(x['id']); state = str(x.get('current_state') or 'STALE').upper(); m = x.get('current_metrics') or {}; ev = x.get('evidence') or {}
+        target_html = ''.join("<div class='target'><b>{}</b><span>Cert #{} · {}</span><span class='pill'>{}</span></div>".format(
+            esc(t.get('operator') or 'operator'), int(t.get('certification_id') or 0), esc(t.get('certification_scope') or ''), esc(t.get('certification_state') or '')) for t in ev.get('targets', []))
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('dossier_key') or '')}</span><span class='pill {esc(state.lower())}'>{esc(state)}</span></div>
+        <h2>{esc(x.get('title') or '')}</h2><p class='muted'>Scope {esc(x.get('certification_scope') or '')} · Sealed by {esc(x.get('sealed_by') or '')} · {esc(x.get('sealed_at') or '')}</p>
+        <div class='score'><b>{int(m.get('recertified') or 0)}/{int(m.get('targets') or 0)}</b> CURRENT RECERTIFICATIONS</div><div class='targets'>{target_html}</div>
+        <p class='muted'>Evidence SHA-256 <code>{esc(x.get('evidence_sha256') or '')}</code></p>
+        <form action='/api/hunter-readiness-dossiers/{did}/verify' onsubmit='return v3524submit(this,event)'><button>VERIFY CURRENT POSTURE</button></form>
+        <p><a href='/api/hunter-readiness-dossiers/{did}'>JSON</a> · <a href='/api/hunter-readiness-dossiers/{did}/export.csv'>CSV EXPORT</a></p></article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.24 Operational Readiness Dossiers</title><style>
+    body{{margin:0;background:#05070a;color:#edf8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #334b54;background:#091016;border-radius:20px;padding:18px}}.eyebrow{{color:#b8ff5a;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a6ae}}.stats{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}}.stats>div{{border:1px solid #263d45;border-radius:14px;padding:12px}}.num{{font-size:26px;font-weight:900;color:#b8ff5a}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.target{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.pill{{border:1px solid #3e7c54;border-radius:999px;padding:5px 9px}}.stale{{border-color:#a94455!important}}.score{{margin:12px 0;padding:12px;border:1px solid #284237;border-radius:12px}}.targets{{display:grid;gap:8px}}.target{{padding:10px;border:1px solid #20343e;border-radius:12px}}input,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}a,code{{color:#b8ff5a}}code{{overflow-wrap:anywhere}}@media(max-width:760px){{.target{{align-items:flex-start;flex-direction:column}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.24 · OPERATIONAL READINESS DOSSIER + EVIDENCE EXPORT GATE</div>
+    <h1>Seal the restored state. Carry the proof.</h1><p class='muted'>Turn a fully restored recertification campaign into an immutable readiness dossier with SHA-256 evidence, live posture verification, and portable JSON / CSV exports.</p>
+    <div class='stats'><div><div class='num'>{}</div>SEALED + CURRENT</div><div><div class='num'>{}</div>STALE</div></div>
+    <p><a href='/hunter-recertification-campaigns'>← Recertification Campaigns</a> · <a href='/api/hunter-readiness-dossiers'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Seal readiness dossier</h2><form action='/api/hunter-readiness-dossiers' onsubmit='return v3524submit(this,event)'><select name='campaign_id' required><option value=''>Restored campaign</option>{}</select><input name='title' placeholder='Dossier title'><input name='sealed_by' value='{}' placeholder='Sealed by' required><button>SEAL READINESS DOSSIER</button></form></section>
+    <section class='grid'>{}</section></div><script>async function v3524submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('SEALED',0),c.get('STALE',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No readiness dossiers yet.</p></article>")
+
+
+# Add navigation from V35.23 into V35.24.
+try:
+    _v3524_prev_page = app.view_functions.get('v3523_page')
+    if _v3524_prev_page:
+        def _v3524_campaigns_with_dossiers(*args, **kwargs):
+            response = _v3524_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-readiness-dossiers' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-recertification-campaigns'>JSON</a>",
+                    "<a href='/api/hunter-recertification-campaigns'>JSON</a> · <a href='/hunter-readiness-dossiers'>📦 READINESS DOSSIERS</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3523_page'] = _v3524_campaigns_with_dossiers
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -80750,6 +81102,7 @@ if __name__ == "__main__":
     print("🧠 Post-Incident Review + Corrective Action Closure Gate enabled")
     print("📚 Incident Learning Promotion + Recertification Trigger Gate enabled")
     print("🔁 Recertification Campaign + Compliance Restoration Gate enabled")
+    print("📦 Operational Readiness Dossier + Evidence Export Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
