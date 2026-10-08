@@ -66790,6 +66790,493 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.7 CROSS-EPOCH TREND + DRIFT ESCALATION GATE =====
+# V34.6 introduced repeatable assurance epochs.
+# V34.7 looks across CLOSED epochs to detect whether resilience is improving,
+# flat, or deteriorating over time. Repeated weak signals can now trigger
+# explicit escalation even if each individual epoch was technically closed.
+
+V347_VERSION = "V34.7"
+V347_TRENDS = {"IMPROVING", "STABLE", "WATCH", "DEGRADING"}
+V347_ACTIONS = {"NO_ACTION", "INCREASE_MONITORING", "REOPEN_RESILIENCE"}
+V347_MIN_CLOSED_EPOCHS = 2
+
+
+def _v347_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_cross_epoch_trend_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            reviewed_epoch_count INTEGER NOT NULL,
+            healthy_count INTEGER NOT NULL DEFAULT 0,
+            drift_count INTEGER NOT NULL DEFAULT 0,
+            degraded_count INTEGER NOT NULL DEFAULT 0,
+            incident_count INTEGER NOT NULL DEFAULT 0,
+            inconclusive_count INTEGER NOT NULL DEFAULT 0,
+            trend_state TEXT NOT NULL,
+            review_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v347_trend_impl
+        ON hunter_cross_epoch_trend_reviews(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_cross_epoch_escalations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            trend_review_id INTEGER NOT NULL,
+            action_state TEXT NOT NULL,
+            action_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v347_escalation_impl
+        ON hunter_cross_epoch_escalations(username, implementation_id, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v347_init()
+except Exception:
+    pass
+
+
+def _v347_latest_review(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_cross_epoch_trend_reviews
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v347_latest_escalation(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_cross_epoch_escalations
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v347_closed_epoch_signal_counts(username, implementation_id):
+    epochs = [
+        e for e in _v346_epochs(username, implementation_id)
+        if str(e.get("epoch_state") or "") == "CLOSED"
+    ]
+
+    totals = {
+        "HEALTHY": 0,
+        "DRIFT": 0,
+        "DEGRADED": 0,
+        "INCIDENT": 0,
+        "INCONCLUSIVE": 0,
+    }
+
+    for ep in epochs:
+        checks = _v346_epoch_checks(username, int(ep["id"]))
+        for ch in checks:
+            s = str(ch.get("signal_state") or "").upper()
+            if s in totals:
+                totals[s] += 1
+
+    return epochs, totals
+
+
+def _v347_classify_trend(epochs, totals):
+    if len(epochs) < V347_MIN_CLOSED_EPOCHS:
+        return None
+
+    bad = totals["DRIFT"] + totals["DEGRADED"] + totals["INCIDENT"]
+    healthy = totals["HEALTHY"]
+    total = sum(totals.values())
+
+    if total <= 0:
+        return "WATCH"
+
+    ratio_bad = bad / float(total)
+    ratio_healthy = healthy / float(total)
+
+    # Incident evidence dominates all other signals.
+    if totals["INCIDENT"] >= 2 or ratio_bad >= 0.45:
+        return "DEGRADING"
+
+    # Some repeated weakness but not yet severe.
+    if totals["DRIFT"] + totals["DEGRADED"] >= 2 or ratio_bad >= 0.25:
+        return "WATCH"
+
+    # Strong healthy majority across completed epochs.
+    if ratio_healthy >= 0.75:
+        # If the newest epoch is all-healthy and older epochs had some weaker signals,
+        # call that improving; otherwise call it stable.
+        newest = epochs[0]
+        newest_checks = _v346_epoch_checks(
+            str(newest.get("username") or ""),
+            int(newest["id"])
+        ) if False else []
+        return "STABLE"
+
+    return "STABLE"
+
+
+def _v347_review(username, implementation_id, note=""):
+    cert = _v343_certificate(username, implementation_id)
+    if not cert or str(cert.get("certificate_state") or "") != "CERTIFIED":
+        return False, "active_resilience_certificate_required", None
+
+    epochs, totals = _v347_closed_epoch_signal_counts(username, implementation_id)
+    if len(epochs) < V347_MIN_CLOSED_EPOCHS:
+        return False, "not_enough_closed_epochs", None
+
+    trend = _v347_classify_trend(epochs, totals)
+    if not trend:
+        return False, "trend_not_available", None
+
+    # Refine IMPROVING by comparing newest two closed epochs.
+    try:
+        newest, prev = epochs[0], epochs[1]
+        def epoch_bad(ep):
+            checks = _v346_epoch_checks(username, int(ep["id"]))
+            return sum(1 for c in checks if str(c.get("signal_state") or "") in {"DRIFT","DEGRADED","INCIDENT"})
+        if epoch_bad(newest) < epoch_bad(prev) and trend in {"STABLE","WATCH"}:
+            trend = "IMPROVING"
+    except Exception:
+        pass
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_cross_epoch_trend_reviews
+            (username, implementation_id, reviewed_epoch_count,
+             healthy_count, drift_count, degraded_count, incident_count,
+             inconclusive_count, trend_state, review_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            len(epochs),
+            totals["HEALTHY"],
+            totals["DRIFT"],
+            totals["DEGRADED"],
+            totals["INCIDENT"],
+            totals["INCONCLUSIVE"],
+            trend,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v347_escalate(username, implementation_id, action_state, note=""):
+    review = _v347_latest_review(username, implementation_id)
+    if not review:
+        return False, "trend_review_required", None
+
+    action = str(action_state or "").strip().upper()
+    if action not in V347_ACTIONS:
+        return False, "invalid_action", None
+
+    trend = str(review.get("trend_state") or "")
+    if action == "NO_ACTION" and trend == "DEGRADING":
+        return False, "degrading_trend_cannot_no_action", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_cross_epoch_escalations
+            (username, implementation_id, trend_review_id,
+             action_state, action_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(review["id"]),
+            action,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        aid = int(cur.lastrowid)
+
+        if action == "REOPEN_RESILIENCE":
+            cert = _v343_certificate(username, implementation_id)
+            if cert and str(cert.get("certificate_state") or "") == "CERTIFIED":
+                con.execute("""
+                    UPDATE hunter_resilience_certificates
+                    SET certificate_state='REVOKED',
+                        revoked_at=?,
+                        revoke_note=?
+                    WHERE id=? AND username=? AND certificate_state='CERTIFIED'
+                """, (
+                    now,
+                    str(note or "Reopened by V34.7 cross-epoch drift escalation.").strip()[:2400],
+                    int(cert["id"]),
+                    username
+                ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "CROSS_EPOCH_TREND_ACTION",
+            detail="V34.7 implementation #%s trend=%s action=%s." % (
+                int(implementation_id), trend, action
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, aid
+
+
+def _v347_snapshot(username):
+    base = _v346_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        if not impl:
+            continue
+
+        iid = int(impl["id"])
+        epochs = [
+            e for e in _v346_epochs(username, iid)
+            if str(e.get("epoch_state") or "") == "CLOSED"
+        ]
+        if len(epochs) < V347_MIN_CLOSED_EPOCHS:
+            continue
+
+        review = _v347_latest_review(username, iid)
+        escalation = _v347_latest_escalation(username, iid)
+
+        item = dict(item0)
+        item["closed_epoch_count"] = len(epochs)
+        item["trend_review"] = review
+        item["latest_escalation"] = escalation
+        item["can_review"] = True
+        item["can_escalate"] = bool(review)
+        items.append(item)
+
+    return {
+        "version": V347_VERSION,
+        "minimum_closed_epochs": V347_MIN_CLOSED_EPOCHS,
+        "counts": {
+            "eligible": len(items),
+            "reviewed": sum(1 for i in items if i.get("trend_review")),
+            "degrading": sum(
+                1 for i in items
+                if i.get("trend_review") and i["trend_review"].get("trend_state") == "DEGRADING"
+            ),
+            "escalated": sum(1 for i in items if i.get("latest_escalation")),
+        },
+        "items": items,
+        "policy": "Repeated weak assurance signals across epochs matter even when each epoch closes successfully. Cross-epoch trend can force escalation."
+    }
+
+
+@app.route("/api/hunter-cross-epoch-trends")
+def v347_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v347_snapshot(u)})
+
+
+@app.route("/api/hunter-cross-epoch-trends/implementation/<int:implementation_id>/review", methods=["POST"])
+def v347_review_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, rid = _v347_review(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "review_id": rid}), 400
+    return jsonify({"success": True, "review_id": rid})
+
+
+@app.route("/api/hunter-cross-epoch-trends/implementation/<int:implementation_id>/action", methods=["POST"])
+def v347_action_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, aid = _v347_escalate(
+        u,
+        implementation_id,
+        p.get("action_state") or "",
+        p.get("action_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/hunter-cross-epoch-trends")
+def v347_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>📈 Cross-Epoch Trends</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v347_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        review = item.get("trend_review") or {}
+        escalation = item.get("latest_escalation") or {}
+
+        review_html = ""
+        if review:
+            review_html = """
+            <div class='trend {cls}'>
+              TREND: <b>{trend}</b><br>
+              <small>{epochs} epochs · healthy {healthy} · drift {drift} · degraded {degraded} · incidents {incidents}</small>
+            </div>
+            """.format(
+                cls=str(review.get("trend_state") or "").lower(),
+                trend=esc(review.get("trend_state")),
+                epochs=esc(review.get("reviewed_epoch_count")),
+                healthy=esc(review.get("healthy_count")),
+                drift=esc(review.get("drift_count")),
+                degraded=esc(review.get("degraded_count")),
+                incidents=esc(review.get("incident_count")),
+            )
+
+        actions = f"""
+        <form action='/api/hunter-cross-epoch-trends/implementation/{iid}/review' onsubmit='return v347submit(this,event)'>
+          <textarea name='note' rows='2' placeholder='Cross-epoch trend review note'></textarea>
+          <button>REFRESH TREND REVIEW</button>
+        </form>
+        """
+
+        if review:
+            actions += f"""
+            <form action='/api/hunter-cross-epoch-trends/implementation/{iid}/action' onsubmit='return v347submit(this,event)'>
+              <select name='action_state'>
+                <option>NO_ACTION</option>
+                <option>INCREASE_MONITORING</option>
+                <option>REOPEN_RESILIENCE</option>
+              </select>
+              <textarea name='action_note' rows='2' placeholder='Escalation rationale'></textarea>
+              <button class='warn'>APPLY TREND ACTION</button>
+            </form>
+            """
+
+        escalation_html = ""
+        if escalation:
+            escalation_html = "<div class='escalation'>LATEST ACTION: <b>{}</b><br><small>{}</small></div>".format(
+                esc(escalation.get("action_state")),
+                esc(escalation.get("created_at"))
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>{esc(item.get('closed_epoch_count'))} CLOSED EPOCHS</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          {review_html}
+          {escalation_html}
+          {actions}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.7 Cross-Epoch Trend Gate</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#7fe7ff;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#7fe7ff}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #31596a;border-radius:999px;padding:5px 8px;color:#7fe7ff;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .warn{{background:#ffd66f}}
+    .trend,.escalation{{margin-top:10px;padding:12px;border:1px solid #2f5366;border-radius:12px;background:#0a151c}}
+    .improving{{border-color:#2f7f62;color:#9bf2cb}} .stable{{border-color:#31596a;color:#9edfff}}
+    .watch{{border-color:#7b6428;color:#ffd66f}} .degrading{{border-color:#7d3846;color:#ff9caa}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.7 // CROSS-EPOCH TREND + DRIFT ESCALATION GATE</div>
+        <h1>📈 WATCH THE LONG GAME</h1>
+        <p class='muted'>One healthy epoch can hide a weakening system. Compare closed epochs and escalate when drift becomes a pattern.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>REVIEWED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DEGRADING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>ESCALATED</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-assurance-epochs'>🔁 ASSURANCE EPOCHS</a><a href='/api/hunter-cross-epoch-trends'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v347submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["eligible"], c["reviewed"], c["degrading"], c["escalated"],
+        "".join(cards) or "<article class='card'><p>Need at least two closed assurance epochs before cross-epoch trend review.</p></article>"
+    )
+
+
+try:
+    _v347_prev_page = app.view_functions.get("v346_page")
+    if _v347_prev_page:
+        def _v347_epochs_with_trends(*args, **kwargs):
+            response = _v347_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-cross-epoch-trends" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-assurance-epochs'>JSON</a>",
+                    "<a href='/api/hunter-assurance-epochs'>JSON</a><a href='/hunter-cross-epoch-trends'>📈 CROSS-EPOCH TRENDS</a>",
+                    1
+                )
+            return response
+        app.view_functions["v346_page"] = _v347_epochs_with_trends
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
