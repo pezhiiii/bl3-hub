@@ -64091,6 +64091,577 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.2 ROLLOUT STABILITY + OBSERVABILITY GATE =====
+# V34.1 can seal a validated hardening implementation.
+# V34.2 observes whether the sealed rollout remains healthy over time.
+# A rollout is not considered durable merely because validation passed once.
+# This gate adds post-seal operational health checks, drift detection,
+# and an explicit durability decision.
+
+V342_VERSION = "V34.2"
+V342_HEALTH_SIGNALS = {"HEALTHY", "DRIFT", "DEGRADED", "REGRESSED", "INCONCLUSIVE"}
+V342_OUTCOMES = {"CONFIRM_DURABLE", "EXTEND_OBSERVATION", "REOPEN_ROLLOUT"}
+V342_MIN_CHECKS = 3
+
+
+def _v342_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_rollout_stability_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            implementation_seal_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v342_stability_impl
+        ON hunter_rollout_stability_checks(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_rollout_stability_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            implementation_seal_id INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_rollout_durability_seals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            implementation_seal_id INTEGER NOT NULL,
+            stability_outcome_id INTEGER NOT NULL,
+            durability_state TEXT NOT NULL DEFAULT 'DURABLE',
+            seal_note TEXT,
+            sealed_at TEXT NOT NULL,
+            reopened_at TEXT,
+            reopen_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v342_durability_state
+        ON hunter_rollout_durability_seals(username, durability_state, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v342_init()
+except Exception:
+    pass
+
+
+def _v342_checks(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_rollout_stability_checks
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC
+        """, (username, int(implementation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v342_outcome(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_rollout_stability_outcomes
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v342_durability(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_rollout_durability_seals
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v342_add_check(username, implementation_id, signal_state, note=""):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+
+    seal = _v341_seal(username, implementation_id)
+    if not seal or str(seal.get("seal_state") or "") != "SEALED":
+        return False, "sealed_implementation_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V342_HEALTH_SIGNALS:
+        return False, "invalid_health_signal", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_rollout_stability_checks
+            (username, implementation_id, implementation_seal_id,
+             signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(seal["id"]),
+            signal,
+            str(note or "").strip()[:2400],
+            now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v342_finalize_outcome(username, implementation_id, requested_outcome, note=""):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+
+    seal = _v341_seal(username, implementation_id)
+    if not seal or str(seal.get("seal_state") or "") != "SEALED":
+        return False, "sealed_implementation_required", None
+
+    checks = _v342_checks(username, implementation_id)
+    if len(checks) < V342_MIN_CHECKS:
+        return False, "not_enough_stability_checks", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V342_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v342_outcome(username, implementation_id)
+    if existing:
+        return False, "stability_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_rollout_stability_outcomes
+            (username, implementation_id, implementation_seal_id,
+             outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(seal["id"]),
+            requested,
+            str(note or "").strip()[:2400],
+            now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v342_confirm_durable(username, implementation_id, note=""):
+    outcome = _v342_outcome(username, implementation_id)
+    if not outcome:
+        return False, "stability_outcome_required", None
+    if str(outcome.get("outcome") or "") != "CONFIRM_DURABLE":
+        return False, "confirm_durable_outcome_required", None
+
+    existing = _v342_durability(username, implementation_id)
+    if existing:
+        return False, "durability_already_recorded", int(existing["id"])
+
+    seal = _v341_seal(username, implementation_id)
+    if not seal:
+        return False, "implementation_seal_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_rollout_durability_seals
+            (username, implementation_id, implementation_seal_id,
+             stability_outcome_id, durability_state, seal_note, sealed_at)
+            VALUES (?, ?, ?, ?, 'DURABLE', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(seal["id"]),
+            int(outcome["id"]),
+            str(note or "").strip()[:2400],
+            now
+        ))
+        did = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "HARDENING_ROLLOUT_DURABLE",
+            detail="V34.2 implementation #%s confirmed durable after post-seal observation." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, did
+
+
+def _v342_reopen_rollout(username, implementation_id, note=""):
+    outcome = _v342_outcome(username, implementation_id)
+    if not outcome:
+        return False, "stability_outcome_required", None
+    if str(outcome.get("outcome") or "") != "REOPEN_ROLLOUT":
+        return False, "reopen_rollout_outcome_required", None
+
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+
+    durability = _v342_durability(username, implementation_id)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_hardening_implementations
+            SET implementation_state='DEPLOYED',
+                rolled_back_at=NULL,
+                rollback_note=?
+            WHERE id=? AND username=?
+        """, (
+            "Reopened by V34.2 operational stability review. " + str(note or "").strip()[:1800],
+            int(implementation_id),
+            username
+        ))
+
+        if durability and str(durability.get("durability_state") or "") == "DURABLE":
+            con.execute("""
+                UPDATE hunter_rollout_durability_seals
+                SET durability_state='REOPENED',
+                    reopened_at=?,
+                    reopen_note=?
+                WHERE id=? AND username=? AND durability_state='DURABLE'
+            """, (
+                now,
+                str(note or "Explicit V34.2 rollout reopen.").strip()[:2400],
+                int(durability["id"]),
+                username
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "HARDENING_ROLLOUT_REOPENED",
+            detail="V34.2 implementation #%s reopened after drift/regression observation." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, int(implementation_id)
+
+
+def _v342_snapshot(username):
+    base = _v341_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        seal = item0.get("implementation_seal") or {}
+
+        if not impl or not seal:
+            continue
+        if str(seal.get("seal_state") or "") != "SEALED":
+            continue
+
+        iid = int(impl["id"])
+        checks = _v342_checks(username, iid)
+        outcome = _v342_outcome(username, iid)
+        durability = _v342_durability(username, iid)
+
+        item = dict(item0)
+        item["stability_checks"] = checks[:20]
+        item["stability_count"] = len(checks)
+        item["stability_outcome"] = outcome
+        item["durability"] = durability
+        item["ready_for_outcome"] = len(checks) >= V342_MIN_CHECKS and not outcome
+        item["ready_to_confirm"] = bool(outcome) and str(outcome.get("outcome") or "") == "CONFIRM_DURABLE" and not durability
+        item["ready_to_reopen"] = bool(outcome) and str(outcome.get("outcome") or "") == "REOPEN_ROLLOUT"
+        items.append(item)
+
+    return {
+        "version": V342_VERSION,
+        "minimum_stability_checks": V342_MIN_CHECKS,
+        "counts": {
+            "sealed_rollouts": len(items),
+            "checks": sum(int(i.get("stability_count") or 0) for i in items),
+            "ready_for_outcome": sum(1 for i in items if i["ready_for_outcome"]),
+            "durable": sum(
+                1 for i in items
+                if i.get("durability") and str(i["durability"].get("durability_state") or "") == "DURABLE"
+            ),
+        },
+        "items": items,
+        "policy": "A sealed rollout is not automatically durable. Durability requires post-seal observation and an explicit confirmation decision."
+    }
+
+
+@app.route("/api/hunter-rollout-stability")
+def v342_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v342_snapshot(u)})
+
+
+@app.route("/api/hunter-rollout-stability/implementation/<int:implementation_id>/check", methods=["POST"])
+def v342_check_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, cid = _v342_add_check(
+        u,
+        implementation_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-rollout-stability/implementation/<int:implementation_id>/outcome", methods=["POST"])
+def v342_outcome_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, oid = _v342_finalize_outcome(
+        u,
+        implementation_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-rollout-stability/implementation/<int:implementation_id>/durable", methods=["POST"])
+def v342_durable_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, did = _v342_confirm_durable(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "durability_id": did}), 400
+    return jsonify({"success": True, "durability_id": did})
+
+
+@app.route("/api/hunter-rollout-stability/implementation/<int:implementation_id>/reopen", methods=["POST"])
+def v342_reopen_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v342_reopen_rollout(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/hunter-rollout-stability")
+def v342_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>📡 Rollout Stability</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v342_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        outcome = item.get("stability_outcome") or {}
+        durability = item.get("durability") or {}
+        checks = item.get("stability_checks") or []
+
+        actions = ""
+        if not outcome:
+            actions += f"""
+            <form action='/api/hunter-rollout-stability/implementation/{iid}/check' onsubmit='return v342submit(this,event)'>
+              <select name='signal_state'>
+                <option>HEALTHY</option><option>DRIFT</option><option>DEGRADED</option><option>REGRESSED</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Post-seal operational evidence'></textarea>
+              <button>ADD STABILITY CHECK</button>
+            </form>
+            """
+
+        if item.get("ready_for_outcome"):
+            actions += f"""
+            <form action='/api/hunter-rollout-stability/implementation/{iid}/outcome' onsubmit='return v342submit(this,event)'>
+              <select name='outcome'>
+                <option>CONFIRM_DURABLE</option>
+                <option>EXTEND_OBSERVATION</option>
+                <option>REOPEN_ROLLOUT</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Stability outcome rationale'></textarea>
+              <button>FINALIZE STABILITY OUTCOME</button>
+            </form>
+            """
+        elif outcome:
+            actions += "<div class='final'>STABILITY OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")),
+                esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_confirm"):
+            actions += f"""
+            <form action='/api/hunter-rollout-stability/implementation/{iid}/durable' onsubmit='return v342submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Durability confirmation note'></textarea>
+              <button class='safe'>CONFIRM DURABLE ROLLOUT</button>
+            </form>
+            """
+
+        if item.get("ready_to_reopen"):
+            actions += f"""
+            <form action='/api/hunter-rollout-stability/implementation/{iid}/reopen' onsubmit='return v342submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Why this rollout must reopen'></textarea>
+              <button class='danger'>REOPEN ROLLOUT</button>
+            </form>
+            """
+
+        durability_html = ""
+        if durability:
+            durability_html = "<div class='durable'>DURABILITY: <b>{}</b><br><small>{}</small></div>".format(
+                esc(durability.get("durability_state")),
+                esc(durability.get("sealed_at"))
+            )
+
+        checks_html = "".join(
+            "<div class='check'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No stability checks yet.</div>"
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>SEALED</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          <p class='muted'>{esc(item.get('proposal_text'))}</p>
+          {durability_html}
+          {actions}
+          <div>{checks_html}</div>
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.2 Rollout Stability</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#77f1d2;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#77f1d2}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #2b6a5d;border-radius:999px;padding:5px 8px;color:#77f1d2;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .danger{{background:#ff8797}}
+    .final,.durable{{margin-top:10px;padding:12px;border:1px solid #216c52;border-radius:12px;background:#0e2a21;color:#9bf2cb}}
+    .check{{border-top:1px solid #15313f;padding:8px 0}} .check b{{display:block;color:#77f1d2}} .check span{{display:block;margin:4px 0}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.2 // ROLLOUT STABILITY + OBSERVABILITY GATE</div>
+        <h1>📡 WATCH THE ROLLOUT</h1>
+        <p class='muted'>A sealed rollout still needs real operational observation. Watch for health, drift and regression before calling the change durable.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>SEALED ROLLOUTS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CHECKS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>READY</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DURABLE</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-hardening-rollout'>🚀 HARDENING ROLLOUT</a><a href='/api/hunter-rollout-stability'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v342submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["sealed_rollouts"],
+        c["checks"],
+        c["ready_for_outcome"],
+        c["durable"],
+        "".join(cards) or "<article class='card'><p>No sealed rollouts are waiting for stability observation.</p></article>"
+    )
+
+
+try:
+    _v342_prev_page = app.view_functions.get("v341_page")
+    if _v342_prev_page:
+        def _v342_rollout_with_stability(*args, **kwargs):
+            response = _v342_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-rollout-stability" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-hardening-rollout'>JSON</a>",
+                    "<a href='/api/hunter-hardening-rollout'>JSON</a><a href='/hunter-rollout-stability'>📡 ROLLOUT STABILITY</a>",
+                    1
+                )
+            return response
+        app.view_functions["v341_page"] = _v342_rollout_with_stability
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
