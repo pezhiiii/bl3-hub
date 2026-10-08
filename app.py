@@ -84716,6 +84716,429 @@ except Exception:
 
 
 
+# ===== V35.35 SOLUTION MAPPING + MUTUAL ACTION PLAN GATE =====
+# V35.34 turns a qualified lead into a scored, explicitly routed discovery.
+# V35.35 turns a FIT + routed discovery into a bounded mutual action plan:
+#
+# FIT DISCOVERY -> SOLUTION MAP -> ALIGNMENT EVIDENCE -> MUTUAL MILESTONES -> COMPLETE / STALE
+#
+# This gate never claims customer agreement automatically. Alignment and milestone
+# completion are operator-recorded evidence. No contract, pilot, interview or external
+# calendar action is created by this module.
+
+V3535_VERSION = "V35.35"
+V3535_STATES = {"DRAFT", "ALIGNMENT_READY", "ACTIVE", "READY_TO_CLOSE", "COMPLETE", "CANCELLED", "STALE"}
+V3535_OWNER_SIDES = {"US", "THEM", "JOINT"}
+
+
+def _v3535_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3535_hash(payload):
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _v3535_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_mutual_action_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            discovery_id INTEGER NOT NULL UNIQUE,
+            problem_statement TEXT NOT NULL,
+            desired_outcome TEXT NOT NULL,
+            solution_mapping TEXT NOT NULL,
+            decision_criteria TEXT DEFAULT '',
+            stakeholder_map TEXT DEFAULT '',
+            target_decision_date TEXT DEFAULT '',
+            plan_owner TEXT DEFAULT '',
+            plan_state TEXT NOT NULL DEFAULT 'DRAFT',
+            alignment_evidence TEXT DEFAULT '',
+            alignment_digest TEXT DEFAULT '',
+            close_note TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            aligned_at TEXT DEFAULT '',
+            activated_at TEXT DEFAULT '',
+            completed_at TEXT DEFAULT '',
+            cancelled_at TEXT DEFAULT '',
+            FOREIGN KEY(discovery_id) REFERENCES hunter_lead_discovery_meetings(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3535_user_state ON hunter_mutual_action_plans(username,plan_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3535_discovery ON hunter_mutual_action_plans(username,discovery_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_mutual_action_milestones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            owner_side TEXT NOT NULL DEFAULT 'JOINT',
+            owner_label TEXT DEFAULT '',
+            due_at TEXT DEFAULT '',
+            milestone_state TEXT NOT NULL DEFAULT 'OPEN',
+            completion_evidence TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT '',
+            FOREIGN KEY(plan_id) REFERENCES hunter_mutual_action_plans(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3535_milestone_plan ON hunter_mutual_action_milestones(plan_id,milestone_state,id)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_mutual_action_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            plan_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(plan_id) REFERENCES hunter_mutual_action_plans(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3535_event_plan ON hunter_mutual_action_events(plan_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3535_init()
+except Exception:
+    pass
+
+
+def _v3535_event(con, username, plan_id, event_type, detail="", extra=None):
+    created = _v3535_now_iso()
+    payload = {"username": str(username), "plan_id": int(plan_id), "event_type": str(event_type),
+               "detail": str(detail or ""), "extra": extra or {}, "created_at": created}
+    digest = _v3535_hash(payload)
+    con.execute("""INSERT INTO hunter_mutual_action_events
+                   (username,plan_id,event_type,detail,evidence_digest,created_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (username, int(plan_id), str(event_type)[:80], str(detail or '')[:1800], digest, created))
+    return digest
+
+
+def _v3535_discovery(username, discovery_id):
+    return _v3534_entry(username, int(discovery_id))
+
+
+def _v3535_entry(username, plan_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_mutual_action_plans WHERE username=? AND id=?", (username, int(plan_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        discovery = _v3535_discovery(username, d['discovery_id'])
+        d['discovery'] = discovery
+        source_current = bool(discovery and discovery.get('discovery_state') == 'FIT' and str(discovery.get('recommended_route') or ''))
+        state = str(d.get('plan_state') or 'DRAFT')
+        if not source_current and state not in {'COMPLETE','CANCELLED','STALE'}:
+            now = _v3535_now_iso()
+            con.execute("UPDATE hunter_mutual_action_plans SET plan_state='STALE',updated_at=? WHERE username=? AND id=?",
+                        (now, username, int(plan_id)))
+            _v3535_event(con, username, plan_id, 'SOURCE_STALE', 'FIT discovery or explicit route is no longer current.')
+            con.commit(); state = 'STALE'
+        ms = con.execute("SELECT * FROM hunter_mutual_action_milestones WHERE plan_id=? ORDER BY id", (int(plan_id),)).fetchall()
+        d['milestones'] = [dict(x) for x in ms]
+        open_count = sum(1 for x in d['milestones'] if x['milestone_state'] != 'COMPLETE')
+        d['open_milestones'] = open_count
+        d['plan_state'] = state
+        d['source_current'] = source_current
+        return d
+    finally:
+        con.close()
+
+
+def _v3535_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = con.execute("SELECT id FROM hunter_mutual_action_plans WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        fit = con.execute("""SELECT id FROM hunter_lead_discovery_meetings
+                            WHERE username=? AND discovery_state='FIT' AND COALESCE(recommended_route,'')<>''
+                            ORDER BY id DESC""", (username,)).fetchall()
+        used = {int(r['discovery_id']) for r in con.execute("SELECT discovery_id FROM hunter_mutual_action_plans WHERE username=?", (username,)).fetchall()}
+    finally:
+        con.close()
+    items = [x for x in (_v3535_entry(username, r['id']) for r in ids) if x]
+    eligible = []
+    for r in fit:
+        did = int(r['id'])
+        if did not in used:
+            d = _v3534_entry(username, did)
+            if d and d.get('source_current') and d.get('recommended_route'):
+                eligible.append(d)
+    counts = {k: 0 for k in V3535_STATES}
+    for x in items:
+        s = str(x.get('plan_state') or 'DRAFT'); counts[s] = counts.get(s, 0) + 1
+    return {"success": True, "version": V3535_VERSION, "items": items, "eligible_discoveries": eligible, "counts": counts}
+
+
+def _v3535_create(username, discovery_id, problem_statement, desired_outcome, solution_mapping, target_decision_date='', plan_owner=''):
+    discovery = _v3535_discovery(username, discovery_id)
+    if not discovery or discovery.get('discovery_state') != 'FIT' or not str(discovery.get('recommended_route') or ''):
+        return False, 'fit_routed_discovery_required', None
+    problem = str(problem_statement or '').strip()[:4000]
+    desired = str(desired_outcome or '').strip()[:4000]
+    mapping = str(solution_mapping or '').strip()[:5000]
+    if not problem or not desired or not mapping:
+        return False, 'problem_outcome_and_solution_mapping_required', None
+    now = _v3535_now_iso()
+    seed = {"discovery_id": int(discovery_id), "problem_statement": problem, "desired_outcome": desired,
+            "solution_mapping": mapping, "target_decision_date": str(target_decision_date or '')[:40],
+            "plan_owner": str(plan_owner or '')[:180], "created_at": now}
+    digest = _v3535_hash(seed)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_mutual_action_plans
+                (username,discovery_id,problem_statement,desired_outcome,solution_mapping,target_decision_date,plan_owner,plan_state,evidence_digest,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,'DRAFT',?,?,?)""",
+                (username, int(discovery_id), problem, desired, mapping, str(target_decision_date or '')[:40],
+                 str(plan_owner or '')[:180], digest, now, now))
+        except sqlite3.IntegrityError:
+            return False, 'plan_already_exists_for_discovery', None
+        pid = int(cur.lastrowid)
+        _v3535_event(con, username, pid, 'PLAN_CREATED', f'Mutual action plan created from discovery #{int(discovery_id)}.', seed)
+        con.commit(); return True, None, pid
+    finally:
+        con.close()
+
+
+def _v3535_prepare_alignment(username, plan_id, decision_criteria, stakeholder_map):
+    item = _v3535_entry(username, plan_id)
+    if not item: return False, 'plan_not_found', None
+    if item.get('plan_state') != 'DRAFT': return False, 'draft_state_required', None
+    criteria = str(decision_criteria or '').strip()[:5000]
+    stakeholders = str(stakeholder_map or '').strip()[:5000]
+    if not criteria or not stakeholders: return False, 'decision_criteria_and_stakeholders_required', None
+    now = _v3535_now_iso(); con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_mutual_action_plans SET decision_criteria=?,stakeholder_map=?,plan_state='ALIGNMENT_READY',updated_at=?
+                       WHERE username=? AND id=?""", (criteria, stakeholders, now, username, int(plan_id)))
+        _v3535_event(con, username, plan_id, 'ALIGNMENT_READY', 'Decision criteria and stakeholder map recorded.',
+                     {"decision_criteria_sha256": hashlib.sha256(criteria.encode()).hexdigest(),
+                      "stakeholder_map_sha256": hashlib.sha256(stakeholders.encode()).hexdigest()})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3535_entry(username, plan_id)
+
+
+def _v3535_activate(username, plan_id, alignment_evidence):
+    item = _v3535_entry(username, plan_id)
+    if not item: return False, 'plan_not_found', None
+    if item.get('plan_state') != 'ALIGNMENT_READY': return False, 'alignment_ready_state_required', None
+    evidence = str(alignment_evidence or '').strip()[:6000]
+    if not evidence: return False, 'explicit_alignment_evidence_required', None
+    now = _v3535_now_iso()
+    payload = {"plan_id": int(plan_id), "alignment_evidence": evidence, "aligned_at": now}
+    digest = _v3535_hash(payload); con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_mutual_action_plans SET plan_state='ACTIVE',alignment_evidence=?,alignment_digest=?,aligned_at=?,activated_at=?,updated_at=?
+                       WHERE username=? AND id=?""", (evidence, digest, now, now, now, username, int(plan_id)))
+        _v3535_event(con, username, plan_id, 'PLAN_ACTIVATED', 'Explicit alignment evidence recorded; plan activated.', {"alignment_digest": digest})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3535_entry(username, plan_id)
+
+
+def _v3535_add_milestone(username, plan_id, title, owner_side='JOINT', owner_label='', due_at=''):
+    item = _v3535_entry(username, plan_id)
+    if not item: return False, 'plan_not_found', None
+    if item.get('plan_state') not in {'DRAFT','ALIGNMENT_READY','ACTIVE'}: return False, 'plan_not_editable', None
+    title = str(title or '').strip()[:500]
+    side = str(owner_side or 'JOINT').upper()
+    if not title: return False, 'milestone_title_required', None
+    if side not in V3535_OWNER_SIDES: return False, 'invalid_owner_side', None
+    now = _v3535_now_iso()
+    payload = {"plan_id": int(plan_id), "title": title, "owner_side": side, "owner_label": str(owner_label or '')[:180], "due_at": str(due_at or '')[:40], "created_at": now}
+    digest = _v3535_hash(payload); con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_mutual_action_milestones
+                           (plan_id,title,owner_side,owner_label,due_at,milestone_state,evidence_digest,created_at)
+                           VALUES(?,?,?,?,?,'OPEN',?,?)""",
+                          (int(plan_id), title, side, str(owner_label or '')[:180], str(due_at or '')[:40], digest, now))
+        mid = int(cur.lastrowid)
+        _v3535_event(con, username, plan_id, 'MILESTONE_ADDED', f'Milestone #{mid}: {title}', {"milestone_digest": digest})
+        con.commit(); return True, None, mid
+    finally:
+        con.close()
+
+
+def _v3535_complete_milestone(username, plan_id, milestone_id, completion_evidence):
+    item = _v3535_entry(username, plan_id)
+    if not item: return False, 'plan_not_found', None
+    if item.get('plan_state') != 'ACTIVE': return False, 'active_plan_required', None
+    evidence = str(completion_evidence or '').strip()[:6000]
+    if not evidence: return False, 'completion_evidence_required', None
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_mutual_action_milestones WHERE id=? AND plan_id=?", (int(milestone_id), int(plan_id))).fetchone()
+        if not row: return False, 'milestone_not_found', None
+        if row['milestone_state'] == 'COMPLETE': return False, 'milestone_already_complete', None
+        now = _v3535_now_iso()
+        digest = _v3535_hash({"milestone_id": int(milestone_id), "completion_evidence": evidence, "completed_at": now})
+        con.execute("""UPDATE hunter_mutual_action_milestones SET milestone_state='COMPLETE',completion_evidence=?,evidence_digest=?,completed_at=? WHERE id=? AND plan_id=?""",
+                    (evidence, digest, now, int(milestone_id), int(plan_id)))
+        remaining = con.execute("SELECT COUNT(*) FROM hunter_mutual_action_milestones WHERE plan_id=? AND milestone_state<>'COMPLETE'", (int(plan_id),)).fetchone()[0]
+        total = con.execute("SELECT COUNT(*) FROM hunter_mutual_action_milestones WHERE plan_id=?", (int(plan_id),)).fetchone()[0]
+        next_state = 'READY_TO_CLOSE' if int(total) > 0 and int(remaining) == 0 else 'ACTIVE'
+        con.execute("UPDATE hunter_mutual_action_plans SET plan_state=?,updated_at=? WHERE username=? AND id=?", (next_state, now, username, int(plan_id)))
+        _v3535_event(con, username, plan_id, 'MILESTONE_COMPLETED', f'Milestone #{int(milestone_id)} completed.', {"completion_digest": digest, "remaining": int(remaining)})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3535_entry(username, plan_id)
+
+
+def _v3535_close(username, plan_id, close_note):
+    item = _v3535_entry(username, plan_id)
+    if not item: return False, 'plan_not_found', None
+    if item.get('plan_state') != 'READY_TO_CLOSE': return False, 'all_milestones_must_be_complete', None
+    note = str(close_note or '').strip()[:5000]
+    if not note: return False, 'close_note_required', None
+    now = _v3535_now_iso(); con = sqlite3.connect(DB)
+    try:
+        _v3535_event(con, username, plan_id, 'PLAN_COMPLETED', 'Mutual action plan completed.', {"close_note_sha256": hashlib.sha256(note.encode()).hexdigest()})
+        con.execute("UPDATE hunter_mutual_action_plans SET plan_state='COMPLETE',close_note=?,completed_at=?,updated_at=? WHERE username=? AND id=?",
+                    (note, now, now, username, int(plan_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3535_entry(username, plan_id)
+
+
+def _v3535_cancel(username, plan_id, note=''):
+    item = _v3535_entry(username, plan_id)
+    if not item: return False, 'plan_not_found', None
+    if item.get('plan_state') in {'COMPLETE','CANCELLED','STALE'}: return False, 'cannot_cancel_in_current_state', None
+    now = _v3535_now_iso(); note = str(note or '')[:2000]; con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_mutual_action_plans SET plan_state='CANCELLED',cancelled_at=?,updated_at=? WHERE username=? AND id=?", (now, now, username, int(plan_id)))
+        _v3535_event(con, username, plan_id, 'PLAN_CANCELLED', note or 'Mutual action plan cancelled.')
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3535_entry(username, plan_id)
+
+
+@app.route('/api/hunter-mutual-action-plans', methods=['GET','POST'])
+def v3535_api():
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET': return jsonify(_v3535_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,pid = _v3535_create(u,p.get('discovery_id'),p.get('problem_statement'),p.get('desired_outcome'),p.get('solution_mapping'),p.get('target_decision_date') or '',p.get('plan_owner') or '')
+    return jsonify({'success':ok,'error':e,'plan_id':pid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-mutual-action-plans/<int:plan_id>/alignment', methods=['POST'])
+def v3535_api_alignment(plan_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3535_prepare_alignment(u,plan_id,p.get('decision_criteria'),p.get('stakeholder_map'))
+    return jsonify({'success':ok,'error':e,'plan':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-mutual-action-plans/<int:plan_id>/activate', methods=['POST'])
+def v3535_api_activate(plan_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3535_activate(u,plan_id,p.get('alignment_evidence'))
+    return jsonify({'success':ok,'error':e,'plan':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-mutual-action-plans/<int:plan_id>/milestones', methods=['POST'])
+def v3535_api_milestone(plan_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,mid = _v3535_add_milestone(u,plan_id,p.get('title'),p.get('owner_side') or 'JOINT',p.get('owner_label') or '',p.get('due_at') or '')
+    return jsonify({'success':ok,'error':e,'milestone_id':mid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-mutual-action-plans/<int:plan_id>/milestones/<int:milestone_id>/complete', methods=['POST'])
+def v3535_api_milestone_complete(plan_id, milestone_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3535_complete_milestone(u,plan_id,milestone_id,p.get('completion_evidence'))
+    return jsonify({'success':ok,'error':e,'plan':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-mutual-action-plans/<int:plan_id>/close', methods=['POST'])
+def v3535_api_close(plan_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3535_close(u,plan_id,p.get('close_note'))
+    return jsonify({'success':ok,'error':e,'plan':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-mutual-action-plans/<int:plan_id>/cancel', methods=['POST'])
+def v3535_api_cancel(plan_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3535_cancel(u,plan_id,p.get('note') or '')
+    return jsonify({'success':ok,'error':e,'plan':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-mutual-action-plans')
+def v3535_page():
+    u = session.get('authenticated_username')
+    if not u: return redirect('/')
+    d = _v3535_snapshot(u); c=d['counts']; esc=html.escape
+    opts=''.join(f"<option value='{int(x['id'])}'>Discovery #{int(x['id'])} · {esc((x.get('lead') or {}).get('organization') or 'Lead')} · {int(x.get('fit_score') or 0)}/100 · {esc(x.get('recommended_route') or '')}</option>" for x in d['eligible_discoveries'])
+    cards=[]
+    for x in d['items']:
+        pid=int(x['id']); state=str(x.get('plan_state') or ''); disc=x.get('discovery') or {}; lead=disc.get('lead') or {}
+        actions=''
+        if state=='DRAFT':
+            actions += f"""<form action='/api/hunter-mutual-action-plans/{pid}/alignment' onsubmit='return v3535submit(this,event)'><textarea name='decision_criteria' placeholder='Decision criteria' required></textarea><textarea name='stakeholder_map' placeholder='Stakeholders + decision roles' required></textarea><button>PREPARE ALIGNMENT</button></form>"""
+        if state=='ALIGNMENT_READY':
+            actions += f"""<form action='/api/hunter-mutual-action-plans/{pid}/activate' onsubmit='return v3535submit(this,event)'><textarea name='alignment_evidence' placeholder='Explicit alignment evidence / meeting note / written confirmation' required></textarea><button class='safe'>ACTIVATE MUTUAL PLAN</button></form>"""
+        if state in {'DRAFT','ALIGNMENT_READY','ACTIVE'}:
+            actions += f"""<form action='/api/hunter-mutual-action-plans/{pid}/milestones' onsubmit='return v3535submit(this,event)'><input name='title' placeholder='Mutual milestone' required><select name='owner_side'><option>JOINT</option><option>US</option><option>THEM</option></select><input name='owner_label' placeholder='Owner / role'><input name='due_at' type='date'><button>ADD MILESTONE</button></form>"""
+        if state=='READY_TO_CLOSE':
+            actions += f"""<form action='/api/hunter-mutual-action-plans/{pid}/close' onsubmit='return v3535submit(this,event)'><textarea name='close_note' placeholder='Outcome / handoff note' required></textarea><button class='safe'>CLOSE PLAN</button></form>"""
+        if state not in {'COMPLETE','CANCELLED','STALE'}:
+            actions += f"""<form action='/api/hunter-mutual-action-plans/{pid}/cancel' onsubmit='return v3535submit(this,event)'><input name='note' placeholder='Cancellation note'><button class='danger'>CANCEL</button></form>"""
+        ms=[]
+        for m in x.get('milestones') or []:
+            ma=''
+            if state=='ACTIVE' and m.get('milestone_state')!='COMPLETE':
+                ma=f"""<form action='/api/hunter-mutual-action-plans/{pid}/milestones/{int(m['id'])}/complete' onsubmit='return v3535submit(this,event)'><textarea name='completion_evidence' placeholder='Completion evidence' required></textarea><button class='safe'>COMPLETE</button></form>"""
+            ms.append(f"""<div class='milestone'><b>{esc(m.get('title') or '')}</b><span>{esc(m.get('owner_side') or '')} · {esc(m.get('owner_label') or '—')} · {esc(m.get('due_at') or 'no date')} · {esc(m.get('milestone_state') or '')}</span>{ma}</div>""")
+        cards.append(f"""<article class='card'><div class='top'><span>Plan #{pid}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(lead.get('organization') or 'Opportunity')}</h2><p><b>Problem:</b> {esc(x.get('problem_statement') or '')}</p><p><b>Desired outcome:</b> {esc(x.get('desired_outcome') or '')}</p><p class='muted'>Discovery #{int(x['discovery_id'])} · Fit {int(disc.get('fit_score') or 0)}/100 · Route {esc(disc.get('recommended_route') or '—')} · Decision {esc(x.get('target_decision_date') or '—')}</p><h3>Mutual milestones</h3>{''.join(ms) or '<p class="muted">No milestones yet.</p>'}{actions}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.35 Mutual Action Plans</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1280px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #334b59;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#87ffd0;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:26px;font-weight:900;color:#87ffd0}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3b7e68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.danger{{border-color:#9e3f55}}a{{color:#87ffd0}}.milestone{{border:1px solid #263846;border-radius:12px;padding:10px;margin:8px 0}}.milestone span{{display:block;color:#91a9b7;font-size:12px;margin-top:4px}}@media(max-width:850px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.35 · SOLUTION MAPPING + MUTUAL ACTION PLAN GATE</div><h1>Turn fit into a shared path to a decision.</h1><p class='muted'>Map the problem to the solution, record decision criteria and stakeholders, require explicit alignment evidence, and track mutual milestones. BL3 does not invent customer agreement or external actions.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>ACTIVE</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>COMPLETE</div></div><p><a href='/hunter-lead-discovery'>← Discovery + Fit</a> · <a href='/api/hunter-mutual-action-plans'>JSON</a></p></section><section class='card' style='margin-top:18px'><h2>Create mutual action plan</h2><form action='/api/hunter-mutual-action-plans' onsubmit='return v3535submit(this,event)'><select name='discovery_id' required><option value=''>FIT + routed discovery</option>{}</select><textarea name='problem_statement' placeholder='Problem statement' required></textarea><textarea name='desired_outcome' placeholder='Desired measurable outcome' required></textarea><textarea name='solution_mapping' placeholder='How BL3 / proposed solution maps to the problem' required></textarea><input name='target_decision_date' type='date'><input name='plan_owner' value='{}' placeholder='Plan owner'><button>CREATE PLAN</button></form></section><section class='grid'>{}</section></div><script>async function v3535submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0)+c.get('ALIGNMENT_READY',0),c.get('ACTIVE',0),c.get('READY_TO_CLOSE',0),c.get('COMPLETE',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No mutual action plans yet.</p></article>")
+
+
+# Add navigation from V35.34 into V35.35.
+try:
+    _v3535_prev_page = app.view_functions.get('v3534_page')
+    if _v3535_prev_page:
+        def _v3535_discovery_with_map(*args, **kwargs):
+            response = _v3535_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-mutual-action-plans' not in response:
+                response = response.replace("<a href='/api/hunter-lead-discovery'>JSON</a>", "<a href='/api/hunter-lead-discovery'>JSON</a> · <a href='/hunter-mutual-action-plans'>🗺️ MUTUAL ACTION PLAN</a>", 1)
+            return response
+        app.view_functions['v3534_page'] = _v3535_discovery_with_map
+except Exception:
+    pass
+
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -84842,6 +85265,7 @@ if __name__ == "__main__":
     print("📚 Case Study Publication + Proof-backed Reference Gate enabled")
     print("📣 Reference Distribution + Qualified Lead Attribution Gate enabled")
     print("📅 Qualified Lead Discovery + Fit Score Gate enabled")
+    print("🗺️ Solution Mapping + Mutual Action Plan Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
