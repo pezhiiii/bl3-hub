@@ -69876,6 +69876,1369 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.2 LESSON PROPAGATION + CONTROL ADOPTION GATE =====
+# V35.1 ensures resolved incidents produce verified prevention actions.
+# V35.2 makes those lessons reusable across the system:
+#
+# CLOSED PIR -> REUSABLE LESSON -> TARGET SCOPE -> CONTROL ADOPTION -> VALIDATION
+#
+# The goal is to prevent knowledge from staying trapped in one incident.
+# Verified learnings can now become reusable controls for other implementations.
+
+V352_VERSION = "V35.2"
+V352_SCOPE_TYPES = {"IMPLEMENTATION", "PROJECT", "GLOBAL"}
+V352_CONTROL_STATES = {"PROPOSED", "ADOPTED", "VALIDATED", "REJECTED"}
+V352_VALIDATION_VERDICTS = {"PASS", "FAIL", "INCONCLUSIVE"}
+
+
+def _v352_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_reusable_lessons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            post_incident_review_id INTEGER NOT NULL,
+            source_incident_id INTEGER NOT NULL,
+            source_implementation_id INTEGER NOT NULL,
+            lesson_title TEXT NOT NULL,
+            lesson_summary TEXT NOT NULL,
+            control_pattern TEXT,
+            lesson_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT NOT NULL,
+            UNIQUE(username, post_incident_review_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v352_lessons
+        ON hunter_reusable_lessons(username, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_adoptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            reusable_lesson_id INTEGER NOT NULL,
+            target_scope_type TEXT NOT NULL,
+            target_scope_label TEXT NOT NULL,
+            target_implementation_id INTEGER,
+            control_state TEXT NOT NULL DEFAULT 'PROPOSED',
+            adoption_note TEXT,
+            created_at TEXT NOT NULL,
+            adopted_at TEXT,
+            validated_at TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v352_adoptions
+        ON hunter_control_adoptions(username, reusable_lesson_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_validations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_adoption_id INTEGER NOT NULL,
+            reusable_lesson_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            validation_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v352_init()
+except Exception:
+    pass
+
+
+def _v352_lesson_for_review(username, review_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_reusable_lessons
+            WHERE username=? AND post_incident_review_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(review_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v352_adoptions(username, lesson_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_adoptions
+            WHERE username=? AND reusable_lesson_id=?
+            ORDER BY id DESC
+        """, (username, int(lesson_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v352_validations(username, adoption_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_validations
+            WHERE username=? AND control_adoption_id=?
+            ORDER BY id DESC
+        """, (username, int(adoption_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v352_publish_lesson(username, review_id, lesson_title, lesson_summary, control_pattern=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_post_incident_reviews
+            WHERE username=? AND id=?
+        """, (username, int(review_id))).fetchone()
+        review = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not review:
+        return False, "post_incident_review_not_found", None
+    if str(review.get("review_state") or "") != "CLOSED":
+        return False, "closed_post_incident_review_required", None
+    if _v352_lesson_for_review(username, review_id):
+        return False, "reusable_lesson_already_exists", None
+
+    title = str(lesson_title or "").strip()
+    summary = str(lesson_summary or "").strip()
+
+    if not title:
+        return False, "lesson_title_required", None
+    if not summary:
+        return False, "lesson_summary_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_reusable_lessons
+            (username, post_incident_review_id, source_incident_id,
+             source_implementation_id, lesson_title, lesson_summary,
+             control_pattern, lesson_state, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+        """, (
+            username,
+            int(review["id"]),
+            int(review["incident_id"]),
+            int(review["implementation_id"]),
+            title[:700],
+            summary[:6000],
+            str(control_pattern or "").strip()[:6000],
+            now
+        ))
+        lid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, lid
+
+
+def _v352_propose_adoption(
+    username,
+    lesson_id,
+    target_scope_type,
+    target_scope_label,
+    target_implementation_id=None,
+    adoption_note=""
+):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_reusable_lessons
+            WHERE username=? AND id=? AND lesson_state='ACTIVE'
+        """, (username, int(lesson_id))).fetchone()
+        lesson = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not lesson:
+        return False, "active_reusable_lesson_required", None
+
+    scope_type = str(target_scope_type or "").strip().upper()
+    if scope_type not in V352_SCOPE_TYPES:
+        return False, "invalid_scope_type", None
+
+    scope_label = str(target_scope_label or "").strip()
+    if not scope_label:
+        return False, "target_scope_label_required", None
+
+    target_iid = None
+    if target_implementation_id not in (None, "", "null"):
+        try:
+            target_iid = int(target_implementation_id)
+        except Exception:
+            return False, "invalid_target_implementation_id", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_control_adoptions
+            (username, reusable_lesson_id, target_scope_type,
+             target_scope_label, target_implementation_id,
+             control_state, adoption_note, created_at)
+            VALUES (?, ?, ?, ?, ?, 'PROPOSED', ?, ?)
+        """, (
+            username,
+            int(lesson_id),
+            scope_type,
+            scope_label[:1000],
+            target_iid,
+            str(adoption_note or "").strip()[:4000],
+            now
+        ))
+        aid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, aid
+
+
+def _v352_update_adoption_state(username, adoption_id, control_state, note=""):
+    state = str(control_state or "").strip().upper()
+    if state not in V352_CONTROL_STATES:
+        return False, "invalid_control_state", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_adoptions
+            WHERE username=? AND id=?
+        """, (username, int(adoption_id))).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "control_adoption_not_found", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    if state == "VALIDATED":
+        vals = _v352_validations(username, int(adoption_id))
+        if not vals or str(vals[0].get("verdict") or "") != "PASS":
+            return False, "passing_control_validation_required", None
+
+    con = sqlite3.connect(DB)
+    try:
+        if state == "ADOPTED":
+            con.execute("""
+                UPDATE hunter_control_adoptions
+                SET control_state='ADOPTED',
+                    adopted_at=?,
+                    adoption_note=CASE
+                        WHEN ?!='' THEN ?
+                        ELSE adoption_note
+                    END
+                WHERE id=? AND username=?
+            """, (
+                now,
+                str(note or "").strip(),
+                str(note or "").strip()[:4000],
+                int(adoption_id),
+                username
+            ))
+        elif state == "VALIDATED":
+            con.execute("""
+                UPDATE hunter_control_adoptions
+                SET control_state='VALIDATED',
+                    validated_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(adoption_id),
+                username
+            ))
+        else:
+            con.execute("""
+                UPDATE hunter_control_adoptions
+                SET control_state=?,
+                    adoption_note=CASE
+                        WHEN ?!='' THEN ?
+                        ELSE adoption_note
+                    END
+                WHERE id=? AND username=?
+            """, (
+                state,
+                str(note or "").strip(),
+                str(note or "").strip()[:4000],
+                int(adoption_id),
+                username
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(adoption_id)
+
+
+def _v352_validate_adoption(username, adoption_id, verdict, note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V352_VALIDATION_VERDICTS:
+        return False, "invalid_validation_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_adoptions
+            WHERE username=? AND id=?
+        """, (username, int(adoption_id))).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "control_adoption_not_found", None
+
+    if str(adoption.get("control_state") or "") not in {"ADOPTED", "VALIDATED"}:
+        return False, "adopted_control_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_control_validations
+            (username, control_adoption_id, reusable_lesson_id,
+             verdict, validation_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(adoption_id),
+            int(adoption["reusable_lesson_id"]),
+            verdict,
+            str(note or "").strip()[:5000],
+            now
+        ))
+        vid = int(cur.lastrowid)
+
+        if verdict == "PASS":
+            con.execute("""
+                UPDATE hunter_control_adoptions
+                SET control_state='VALIDATED',
+                    validated_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(adoption_id),
+                username
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, vid
+
+
+def _v352_snapshot(username):
+    base = _v351_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        review = item0.get("post_incident_review") or {}
+        if not review:
+            continue
+        if str(review.get("review_state") or "") != "CLOSED":
+            continue
+
+        lesson = _v352_lesson_for_review(username, int(review["id"]))
+        adoptions = _v352_adoptions(username, int(lesson["id"])) if lesson else []
+
+        enriched = []
+        for adoption in adoptions:
+            a = dict(adoption)
+            a["validations"] = _v352_validations(username, int(adoption["id"]))[:10]
+            enriched.append(a)
+
+        item = dict(item0)
+        item["reusable_lesson"] = lesson
+        item["control_adoptions"] = enriched
+        item["validated_adoptions"] = len(
+            [a for a in enriched if str(a.get("control_state") or "") == "VALIDATED"]
+        )
+        items.append(item)
+
+    return {
+        "version": V352_VERSION,
+        "counts": {
+            "eligible": len(items),
+            "published_lessons": sum(1 for i in items if i.get("reusable_lesson")),
+            "adoptions": sum(len(i.get("control_adoptions", [])) for i in items),
+            "validated_adoptions": sum(i.get("validated_adoptions", 0) for i in items),
+        },
+        "items": items,
+        "policy": "Verified learning should propagate beyond the source incident. A reusable lesson is complete only when its control pattern is adopted and validated in target scope."
+    }
+
+
+@app.route("/api/hunter-lesson-propagation")
+def v352_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v352_snapshot(u)})
+
+
+@app.route("/api/hunter-lesson-propagation/review/<int:review_id>/publish", methods=["POST"])
+def v352_publish_api(review_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, lid = _v352_publish_lesson(
+        u,
+        review_id,
+        p.get("lesson_title") or "",
+        p.get("lesson_summary") or "",
+        p.get("control_pattern") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "lesson_id": lid}), 400
+
+    return jsonify({"success": True, "lesson_id": lid})
+
+
+@app.route("/api/hunter-lesson-propagation/lesson/<int:lesson_id>/adopt", methods=["POST"])
+def v352_adopt_api(lesson_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, aid = _v352_propose_adoption(
+        u,
+        lesson_id,
+        p.get("target_scope_type") or "",
+        p.get("target_scope_label") or "",
+        p.get("target_implementation_id"),
+        p.get("adoption_note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "adoption_id": aid}), 400
+
+    return jsonify({"success": True, "adoption_id": aid})
+
+
+@app.route("/api/hunter-lesson-propagation/adoption/<int:adoption_id>/state", methods=["POST"])
+def v352_state_api(adoption_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, aid = _v352_update_adoption_state(
+        u,
+        adoption_id,
+        p.get("control_state") or "",
+        p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "adoption_id": aid}), 400
+
+    return jsonify({"success": True, "adoption_id": aid})
+
+
+@app.route("/api/hunter-lesson-propagation/adoption/<int:adoption_id>/validate", methods=["POST"])
+def v352_validate_api(adoption_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, vid = _v352_validate_adoption(
+        u,
+        adoption_id,
+        p.get("verdict") or "",
+        p.get("validation_note") or p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "validation_id": vid}), 400
+
+    return jsonify({"success": True, "validation_id": vid})
+
+
+@app.route("/hunter-lesson-propagation")
+def v352_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🌐 Lesson Propagation</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v352_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        review = item.get("post_incident_review") or {}
+        lesson = item.get("reusable_lesson") or {}
+        adoptions = item.get("control_adoptions") or []
+        impl = item.get("implementation") or {}
+
+        iid = int(impl.get("id") or 0)
+        review_id = int(review.get("id") or 0)
+        forms = ""
+
+        if not lesson:
+            forms += f"""
+            <form action='/api/hunter-lesson-propagation/review/{review_id}/publish' onsubmit='return v352submit(this,event)'>
+              <input name='lesson_title' placeholder='Reusable lesson title' required>
+              <textarea name='lesson_summary' rows='3' placeholder='Reusable lesson summary' required></textarea>
+              <textarea name='control_pattern' rows='3' placeholder='Reusable control pattern'></textarea>
+              <button class='safe'>PUBLISH REUSABLE LESSON</button>
+            </form>
+            """
+        else:
+            lid = int(lesson["id"])
+
+            forms += f"""
+            <form action='/api/hunter-lesson-propagation/lesson/{lid}/adopt' onsubmit='return v352submit(this,event)'>
+              <select name='target_scope_type'>
+                <option>IMPLEMENTATION</option>
+                <option>PROJECT</option>
+                <option>GLOBAL</option>
+              </select>
+              <input name='target_scope_label' placeholder='Target scope label' required>
+              <input name='target_implementation_id' placeholder='Target implementation ID (optional)'>
+              <textarea name='adoption_note' rows='2' placeholder='Why this control applies here'></textarea>
+              <button>PROPOSE CONTROL ADOPTION</button>
+            </form>
+            """
+
+            for a in adoptions[:10]:
+                aid = int(a["id"])
+                state = str(a.get("control_state") or "")
+                forms += f"""
+                <div class='adoption'>
+                  <b>Adoption #{aid}</b> · <b>{esc(state)}</b><br>
+                  <span>{esc(a.get('target_scope_type'))}: {esc(a.get('target_scope_label'))}</span>
+                  <small>{esc(a.get('adoption_note'))}</small>
+                """
+
+                if state in {"PROPOSED", "ADOPTED"}:
+                    forms += f"""
+                    <form action='/api/hunter-lesson-propagation/adoption/{aid}/state' onsubmit='return v352submit(this,event)'>
+                      <select name='control_state'>
+                        <option>PROPOSED</option>
+                        <option>ADOPTED</option>
+                        <option>REJECTED</option>
+                      </select>
+                      <textarea name='note' rows='2' placeholder='Adoption state note'></textarea>
+                      <button class='warn'>UPDATE ADOPTION STATE</button>
+                    </form>
+                    """
+
+                if state == "ADOPTED":
+                    forms += f"""
+                    <form action='/api/hunter-lesson-propagation/adoption/{aid}/validate' onsubmit='return v352submit(this,event)'>
+                      <select name='verdict'>
+                        <option>PASS</option>
+                        <option>FAIL</option>
+                        <option>INCONCLUSIVE</option>
+                      </select>
+                      <textarea name='validation_note' rows='2' placeholder='Validation evidence'></textarea>
+                      <button class='safe'>VALIDATE CONTROL</button>
+                    </form>
+                    """
+
+                forms += "</div>"
+
+        lesson_html = ""
+        if lesson:
+            lesson_html = """
+            <div class='lesson'>
+              LESSON <b>#{}</b> · <b>{}</b><br>
+              <span>{}</span><br>
+              <small>{}</small>
+            </div>
+            """.format(
+                esc(lesson.get("id")),
+                esc(lesson.get("lesson_state")),
+                esc(lesson.get("lesson_title")),
+                esc(lesson.get("control_pattern"))
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>Implementation #{iid}</span>
+            <span class='pill'>PIR #{review_id}</span>
+          </div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(review.get('root_cause_class'))}</b> · {esc(review.get('root_cause_summary'))}</p>
+          {lesson_html}
+          {forms}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.2 Lesson Propagation</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#8be9fd;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#8be9fd}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #315c68;border-radius:999px;padding:5px 8px;color:#8be9fd;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}}
+    .warn{{background:#ffd66f}}
+    .lesson,.adoption{{margin-top:10px;padding:12px;border:1px solid #315c68;border-radius:12px;background:#0a151c}}
+    .adoption{{border-color:#4c485f;background:#0e0d14}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.2 // LESSON PROPAGATION + CONTROL ADOPTION GATE</div>
+        <h1>🌐 LEARN ONCE, PROTECT MANY</h1>
+        <p class='muted'>Closed post-incident reviews can now become reusable lessons and validated controls across other scopes.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>PUBLISHED LESSONS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>ADOPTIONS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>VALIDATED</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-post-incident'>🧠 POST-INCIDENT</a>
+          <a href='/api/hunter-lesson-propagation'>JSON</a>
+        </div>
+      </section>
+
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v352submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+        if(!j.success)alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["eligible"],
+        c["published_lessons"],
+        c["adoptions"],
+        c["validated_adoptions"],
+        "".join(cards) or "<article class='card'><p>No closed post-incident reviews are ready for lesson propagation.</p></article>"
+    )
+
+
+try:
+    _v352_prev_page = app.view_functions.get("v351_page")
+    if _v352_prev_page:
+        def _v352_learning_with_propagation(*args, **kwargs):
+            response = _v352_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-lesson-propagation" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-post-incident'>JSON</a>",
+                    "<a href='/api/hunter-post-incident'>JSON</a><a href='/hunter-lesson-propagation'>🌐 LESSON PROPAGATION</a>",
+                    1
+                )
+            return response
+        app.view_functions["v351_page"] = _v352_learning_with_propagation
+except Exception:
+    pass
+
+
+
+
+# ===== V35.3 CONTINUOUS CONTROL ASSURANCE + DRIFT REVALIDATION GATE =====
+# V35.2 propagates verified lessons into adopted controls.
+# V35.3 makes adoption durable:
+#
+# VALIDATED CONTROL -> ASSURANCE CHECK -> DRIFT SIGNAL -> REVALIDATION -> ASSURANCE STATUS
+#
+# A validated control is not assumed healthy forever. It must remain effective over time.
+
+V353_VERSION = "V35.3"
+V353_ASSURANCE_STATES = {"HEALTHY", "WATCH", "DRIFTED", "REVALIDATION_REQUIRED"}
+V353_CHECK_VERDICTS = {"PASS", "WARN", "FAIL"}
+V353_REVALIDATION_VERDICTS = {"PASS", "FAIL", "INCONCLUSIVE"}
+
+
+def _v353_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_assurance_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_adoption_id INTEGER NOT NULL,
+            reusable_lesson_id INTEGER NOT NULL,
+            assurance_state TEXT NOT NULL DEFAULT 'HEALTHY',
+            check_interval_hours INTEGER NOT NULL DEFAULT 24,
+            consecutive_warns INTEGER NOT NULL DEFAULT 0,
+            consecutive_fails INTEGER NOT NULL DEFAULT 0,
+            last_checked_at TEXT,
+            last_revalidated_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, control_adoption_id)
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_assurance_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            control_adoption_id INTEGER NOT NULL,
+            reusable_lesson_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            signal_score REAL,
+            drift_reason TEXT,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v353_checks
+        ON hunter_control_assurance_checks(username, assurance_profile_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_revalidations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            control_adoption_id INTEGER NOT NULL,
+            reusable_lesson_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            revalidation_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v353_init()
+except Exception:
+    pass
+
+
+def _v353_profile(username, adoption_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_assurance_profiles
+            WHERE username=? AND control_adoption_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(adoption_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v353_checks(username, profile_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_assurance_checks
+            WHERE username=? AND assurance_profile_id=?
+            ORDER BY id DESC
+        """, (username, int(profile_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v353_revalidations(username, profile_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_revalidations
+            WHERE username=? AND assurance_profile_id=?
+            ORDER BY id DESC
+        """, (username, int(profile_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v353_enable_assurance(username, adoption_id, check_interval_hours=24):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_adoptions
+            WHERE username=? AND id=?
+        """, (username, int(adoption_id))).fetchone()
+        adoption = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not adoption:
+        return False, "control_adoption_not_found", None
+
+    if str(adoption.get("control_state") or "") != "VALIDATED":
+        return False, "validated_control_required", None
+
+    existing = _v353_profile(username, adoption_id)
+    if existing:
+        return False, "assurance_profile_already_exists", int(existing["id"])
+
+    try:
+        interval = int(check_interval_hours)
+    except Exception:
+        return False, "invalid_check_interval", None
+
+    interval = max(1, min(interval, 24 * 30))
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_control_assurance_profiles
+            (username, control_adoption_id, reusable_lesson_id,
+             assurance_state, check_interval_hours, created_at)
+            VALUES (?, ?, ?, 'HEALTHY', ?, ?)
+        """, (
+            username,
+            int(adoption_id),
+            int(adoption["reusable_lesson_id"]),
+            interval,
+            now
+        ))
+        pid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, pid
+
+
+def _v353_record_check(username, profile_id, verdict, signal_score=None, drift_reason="", evidence_note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V353_CHECK_VERDICTS:
+        return False, "invalid_check_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_assurance_profiles
+            WHERE username=? AND id=?
+        """, (username, int(profile_id))).fetchone()
+        profile = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not profile:
+        return False, "assurance_profile_not_found", None
+
+    score = None
+    if signal_score not in (None, ""):
+        try:
+            score = float(signal_score)
+        except Exception:
+            return False, "invalid_signal_score", None
+
+    warns = int(profile.get("consecutive_warns") or 0)
+    fails = int(profile.get("consecutive_fails") or 0)
+
+    if verdict == "PASS":
+        warns = 0
+        fails = 0
+        state = "HEALTHY"
+    elif verdict == "WARN":
+        warns += 1
+        fails = 0
+        state = "WATCH" if warns < 2 else "REVALIDATION_REQUIRED"
+    else:
+        fails += 1
+        warns = 0
+        state = "DRIFTED" if fails == 1 else "REVALIDATION_REQUIRED"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_control_assurance_checks
+            (username, assurance_profile_id, control_adoption_id,
+             reusable_lesson_id, verdict, signal_score,
+             drift_reason, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(profile["id"]),
+            int(profile["control_adoption_id"]),
+            int(profile["reusable_lesson_id"]),
+            verdict,
+            score,
+            str(drift_reason or "").strip()[:4000],
+            str(evidence_note or "").strip()[:5000],
+            now
+        ))
+        cid = int(cur.lastrowid)
+
+        con.execute("""
+            UPDATE hunter_control_assurance_profiles
+            SET assurance_state=?,
+                consecutive_warns=?,
+                consecutive_fails=?,
+                last_checked_at=?
+            WHERE id=? AND username=?
+        """, (
+            state,
+            warns,
+            fails,
+            now,
+            int(profile["id"]),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v353_revalidate(username, profile_id, verdict, note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V353_REVALIDATION_VERDICTS:
+        return False, "invalid_revalidation_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_assurance_profiles
+            WHERE username=? AND id=?
+        """, (username, int(profile_id))).fetchone()
+        profile = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not profile:
+        return False, "assurance_profile_not_found", None
+
+    if str(profile.get("assurance_state") or "") not in {"DRIFTED", "REVALIDATION_REQUIRED", "WATCH"}:
+        return False, "revalidation_not_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_control_revalidations
+            (username, assurance_profile_id, control_adoption_id,
+             reusable_lesson_id, verdict, revalidation_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(profile["id"]),
+            int(profile["control_adoption_id"]),
+            int(profile["reusable_lesson_id"]),
+            verdict,
+            str(note or "").strip()[:5000],
+            now
+        ))
+        rid = int(cur.lastrowid)
+
+        if verdict == "PASS":
+            new_state = "HEALTHY"
+            warns = 0
+            fails = 0
+            revalidated_at = now
+        elif verdict == "FAIL":
+            new_state = "REVALIDATION_REQUIRED"
+            warns = int(profile.get("consecutive_warns") or 0)
+            fails = max(1, int(profile.get("consecutive_fails") or 0))
+            revalidated_at = profile.get("last_revalidated_at")
+        else:
+            new_state = "WATCH"
+            warns = max(1, int(profile.get("consecutive_warns") or 0))
+            fails = int(profile.get("consecutive_fails") or 0)
+            revalidated_at = profile.get("last_revalidated_at")
+
+        con.execute("""
+            UPDATE hunter_control_assurance_profiles
+            SET assurance_state=?,
+                consecutive_warns=?,
+                consecutive_fails=?,
+                last_revalidated_at=?
+            WHERE id=? AND username=?
+        """, (
+            new_state,
+            warns,
+            fails,
+            revalidated_at,
+            int(profile["id"]),
+            username
+        ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v353_snapshot(username):
+    base = _v352_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        lesson = item0.get("reusable_lesson") or {}
+        if not lesson:
+            continue
+
+        adoptions = item0.get("control_adoptions") or []
+        validated = [
+            a for a in adoptions
+            if str(a.get("control_state") or "") == "VALIDATED"
+        ]
+
+        assurance_rows = []
+
+        for adoption in validated:
+            profile = _v353_profile(username, int(adoption["id"]))
+            checks = _v353_checks(username, int(profile["id"])) if profile else []
+            revalidations = _v353_revalidations(username, int(profile["id"])) if profile else []
+
+            assurance_rows.append({
+                "adoption": adoption,
+                "profile": profile,
+                "checks": checks[:20],
+                "revalidations": revalidations[:20],
+                "requires_revalidation": bool(
+                    profile and str(profile.get("assurance_state") or "")
+                    in {"DRIFTED", "REVALIDATION_REQUIRED", "WATCH"}
+                )
+            })
+
+        item = dict(item0)
+        item["assurance_rows"] = assurance_rows
+        items.append(item)
+
+    states = []
+    for item in items:
+        for row in item.get("assurance_rows", []):
+            p = row.get("profile")
+            if p:
+                states.append(str(p.get("assurance_state") or ""))
+
+    return {
+        "version": V353_VERSION,
+        "counts": {
+            "validated_controls": sum(len(i.get("assurance_rows", [])) for i in items),
+            "assurance_enabled": len(states),
+            "healthy": sum(1 for s in states if s == "HEALTHY"),
+            "needs_attention": sum(1 for s in states if s in {"WATCH", "DRIFTED", "REVALIDATION_REQUIRED"}),
+        },
+        "items": items,
+        "policy": "A control is not trusted forever. Validated controls require continuous assurance, drift detection, and evidence-based revalidation."
+    }
+
+
+@app.route("/api/hunter-control-assurance")
+def v353_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v353_snapshot(u)})
+
+
+@app.route("/api/hunter-control-assurance/adoption/<int:adoption_id>/enable", methods=["POST"])
+def v353_enable_api(adoption_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, pid = _v353_enable_assurance(
+        u,
+        adoption_id,
+        p.get("check_interval_hours") or 24
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "profile_id": pid}), 400
+
+    return jsonify({"success": True, "profile_id": pid})
+
+
+@app.route("/api/hunter-control-assurance/profile/<int:profile_id>/check", methods=["POST"])
+def v353_check_api(profile_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, cid = _v353_record_check(
+        u,
+        profile_id,
+        p.get("verdict") or "",
+        p.get("signal_score"),
+        p.get("drift_reason") or "",
+        p.get("evidence_note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "check_id": cid}), 400
+
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-control-assurance/profile/<int:profile_id>/revalidate", methods=["POST"])
+def v353_revalidate_api(profile_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, rid = _v353_revalidate(
+        u,
+        profile_id,
+        p.get("verdict") or "",
+        p.get("revalidation_note") or p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "revalidation_id": rid}), 400
+
+    return jsonify({"success": True, "revalidation_id": rid})
+
+
+@app.route("/hunter-control-assurance")
+def v353_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🛡️ Control Assurance</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v353_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        lesson = item.get("reusable_lesson") or {}
+        iid = int((item.get("implementation") or {}).get("id") or 0)
+
+        for row in item.get("assurance_rows", []):
+            adoption = row.get("adoption") or {}
+            profile = row.get("profile") or {}
+            adoption_id = int(adoption.get("id") or 0)
+
+            forms = ""
+
+            if not profile:
+                forms += f"""
+                <form action='/api/hunter-control-assurance/adoption/{adoption_id}/enable'
+                      onsubmit='return v353submit(this,event)'>
+                  <input name='check_interval_hours' type='number' min='1' max='720' value='24'>
+                  <button class='safe'>ENABLE CONTINUOUS ASSURANCE</button>
+                </form>
+                """
+                state_html = "<div class='state'>ASSURANCE NOT ENABLED</div>"
+            else:
+                pid = int(profile["id"])
+                state = str(profile.get("assurance_state") or "HEALTHY")
+
+                state_html = f"""
+                <div class='state'>
+                  ASSURANCE <b>{esc(state)}</b><br>
+                  <small>last check: {esc(profile.get('last_checked_at'))} ·
+                  interval: {esc(profile.get('check_interval_hours'))}h</small>
+                </div>
+                """
+
+                forms += f"""
+                <form action='/api/hunter-control-assurance/profile/{pid}/check'
+                      onsubmit='return v353submit(this,event)'>
+                  <select name='verdict'>
+                    <option>PASS</option>
+                    <option>WARN</option>
+                    <option>FAIL</option>
+                  </select>
+                  <input name='signal_score' type='number' step='0.01' placeholder='Signal score (optional)'>
+                  <textarea name='drift_reason' rows='2' placeholder='Drift reason / signal'></textarea>
+                  <textarea name='evidence_note' rows='2' placeholder='Assurance evidence'></textarea>
+                  <button>RECORD ASSURANCE CHECK</button>
+                </form>
+                """
+
+                if row.get("requires_revalidation"):
+                    forms += f"""
+                    <form action='/api/hunter-control-assurance/profile/{pid}/revalidate'
+                          onsubmit='return v353submit(this,event)'>
+                      <select name='verdict'>
+                        <option>PASS</option>
+                        <option>FAIL</option>
+                        <option>INCONCLUSIVE</option>
+                      </select>
+                      <textarea name='revalidation_note' rows='2' placeholder='Revalidation evidence'></textarea>
+                      <button class='warn'>REVALIDATE CONTROL</button>
+                    </form>
+                    """
+
+            cards.append(f"""
+            <article class='card'>
+              <div class='top'>
+                <span>Implementation #{iid}</span>
+                <span class='pill'>Adoption #{adoption_id}</span>
+              </div>
+              <h2>{esc(lesson.get('lesson_title'))}</h2>
+              <p>{esc(adoption.get('target_scope_type'))}: {esc(adoption.get('target_scope_label'))}</p>
+              {state_html}
+              {forms}
+            </article>
+            """)
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.3 Continuous Control Assurance</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#8bf0c8;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#8bf0c8}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #315c68;border-radius:999px;padding:5px 8px;color:#8be9fd;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}}
+    .warn{{background:#ffd66f}}
+    .state{{margin-top:10px;padding:12px;border:1px solid #315c68;border-radius:12px;background:#0a151c}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.3 // CONTINUOUS CONTROL ASSURANCE + DRIFT REVALIDATION GATE</div>
+        <h1>🛡️ TRUST, THEN RECHECK</h1>
+        <p class='muted'>Validated controls are continuously checked for drift and must be revalidated when warning or failure signals appear.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>VALIDATED CONTROLS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>ASSURANCE ENABLED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>HEALTHY</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>NEEDS ATTENTION</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-lesson-propagation'>🌐 LESSON PROPAGATION</a>
+          <a href='/api/hunter-control-assurance'>JSON</a>
+        </div>
+      </section>
+
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v353submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["validated_controls"],
+        c["assurance_enabled"],
+        c["healthy"],
+        c["needs_attention"],
+        "".join(cards) or "<article class='card'><p>No validated controls are ready for continuous assurance.</p></article>"
+    )
+
+
+try:
+    _v353_prev_page = app.view_functions.get("v352_page")
+    if _v353_prev_page:
+        def _v353_propagation_with_assurance(*args, **kwargs):
+            response = _v353_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-control-assurance" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-lesson-propagation'>JSON</a>",
+                    "<a href='/api/hunter-lesson-propagation'>JSON</a><a href='/hunter-control-assurance'>🛡️ CONTROL ASSURANCE</a>",
+                    1
+                )
+            return response
+        app.view_functions["v352_page"] = _v353_propagation_with_assurance
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
