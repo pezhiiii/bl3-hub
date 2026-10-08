@@ -71985,6 +71985,608 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.5 REMEDIATION EFFECTIVENESS + RECURRENCE SUPPRESSION GATE =====
+# V35.4 makes drift actionable through escalation and remediation.
+# V35.5 proves that the fix actually lasts:
+#
+# VERIFIED REMEDIATION
+#   -> EFFECTIVENESS WINDOW
+#   -> FOLLOW-UP CHECKS
+#   -> RECURRENCE SIGNAL
+#   -> SUPPRESSION STATUS
+#   -> CLOSE / REOPEN
+#
+# A remediation is not considered durable until it survives follow-up checks.
+
+V355_VERSION = "V35.5"
+
+V355_EFFECTIVENESS_STATES = {
+    "MONITORING",
+    "EFFECTIVE",
+    "AT_RISK",
+    "RECURRENCE_DETECTED",
+    "CLOSED"
+}
+
+V355_FOLLOWUP_VERDICTS = {"PASS", "WARN", "FAIL"}
+
+
+def _v355_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_remediation_effectiveness (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            remediation_id INTEGER NOT NULL,
+            escalation_id INTEGER NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            effectiveness_state TEXT NOT NULL DEFAULT 'MONITORING',
+            required_passes INTEGER NOT NULL DEFAULT 3,
+            passes INTEGER NOT NULL DEFAULT 0,
+            warns INTEGER NOT NULL DEFAULT 0,
+            fails INTEGER NOT NULL DEFAULT 0,
+            recurrence_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            closed_at TEXT,
+            UNIQUE(username, remediation_id)
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_remediation_followups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            effectiveness_id INTEGER NOT NULL,
+            remediation_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            recurrence_signal INTEGER NOT NULL DEFAULT 0,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v355_followups
+        ON hunter_remediation_followups(username, effectiveness_id, id DESC)
+        """)
+
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v355_init()
+except Exception:
+    pass
+
+
+def _v355_get_effectiveness(username, remediation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_remediation_effectiveness
+            WHERE username=? AND remediation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(remediation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v355_followups(username, effectiveness_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_remediation_followups
+            WHERE username=? AND effectiveness_id=?
+            ORDER BY id DESC
+        """, (username, int(effectiveness_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v355_enable_effectiveness(username, remediation_id, required_passes=3):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_remediations
+            WHERE username=? AND id=?
+        """, (username, int(remediation_id))).fetchone()
+        remediation = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not remediation:
+        return False, "remediation_not_found", None
+
+    if str(remediation.get("remediation_state") or "") != "VERIFIED":
+        return False, "verified_remediation_required", None
+
+    existing = _v355_get_effectiveness(username, remediation_id)
+    if existing:
+        return False, "effectiveness_monitor_already_exists", int(existing["id"])
+
+    try:
+        required = int(required_passes)
+    except Exception:
+        return False, "invalid_required_passes", None
+
+    required = max(1, min(required, 20))
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_remediation_effectiveness
+            (username, remediation_id, escalation_id, assurance_profile_id,
+             effectiveness_state, required_passes, created_at)
+            VALUES (?, ?, ?, ?, 'MONITORING', ?, ?)
+        """, (
+            username,
+            int(remediation["id"]),
+            int(remediation["escalation_id"]),
+            int(remediation["assurance_profile_id"]),
+            required,
+            now
+        ))
+        eid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, eid
+
+
+def _v355_record_followup(username, effectiveness_id, verdict, recurrence_signal=False, evidence_note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V355_FOLLOWUP_VERDICTS:
+        return False, "invalid_followup_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_remediation_effectiveness
+            WHERE username=? AND id=?
+        """, (username, int(effectiveness_id))).fetchone()
+        eff = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not eff:
+        return False, "effectiveness_monitor_not_found", None
+
+    if str(eff.get("effectiveness_state") or "") == "CLOSED":
+        return False, "effectiveness_monitor_closed", None
+
+    rec = bool(recurrence_signal)
+    passes = int(eff.get("passes") or 0)
+    warns = int(eff.get("warns") or 0)
+    fails = int(eff.get("fails") or 0)
+    recurrence_count = int(eff.get("recurrence_count") or 0)
+
+    if verdict == "PASS":
+        passes += 1
+    elif verdict == "WARN":
+        warns += 1
+    else:
+        fails += 1
+
+    if rec:
+        recurrence_count += 1
+
+    required = int(eff.get("required_passes") or 3)
+
+    if rec or verdict == "FAIL":
+        new_state = "RECURRENCE_DETECTED"
+    elif verdict == "WARN":
+        new_state = "AT_RISK"
+    elif passes >= required and warns == 0 and fails == 0 and recurrence_count == 0:
+        new_state = "EFFECTIVE"
+    else:
+        new_state = "MONITORING"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_remediation_followups
+            (username, effectiveness_id, remediation_id, verdict,
+             recurrence_signal, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(eff["id"]),
+            int(eff["remediation_id"]),
+            verdict,
+            1 if rec else 0,
+            str(evidence_note or "").strip()[:5000],
+            now
+        ))
+        fid = int(cur.lastrowid)
+
+        con.execute("""
+            UPDATE hunter_remediation_effectiveness
+            SET effectiveness_state=?,
+                passes=?,
+                warns=?,
+                fails=?,
+                recurrence_count=?
+            WHERE id=? AND username=?
+        """, (
+            new_state,
+            passes,
+            warns,
+            fails,
+            recurrence_count,
+            int(eff["id"]),
+            username
+        ))
+
+        if new_state == "RECURRENCE_DETECTED":
+            con.execute("""
+                UPDATE hunter_control_assurance_profiles
+                SET assurance_state='REVALIDATION_REQUIRED'
+                WHERE id=? AND username=?
+            """, (
+                int(eff["assurance_profile_id"]),
+                username
+            ))
+
+            con.execute("""
+                UPDATE hunter_assurance_escalations
+                SET escalation_state='OPEN',
+                    closed_at=NULL
+                WHERE id=? AND username=?
+            """, (
+                int(eff["escalation_id"]),
+                username
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, fid
+
+
+def _v355_close_effectiveness(username, effectiveness_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_remediation_effectiveness
+            WHERE username=? AND id=?
+        """, (username, int(effectiveness_id))).fetchone()
+        eff = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not eff:
+        return False, "effectiveness_monitor_not_found"
+
+    if str(eff.get("effectiveness_state") or "") != "EFFECTIVE":
+        return False, "effective_state_required"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_remediation_effectiveness
+            SET effectiveness_state='CLOSED',
+                closed_at=?
+            WHERE id=? AND username=?
+        """, (
+            now,
+            int(effectiveness_id),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None
+
+
+def _v355_snapshot(username):
+    base = _v354_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        escalation = item0.get("escalation") or {}
+        rems_out = []
+
+        for rem in item0.get("remediations", []):
+            r = dict(rem)
+            eff = _v355_get_effectiveness(username, int(rem["id"]))
+            r["effectiveness"] = eff
+            r["followups"] = _v355_followups(username, int(eff["id"]))[:20] if eff else []
+            rems_out.append(r)
+
+        item = dict(item0)
+        item["remediations"] = rems_out
+        items.append(item)
+
+    states = []
+    for item in items:
+        for rem in item.get("remediations", []):
+            eff = rem.get("effectiveness")
+            if eff:
+                states.append(str(eff.get("effectiveness_state") or ""))
+
+    return {
+        "version": V355_VERSION,
+        "counts": {
+            "monitors": len(states),
+            "monitoring": sum(1 for s in states if s == "MONITORING"),
+            "effective": sum(1 for s in states if s in {"EFFECTIVE", "CLOSED"}),
+            "at_risk": sum(1 for s in states if s == "AT_RISK"),
+            "recurrence": sum(1 for s in states if s == "RECURRENCE_DETECTED"),
+        },
+        "items": items,
+        "policy": "A remediation is durable only after it survives follow-up checks without recurrence. Recurrence automatically reopens assurance attention."
+    }
+
+
+@app.route("/api/hunter-remediation-effectiveness")
+def v355_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    return jsonify({"success": True, **_v355_snapshot(u)})
+
+
+@app.route("/api/hunter-remediation-effectiveness/remediation/<int:remediation_id>/enable", methods=["POST"])
+def v355_enable_api(remediation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, eid = _v355_enable_effectiveness(
+        u,
+        remediation_id,
+        p.get("required_passes") or 3
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "effectiveness_id": eid}), 400
+
+    return jsonify({"success": True, "effectiveness_id": eid})
+
+
+@app.route("/api/hunter-remediation-effectiveness/<int:effectiveness_id>/followup", methods=["POST"])
+def v355_followup_api(effectiveness_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+    recurrence_signal = str(p.get("recurrence_signal") or "").lower() in {"1", "true", "yes", "on"}
+
+    ok, e, fid = _v355_record_followup(
+        u,
+        effectiveness_id,
+        p.get("verdict") or "",
+        recurrence_signal,
+        p.get("evidence_note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "followup_id": fid}), 400
+
+    return jsonify({"success": True, "followup_id": fid})
+
+
+@app.route("/api/hunter-remediation-effectiveness/<int:effectiveness_id>/close", methods=["POST"])
+def v355_close_api(effectiveness_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    ok, e = _v355_close_effectiveness(u, effectiveness_id)
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-remediation-effectiveness")
+def v355_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🧪 Remediation Effectiveness</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v355_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        escalation = item.get("escalation") or {}
+
+        for rem in item.get("remediations", []):
+            if str(rem.get("remediation_state") or "") != "VERIFIED":
+                continue
+
+            rid = int(rem["id"])
+            eff = rem.get("effectiveness")
+            forms = ""
+
+            if not eff:
+                forms += f"""
+                <form action='/api/hunter-remediation-effectiveness/remediation/{rid}/enable'
+                      onsubmit='return v355submit(this,event)'>
+                  <input name='required_passes' type='number' min='1' max='20' value='3'>
+                  <button class='safe'>START EFFECTIVENESS MONITORING</button>
+                </form>
+                """
+                state_html = "<div class='state'>MONITOR NOT STARTED</div>"
+            else:
+                eid = int(eff["id"])
+                estate = str(eff.get("effectiveness_state") or "")
+                state_html = f"""
+                <div class='state'>
+                  EFFECTIVENESS <b>{esc(estate)}</b><br>
+                  <small>passes {esc(eff.get('passes'))}/{esc(eff.get('required_passes'))}
+                  · warns {esc(eff.get('warns'))}
+                  · fails {esc(eff.get('fails'))}
+                  · recurrence {esc(eff.get('recurrence_count'))}</small>
+                </div>
+                """
+
+                if estate != "CLOSED":
+                    forms += f"""
+                    <form action='/api/hunter-remediation-effectiveness/{eid}/followup'
+                          onsubmit='return v355submit(this,event)'>
+                      <select name='verdict'>
+                        <option>PASS</option>
+                        <option>WARN</option>
+                        <option>FAIL</option>
+                      </select>
+                      <label class='check'>
+                        <input type='checkbox' name='recurrence_signal' value='1'>
+                        Recurrence signal detected
+                      </label>
+                      <textarea name='evidence_note' rows='2' placeholder='Follow-up evidence'></textarea>
+                      <button>RECORD FOLLOW-UP CHECK</button>
+                    </form>
+                    """
+
+                if estate == "EFFECTIVE":
+                    forms += f"""
+                    <form action='/api/hunter-remediation-effectiveness/{eid}/close'
+                          onsubmit='return v355submit(this,event)'>
+                      <button class='safe'>CLOSE AS DURABLY EFFECTIVE</button>
+                    </form>
+                    """
+
+            cards.append(f"""
+            <article class='card'>
+              <div class='top'>
+                <span>Escalation #{esc(escalation.get('id'))}</span>
+                <span class='pill'>Remediation #{rid}</span>
+              </div>
+              <h2>{esc(rem.get('remediation_plan'))}</h2>
+              <p>Owner: {esc(rem.get('owner_label'))}</p>
+              {state_html}
+              {forms}
+            </article>
+            """)
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.5 Remediation Effectiveness</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#b99cff;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#b99cff}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #5b4a7d;border-radius:999px;padding:5px 8px;color:#d9c9ff;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    .check{{display:flex;gap:8px;align-items:center;margin-top:10px;color:#c9d8df}}
+    .check input{{width:auto;margin:0}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}}
+    .state{{margin-top:10px;padding:12px;border:1px solid #5b4a7d;border-radius:12px;background:#100c17}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:900px){{.stats{{grid-template-columns:1fr 1fr}}}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.5 // REMEDIATION EFFECTIVENESS + RECURRENCE SUPPRESSION GATE</div>
+        <h1>🧪 PROVE THE FIX LASTS</h1>
+        <p class='muted'>Verified remediation is monitored over time. Any recurrence reopens assurance attention automatically.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>MONITORS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>MONITORING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>EFFECTIVE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>AT RISK</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>RECURRENCE</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-assurance-remediation'>🚨 REMEDIATION</a>
+          <a href='/api/hunter-remediation-effectiveness'>JSON</a>
+        </div>
+      </section>
+
+      <section class='grid'>{}</section>
+    </div>
+
+    <script>
+    async function v355submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["monitors"],
+        c["monitoring"],
+        c["effective"],
+        c["at_risk"],
+        c["recurrence"],
+        "".join(cards) or "<article class='card'><p>No verified remediations are ready for effectiveness monitoring.</p></article>"
+    )
+
+
+try:
+    _v355_prev_page = app.view_functions.get("v354_page")
+    if _v355_prev_page:
+        def _v355_remediation_with_effectiveness(*args, **kwargs):
+            response = _v355_prev_page(*args, **kwargs)
+
+            if isinstance(response, str) and "/hunter-remediation-effectiveness" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-assurance-remediation'>JSON</a>",
+                    "<a href='/api/hunter-assurance-remediation'>JSON</a><a href='/hunter-remediation-effectiveness'>🧪 EFFECTIVENESS</a>",
+                    1
+                )
+
+            return response
+
+        app.view_functions["v354_page"] = _v355_remediation_with_effectiveness
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
