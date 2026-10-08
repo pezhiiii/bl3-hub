@@ -63322,6 +63322,775 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.1 HARDENING IMPLEMENTATION + ROLLOUT GATE =====
+# V34.0 can ADOPT governance hardening proposals.
+# V34.1 separates adoption from implementation:
+# implementation plan -> stage -> deploy -> validate -> seal or rollback.
+# No adopted hardening is treated as active until deployment is explicit.
+
+V341_VERSION = "V34.1"
+V341_ROLLOUT_MODES = {"SHADOW", "CANARY", "PHASED", "FULL"}
+V341_VALIDATE_SIGNALS = {"PASS", "PARTIAL", "FAIL", "INCONCLUSIVE"}
+V341_VALIDATE_OUTCOMES = {"SEAL_IMPLEMENTATION", "EXTEND_VALIDATION", "ROLLBACK_RECOMMENDED"}
+V341_MIN_CHECKS = 2
+
+
+def _v341_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_hardening_implementations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            proposal_id INTEGER NOT NULL UNIQUE,
+            policy_id INTEGER NOT NULL,
+            rollout_mode TEXT NOT NULL,
+            implementation_plan TEXT NOT NULL,
+            rollback_plan TEXT NOT NULL,
+            owner_note TEXT,
+            implementation_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            staged_at TEXT,
+            deployed_at TEXT,
+            rolled_back_at TEXT,
+            rollback_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v341_impl_state
+        ON hunter_hardening_implementations(username, implementation_state, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_hardening_validation_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v341_validate_impl
+        ON hunter_hardening_validation_checks(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_hardening_validation_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            outcome TEXT NOT NULL,
+            outcome_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_hardening_implementation_seals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL UNIQUE,
+            validation_outcome_id INTEGER NOT NULL,
+            seal_state TEXT NOT NULL DEFAULT 'SEALED',
+            seal_note TEXT,
+            sealed_at TEXT NOT NULL,
+            revoked_at TEXT,
+            revoke_note TEXT
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v341_init()
+except Exception:
+    pass
+
+
+def _v341_impl(username, proposal_id=None, implementation_id=None):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if implementation_id is not None:
+            row = con.execute("""
+                SELECT * FROM hunter_hardening_implementations
+                WHERE username=? AND id=?
+            """, (username, int(implementation_id))).fetchone()
+        else:
+            row = con.execute("""
+                SELECT * FROM hunter_hardening_implementations
+                WHERE username=? AND proposal_id=?
+                ORDER BY id DESC LIMIT 1
+            """, (username, int(proposal_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v341_checks(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_hardening_validation_checks
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC
+        """, (username, int(implementation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v341_outcome(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_hardening_validation_outcomes
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v341_seal(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_hardening_implementation_seals
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v341_save_impl(username, proposal_id, rollout_mode, implementation_plan, rollback_plan, owner_note=""):
+    proposal = _v340_proposal(username, proposal_id=proposal_id)
+    if not proposal:
+        return False, "proposal_not_found", None
+    if str(proposal.get("proposal_state") or "") != "ADOPTED":
+        return False, "adopted_hardening_required", None
+
+    mode = str(rollout_mode or "").strip().upper()
+    if mode not in V341_ROLLOUT_MODES:
+        return False, "invalid_rollout_mode", None
+
+    implementation_plan = str(implementation_plan or "").strip()
+    rollback_plan = str(rollback_plan or "").strip()
+    if not implementation_plan or not rollback_plan:
+        return False, "implementation_and_rollback_plan_required", None
+
+    existing = _v341_impl(username, proposal_id=proposal_id)
+    if existing and str(existing.get("implementation_state") or "") != "DRAFT":
+        return False, "implementation_not_editable", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        if existing:
+            con.execute("""
+                UPDATE hunter_hardening_implementations
+                SET rollout_mode=?, implementation_plan=?, rollback_plan=?, owner_note=?
+                WHERE id=? AND username=? AND implementation_state='DRAFT'
+            """, (
+                mode,
+                implementation_plan[:5000],
+                rollback_plan[:5000],
+                str(owner_note or "").strip()[:2400],
+                int(existing["id"]),
+                username,
+            ))
+            iid = int(existing["id"])
+        else:
+            cur = con.execute("""
+                INSERT INTO hunter_hardening_implementations
+                (username, proposal_id, policy_id, rollout_mode, implementation_plan,
+                 rollback_plan, owner_note, implementation_state, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
+            """, (
+                username,
+                int(proposal_id),
+                int(proposal.get("policy_id") or 0),
+                mode,
+                implementation_plan[:5000],
+                rollback_plan[:5000],
+                str(owner_note or "").strip()[:2400],
+                now,
+            ))
+            iid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, iid
+
+
+def _v341_stage_impl(username, implementation_id):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+    if str(impl.get("implementation_state") or "") != "DRAFT":
+        return False, "implementation_not_draft", int(impl["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_hardening_implementations
+            SET implementation_state='STAGED', staged_at=?
+            WHERE id=? AND username=? AND implementation_state='DRAFT'
+        """, (now, int(implementation_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(implementation_id)
+
+
+def _v341_deploy_impl(username, implementation_id, note=""):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+    if str(impl.get("implementation_state") or "") != "STAGED":
+        return False, "implementation_not_staged", int(impl["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_hardening_implementations
+            SET implementation_state='DEPLOYED', deployed_at=?,
+                owner_note=CASE WHEN ?<>'' THEN ? ELSE owner_note END
+            WHERE id=? AND username=? AND implementation_state='STAGED'
+        """, (
+            now,
+            str(note or "").strip(),
+            str(note or "").strip()[:2400],
+            int(implementation_id),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "GOVERNANCE_HARDENING_DEPLOYED",
+            detail="V34.1 hardening implementation #%s deployed for policy #%s." % (
+                int(implementation_id), int(impl.get("policy_id") or 0)
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(implementation_id)
+
+
+def _v341_add_check(username, implementation_id, signal_state, note=""):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+    if str(impl.get("implementation_state") or "") != "DEPLOYED":
+        return False, "deployed_implementation_required", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V341_VALIDATE_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_hardening_validation_checks
+            (username, implementation_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            signal,
+            str(note or "").strip()[:2400],
+            now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v341_finalize_outcome(username, implementation_id, requested_outcome, note=""):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+    if str(impl.get("implementation_state") or "") != "DEPLOYED":
+        return False, "deployed_implementation_required", None
+
+    checks = _v341_checks(username, implementation_id)
+    if len(checks) < V341_MIN_CHECKS:
+        return False, "not_enough_validation_checks", None
+
+    requested = str(requested_outcome or "").strip().upper()
+    if requested not in V341_VALIDATE_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    existing = _v341_outcome(username, implementation_id)
+    if existing:
+        return False, "validation_outcome_already_finalized", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_hardening_validation_outcomes
+            (username, implementation_id, outcome, outcome_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            requested,
+            str(note or "").strip()[:2400],
+            now
+        ))
+        oid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, oid
+
+
+def _v341_seal_impl(username, implementation_id, note=""):
+    outcome = _v341_outcome(username, implementation_id)
+    if not outcome:
+        return False, "validation_outcome_required", None
+    if str(outcome.get("outcome") or "") != "SEAL_IMPLEMENTATION":
+        return False, "seal_implementation_outcome_required", None
+
+    existing = _v341_seal(username, implementation_id)
+    if existing:
+        return False, "implementation_already_sealed", int(existing["id"])
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_hardening_implementation_seals
+            (username, implementation_id, validation_outcome_id, seal_state, seal_note, sealed_at)
+            VALUES (?, ?, ?, 'SEALED', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(outcome["id"]),
+            str(note or "").strip()[:2400],
+            now
+        ))
+        sid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "GOVERNANCE_HARDENING_SEALED",
+            detail="V34.1 implementation #%s sealed after rollout validation." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, sid
+
+
+def _v341_rollback_impl(username, implementation_id, note=""):
+    impl = _v341_impl(username, implementation_id=implementation_id)
+    if not impl:
+        return False, "implementation_not_found", None
+    if str(impl.get("implementation_state") or "") != "DEPLOYED":
+        return False, "implementation_not_deployed", int(impl["id"])
+
+    outcome = _v341_outcome(username, implementation_id)
+    if not outcome or str(outcome.get("outcome") or "") != "ROLLBACK_RECOMMENDED":
+        return False, "rollback_recommendation_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_hardening_implementations
+            SET implementation_state='ROLLED_BACK',
+                rolled_back_at=?,
+                rollback_note=?
+            WHERE id=? AND username=? AND implementation_state='DEPLOYED'
+        """, (
+            now,
+            str(note or "Explicit V34.1 rollout rollback.").strip()[:2400],
+            int(implementation_id),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "GOVERNANCE_HARDENING_ROLLED_BACK",
+            detail="V34.1 implementation #%s rolled back after failed validation." % int(implementation_id)
+        )
+    except Exception:
+        pass
+
+    return True, None, int(implementation_id)
+
+
+def _v341_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        proposals = [dict(r) for r in con.execute("""
+            SELECT p.*, hp.title AS policy_title, hp.policy_type, hp.rule_text
+            FROM hunter_governance_hardening_proposals p
+            JOIN hunter_learning_policy_candidates hp ON hp.id=p.policy_id
+            WHERE p.username=? AND p.proposal_state='ADOPTED'
+            ORDER BY p.id DESC
+        """, (username,)).fetchall()]
+    finally:
+        con.close()
+
+    items = []
+    for proposal in proposals:
+        pid = int(proposal["id"])
+        impl = _v341_impl(username, proposal_id=pid)
+        checks = _v341_checks(username, int(impl["id"])) if impl else []
+        outcome = _v341_outcome(username, int(impl["id"])) if impl else None
+        seal = _v341_seal(username, int(impl["id"])) if impl else None
+
+        item = dict(proposal)
+        item["implementation"] = impl
+        item["validation_checks"] = checks[:20]
+        item["validation_count"] = len(checks)
+        item["validation_outcome"] = outcome
+        item["implementation_seal"] = seal
+        item["ready_for_outcome"] = bool(impl) and str(impl.get("implementation_state") or "") == "DEPLOYED" and len(checks) >= V341_MIN_CHECKS and not outcome
+        item["ready_to_seal"] = bool(outcome) and str(outcome.get("outcome") or "") == "SEAL_IMPLEMENTATION" and not seal
+        item["ready_to_rollback"] = bool(outcome) and str(outcome.get("outcome") or "") == "ROLLBACK_RECOMMENDED" and bool(impl) and str(impl.get("implementation_state") or "") == "DEPLOYED"
+        items.append(item)
+
+    return {
+        "version": V341_VERSION,
+        "minimum_validation_checks": V341_MIN_CHECKS,
+        "counts": {
+            "adopted_hardenings": len(proposals),
+            "draft": sum(1 for i in items if i.get("implementation") and i["implementation"].get("implementation_state") == "DRAFT"),
+            "deployed": sum(1 for i in items if i.get("implementation") and i["implementation"].get("implementation_state") == "DEPLOYED"),
+            "sealed": sum(1 for i in items if i.get("implementation_seal") and i["implementation_seal"].get("seal_state") == "SEALED"),
+        },
+        "items": items,
+        "policy": "Adopted hardening is not active implementation until rollout is explicitly planned, staged, deployed, validated and sealed."
+    }
+
+
+@app.route("/api/hunter-hardening-rollout")
+def v341_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v341_snapshot(u)})
+
+
+@app.route("/api/hunter-hardening-rollout/proposal/<int:proposal_id>/save", methods=["POST"])
+def v341_save_api(proposal_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v341_save_impl(
+        u, proposal_id,
+        p.get("rollout_mode") or "",
+        p.get("implementation_plan") or "",
+        p.get("rollback_plan") or "",
+        p.get("owner_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/api/hunter-hardening-rollout/implementation/<int:implementation_id>/stage", methods=["POST"])
+def v341_stage_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, e, iid = _v341_stage_impl(u, implementation_id)
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/api/hunter-hardening-rollout/implementation/<int:implementation_id>/deploy", methods=["POST"])
+def v341_deploy_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v341_deploy_impl(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/api/hunter-hardening-rollout/implementation/<int:implementation_id>/check", methods=["POST"])
+def v341_check_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, cid = _v341_add_check(
+        u, implementation_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-hardening-rollout/implementation/<int:implementation_id>/outcome", methods=["POST"])
+def v341_outcome_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, oid = _v341_finalize_outcome(
+        u, implementation_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "outcome_id": oid}), 400
+    return jsonify({"success": True, "outcome_id": oid})
+
+
+@app.route("/api/hunter-hardening-rollout/implementation/<int:implementation_id>/seal", methods=["POST"])
+def v341_seal_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, sid = _v341_seal_impl(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "seal_id": sid}), 400
+    return jsonify({"success": True, "seal_id": sid})
+
+
+@app.route("/api/hunter-hardening-rollout/implementation/<int:implementation_id>/rollback", methods=["POST"])
+def v341_rollback_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, iid = _v341_rollback_impl(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "implementation_id": iid}), 400
+    return jsonify({"success": True, "implementation_id": iid})
+
+
+@app.route("/hunter-hardening-rollout")
+def v341_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🚀 Hardening Rollout</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v341_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        pid = int(item["id"])
+        impl = item.get("implementation") or {}
+        outcome = item.get("validation_outcome") or {}
+        seal = item.get("implementation_seal") or {}
+        checks = item.get("validation_checks") or []
+        state = str(impl.get("implementation_state") or "")
+
+        actions = ""
+
+        if not impl:
+            actions += f"""
+            <form action='/api/hunter-hardening-rollout/proposal/{pid}/save' onsubmit='return v341submit(this,event)'>
+              <select name='rollout_mode'>
+                <option>SHADOW</option><option>CANARY</option><option>PHASED</option><option>FULL</option>
+              </select>
+              <textarea name='implementation_plan' rows='4' placeholder='Implementation plan'></textarea>
+              <textarea name='rollback_plan' rows='3' placeholder='Rollback plan'></textarea>
+              <textarea name='owner_note' rows='2' placeholder='Owner / execution note'></textarea>
+              <button>CREATE IMPLEMENTATION PLAN</button>
+            </form>
+            """
+        elif state == "DRAFT":
+            actions += f"""
+            <div class='box'><b>{esc(impl.get('rollout_mode'))}</b><p>{esc(impl.get('implementation_plan'))}</p></div>
+            <form action='/api/hunter-hardening-rollout/implementation/{int(impl["id"])}/stage' onsubmit='return v341submit(this,event)'>
+              <button class='warn'>STAGE ROLLOUT</button>
+            </form>
+            """
+        elif state == "STAGED":
+            actions += f"""
+            <div class='box'><b>STAGED · {esc(impl.get('rollout_mode'))}</b></div>
+            <form action='/api/hunter-hardening-rollout/implementation/{int(impl["id"])}/deploy' onsubmit='return v341submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Deployment note'></textarea>
+              <button class='safe'>DEPLOY HARDENING</button>
+            </form>
+            """
+        elif state == "DEPLOYED":
+            actions += f"""
+            <div class='box'><b>DEPLOYED · {esc(impl.get('rollout_mode'))}</b></div>
+            <form action='/api/hunter-hardening-rollout/implementation/{int(impl["id"])}/check' onsubmit='return v341submit(this,event)'>
+              <select name='signal_state'>
+                <option>PASS</option><option>PARTIAL</option><option>FAIL</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Rollout validation evidence'></textarea>
+              <button>ADD VALIDATION CHECK</button>
+            </form>
+            """
+
+        if item.get("ready_for_outcome"):
+            actions += f"""
+            <form action='/api/hunter-hardening-rollout/implementation/{int(impl["id"])}/outcome' onsubmit='return v341submit(this,event)'>
+              <select name='outcome'>
+                <option>SEAL_IMPLEMENTATION</option>
+                <option>EXTEND_VALIDATION</option>
+                <option>ROLLBACK_RECOMMENDED</option>
+              </select>
+              <textarea name='outcome_note' rows='2' placeholder='Validation outcome rationale'></textarea>
+              <button>FINALIZE VALIDATION OUTCOME</button>
+            </form>
+            """
+        elif outcome:
+            actions += "<div class='final'>VALIDATION OUTCOME: <b>{}</b><br>{}</div>".format(
+                esc(outcome.get("outcome")), esc(outcome.get("outcome_note"))
+            )
+
+        if item.get("ready_to_seal"):
+            actions += f"""
+            <form action='/api/hunter-hardening-rollout/implementation/{int(impl["id"])}/seal' onsubmit='return v341submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Implementation seal note'></textarea>
+              <button class='safe'>SEAL IMPLEMENTATION</button>
+            </form>
+            """
+
+        if item.get("ready_to_rollback"):
+            actions += f"""
+            <form action='/api/hunter-hardening-rollout/implementation/{int(impl["id"])}/rollback' onsubmit='return v341submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='Rollback reason'></textarea>
+              <button class='danger'>ROLLBACK IMPLEMENTATION</button>
+            </form>
+            """
+
+        seal_html = ""
+        if seal:
+            seal_html = "<div class='sealed'>IMPLEMENTATION SEALED · {}</div>".format(
+                esc(seal.get("sealed_at"))
+            )
+
+        checks_html = "".join(
+            "<div class='check'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No validation checks yet.</div>"
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Hardening #{pid}</span><span class='pill'>{esc(state or 'ADOPTED')}</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          <p class='muted'>{esc(item.get('proposal_text'))}</p>
+          {seal_html}
+          {actions}
+          <div>{checks_html}</div>
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.1 Hardening Rollout</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#7fd7ff;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#7fd7ff}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #31596a;border-radius:999px;padding:5px 8px;color:#7fd7ff;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .warn{{background:#ffd66f}} .safe{{background:#8bf0c8}} .danger{{background:#ff8797}}
+    .box,.final,.sealed{{margin-top:10px;padding:12px;border:1px solid #2b3f55;border-radius:12px;background:#071018}}
+    .final,.sealed{{background:#0e2a21;border-color:#216c52;color:#9bf2cb}}
+    .check{{border-top:1px solid #15313f;padding:8px 0}} .check b{{display:block;color:#7fd7ff}} .check span{{display:block;margin:4px 0}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.1 // HARDENING IMPLEMENTATION + ROLLOUT GATE</div>
+        <h1>🚀 DEPLOY THE HARDENING</h1>
+        <p class='muted'>Adoption is not deployment. Plan, stage, deploy, validate, then seal—or rollback.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ADOPTED HARDENINGS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DRAFT</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DEPLOYED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>SEALED</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-governance-hardening'>🧠 GOVERNANCE HARDENING</a><a href='/api/hunter-hardening-rollout'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v341submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["adopted_hardenings"], c["draft"], c["deployed"], c["sealed"],
+        "".join(cards) or "<article class='card'><p>No adopted hardening proposals are ready for rollout.</p></article>"
+    )
+
+
+try:
+    _v341_prev_page = app.view_functions.get("v340_page")
+    if _v341_prev_page:
+        def _v341_hardening_with_rollout(*args, **kwargs):
+            response = _v341_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-hardening-rollout" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-governance-hardening'>JSON</a>",
+                    "<a href='/api/hunter-governance-hardening'>JSON</a><a href='/hunter-hardening-rollout'>🚀 HARDENING ROLLOUT</a>",
+                    1
+                )
+            return response
+        app.view_functions["v340_page"] = _v341_hardening_with_rollout
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
