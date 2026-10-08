@@ -81330,6 +81330,377 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.26 STARTUP DEMO SESSION + GUIDED PRESENTATION GATE =====
+# V35.25 creates a minimized external review package.
+# V35.26 turns a current package into a repeatable, auditable live demo session:
+#
+# SEALED PACKAGE -> DEMO READY -> IN PROGRESS -> COMPLETED
+#                                \\-> STALE (if the source package is no longer current)
+#
+# The presentation checklist is deliberately bounded. Completing a demo step records
+# evidence of the walkthrough only; it never changes production readiness, certification,
+# incident, deployment, or external-review evidence.
+
+V3526_VERSION = "V35.26"
+V3526_STATES = {"READY", "IN_PROGRESS", "COMPLETED", "STALE"}
+V3526_STEP_KEYS = (
+    "problem",
+    "workflow",
+    "evidence",
+    "privacy",
+    "close",
+)
+V3526_STEP_LABELS = {
+    "problem": "Problem + value proposition",
+    "workflow": "Live BL3 workflow walkthrough",
+    "evidence": "Evidence integrity + verification",
+    "privacy": "External package privacy + export",
+    "close": "Close + next-step ask",
+}
+
+
+def _v3526_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3526_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3526_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_demo_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            package_id INTEGER NOT NULL,
+            demo_key TEXT NOT NULL UNIQUE,
+            demo_title TEXT NOT NULL,
+            audience_name TEXT DEFAULT '',
+            presenter TEXT NOT NULL,
+            demo_state TEXT NOT NULL DEFAULT 'READY',
+            source_package_sha256 TEXT NOT NULL,
+            session_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, package_id, demo_title)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3526_user_state ON hunter_startup_demo_sessions(username,demo_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3526_package ON hunter_startup_demo_sessions(username,package_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_demo_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            demo_id INTEGER NOT NULL,
+            step_key TEXT NOT NULL,
+            step_order INTEGER NOT NULL,
+            step_label TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            presenter_note TEXT DEFAULT '',
+            completed_at TEXT,
+            evidence_sha256 TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, demo_id, step_key)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3526_steps_demo ON hunter_startup_demo_steps(username,demo_id,step_order)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_demo_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            demo_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3526_events_demo ON hunter_startup_demo_events(username,demo_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3526_init()
+except Exception:
+    pass
+
+
+def _v3526_source_package(username, package_id):
+    p = _v3525_get(username, int(package_id))
+    if not p:
+        return "STALE", None
+    return ("SEALED" if str(p.get("current_state") or "").upper() == "SEALED" else "STALE"), p
+
+
+def _v3526_event(con, username, demo_id, event_type, detail=""):
+    now = _v3526_now_iso()
+    clean = " ".join(str(detail or "").replace("\r", " ").replace("\n", " ").split())[:800]
+    payload = {
+        "version": V3526_VERSION,
+        "demo_id": int(demo_id),
+        "event_type": str(event_type or "event")[:80],
+        "detail": clean,
+        "created_at": now,
+    }
+    digest, _ = _v3526_digest(payload)
+    con.execute("""INSERT INTO hunter_startup_demo_events
+        (username,demo_id,event_type,detail,evidence_sha256,created_at)
+        VALUES(?,?,?,?,?,?)""",
+        (username,int(demo_id),payload["event_type"],clean,digest,now))
+    return digest
+
+
+def _v3526_create(username, package_id, demo_title="", audience_name="", presenter=""):
+    try:
+        package_id = int(package_id)
+    except Exception:
+        return False, "invalid_package_id", None
+    source_state, package = _v3526_source_package(username, package_id)
+    if not package:
+        return False, "package_not_found", None
+    if source_state != "SEALED":
+        return False, "current_external_package_required", None
+    demo_title = str(demo_title or "").strip()[:240] or f"BL3 Startup Demo · {package.get('title') or package.get('package_key') or package_id}"
+    audience_name = " ".join(str(audience_name or "").replace("\r", " ").replace("\n", " ").split())[:200]
+    presenter = str(presenter or username).strip()[:160] or username
+    now = _v3526_now_iso()
+    demo_key = "BL3-DEMO-" + datetime.now().strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(4).upper()
+    evidence = {
+        "version": V3526_VERSION,
+        "evidence_type": "startup_demo_session",
+        "demo_key": demo_key,
+        "demo_title": demo_title,
+        "audience_name": audience_name,
+        "presenter": presenter,
+        "source_package": {
+            "package_id": package_id,
+            "package_key": package.get("package_key") or "",
+            "package_sha256": package.get("evidence_sha256") or "",
+            "source_state_at_creation": "SEALED",
+        },
+        "steps": [{"key": k, "order": i + 1, "label": V3526_STEP_LABELS[k]} for i, k in enumerate(V3526_STEP_KEYS)],
+        "created_at": now,
+        "policy": "A BL3 demo session records presentation progress only. It does not deploy software, alter certification state, prove third-party endorsement, or guarantee startup acceptance, employment, funding, or immigration outcomes.",
+    }
+    digest, _ = _v3526_digest(evidence)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_startup_demo_sessions
+                (username,package_id,demo_key,demo_title,audience_name,presenter,demo_state,source_package_sha256,session_sha256,created_at,updated_at)
+                VALUES(?,?,?,?,?,?, 'READY', ?,?,?,?)""",
+                (username,package_id,demo_key,demo_title,audience_name,presenter,str(package.get("evidence_sha256") or ""),digest,now,now))
+            demo_id = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            row = con.execute("SELECT id FROM hunter_startup_demo_sessions WHERE username=? AND package_id=? AND demo_title=?", (username,package_id,demo_title)).fetchone()
+            return False, "demo_already_exists", int(row[0]) if row else None
+        for i, key in enumerate(V3526_STEP_KEYS):
+            con.execute("""INSERT INTO hunter_startup_demo_steps
+                (username,demo_id,step_key,step_order,step_label,status,presenter_note,updated_at)
+                VALUES(?,?,?,?,?,'PENDING','',?)""",
+                (username,demo_id,key,i+1,V3526_STEP_LABELS[key],now))
+        _v3526_event(con, username, demo_id, "DEMO_CREATED", f"Source package #{package_id} sealed and current.")
+        con.commit()
+        return True, None, demo_id
+    finally:
+        con.close()
+
+
+def _v3526_refresh(username, demo_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_demo_sessions WHERE username=? AND id=?", (username,int(demo_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        steps = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_demo_steps WHERE username=? AND demo_id=? ORDER BY step_order", (username,int(demo_id))).fetchall()]
+        events = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_demo_events WHERE username=? AND demo_id=? ORDER BY id DESC LIMIT 30", (username,int(demo_id))).fetchall()]
+    finally:
+        con.close()
+    source_state, package = _v3526_source_package(username, d["package_id"])
+    complete = sum(1 for s in steps if str(s.get("status") or "") == "COMPLETED")
+    if source_state != "SEALED":
+        live_state = "STALE"
+    elif complete == len(V3526_STEP_KEYS):
+        live_state = "COMPLETED"
+    elif complete > 0 or d.get("started_at"):
+        live_state = "IN_PROGRESS"
+    else:
+        live_state = "READY"
+    if live_state != d.get("demo_state"):
+        con = sqlite3.connect(DB)
+        try:
+            now = _v3526_now_iso()
+            completed_at = d.get("completed_at")
+            if live_state == "COMPLETED" and not completed_at:
+                completed_at = now
+            con.execute("UPDATE hunter_startup_demo_sessions SET demo_state=?,completed_at=?,updated_at=? WHERE username=? AND id=?", (live_state,completed_at,now,username,int(demo_id)))
+            _v3526_event(con, username, demo_id, "STATE_REFRESH", f"Demo state -> {live_state}; source package -> {source_state}.")
+            con.commit()
+            d["demo_state"] = live_state
+            d["completed_at"] = completed_at
+        finally:
+            con.close()
+    else:
+        d["demo_state"] = live_state
+    d["steps"] = steps
+    d["events"] = events
+    d["source_package_state"] = source_state
+    d["source_package"] = package
+    d["completed_steps"] = complete
+    d["total_steps"] = len(V3526_STEP_KEYS)
+    d["progress_percent"] = int(round(100 * complete / max(1, len(V3526_STEP_KEYS))))
+    return d
+
+
+def _v3526_complete_step(username, demo_id, step_key, note=""):
+    step_key = str(step_key or "").strip().lower()
+    if step_key not in V3526_STEP_KEYS:
+        return False, "invalid_step", None
+    demo = _v3526_refresh(username, demo_id)
+    if not demo:
+        return False, "demo_not_found", None
+    if demo.get("source_package_state") != "SEALED":
+        return False, "source_package_stale", demo
+    step = next((s for s in demo.get("steps") or [] if s.get("step_key") == step_key), None)
+    if not step:
+        return False, "step_not_found", demo
+    if step.get("status") == "COMPLETED":
+        return True, None, demo
+    note = " ".join(str(note or "").replace("\r", " ").replace("\n", " ").split())[:1200]
+    now = _v3526_now_iso()
+    evidence = {
+        "version": V3526_VERSION,
+        "demo_id": int(demo_id),
+        "step_key": step_key,
+        "step_label": V3526_STEP_LABELS[step_key],
+        "presenter_note": note,
+        "source_package_sha256": demo.get("source_package_sha256") or "",
+        "completed_at": now,
+    }
+    digest, _ = _v3526_digest(evidence)
+    con = sqlite3.connect(DB)
+    try:
+        started_at = demo.get("started_at") or now
+        con.execute("""UPDATE hunter_startup_demo_steps
+            SET status='COMPLETED',presenter_note=?,completed_at=?,evidence_sha256=?,updated_at=?
+            WHERE username=? AND demo_id=? AND step_key=?""",
+            (note,now,digest,now,username,int(demo_id),step_key))
+        con.execute("UPDATE hunter_startup_demo_sessions SET started_at=?,updated_at=? WHERE username=? AND id=?", (started_at,now,username,int(demo_id)))
+        _v3526_event(con, username, demo_id, "STEP_COMPLETED", f"{step_key}: {V3526_STEP_LABELS[step_key]}")
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3526_refresh(username, demo_id)
+
+
+def _v3526_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r["id"]) for r in con.execute("SELECT id FROM hunter_startup_demo_sessions WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    demos = [_v3526_refresh(username, x) for x in ids]
+    demos = [x for x in demos if x]
+    counts = {k: 0 for k in V3526_STATES}
+    for d in demos:
+        state = d.get("demo_state") if d.get("demo_state") in counts else "STALE"
+        counts[state] += 1
+    p25 = _v3525_snapshot(username)
+    used = {int(d.get("package_id") or 0) for d in demos if d.get("demo_state") != "STALE"}
+    eligible = [p for p in (p25.get("packages") or []) if str(p.get("current_state") or "").upper() == "SEALED" and int(p.get("id") or 0) not in used]
+    return {"success": True, "version": V3526_VERSION, "counts": counts, "demos": demos, "eligible_packages": eligible}
+
+
+@app.route('/api/hunter-startup-demos', methods=['GET','POST'])
+def v3526_api_demos():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3526_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,demo_id = _v3526_create(u,p.get('package_id'),p.get('demo_title') or '',p.get('audience_name') or '',p.get('presenter') or u)
+    return jsonify({'success':ok,'error':e,'demo_id':demo_id}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-demos/<int:demo_id>')
+def v3526_api_demo(demo_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    d = _v3526_refresh(u,demo_id)
+    if not d:
+        return jsonify({'success':False,'error':'demo_not_found'}), 404
+    return jsonify({'success':True,'version':V3526_VERSION,'demo':d})
+
+
+@app.route('/api/hunter-startup-demos/<int:demo_id>/step/<step_key>/complete', methods=['POST'])
+def v3526_api_step_complete(demo_id, step_key):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3526_complete_step(u,demo_id,step_key,p.get('presenter_note') or '')
+    return jsonify({'success':ok,'error':e,'demo':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-startup-demo')
+def v3526_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3526_snapshot(u); esc = html.escape; c = d['counts']
+    opts = ''.join(
+        f"<option value='{int(p['id'])}'>{esc(p.get('package_key') or '')} — {esc(p.get('title') or 'External review package')}</option>"
+        for p in d['eligible_packages']
+    )
+    cards = []
+    for demo in d['demos']:
+        did = int(demo['id']); state = esc(demo.get('demo_state') or ''); pct = int(demo.get('progress_percent') or 0)
+        steps_html = []
+        for s in demo.get('steps') or []:
+            key = esc(s.get('step_key') or ''); label = esc(s.get('step_label') or ''); status = esc(s.get('status') or '')
+            if s.get('status') == 'COMPLETED':
+                action = "<span class='done'>✓ COMPLETED</span>"
+            elif demo.get('source_package_state') == 'SEALED':
+                action = f"""<form action='/api/hunter-startup-demos/{did}/step/{key}/complete' onsubmit='return v3526submit(this,event)'><input name='presenter_note' placeholder='Presenter note / audience reaction (optional)'><button>MARK STEP COMPLETE</button></form>"""
+            else:
+                action = "<span class='stale'>SOURCE PACKAGE STALE</span>"
+            steps_html.append(f"<div class='step'><div><b>{int(s.get('step_order') or 0)}. {label}</b><div class='muted'>{status}</div></div>{action}</div>")
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(demo.get('demo_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(demo.get('demo_title') or '')}</h2><p class='muted'>Audience: {esc(demo.get('audience_name') or 'Not specified')} · Presenter: {esc(demo.get('presenter') or '')}</p><div class='bar'><i style='width:{pct}%'></i></div><p><b>{pct}%</b> · {int(demo.get('completed_steps') or 0)}/{int(demo.get('total_steps') or 0)} presentation steps</p>{''.join(steps_html)}<p><a href='/api/hunter-startup-demos/{did}'>JSON EVIDENCE</a> · <a href='/hunter-external-review-packages'>SOURCE PACKAGE</a></p></article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.26 Startup Demo</title><style>
+    body{{margin:0;background:#05070a;color:#eef7fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304652;background:#0a1015;border-radius:20px;padding:18px}}.eyebrow{{color:#a7ffcf;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a6b2}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#a7ffcf}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.step{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}}.pill{{border:1px solid #348f68;border-radius:999px;padding:5px 9px}}input,select,textarea,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}a{{color:#a7ffcf}}.step{{border-top:1px solid #1d3038;padding:12px 0}}.step form{{width:min(440px,55%)}}.done{{color:#a7ffcf;font-weight:900}}.stale{{color:#ff8fa1;font-weight:900}}.bar{{height:9px;background:#17242b;border-radius:99px;overflow:hidden}}.bar i{{display:block;height:100%;background:#a7ffcf}}@media(max-width:760px){{.stats{{grid-template-columns:1fr 1fr}}.step{{display:block}}.step form{{width:100%}}}}
+    </style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.26 · STARTUP DEMO SESSION + GUIDED PRESENTATION GATE</div><h1>Turn the evidence into a repeatable story.</h1><p class='muted'>Run a bounded five-step startup presentation from a current sanitized external package, record walkthrough progress, and keep the live source-state visible throughout the demo.</p><div class='stats'><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>IN PROGRESS</div><div><div class='num'>{}</div>COMPLETED</div><div><div class='num'>{}</div>STALE</div></div><p><a href='/hunter-external-review-packages'>← External Review Packages</a> · <a href='/api/hunter-startup-demos'>JSON</a></p></section><section class='card' style='margin-top:16px'><h2>Create guided startup demo</h2><form action='/api/hunter-startup-demos' onsubmit='return v3526submit(this,event)'><select name='package_id' required><option value=''>Current external review package</option>{}</select><input name='demo_title' placeholder='Demo title'><input name='audience_name' placeholder='Startup / reviewer / audience'><input name='presenter' value='{}' placeholder='Presenter'><button>CREATE DEMO SESSION</button></form></section><section class='grid'>{}</section></div><script>async function v3526submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('READY',0),c.get('IN_PROGRESS',0),c.get('COMPLETED',0),c.get('STALE',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No startup demo sessions yet.</p></article>")
+
+
+# Add navigation from V35.25 into V35.26.
+try:
+    _v3526_prev_page = app.view_functions.get('v3525_page')
+    if _v3526_prev_page:
+        def _v3526_external_with_demo(*args, **kwargs):
+            response = _v3526_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-startup-demo' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-external-review-packages'>JSON</a>",
+                    "<a href='/api/hunter-external-review-packages'>JSON</a> · <a href='/hunter-startup-demo'>🎤 GUIDED STARTUP DEMO</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3525_page'] = _v3526_external_with_demo
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -81448,6 +81819,7 @@ if __name__ == "__main__":
     print("🔁 Recertification Campaign + Compliance Restoration Gate enabled")
     print("📦 Operational Readiness Dossier + Evidence Export Gate enabled")
     print("🚀 External Review Package + Startup Demo Handoff Gate enabled")
+    print("🎤 Startup Demo Session + Guided Presentation Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
