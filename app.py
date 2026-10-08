@@ -73221,6 +73221,237 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.7 PREVENTIVE CONTROL + REGRESSION LOCK GATE =====
+V357_VERSION = "V35.7"
+V357_CONTROL_STATES = {"ACTIVE", "LOCKED", "DEGRADED", "BREACHED", "RETIRED"}
+V357_TEST_RESULTS = {"PASS", "WARN", "FAIL"}
+
+
+def _v357_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_preventive_controls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            rca_id INTEGER NOT NULL,
+            effectiveness_id INTEGER NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            control_name TEXT NOT NULL,
+            control_description TEXT,
+            owner_label TEXT,
+            control_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            required_passes INTEGER NOT NULL DEFAULT 3,
+            consecutive_passes INTEGER NOT NULL DEFAULT 0,
+            total_passes INTEGER NOT NULL DEFAULT 0,
+            warns INTEGER NOT NULL DEFAULT 0,
+            fails INTEGER NOT NULL DEFAULT 0,
+            breach_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            locked_at TEXT,
+            retired_at TEXT,
+            UNIQUE(username, rca_id)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_preventive_control_tests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_id INTEGER NOT NULL,
+            result TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v357_init()
+except Exception:
+    pass
+
+
+def _v357_control_for_rca(username, rca_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_preventive_controls WHERE username=? AND rca_id=? ORDER BY id DESC LIMIT 1", (username, int(rca_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v357_create_control(username, rca_id, control_name='', control_description='', owner_label='', required_passes=3):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_recurrence_rca WHERE username=? AND id=?", (username, int(rca_id))).fetchone()
+        rca = dict(row) if row else None
+    finally:
+        con.close()
+    if not rca:
+        return False, 'rca_not_found', None
+    if str(rca.get('rca_state') or '') not in {'VERIFIED','CLOSED'}:
+        return False, 'verified_rca_required', None
+    existing = _v357_control_for_rca(username, rca_id)
+    if existing:
+        return False, 'preventive_control_already_exists', int(existing['id'])
+    try:
+        req = max(1, min(int(required_passes), 20))
+    except Exception:
+        return False, 'invalid_required_passes', None
+    name = str(control_name or '').strip()[:500] or f'Preventive Control for RCA #{int(rca_id)}'
+    desc = str(control_description or '').strip()[:6000] or str(rca.get('preventive_action') or '')
+    owner = str(owner_label or '').strip()[:500] or str(rca.get('owner_label') or '')
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_preventive_controls
+            (username, rca_id, effectiveness_id, assurance_profile_id, control_name,
+             control_description, owner_label, required_passes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (username, int(rca['id']), int(rca['effectiveness_id']), int(rca['assurance_profile_id']), name, desc, owner, req, now))
+        cid = int(cur.lastrowid)
+        con.commit()
+        return True, None, cid
+    finally:
+        con.close()
+
+
+def _v357_test_control(username, control_id, result, evidence_note=''):
+    result = str(result or '').strip().upper()
+    if result not in V357_TEST_RESULTS:
+        return False, 'invalid_test_result', None
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_preventive_controls WHERE username=? AND id=?", (username, int(control_id))).fetchone()
+        ctl = dict(row) if row else None
+    finally:
+        con.close()
+    if not ctl:
+        return False, 'control_not_found', None
+    if ctl.get('control_state') == 'RETIRED':
+        return False, 'control_retired', None
+    cp=int(ctl.get('consecutive_passes') or 0); tp=int(ctl.get('total_passes') or 0)
+    warns=int(ctl.get('warns') or 0); fails=int(ctl.get('fails') or 0); breaches=int(ctl.get('breach_count') or 0)
+    req=int(ctl.get('required_passes') or 3)
+    if result == 'PASS':
+        cp += 1; tp += 1; state = 'LOCKED' if cp >= req else 'ACTIVE'
+    elif result == 'WARN':
+        cp = 0; warns += 1; state = 'DEGRADED'
+    else:
+        cp = 0; fails += 1; breaches += 1; state = 'BREACHED'
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("INSERT INTO hunter_preventive_control_tests (username,control_id,result,evidence_note,created_at) VALUES (?,?,?,?,?)", (username,int(control_id),result,str(evidence_note or '')[:5000],now))
+        tid=int(cur.lastrowid)
+        con.execute("""
+            UPDATE hunter_preventive_controls
+            SET control_state=?, consecutive_passes=?, total_passes=?, warns=?, fails=?, breach_count=?,
+                locked_at=CASE WHEN ?='LOCKED' THEN COALESCE(locked_at, ?) ELSE locked_at END
+            WHERE id=? AND username=?
+        """, (state,cp,tp,warns,fails,breaches,state,now,int(control_id),username))
+        if state == 'BREACHED':
+            con.execute("UPDATE hunter_recurrence_rca SET rca_state='PREVENTIVE_ACTION_IN_PROGRESS', closed_at=NULL WHERE id=? AND username=?", (int(ctl['rca_id']),username))
+            con.execute("UPDATE hunter_remediation_effectiveness SET effectiveness_state='RECURRENCE_DETECTED', recurrence_count=recurrence_count+1 WHERE id=? AND username=?", (int(ctl['effectiveness_id']),username))
+            con.execute("UPDATE hunter_control_assurance_profiles SET assurance_state='REVALIDATION_REQUIRED' WHERE id=? AND username=?", (int(ctl['assurance_profile_id']),username))
+        con.commit()
+        return True, None, tid
+    finally:
+        con.close()
+
+
+def _v357_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("SELECT * FROM hunter_preventive_controls WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        items=[dict(r) for r in rows]
+    finally:
+        con.close()
+    states=[str(x.get('control_state') or '') for x in items]
+    return {
+        'version': V357_VERSION,
+        'counts': {
+            'total': len(items),
+            'active': states.count('ACTIVE'),
+            'locked': states.count('LOCKED'),
+            'degraded': states.count('DEGRADED'),
+            'breached': states.count('BREACHED'),
+            'retired': states.count('RETIRED')
+        },
+        'items': items,
+        'policy': 'Preventive actions become persistent regression-lock controls. PASS locks, WARN degrades, FAIL breaches and reopens RCA + assurance review.'
+    }
+
+
+@app.route('/api/hunter-preventive-controls')
+def v357_api():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    return jsonify({'success':True, **_v357_snapshot(u)})
+
+
+@app.route('/api/hunter-preventive-controls/rca/<int:rca_id>/create', methods=['POST'])
+def v357_create_api(rca_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,cid=_v357_create_control(u,rca_id,p.get('control_name') or '',p.get('control_description') or '',p.get('owner_label') or '',p.get('required_passes') or 3)
+    if not ok:
+        return jsonify({'success':False,'error':e,'control_id':cid}),400
+    return jsonify({'success':True,'control_id':cid})
+
+
+@app.route('/api/hunter-preventive-controls/<int:control_id>/test', methods=['POST'])
+def v357_test_api(control_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,tid=_v357_test_control(u,control_id,p.get('result') or '',p.get('evidence_note') or '')
+    if not ok:
+        return jsonify({'success':False,'error':e,'test_id':tid}),400
+    return jsonify({'success':True,'test_id':tid})
+
+
+@app.route('/hunter-preventive-controls')
+def v357_page():
+    u=session.get('authenticated_username')
+    if not u:
+        return "<h1>Sign in to continue.</h1>",401
+    data=_v357_snapshot(u)
+    c=data['counts']
+    cards=[]
+    for ctl in data['items']:
+        cid=int(ctl['id']); state=str(ctl.get('control_state') or '')
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Control #{cid}</span><span class='pill'>{html.escape(state)}</span></div>
+          <h2>{html.escape(str(ctl.get('control_name') or ''))}</h2>
+          <p>{html.escape(str(ctl.get('control_description') or ''))}</p>
+          <p class='muted'>Owner: {html.escape(str(ctl.get('owner_label') or ''))}</p>
+          <div class='state'>passes {ctl.get('consecutive_passes')}/{ctl.get('required_passes')} · warns {ctl.get('warns')} · fails {ctl.get('fails')} · breaches {ctl.get('breach_count')}</div>
+          <form action='/api/hunter-preventive-controls/{cid}/test' onsubmit='return v357submit(this,event)'>
+            <select name='result'><option>PASS</option><option>WARN</option><option>FAIL</option></select>
+            <textarea name='evidence_note' rows='2' placeholder='Regression-check evidence'></textarea>
+            <button>RECORD REGRESSION CHECK</button>
+          </form>
+        </article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.7 Preventive Control Regression Lock</title><style>
+    body{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}.wrap{max-width:1180px;margin:auto;padding:28px}.hero,.card{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}.eyebrow{color:#7ef7c9;font-size:11px;letter-spacing:1.6px;font-weight:900}h1{font-size:42px;margin:9px 0}.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}.num{font-size:26px;font-weight:900;color:#7ef7c9}.muted,small{color:#8ca7b4}.top{display:flex;justify-content:space-between}.pill{border:1px solid #2d6e5b;border-radius:999px;padding:5px 8px;color:#aaf7db;font-size:11px}textarea,select{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}button{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}.state{margin-top:10px;padding:12px;border:1px solid #2d6e5b;border-radius:12px;background:#081712}@media(max-width:900px){.stats{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:1fr}}</style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.7 // PREVENTIVE CONTROL + REGRESSION LOCK GATE</div><h1>🔒 LOCK THE FIX IN</h1><p class='muted'>Verified preventive actions become persistent controls. PASS locks them, WARN degrades them, FAIL reopens RCA and assurance review.</p>
+    <div class='stats'><div class='card'><div class='eyebrow'>TOTAL</div><div class='num'>%s</div></div><div class='card'><div class='eyebrow'>ACTIVE</div><div class='num'>%s</div></div><div class='card'><div class='eyebrow'>LOCKED</div><div class='num'>%s</div></div><div class='card'><div class='eyebrow'>DEGRADED</div><div class='num'>%s</div></div><div class='card'><div class='eyebrow'>BREACHED</div><div class='num'>%s</div></div><div class='card'><div class='eyebrow'>RETIRED</div><div class='num'>%s</div></div></div></section><section class='grid'>%s</section></div>
+    <script>async function v357submit(f,e){e.preventDefault();const r=await fetch(f.action,{method:'POST',body:new FormData(f)});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();return false}</script></body></html>""" % (c['total'],c['active'],c['locked'],c['degraded'],c['breached'],c['retired'],''.join(cards) or "<article class='card'><p>No preventive controls yet.</p></article>")
+
+
+
 if __name__ == "__main__":
 
     init_db()
