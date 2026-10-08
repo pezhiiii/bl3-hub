@@ -83962,6 +83962,391 @@ except Exception:
     pass
 
 
+# ===== V35.33 REFERENCE DISTRIBUTION + QUALIFIED LEAD ATTRIBUTION GATE =====
+# V35.32 publishes consent-bounded, proof-backed case studies.
+# V35.33 measures privacy-preserving distribution and lets operators explicitly
+# attribute qualified interest to the proof asset that generated it.
+#
+# PUBLISHED CASE -> SHARE CHANNEL -> AGGREGATE VIEW -> QUALIFIED LEAD -> FOLLOW-UP -> OUTCOME
+#
+# Public share views are aggregate only: no IP address, device fingerprint,
+# cookie, wallet, session identity, or hidden visitor profile is stored.
+
+V3533_VERSION = "V35.33"
+V3533_DIST_STATES = {"ACTIVE", "PAUSED", "STALE", "RETIRED"}
+V3533_LEAD_STATES = {"NEW", "QUALIFIED", "FOLLOW_UP", "WON", "LOST", "DISQUALIFIED"}
+V3533_CHANNELS = {"DIRECT", "EMAIL", "SOCIAL", "DEMO", "PARTNER", "OTHER"}
+
+
+def _v3533_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3533_hash(payload):
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _v3533_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_reference_distributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            case_id INTEGER NOT NULL,
+            share_token TEXT NOT NULL UNIQUE,
+            channel TEXT NOT NULL DEFAULT 'DIRECT',
+            label TEXT DEFAULT '',
+            distribution_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            view_count INTEGER NOT NULL DEFAULT 0,
+            last_viewed_at TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            retired_at TEXT DEFAULT '',
+            FOREIGN KEY(case_id) REFERENCES hunter_case_studies(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3533_dist_user_state ON hunter_reference_distributions(username,distribution_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3533_dist_case ON hunter_reference_distributions(username,case_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_reference_leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            distribution_id INTEGER NOT NULL,
+            organization TEXT NOT NULL,
+            contact_label TEXT DEFAULT '',
+            interest_note TEXT NOT NULL,
+            lead_owner TEXT DEFAULT '',
+            followup_due TEXT DEFAULT '',
+            lead_state TEXT NOT NULL DEFAULT 'NEW',
+            outcome_note TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            qualified_at TEXT DEFAULT '',
+            closed_at TEXT DEFAULT '',
+            attribution_digest TEXT NOT NULL,
+            FOREIGN KEY(distribution_id) REFERENCES hunter_reference_distributions(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3533_lead_user_state ON hunter_reference_leads(username,lead_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3533_lead_dist ON hunter_reference_leads(distribution_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_reference_distribution_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            subject_type TEXT NOT NULL,
+            subject_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3533_evt_subject ON hunter_reference_distribution_events(subject_type,subject_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3533_init()
+except Exception:
+    pass
+
+
+def _v3533_event(con, username, subject_type, subject_id, event_type, detail="", extra=None):
+    created = _v3533_now_iso()
+    payload = {
+        "username": str(username), "subject_type": str(subject_type), "subject_id": int(subject_id),
+        "event_type": str(event_type), "detail": str(detail or ""), "extra": extra or {}, "created_at": created
+    }
+    dig = _v3533_hash(payload)
+    con.execute("""INSERT INTO hunter_reference_distribution_events
+                   (username,subject_type,subject_id,event_type,detail,evidence_digest,created_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (str(username), str(subject_type)[:30], int(subject_id), str(event_type)[:80],
+                 str(detail or '')[:1200], dig, created))
+    return dig
+
+
+def _v3533_case(username, case_id):
+    try:
+        return _v3532_refresh(username, int(case_id))
+    except Exception:
+        return None
+
+
+def _v3533_distribution(username, dist_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_reference_distributions WHERE username=? AND id=?", (username, int(dist_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        case = _v3533_case(username, d['case_id'])
+        d['case_study'] = case
+        source_ok = bool(case and case.get('publication_state') == 'PUBLISHED' and case.get('source_current'))
+        state = str(d.get('distribution_state') or 'ACTIVE')
+        if not source_ok and state not in {'STALE','RETIRED'}:
+            state = 'STALE'
+            now = _v3533_now_iso()
+            con.execute("UPDATE hunter_reference_distributions SET distribution_state='STALE',updated_at=? WHERE id=?", (now, int(dist_id)))
+            _v3533_event(con, username, 'distribution', dist_id, 'SOURCE_STALE', 'Published case study is no longer current.')
+            con.commit()
+        elif source_ok and state == 'STALE':
+            # Never silently re-activate a link after source recovery.
+            d['recovery_available'] = True
+        d['distribution_state'] = state
+        d['source_current'] = source_ok
+        return d
+    finally:
+        con.close()
+
+
+def _v3533_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        drows = con.execute("SELECT id FROM hunter_reference_distributions WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        lrows = con.execute("SELECT * FROM hunter_reference_leads WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        crows = con.execute("SELECT id FROM hunter_case_studies WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+    finally:
+        con.close()
+    dists = [x for x in (_v3533_distribution(username, r['id']) for r in drows) if x]
+    leads = [dict(r) for r in lrows]
+    published = []
+    for r in crows:
+        c = _v3533_case(username, r['id'])
+        if c and c.get('publication_state') == 'PUBLISHED' and c.get('source_current'):
+            published.append(c)
+    dc = {k: 0 for k in V3533_DIST_STATES}
+    lc = {k: 0 for k in V3533_LEAD_STATES}
+    for d in dists: dc[d.get('distribution_state','ACTIVE')] = dc.get(d.get('distribution_state','ACTIVE'),0) + 1
+    for l in leads: lc[l.get('lead_state','NEW')] = lc.get(l.get('lead_state','NEW'),0) + 1
+    return {
+        'success': True, 'version': V3533_VERSION, 'distributions': dists, 'leads': leads,
+        'published_cases': published, 'distribution_counts': dc, 'lead_counts': lc,
+        'total_views': sum(int(d.get('view_count') or 0) for d in dists)
+    }
+
+
+def _v3533_create_distribution(username, case_id, channel='DIRECT', label=''):
+    case = _v3533_case(username, case_id)
+    if not case or case.get('publication_state') != 'PUBLISHED' or not case.get('source_current'):
+        return False, 'current_published_case_required', None
+    channel = str(channel or 'DIRECT').upper()
+    if channel not in V3533_CHANNELS:
+        return False, 'invalid_channel', None
+    label = ' '.join(str(label or '').split())[:180]
+    token = secrets.token_urlsafe(18)
+    now = _v3533_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_reference_distributions
+                           (username,case_id,share_token,channel,label,distribution_state,created_at,updated_at)
+                           VALUES(?,?,?,?,?,'ACTIVE',?,?)""",
+                          (username, int(case_id), token, channel, label, now, now))
+        did = int(cur.lastrowid)
+        _v3533_event(con, username, 'distribution', did, 'DISTRIBUTION_CREATED',
+                     f'{channel} distribution created for case #{int(case_id)}.', {'label': label})
+        con.commit(); return True, None, did
+    finally:
+        con.close()
+
+
+def _v3533_set_distribution_state(username, dist_id, action):
+    d = _v3533_distribution(username, dist_id)
+    if not d: return False, 'distribution_not_found', None
+    action = str(action or '').upper()
+    current = d.get('distribution_state')
+    if action == 'PAUSE' and current == 'ACTIVE': target = 'PAUSED'
+    elif action == 'RESUME' and current == 'PAUSED' and d.get('source_current'): target = 'ACTIVE'
+    elif action == 'REACTIVATE' and current == 'STALE' and d.get('source_current'): target = 'ACTIVE'
+    elif action == 'RETIRE' and current != 'RETIRED': target = 'RETIRED'
+    else: return False, 'invalid_distribution_transition', None
+    now = _v3533_now_iso(); retired = now if target == 'RETIRED' else ''
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_reference_distributions SET distribution_state=?,updated_at=?,retired_at=? WHERE username=? AND id=?",
+                    (target, now, retired, username, int(dist_id)))
+        _v3533_event(con, username, 'distribution', dist_id, 'STATE_CHANGED', f'{current} -> {target}', {'action': action})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3533_distribution(username, dist_id)
+
+
+def _v3533_create_lead(username, distribution_id, organization, interest_note, contact_label='', lead_owner='', followup_due=''):
+    dist = _v3533_distribution(username, distribution_id)
+    if not dist or dist.get('distribution_state') not in {'ACTIVE','PAUSED'}:
+        return False, 'active_distribution_required', None
+    organization = ' '.join(str(organization or '').split())[:220]
+    interest_note = str(interest_note or '').strip()[:3000]
+    if not organization or not interest_note:
+        return False, 'organization_and_interest_required', None
+    now = _v3533_now_iso()
+    payload = {
+        'distribution_id': int(distribution_id), 'case_id': int(dist['case_id']),
+        'organization': organization, 'contact_label': str(contact_label or '')[:220],
+        'interest_note': interest_note, 'lead_owner': str(lead_owner or '')[:180],
+        'followup_due': str(followup_due or '')[:40], 'created_at': now
+    }
+    dig = _v3533_hash(payload)
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_reference_leads
+                           (username,distribution_id,organization,contact_label,interest_note,lead_owner,followup_due,lead_state,created_at,updated_at,attribution_digest)
+                           VALUES(?,?,?,?,?,?,?,'NEW',?,?,?)""",
+                          (username, int(distribution_id), organization, str(contact_label or '')[:220], interest_note,
+                           str(lead_owner or '')[:180], str(followup_due or '')[:40], now, now, dig))
+        lid = int(cur.lastrowid)
+        _v3533_event(con, username, 'lead', lid, 'LEAD_ATTRIBUTED',
+                     f'Lead attributed to distribution #{int(distribution_id)}.', {'attribution_digest': dig})
+        con.commit(); return True, None, lid
+    finally:
+        con.close()
+
+
+def _v3533_update_lead(username, lead_id, action, note=''):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_reference_leads WHERE username=? AND id=?", (username, int(lead_id))).fetchone()
+        if not row: return False, 'lead_not_found', None
+        current = str(row['lead_state'] or 'NEW'); action = str(action or '').upper(); now = _v3533_now_iso()
+        mapping = {
+            ('NEW','QUALIFY'):'QUALIFIED', ('QUALIFIED','FOLLOW_UP'):'FOLLOW_UP', ('FOLLOW_UP','FOLLOW_UP'):'FOLLOW_UP',
+            ('QUALIFIED','WON'):'WON', ('FOLLOW_UP','WON'):'WON', ('NEW','DISQUALIFY'):'DISQUALIFIED',
+            ('QUALIFIED','DISQUALIFY'):'DISQUALIFIED', ('FOLLOW_UP','LOST'):'LOST', ('QUALIFIED','LOST'):'LOST'
+        }
+        target = mapping.get((current, action))
+        if not target: return False, 'invalid_lead_transition', None
+        qualified_at = now if target == 'QUALIFIED' and not row['qualified_at'] else str(row['qualified_at'] or '')
+        closed_at = now if target in {'WON','LOST','DISQUALIFIED'} else ''
+        out_note = str(note or '')[:2000] if target in {'WON','LOST','DISQUALIFIED'} else str(row['outcome_note'] or '')
+        con.execute("""UPDATE hunter_reference_leads SET lead_state=?,qualified_at=?,closed_at=?,outcome_note=?,updated_at=?
+                       WHERE username=? AND id=?""",
+                    (target, qualified_at, closed_at, out_note, now, username, int(lead_id)))
+        _v3533_event(con, username, 'lead', lead_id, 'LEAD_STATE_CHANGED', f'{current} -> {target}', {'note': str(note or '')[:500]})
+        con.commit()
+        r = con.execute("SELECT * FROM hunter_reference_leads WHERE username=? AND id=?", (username, int(lead_id))).fetchone()
+        return True, None, dict(r)
+    finally:
+        con.close()
+
+
+def _v3533_public_by_token(token):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_reference_distributions WHERE share_token=?", (str(token),)).fetchone()
+        if not row: return None, None
+        owner = str(row['username']); did = int(row['id'])
+    finally:
+        con.close()
+    d = _v3533_distribution(owner, did)
+    if not d or d.get('distribution_state') != 'ACTIVE' or not d.get('source_current'):
+        return d, None
+    case = d.get('case_study') or {}
+    payload = _v3532_public_payload(case)
+    if not payload: return d, None
+    # Privacy-preserving aggregate view counter only. No request metadata is stored.
+    con = sqlite3.connect(DB)
+    try:
+        now = _v3533_now_iso()
+        con.execute("UPDATE hunter_reference_distributions SET view_count=view_count+1,last_viewed_at=?,updated_at=? WHERE id=?", (now, now, did))
+        con.commit()
+    finally:
+        con.close()
+    return d, payload
+
+
+@app.route('/api/hunter-reference-distributions', methods=['GET','POST'])
+def v3533_api_distributions():
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method == 'GET': return jsonify(_v3533_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,did = _v3533_create_distribution(u,p.get('case_id'),p.get('channel') or 'DIRECT',p.get('label') or '')
+    return jsonify({'success':ok,'error':e,'distribution_id':did}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-reference-distributions/<int:dist_id>/state', methods=['POST'])
+def v3533_api_distribution_state(dist_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3533_set_distribution_state(u,dist_id,p.get('action'))
+    return jsonify({'success':ok,'error':e,'distribution':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-reference-leads', methods=['POST'])
+def v3533_api_leads_create():
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,lid = _v3533_create_lead(u,p.get('distribution_id'),p.get('organization'),p.get('interest_note'),p.get('contact_label') or '',p.get('lead_owner') or '',p.get('followup_due') or '')
+    return jsonify({'success':ok,'error':e,'lead_id':lid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-reference-leads/<int:lead_id>/state', methods=['POST'])
+def v3533_api_lead_state(lead_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3533_update_lead(u,lead_id,p.get('action'),p.get('note') or '')
+    return jsonify({'success':ok,'error':e,'lead':d}),(200 if ok else 400)
+
+
+@app.route('/r/<token>')
+def v3533_public_reference(token):
+    dist, payload = _v3533_public_by_token(token)
+    if not dist: return "<!doctype html><meta charset='utf-8'><body style='background:#07090c;color:#fff;font-family:Arial;padding:36px'><h1>Reference not found</h1></body>",404
+    if not payload: return "<!doctype html><meta charset='utf-8'><body style='background:#07090c;color:#fff;font-family:Arial;padding:36px'><h1>Reference unavailable</h1><p>This proof asset is paused, stale, retired, or no longer consented for publication.</p></body>",410
+    esc = html.escape
+    claims = ''.join(f"<li>{esc(c.get('claim_text') or '')}</li>" for c in payload.get('claims') or [])
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{}</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:880px;margin:auto;padding:42px 22px}}.card{{border:1px solid #344854;background:#0b1117;border-radius:24px;padding:24px}}.eyebrow{{color:#7ef5c6;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:46px;line-height:1;margin:12px 0 18px}}p,li{{color:#a9bcc7;line-height:1.7}}.proof{{margin-top:18px;padding:14px;border:1px solid #2e6554;border-radius:14px;color:#7ef5c6;font-family:monospace;font-size:12px}}</style></head><body><div class='wrap'><div class='card'><div class='eyebrow'>BL3 · PROOF-BACKED REFERENCE</div><h1>{}</h1><p>{}</p><h3>Evidence-backed claims</h3><ul>{}</ul><div class='proof'>Publication digest: {}</div><p style='font-size:12px'>Privacy note: this public reference records aggregate view count only. No IP, device fingerprint, cookie, wallet, or hidden visitor identity is stored.</p></div></div></body></html>""".format(esc(payload.get('title') or 'BL3 Case Study'),esc(payload.get('title') or ''),esc(payload.get('executive_summary') or ''),claims or '<li>No claims.</li>',esc(payload.get('publication_digest') or ''))
+
+
+@app.route('/hunter-reference-distribution')
+def v3533_page():
+    u = session.get('authenticated_username')
+    if not u: return redirect('/')
+    d = _v3533_snapshot(u); esc = html.escape; dc=d['distribution_counts']; lc=d['lead_counts']
+    opts = ''.join(f"<option value='{int(c['id'])}'>{esc(c.get('case_key') or '')} — {esc(c.get('title') or '')}</option>" for c in d['published_cases'])
+    dist_opts = ''.join(f"<option value='{int(x['id'])}'>#{int(x['id'])} {esc(x.get('channel') or '')} — {esc((x.get('case_study') or {}).get('title') or '')}</option>" for x in d['distributions'] if x.get('distribution_state') in {'ACTIVE','PAUSED'})
+    cards=[]
+    for x in d['distributions']:
+        did=int(x['id']); case=x.get('case_study') or {}; state=esc(x.get('distribution_state') or '')
+        actions=''
+        if x.get('distribution_state')=='ACTIVE': actions=f"<form action='/api/hunter-reference-distributions/{did}/state' onsubmit='return v3533submit(this,event)'><button name='action' value='PAUSE'>PAUSE LINK</button></form>"
+        elif x.get('distribution_state')=='PAUSED': actions=f"<form action='/api/hunter-reference-distributions/{did}/state' onsubmit='return v3533submit(this,event)'><button name='action' value='RESUME' class='safe'>RESUME LINK</button></form>"
+        elif x.get('distribution_state')=='STALE' and x.get('source_current'): actions=f"<form action='/api/hunter-reference-distributions/{did}/state' onsubmit='return v3533submit(this,event)'><button name='action' value='REACTIVATE' class='safe'>REACTIVATE AFTER REVIEW</button></form>"
+        if x.get('distribution_state')!='RETIRED': actions += f"<form action='/api/hunter-reference-distributions/{did}/state' onsubmit='return v3533submit(this,event)'><button name='action' value='RETIRE' class='danger'>RETIRE</button></form>"
+        share = f"/r/{esc(x.get('share_token') or '')}" if x.get('distribution_state')=='ACTIVE' else '—'
+        cards.append(f"<article class='card'><div class='top'><span>Distribution #{did}</span><span class='pill'>{state}</span></div><h2>{esc(case.get('title') or 'Case study')}</h2><p class='muted'>Channel: {esc(x.get('channel') or '')} · Views: <b>{int(x.get('view_count') or 0)}</b> · Last view: {esc(x.get('last_viewed_at') or '—')}</p><p><code>{share}</code></p>{actions}</article>")
+    leads=[]
+    for l in d['leads']:
+        lid=int(l['id']); state=esc(l.get('lead_state') or '')
+        controls=''
+        if l.get('lead_state')=='NEW': controls=f"<form action='/api/hunter-reference-leads/{lid}/state' onsubmit='return v3533submit(this,event)'><button name='action' value='QUALIFY' class='safe'>QUALIFY</button><button name='action' value='DISQUALIFY'>DISQUALIFY</button></form>"
+        elif l.get('lead_state')=='QUALIFIED': controls=f"<form action='/api/hunter-reference-leads/{lid}/state' onsubmit='return v3533submit(this,event)'><button name='action' value='FOLLOW_UP' class='safe'>MARK FOLLOW-UP</button><textarea name='note' placeholder='Outcome note when closing'></textarea><button name='action' value='WON'>WON</button><button name='action' value='LOST'>LOST</button></form>"
+        elif l.get('lead_state')=='FOLLOW_UP': controls=f"<form action='/api/hunter-reference-leads/{lid}/state' onsubmit='return v3533submit(this,event)'><textarea name='note' placeholder='Decision / outcome evidence note'></textarea><button name='action' value='WON' class='safe'>WON</button><button name='action' value='LOST'>LOST</button></form>"
+        leads.append(f"<article class='card'><div class='top'><span>Lead #{lid}</span><span class='pill'>{state}</span></div><h2>{esc(l.get('organization') or '')}</h2><p>{esc(l.get('interest_note') or '')}</p><p class='muted'>Source distribution #{int(l.get('distribution_id') or 0)} · Owner: {esc(l.get('lead_owner') or '—')} · Follow-up: {esc(l.get('followup_due') or '—')}</p>{controls}</article>")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.33 Reference Distribution</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1260px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304958;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#7ef5c6;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:25px;font-weight:900;color:#7ef5c6}}.grid{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}}.stack{{display:grid;gap:14px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3b7e68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.danger{{border-color:#9e3f55}}a{{color:#7ef5c6}}code{{font-size:12px;color:#c8ffe9}}@media(max-width:850px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.33 · REFERENCE DISTRIBUTION + QUALIFIED LEAD ATTRIBUTION GATE</div><h1>Know which proof creates real opportunity.</h1><p class='muted'>Distribute only current published case studies, count views without hidden visitor tracking, and explicitly attribute qualified leads to the proof asset that generated the conversation.</p><div class='stats'><div><div class='num'>{}</div>ACTIVE LINKS</div><div><div class='num'>{}</div>VIEWS</div><div><div class='num'>{}</div>QUALIFIED</div><div><div class='num'>{}</div>WON</div></div><p><a href='/hunter-case-studies'>← Case Studies</a> · <a href='/api/hunter-reference-distributions'>JSON</a></p></section><div class='grid'><section class='card'><h2>Create distribution link</h2><form action='/api/hunter-reference-distributions' onsubmit='return v3533submit(this,event)'><select name='case_id' required><option value=''>Published case study</option>{}</select><select name='channel'><option>DIRECT</option><option>EMAIL</option><option>SOCIAL</option><option>DEMO</option><option>PARTNER</option><option>OTHER</option></select><input name='label' placeholder='Campaign / recipient label (optional)'><button>CREATE PRIVACY-SAFE LINK</button></form></section><section class='card'><h2>Attribute qualified interest</h2><form action='/api/hunter-reference-leads' onsubmit='return v3533submit(this,event)'><select name='distribution_id' required><option value=''>Source distribution</option>{}</select><input name='organization' placeholder='Organization / startup' required><input name='contact_label' placeholder='Contact label (optional)'><input name='lead_owner' value='{}' placeholder='Lead owner'><input name='followup_due' type='datetime-local'><textarea name='interest_note' placeholder='Explicit interest / context' required></textarea><button>CREATE ATTRIBUTED LEAD</button></form></section></div><div class='grid'><section><h2>Distribution</h2><div class='stack'>{}</div></section><section><h2>Lead attribution</h2><div class='stack'>{}</div></section></div></div><script>async function v3533submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(dc.get('ACTIVE',0),int(d.get('total_views') or 0),lc.get('QUALIFIED',0)+lc.get('FOLLOW_UP',0),lc.get('WON',0),opts,dist_opts,esc(u),''.join(cards) or "<article class='card'><p>No distribution links yet.</p></article>",''.join(leads) or "<article class='card'><p>No attributed leads yet.</p></article>")
+
+
+# Add navigation from V35.32 into V35.33.
+try:
+    _v3533_prev_page = app.view_functions.get('v3532_page')
+    if _v3533_prev_page:
+        def _v3533_case_studies_with_distribution(*args, **kwargs):
+            response = _v3533_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-reference-distribution' not in response:
+                response = response.replace("<a href='/api/hunter-case-studies'>JSON</a>", "<a href='/api/hunter-case-studies'>JSON</a> · <a href='/hunter-reference-distribution'>📣 DISTRIBUTION + LEADS</a>", 1)
+            return response
+        app.view_functions['v3532_page'] = _v3533_case_studies_with_distribution
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -84086,6 +84471,7 @@ if __name__ == "__main__":
     print("🚀 Engagement Activation + Delivery Acceptance Gate enabled")
     print("📈 Outcome Validation + Reference Consent Gate enabled")
     print("📚 Case Study Publication + Proof-backed Reference Gate enabled")
+    print("📣 Reference Distribution + Qualified Lead Attribution Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
