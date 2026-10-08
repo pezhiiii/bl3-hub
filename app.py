@@ -77801,6 +77801,393 @@ try:
 except Exception:
     pass
 
+# ===== V35.18 OPERATOR COVERAGE + FAILOVER READINESS GATE =====
+# V35.17 certifies individual operators against verified drills.
+# V35.18 proves that each operational scope has enough CURRENT certified people
+# to survive normal handoff / failover without relying on one operator forever:
+#
+# CERTIFIED OPERATORS -> COVERAGE REQUIREMENT -> COVERAGE REVIEW
+#                     -> COVERED / AT_RISK / BLOCKED
+#
+# Only CERTIFIED / RECERTIFIED and not-yet-due certifications count as active.
+# DUE and REVOKED certifications never satisfy coverage. Reviews are immutable,
+# digest-stamped evidence snapshots; they do not auto-recertify or revoke anyone.
+
+V3518_VERSION = "V35.18"
+V3518_STATES = {"COVERED", "AT_RISK", "BLOCKED"}
+V3518_CRITICALITY = {"STANDARD", "HIGH", "CRITICAL"}
+
+
+def _v3518_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_coverage_requirements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            certification_scope TEXT NOT NULL,
+            required_operators INTEGER NOT NULL DEFAULT 2,
+            criticality TEXT NOT NULL DEFAULT 'STANDARD',
+            requirement_note TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, certification_scope)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_coverage_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            requirement_id INTEGER NOT NULL,
+            certification_scope TEXT NOT NULL,
+            coverage_state TEXT NOT NULL,
+            required_operators INTEGER NOT NULL,
+            active_operators INTEGER NOT NULL,
+            due_operators INTEGER NOT NULL DEFAULT 0,
+            revoked_operators INTEGER NOT NULL DEFAULT 0,
+            coverage_gap INTEGER NOT NULL DEFAULT 0,
+            review_note TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3518_req_user_scope ON hunter_operator_coverage_requirements(username,certification_scope)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3518_review_req_id ON hunter_operator_coverage_reviews(username,requirement_id,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3518_review_state ON hunter_operator_coverage_reviews(username,coverage_state,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3518_init()
+except Exception:
+    pass
+
+
+def _v3518_now_iso():
+    return datetime.now().astimezone().isoformat(timespec='seconds')
+
+
+def _v3518_requirement(username, requirement_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM hunter_operator_coverage_requirements WHERE username=? AND id=?",
+            (username, int(requirement_id))
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3518_current_certifications(username, scope):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r['id']) for r in con.execute(
+            """SELECT id FROM hunter_operator_certifications
+               WHERE username=? AND lower(trim(certification_scope))=lower(trim(?))
+               ORDER BY id DESC""",
+            (username, str(scope or '').strip())
+        ).fetchall()]
+    finally:
+        con.close()
+
+    rows = []
+    for cid in ids:
+        item = _v3517_entry(username, cid)
+        if item:
+            rows.append(item)
+    return rows
+
+
+def _v3518_coverage(username, requirement):
+    req = dict(requirement or {})
+    scope = str(req.get('certification_scope') or '').strip()
+    required = max(1, min(20, int(req.get('required_operators') or 2)))
+    certs = _v3518_current_certifications(username, scope)
+
+    active_by_operator = {}
+    due_by_operator = {}
+    revoked_by_operator = {}
+
+    for cert in certs:
+        operator = str(cert.get('operator') or '').strip()
+        if not operator:
+            continue
+        key = operator.casefold()
+        state = str(cert.get('certification_state') or '').upper()
+        if state in {'CERTIFIED', 'RECERTIFIED'}:
+            # One current certification per operator is enough to count that person once.
+            active_by_operator.setdefault(key, cert)
+        elif state == 'DUE':
+            due_by_operator.setdefault(key, cert)
+        elif state == 'REVOKED':
+            revoked_by_operator.setdefault(key, cert)
+
+    active = len(active_by_operator)
+    gap = max(0, required - active)
+    if active >= required:
+        state = 'COVERED'
+    elif active > 0:
+        state = 'AT_RISK'
+    else:
+        state = 'BLOCKED'
+
+    active_items = sorted(active_by_operator.values(), key=lambda x: str(x.get('operator') or '').casefold())
+    due_items = sorted(due_by_operator.values(), key=lambda x: str(x.get('operator') or '').casefold())
+    revoked_items = sorted(revoked_by_operator.values(), key=lambda x: str(x.get('operator') or '').casefold())
+    return {
+        'requirement': req,
+        'coverage_state': state,
+        'required_operators': required,
+        'active_operators': active,
+        'coverage_gap': gap,
+        'failover_ready': bool(active >= required and required >= 2),
+        'active_certifications': active_items,
+        'due_certifications': due_items,
+        'revoked_certifications': revoked_items,
+        'due_operators': len(due_items),
+        'revoked_operators': len(revoked_items),
+    }
+
+
+def _v3518_upsert_requirement(username, certification_scope, required_operators=2, criticality='STANDARD', note=''):
+    scope = str(certification_scope or '').strip()
+    if not scope:
+        return False, 'certification_scope_required', None
+    try:
+        required = max(1, min(20, int(required_operators or 2)))
+    except Exception:
+        required = 2
+    criticality = str(criticality or 'STANDARD').upper().strip()
+    if criticality not in V3518_CRITICALITY:
+        return False, 'invalid_criticality', None
+    note = str(note or '').strip()[:1000]
+    now = _v3518_now_iso()
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        existing = con.execute(
+            "SELECT id FROM hunter_operator_coverage_requirements WHERE username=? AND lower(trim(certification_scope))=lower(trim(?)) LIMIT 1",
+            (username, scope)
+        ).fetchone()
+        if existing:
+            rid = int(existing['id'])
+            con.execute("""UPDATE hunter_operator_coverage_requirements
+                           SET certification_scope=?,required_operators=?,criticality=?,requirement_note=?,updated_at=?
+                           WHERE username=? AND id=?""",
+                        (scope, required, criticality, note, now, username, rid))
+        else:
+            cur = con.execute("""INSERT INTO hunter_operator_coverage_requirements
+                                  (username,certification_scope,required_operators,criticality,requirement_note,created_at,updated_at)
+                                  VALUES(?,?,?,?,?,?,?)""",
+                              (username, scope, required, criticality, note, now, now))
+            rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+    return True, None, rid
+
+
+def _v3518_latest_review(username, requirement_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM hunter_operator_coverage_reviews WHERE username=? AND requirement_id=? ORDER BY id DESC LIMIT 1",
+            (username, int(requirement_id))
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d['payload'] = json.loads(d.get('payload_json') or '{}')
+        except Exception:
+            d['payload'] = {}
+        return d
+    finally:
+        con.close()
+
+
+def _v3518_record_review(username, requirement_id, review_note=''):
+    req = _v3518_requirement(username, requirement_id)
+    if not req:
+        return False, 'requirement_not_found', None
+    cov = _v3518_coverage(username, req)
+    review_note = str(review_note or '').strip()[:1000]
+    created_at = _v3518_now_iso()
+    payload = {
+        'version': V3518_VERSION,
+        'requirement_id': int(req['id']),
+        'certification_scope': req.get('certification_scope') or '',
+        'criticality': req.get('criticality') or 'STANDARD',
+        'required_operators': int(cov['required_operators']),
+        'coverage_state': cov['coverage_state'],
+        'active_operators': int(cov['active_operators']),
+        'coverage_gap': int(cov['coverage_gap']),
+        'failover_ready': bool(cov['failover_ready']),
+        'active': [
+            {'certification_id': int(x.get('id') or 0), 'operator': x.get('operator') or '', 'due_at': x.get('due_at') or ''}
+            for x in cov['active_certifications']
+        ],
+        'due': [
+            {'certification_id': int(x.get('id') or 0), 'operator': x.get('operator') or '', 'due_at': x.get('due_at') or ''}
+            for x in cov['due_certifications']
+        ],
+        'revoked': [
+            {'certification_id': int(x.get('id') or 0), 'operator': x.get('operator') or '', 'revoked_at': x.get('revoked_at') or ''}
+            for x in cov['revoked_certifications']
+        ],
+        'review_note': review_note,
+        'created_at': created_at,
+        'policy': 'Coverage counts unique operators with current CERTIFIED or RECERTIFIED status only. DUE and REVOKED certifications never satisfy the gate. Reviews are evidence snapshots and perform no certification state mutation.'
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    digest = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_operator_coverage_reviews
+          (username,requirement_id,certification_scope,coverage_state,required_operators,active_operators,due_operators,revoked_operators,coverage_gap,review_note,evidence_sha256,payload_json,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (username, int(req['id']), req.get('certification_scope') or '', cov['coverage_state'], int(cov['required_operators']),
+           int(cov['active_operators']), int(cov['due_operators']), int(cov['revoked_operators']), int(cov['coverage_gap']),
+           review_note, digest, canonical, created_at))
+        con.commit(); review_id = int(cur.lastrowid)
+    finally:
+        con.close()
+    return True, None, review_id
+
+
+def _v3518_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        reqs = [dict(r) for r in con.execute(
+            "SELECT * FROM hunter_operator_coverage_requirements WHERE username=? ORDER BY id DESC LIMIT 100",
+            (username,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    items = []
+    counts = {'COVERED': 0, 'AT_RISK': 0, 'BLOCKED': 0}
+    for req in reqs:
+        cov = _v3518_coverage(username, req)
+        cov['latest_review'] = _v3518_latest_review(username, req['id'])
+        counts[cov['coverage_state']] = counts.get(cov['coverage_state'], 0) + 1
+        items.append(cov)
+
+    certs = _v3517_snapshot(username).get('certifications') or []
+    scopes = []
+    seen = set()
+    for cert in certs:
+        scope = str(cert.get('certification_scope') or '').strip()
+        if scope and scope.casefold() not in seen:
+            seen.add(scope.casefold()); scopes.append(scope)
+    scopes.sort(key=str.casefold)
+    return {
+        'version': V3518_VERSION,
+        'requirements': items,
+        'counts': counts,
+        'known_scopes': scopes,
+        'gate_ready': bool(items) and all(x['coverage_state'] == 'COVERED' for x in items),
+        'failover_ready': bool(items) and all(bool(x['failover_ready']) for x in items),
+    }
+
+
+@app.route('/api/hunter-operator-coverage', methods=['GET', 'POST'])
+def v3518_api_coverage():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify({'success': True, **_v3518_snapshot(u)})
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, rid = _v3518_upsert_requirement(
+        u,
+        p.get('certification_scope') or '',
+        p.get('required_operators') or 2,
+        p.get('criticality') or 'STANDARD',
+        p.get('requirement_note') or ''
+    )
+    return jsonify({'success': ok, 'error': error, 'requirement_id': rid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-operator-coverage/<int:requirement_id>/review', methods=['POST'])
+def v3518_api_review(requirement_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, review_id = _v3518_record_review(u, requirement_id, p.get('review_note') or '')
+    return jsonify({'success': ok, 'error': error, 'review_id': review_id}), (200 if ok else 400)
+
+
+@app.route('/hunter-operator-coverage')
+def v3518_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3518_snapshot(u); esc = html.escape
+    c = d['counts']
+    scope_options = ''.join(f"<option value='{esc(scope)}'>{esc(scope)}</option>" for scope in d['known_scopes'])
+    cards = []
+    for item in d['requirements']:
+        req = item['requirement']; rid = int(req['id']); state = item['coverage_state']
+        active_names = ', '.join(esc(x.get('operator') or '') for x in item['active_certifications']) or 'None'
+        due_names = ', '.join(esc(x.get('operator') or '') for x in item['due_certifications']) or 'None'
+        latest = item.get('latest_review') or {}
+        latest_html = ''
+        if latest:
+            latest_html = "<p class='muted'>Latest review #{} · {} · digest <code>{}</code></p>".format(
+                int(latest.get('id') or 0), esc(latest.get('created_at') or ''), esc((latest.get('evidence_sha256') or '')[:12])
+            )
+        badge_class = 'safe' if state == 'COVERED' else ('warn' if state == 'AT_RISK' else 'danger')
+        failover = 'YES' if item['failover_ready'] else 'NO'
+        cards.append(f"""<article class='card'>
+          <div class='top'><span>Coverage #{rid} · {esc(req.get('criticality') or 'STANDARD')}</span><span class='pill {badge_class}'>{esc(state)}</span></div>
+          <h2>{esc(req.get('certification_scope') or '')}</h2>
+          <div class='metrics'><div><b>{int(item['active_operators'])}</b><span>ACTIVE</span></div><div><b>{int(item['required_operators'])}</b><span>REQUIRED</span></div><div><b>{int(item['coverage_gap'])}</b><span>GAP</span></div><div><b>{failover}</b><span>FAILOVER</span></div></div>
+          <p><b>Current operators:</b> {active_names}</p><p class='muted'><b>Due:</b> {due_names} · <b>Revoked:</b> {int(item['revoked_operators'])}</p>
+          <p class='muted'>{esc(req.get('requirement_note') or '')}</p>{latest_html}
+          <form action='/api/hunter-operator-coverage/{rid}/review' onsubmit='return v3518submit(this,event)'>
+            <input name='review_note' placeholder='Coverage review note / shift context'>
+            <button>RECORD COVERAGE REVIEW</button>
+          </form>
+        </article>""")
+    overall = 'READY' if d['gate_ready'] else 'NOT READY'
+    failover_all = 'READY' if d['failover_ready'] else 'NOT READY'
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.18 Operator Coverage</title><style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #294653;background:#091117;border-radius:20px;padding:18px}}.eyebrow{{color:#86f7c3;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#8ea7b4}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.stats>div,.metrics>div{{border:1px solid #223944;border-radius:14px;padding:12px}}.num,.metrics b{{font-size:25px;font-weight:900;color:#86f7c3}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3d6070;border-radius:999px;padding:5px 9px}}.pill.safe{{border-color:#2f9e67;color:#8dffc0}}.pill.warn{{border-color:#a48331;color:#ffd978}}.pill.danger{{border-color:#a94455;color:#ff9eaa}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}a{{color:#86f7c3}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}}.metrics span{{display:block;color:#76909d;font-size:10px;font-weight:900;margin-top:3px}}code{{color:#86f7c3}}@media(max-width:720px){{.stats,.metrics{{grid-template-columns:repeat(2,1fr)}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.18 · OPERATOR COVERAGE + FAILOVER READINESS GATE</div><h1>Certified is not enough. Cover the scope.</h1><p class='muted'>Require multiple current operators per operational scope, detect coverage gaps, and seal each review as immutable evidence.</p>
+    <div class='stats'><div><div class='num'>{}</div>COVERED</div><div><div class='num'>{}</div>AT RISK</div><div><div class='num'>{}</div>BLOCKED</div><div><div class='num'>{}</div>GATE</div><div><div class='num'>{}</div>FAILOVER</div></div>
+    <p><a href='/hunter-operator-certifications'>← Operator Certification</a> · <a href='/api/hunter-operator-coverage'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Define / update coverage requirement</h2><form action='/api/hunter-operator-coverage' onsubmit='return v3518submit(this,event)'><input name='certification_scope' list='v3518scopes' placeholder='Certification scope' required><datalist id='v3518scopes'>{}</datalist><input name='required_operators' type='number' min='1' max='20' value='2'><select name='criticality'><option>STANDARD</option><option>HIGH</option><option>CRITICAL</option></select><textarea name='requirement_note' placeholder='Why this scope needs this coverage'></textarea><button>SET COVERAGE REQUIREMENT</button></form></section>
+    <section class='grid'>{}</section></div><script>async function v3518submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(
+        c.get('COVERED',0), c.get('AT_RISK',0), c.get('BLOCKED',0), overall, failover_all, scope_options,
+        ''.join(cards) or "<article class='card'><p>No coverage requirements yet. Add a certification scope above.</p></article>"
+    )
+
+
+# Add navigation from V35.17 into V35.18.
+try:
+    _v3518_prev_page = app.view_functions.get('v3517_page')
+    if _v3518_prev_page:
+        def _v3518_certification_with_coverage(*args, **kwargs):
+            response = _v3518_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-operator-coverage' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-operator-certifications'>JSON</a>",
+                    "<a href='/api/hunter-operator-certifications'>JSON</a> · <a href='/hunter-operator-coverage'>🛡️ COVERAGE + FAILOVER</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3517_page'] = _v3518_certification_with_coverage
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -77911,6 +78298,7 @@ if __name__ == "__main__":
     print("👛 Wallet profile enabled")
     print("")
     print("💌 Guestbook Control Center enabled")
+    print("🛡️ Operator Coverage + Failover Readiness Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
