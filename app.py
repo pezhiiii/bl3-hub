@@ -66288,6 +66288,508 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.6 RECHECK EPOCH + RENEWAL LOOP =====
+# V34.5 introduced evidence decay, but its one-shot outcome model cannot support
+# repeated assurance cycles cleanly. V34.6 adds reusable assurance epochs:
+#
+# START EPOCH -> COLLECT CHECKS -> CLOSE EPOCH -> RENEW / SUSPEND / REOPEN
+#
+# Every epoch is immutable after closure, preserving full history while allowing
+# the certification to be re-evaluated again and again.
+
+V346_VERSION = "V34.6"
+V346_SIGNALS = {"HEALTHY", "DRIFT", "DEGRADED", "INCIDENT", "INCONCLUSIVE"}
+V346_OUTCOMES = {"RENEW", "SUSPEND", "REOPEN"}
+V346_MIN_CHECKS = 3
+
+
+def _v346_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_epochs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            resilience_certificate_id INTEGER NOT NULL,
+            epoch_number INTEGER NOT NULL,
+            epoch_state TEXT NOT NULL DEFAULT 'OPEN',
+            started_at TEXT NOT NULL,
+            closed_at TEXT,
+            outcome TEXT,
+            outcome_note TEXT,
+            UNIQUE(username, implementation_id, epoch_number)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v346_epoch_impl
+        ON hunter_assurance_epochs(username, implementation_id, epoch_number DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_epoch_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            epoch_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            signal_state TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v346_epoch_checks
+        ON hunter_assurance_epoch_checks(username, epoch_id, id DESC)
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v346_init()
+except Exception:
+    pass
+
+
+def _v346_epochs(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_assurance_epochs
+            WHERE username=? AND implementation_id=?
+            ORDER BY epoch_number DESC
+        """, (username, int(implementation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v346_current_epoch(username, implementation_id):
+    rows = _v346_epochs(username, implementation_id)
+    return rows[0] if rows else None
+
+
+def _v346_epoch_checks(username, epoch_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_assurance_epoch_checks
+            WHERE username=? AND epoch_id=?
+            ORDER BY id DESC
+        """, (username, int(epoch_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v346_start_epoch(username, implementation_id):
+    cert = _v343_certificate(username, implementation_id)
+    if not cert or str(cert.get("certificate_state") or "") != "CERTIFIED":
+        return False, "active_resilience_certificate_required", None
+
+    current = _v346_current_epoch(username, implementation_id)
+    if current and str(current.get("epoch_state") or "") == "OPEN":
+        return False, "open_epoch_already_exists", int(current["id"])
+
+    next_num = int(current.get("epoch_number") or 0) + 1 if current else 1
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_epochs
+            (username, implementation_id, resilience_certificate_id,
+             epoch_number, epoch_state, started_at)
+            VALUES (?, ?, ?, ?, 'OPEN', ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(cert["id"]),
+            next_num,
+            now
+        ))
+        eid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, eid
+
+
+def _v346_add_check(username, epoch_id, signal_state, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_epochs
+            WHERE username=? AND id=?
+        """, (username, int(epoch_id))).fetchone()
+        epoch = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not epoch:
+        return False, "epoch_not_found", None
+    if str(epoch.get("epoch_state") or "") != "OPEN":
+        return False, "epoch_not_open", None
+
+    signal = str(signal_state or "INCONCLUSIVE").strip().upper()
+    if signal not in V346_SIGNALS:
+        return False, "invalid_signal_state", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_epoch_checks
+            (username, epoch_id, implementation_id, signal_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(epoch_id),
+            int(epoch["implementation_id"]),
+            signal,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        cid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, cid
+
+
+def _v346_close_epoch(username, epoch_id, outcome, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_epochs
+            WHERE username=? AND id=?
+        """, (username, int(epoch_id))).fetchone()
+        epoch = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not epoch:
+        return False, "epoch_not_found", None
+    if str(epoch.get("epoch_state") or "") != "OPEN":
+        return False, "epoch_not_open", int(epoch["id"])
+
+    checks = _v346_epoch_checks(username, epoch_id)
+    if len(checks) < V346_MIN_CHECKS:
+        return False, "not_enough_epoch_checks", None
+
+    outcome = str(outcome or "").strip().upper()
+    if outcome not in V346_OUTCOMES:
+        return False, "invalid_outcome", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_assurance_epochs
+            SET epoch_state='CLOSED',
+                closed_at=?,
+                outcome=?,
+                outcome_note=?
+            WHERE id=? AND username=? AND epoch_state='OPEN'
+        """, (
+            now,
+            outcome,
+            str(note or "").strip()[:3000],
+            int(epoch_id),
+            username
+        ))
+
+        if outcome == "SUSPEND":
+            renewal = _v344_renewal(username, int(epoch["implementation_id"]))
+            if renewal and str(renewal.get("renewal_state") or "") == "CURRENT":
+                con.execute("""
+                    UPDATE hunter_resilience_certificate_renewals
+                    SET renewal_state='SUSPENDED',
+                        suspended_at=?,
+                        suspension_note=?
+                    WHERE id=? AND username=? AND renewal_state='CURRENT'
+                """, (
+                    now,
+                    str(note or "Suspended by V34.6 epoch outcome.").strip()[:2400],
+                    int(renewal["id"]),
+                    username
+                ))
+
+        if outcome == "REOPEN":
+            cert = _v343_certificate(username, int(epoch["implementation_id"]))
+            if cert and str(cert.get("certificate_state") or "") == "CERTIFIED":
+                con.execute("""
+                    UPDATE hunter_resilience_certificates
+                    SET certificate_state='REVOKED',
+                        revoked_at=?,
+                        revoke_note=?
+                    WHERE id=? AND username=? AND certificate_state='CERTIFIED'
+                """, (
+                    now,
+                    str(note or "Reopened by V34.6 assurance epoch.").strip()[:2400],
+                    int(cert["id"]),
+                    username
+                ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "ASSURANCE_EPOCH_CLOSED",
+            detail="V34.6 epoch #%s closed with outcome=%s for implementation #%s." % (
+                int(epoch_id), outcome, int(epoch["implementation_id"])
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(epoch_id)
+
+
+def _v346_snapshot(username):
+    base = _v344_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        cert = item0.get("resilience_certificate") or {}
+
+        if not impl or not cert:
+            continue
+        if str(cert.get("certificate_state") or "") != "CERTIFIED":
+            continue
+
+        iid = int(impl["id"])
+        epochs = _v346_epochs(username, iid)
+        current = epochs[0] if epochs else None
+        checks = _v346_epoch_checks(username, int(current["id"])) if current else []
+
+        item = dict(item0)
+        item["epochs"] = epochs[:20]
+        item["current_epoch"] = current
+        item["current_epoch_checks"] = checks[:20]
+        item["current_epoch_check_count"] = len(checks)
+        item["can_start_epoch"] = not current or str(current.get("epoch_state") or "") == "CLOSED"
+        item["can_close_epoch"] = bool(current) and str(current.get("epoch_state") or "") == "OPEN" and len(checks) >= V346_MIN_CHECKS
+        items.append(item)
+
+    return {
+        "version": V346_VERSION,
+        "minimum_epoch_checks": V346_MIN_CHECKS,
+        "counts": {
+            "eligible": len(items),
+            "open_epochs": sum(1 for i in items if i.get("current_epoch") and i["current_epoch"].get("epoch_state") == "OPEN"),
+            "closed_epochs": sum(len([e for e in i.get("epochs", []) if e.get("epoch_state") == "CLOSED"]) for i in items),
+            "ready_to_close": sum(1 for i in items if i["can_close_epoch"]),
+        },
+        "items": items,
+        "policy": "Assurance is cyclical. Every renewal period gets its own immutable epoch so re-checking can continue indefinitely without losing history."
+    }
+
+
+@app.route("/api/hunter-assurance-epochs")
+def v346_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v346_snapshot(u)})
+
+
+@app.route("/api/hunter-assurance-epochs/implementation/<int:implementation_id>/start", methods=["POST"])
+def v346_start_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    ok, e, eid = _v346_start_epoch(u, implementation_id)
+    if not ok:
+        return jsonify({"success": False, "error": e, "epoch_id": eid}), 400
+    return jsonify({"success": True, "epoch_id": eid})
+
+
+@app.route("/api/hunter-assurance-epochs/epoch/<int:epoch_id>/check", methods=["POST"])
+def v346_check_api(epoch_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, cid = _v346_add_check(
+        u,
+        epoch_id,
+        p.get("signal_state") or "INCONCLUSIVE",
+        p.get("evidence_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "check_id": cid}), 400
+    return jsonify({"success": True, "check_id": cid})
+
+
+@app.route("/api/hunter-assurance-epochs/epoch/<int:epoch_id>/close", methods=["POST"])
+def v346_close_api(epoch_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, eid = _v346_close_epoch(
+        u,
+        epoch_id,
+        p.get("outcome") or "",
+        p.get("outcome_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "epoch_id": eid}), 400
+    return jsonify({"success": True, "epoch_id": eid})
+
+
+@app.route("/hunter-assurance-epochs")
+def v346_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🔁 Assurance Epochs</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v346_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        epoch = item.get("current_epoch") or {}
+        checks = item.get("current_epoch_checks") or []
+
+        actions = ""
+
+        if item.get("can_start_epoch"):
+            actions += f"""
+            <form action='/api/hunter-assurance-epochs/implementation/{iid}/start' onsubmit='return v346submit(this,event)'>
+              <button class='safe'>START NEW ASSURANCE EPOCH</button>
+            </form>
+            """
+
+        if epoch and str(epoch.get("epoch_state") or "") == "OPEN":
+            eid = int(epoch["id"])
+            actions += f"""
+            <form action='/api/hunter-assurance-epochs/epoch/{eid}/check' onsubmit='return v346submit(this,event)'>
+              <select name='signal_state'>
+                <option>HEALTHY</option><option>DRIFT</option><option>DEGRADED</option><option>INCIDENT</option><option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='evidence_note' rows='2' placeholder='Epoch assurance evidence'></textarea>
+              <button>ADD EPOCH CHECK</button>
+            </form>
+            """
+
+            if item.get("can_close_epoch"):
+                actions += f"""
+                <form action='/api/hunter-assurance-epochs/epoch/{eid}/close' onsubmit='return v346submit(this,event)'>
+                  <select name='outcome'>
+                    <option>RENEW</option><option>SUSPEND</option><option>REOPEN</option>
+                  </select>
+                  <textarea name='outcome_note' rows='2' placeholder='Epoch closure rationale'></textarea>
+                  <button class='warn'>CLOSE ASSURANCE EPOCH</button>
+                </form>
+                """
+
+        epoch_html = ""
+        if epoch:
+            epoch_html = "<div class='epoch'>EPOCH <b>#{}</b> · <b>{}</b><br><small>{}</small></div>".format(
+                esc(epoch.get("epoch_number")),
+                esc(epoch.get("epoch_state")),
+                esc(epoch.get("started_at"))
+            )
+
+        checks_html = "".join(
+            "<div class='check'><b>{}</b><span>{}</span><small>{}</small></div>".format(
+                esc(ch.get("signal_state")),
+                esc(ch.get("evidence_note")),
+                esc(ch.get("created_at"))
+            ) for ch in checks[:8]
+        ) or "<div class='muted'>No checks in the current epoch.</div>"
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>CYCLICAL ASSURANCE</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(item.get('hardening_type'))}</b></p>
+          {epoch_html}
+          {actions}
+          <div>{checks_html}</div>
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.6 Assurance Epochs</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#8fd8ff;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#8fd8ff}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #395f75;border-radius:999px;padding:5px 8px;color:#8fd8ff;font-size:11px}}
+    textarea,select{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .warn{{background:#ffd66f}}
+    .epoch{{margin-top:10px;padding:12px;border:1px solid #2f5366;border-radius:12px;background:#0a151c}}
+    .check{{border-top:1px solid #15313f;padding:8px 0}} .check b{{display:block;color:#8fd8ff}} .check span{{display:block;margin:4px 0}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.6 // RECHECK EPOCH + RENEWAL LOOP</div>
+        <h1>🔁 ASSURANCE NEVER STOPS</h1>
+        <p class='muted'>Every assurance cycle gets its own immutable epoch. Close one, then start the next—without overwriting history.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>OPEN EPOCHS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CLOSED EPOCHS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>READY TO CLOSE</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-assurance-decay'>⏳ EVIDENCE DECAY</a><a href='/api/hunter-assurance-epochs'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v346submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["eligible"], c["open_epochs"], c["closed_epochs"], c["ready_to_close"],
+        "".join(cards) or "<article class='card'><p>No resilient implementations are eligible for assurance epochs.</p></article>"
+    )
+
+
+try:
+    _v346_prev_page = app.view_functions.get("v345_page")
+    if _v346_prev_page:
+        def _v346_decay_with_epochs(*args, **kwargs):
+            response = _v346_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-assurance-epochs" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-assurance-decay'>JSON</a>",
+                    "<a href='/api/hunter-assurance-decay'>JSON</a><a href='/hunter-assurance-epochs'>🔁 ASSURANCE EPOCHS</a>",
+                    1
+                )
+            return response
+        app.view_functions["v345_page"] = _v346_decay_with_epochs
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
