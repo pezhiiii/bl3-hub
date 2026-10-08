@@ -67790,6 +67790,640 @@ except Exception:
     pass
 
 
+
+
+# ===== V34.9 SLO BUDGET + ALERT ROUTING GATE =====
+# V34.8 maps long-term risk to adaptive monitoring intensity.
+# V34.9 turns that policy into operational service-level enforcement:
+#
+# POLICY -> SLO TARGET -> BUDGET CONSUMPTION -> BREACH STATE -> ALERT ROUTING
+#
+# The purpose is to make risk actionable instead of merely visible.
+# A CRITICAL monitoring state now has stricter SLO handling and cannot silently
+# consume reliability budget without producing an explicit operational action.
+
+V349_VERSION = "V34.9"
+V349_SLO_STATES = {"HEALTHY", "BURNING", "BREACHED"}
+V349_ALERT_PRIORITIES = {"P3", "P2", "P1"}
+V349_ACTIONS = {"ACKNOWLEDGE", "OPEN_INCIDENT", "REOPEN_RESILIENCE"}
+
+V349_DEFAULTS = {
+    "NORMAL":   {"availability_target": 99.0,  "error_budget_pct": 1.0},
+    "ELEVATED": {"availability_target": 99.5,  "error_budget_pct": 0.5},
+    "CRITICAL": {"availability_target": 99.9,  "error_budget_pct": 0.1},
+}
+
+
+def _v349_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_slo_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            monitoring_policy_id INTEGER NOT NULL,
+            policy_level TEXT NOT NULL,
+            availability_target REAL NOT NULL,
+            error_budget_pct REAL NOT NULL,
+            profile_state TEXT NOT NULL DEFAULT 'ACTIVE',
+            profile_note TEXT,
+            created_at TEXT NOT NULL,
+            closed_at TEXT,
+            close_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v349_slo_profile_impl
+        ON hunter_slo_profiles(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_slo_measurements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            slo_profile_id INTEGER NOT NULL,
+            observed_availability REAL NOT NULL,
+            burn_rate REAL NOT NULL,
+            measurement_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v349_slo_measurements
+        ON hunter_slo_measurements(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_slo_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            slo_profile_id INTEGER NOT NULL,
+            slo_measurement_id INTEGER NOT NULL,
+            slo_state TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            alert_state TEXT NOT NULL DEFAULT 'OPEN',
+            alert_note TEXT,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolution_note TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v349_slo_alerts
+        ON hunter_slo_alerts(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_slo_alert_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            alert_id INTEGER NOT NULL,
+            action_state TEXT NOT NULL,
+            action_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v349_init()
+except Exception:
+    pass
+
+
+def _v349_latest_profile(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_slo_profiles
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v349_latest_measurement(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_slo_measurements
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v349_latest_alert(username, implementation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_slo_alerts
+            WHERE username=? AND implementation_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(implementation_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v349_profile_from_policy(username, implementation_id, note=""):
+    policy = _v348_latest_policy(username, implementation_id)
+    if not policy or str(policy.get("policy_state") or "") != "ACTIVE":
+        return False, "active_monitoring_policy_required", None
+
+    level = str(policy.get("policy_level") or "NORMAL").upper()
+    defaults = V349_DEFAULTS.get(level, V349_DEFAULTS["NORMAL"])
+
+    current = _v349_latest_profile(username, implementation_id)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        if current and str(current.get("profile_state") or "") == "ACTIVE":
+            con.execute("""
+                UPDATE hunter_slo_profiles
+                SET profile_state='CLOSED',
+                    closed_at=?,
+                    close_note=?
+                WHERE id=? AND username=? AND profile_state='ACTIVE'
+            """, (
+                now,
+                "Superseded by a new V34.9 SLO profile.",
+                int(current["id"]),
+                username
+            ))
+
+        cur = con.execute("""
+            INSERT INTO hunter_slo_profiles
+            (username, implementation_id, monitoring_policy_id, policy_level,
+             availability_target, error_budget_pct, profile_state,
+             profile_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(policy["id"]),
+            level,
+            float(defaults["availability_target"]),
+            float(defaults["error_budget_pct"]),
+            str(note or "").strip()[:3000],
+            now
+        ))
+        pid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, pid
+
+
+def _v349_classify(profile, observed_availability, burn_rate):
+    target = float(profile.get("availability_target") or 0.0)
+    observed = float(observed_availability)
+    burn = float(burn_rate)
+
+    if observed < target or burn >= 2.0:
+        return "BREACHED"
+    if burn >= 1.0 or observed < (target + 0.05):
+        return "BURNING"
+    return "HEALTHY"
+
+
+def _v349_priority(policy_level, slo_state):
+    level = str(policy_level or "NORMAL").upper()
+    state = str(slo_state or "HEALTHY").upper()
+
+    if state == "BREACHED":
+        return "P1" if level == "CRITICAL" else "P2"
+    if state == "BURNING":
+        return "P2" if level in {"ELEVATED", "CRITICAL"} else "P3"
+    return "P3"
+
+
+def _v349_add_measurement(username, implementation_id, observed_availability, burn_rate, note=""):
+    profile = _v349_latest_profile(username, implementation_id)
+    if not profile or str(profile.get("profile_state") or "") != "ACTIVE":
+        return False, "active_slo_profile_required", None, None
+
+    try:
+        observed = float(observed_availability)
+        burn = float(burn_rate)
+    except Exception:
+        return False, "invalid_numeric_measurement", None, None
+
+    if observed < 0 or observed > 100:
+        return False, "availability_out_of_range", None, None
+    if burn < 0:
+        return False, "burn_rate_out_of_range", None, None
+
+    state = _v349_classify(profile, observed, burn)
+    priority = _v349_priority(profile.get("policy_level"), state)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_slo_measurements
+            (username, implementation_id, slo_profile_id,
+             observed_availability, burn_rate, measurement_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(profile["id"]),
+            observed,
+            burn,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        mid = int(cur.lastrowid)
+
+        aid = None
+        if state in {"BURNING", "BREACHED"}:
+            acur = con.execute("""
+                INSERT INTO hunter_slo_alerts
+                (username, implementation_id, slo_profile_id, slo_measurement_id,
+                 slo_state, priority, alert_state, alert_note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            """, (
+                username,
+                int(implementation_id),
+                int(profile["id"]),
+                mid,
+                state,
+                priority,
+                "Auto-routed from V34.9 SLO budget evaluation.",
+                now
+            ))
+            aid = int(acur.lastrowid)
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, mid, aid
+
+
+def _v349_alert_action(username, implementation_id, action_state, note=""):
+    alert = _v349_latest_alert(username, implementation_id)
+    if not alert:
+        return False, "alert_required", None
+
+    action = str(action_state or "").strip().upper()
+    if action not in V349_ACTIONS:
+        return False, "invalid_action", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_slo_alert_actions
+            (username, implementation_id, alert_id, action_state, action_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(implementation_id),
+            int(alert["id"]),
+            action,
+            str(note or "").strip()[:3000],
+            now
+        ))
+        action_id = int(cur.lastrowid)
+
+        if action == "ACKNOWLEDGE":
+            con.execute("""
+                UPDATE hunter_slo_alerts
+                SET alert_state='ACKNOWLEDGED'
+                WHERE id=? AND username=? AND alert_state='OPEN'
+            """, (int(alert["id"]), username))
+
+        if action == "OPEN_INCIDENT":
+            con.execute("""
+                UPDATE hunter_slo_alerts
+                SET alert_state='INCIDENT_OPEN'
+                WHERE id=? AND username=?
+            """, (int(alert["id"]), username))
+
+        if action == "REOPEN_RESILIENCE":
+            cert = _v343_certificate(username, implementation_id)
+            if cert and str(cert.get("certificate_state") or "") == "CERTIFIED":
+                con.execute("""
+                    UPDATE hunter_resilience_certificates
+                    SET certificate_state='REVOKED',
+                        revoked_at=?,
+                        revoke_note=?
+                    WHERE id=? AND username=? AND certificate_state='CERTIFIED'
+                """, (
+                    now,
+                    str(note or "Reopened by V34.9 SLO breach action.").strip()[:2400],
+                    int(cert["id"]),
+                    username
+                ))
+            con.execute("""
+                UPDATE hunter_slo_alerts
+                SET alert_state='ESCALATED'
+                WHERE id=? AND username=?
+            """, (int(alert["id"]), username))
+
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "SLO_ALERT_ACTION",
+            detail="V34.9 implementation #%s alert #%s action=%s." % (
+                int(implementation_id), int(alert["id"]), action
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, action_id
+
+
+def _v349_snapshot(username):
+    base = _v348_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        impl = item0.get("implementation") or {}
+        policy = item0.get("monitoring_policy") or {}
+
+        if not impl or not policy:
+            continue
+        if str(policy.get("policy_state") or "") != "ACTIVE":
+            continue
+
+        iid = int(impl["id"])
+        profile = _v349_latest_profile(username, iid)
+        measurement = _v349_latest_measurement(username, iid)
+        alert = _v349_latest_alert(username, iid)
+
+        item = dict(item0)
+        item["slo_profile"] = profile
+        item["latest_measurement"] = measurement
+        item["latest_alert"] = alert
+        item["needs_slo_profile"] = not profile or str(profile.get("profile_state") or "") != "ACTIVE"
+        items.append(item)
+
+    return {
+        "version": V349_VERSION,
+        "counts": {
+            "eligible": len(items),
+            "profiled": sum(1 for i in items if i.get("slo_profile")),
+            "open_alerts": sum(
+                1 for i in items
+                if i.get("latest_alert") and str(i["latest_alert"].get("alert_state") or "") in {"OPEN", "ACKNOWLEDGED", "INCIDENT_OPEN"}
+            ),
+            "p1": sum(
+                1 for i in items
+                if i.get("latest_alert") and str(i["latest_alert"].get("priority") or "") == "P1"
+            ),
+        },
+        "items": items,
+        "policy": "Adaptive monitoring must have measurable SLOs. Reliability budget burn creates explicit alerts and escalation paths."
+    }
+
+
+@app.route("/api/hunter-slo-budget")
+def v349_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v349_snapshot(u)})
+
+
+@app.route("/api/hunter-slo-budget/implementation/<int:implementation_id>/profile", methods=["POST"])
+def v349_profile_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, pid = _v349_profile_from_policy(u, implementation_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "profile_id": pid}), 400
+    return jsonify({"success": True, "profile_id": pid})
+
+
+@app.route("/api/hunter-slo-budget/implementation/<int:implementation_id>/measurement", methods=["POST"])
+def v349_measurement_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, mid, aid = _v349_add_measurement(
+        u,
+        implementation_id,
+        p.get("observed_availability"),
+        p.get("burn_rate"),
+        p.get("measurement_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "measurement_id": mid, "alert_id": aid}), 400
+    return jsonify({"success": True, "measurement_id": mid, "alert_id": aid})
+
+
+@app.route("/api/hunter-slo-budget/implementation/<int:implementation_id>/action", methods=["POST"])
+def v349_action_api(implementation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, action_id = _v349_alert_action(
+        u,
+        implementation_id,
+        p.get("action_state") or "",
+        p.get("action_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "action_id": action_id}), 400
+    return jsonify({"success": True, "action_id": action_id})
+
+
+@app.route("/hunter-slo-budget")
+def v349_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🚨 SLO Budget</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v349_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        impl = item.get("implementation") or {}
+        iid = int(impl.get("id") or 0)
+        policy = item.get("monitoring_policy") or {}
+        profile = item.get("slo_profile") or {}
+        measurement = item.get("latest_measurement") or {}
+        alert = item.get("latest_alert") or {}
+
+        actions = ""
+
+        if item.get("needs_slo_profile"):
+            actions += f"""
+            <form action='/api/hunter-slo-budget/implementation/{iid}/profile' onsubmit='return v349submit(this,event)'>
+              <textarea name='note' rows='2' placeholder='SLO profile note'></textarea>
+              <button class='safe'>CREATE SLO PROFILE FROM POLICY</button>
+            </form>
+            """
+
+        if profile and str(profile.get("profile_state") or "") == "ACTIVE":
+            actions += f"""
+            <form action='/api/hunter-slo-budget/implementation/{iid}/measurement' onsubmit='return v349submit(this,event)'>
+              <input name='observed_availability' type='number' step='0.001' min='0' max='100' placeholder='Observed availability %' required>
+              <input name='burn_rate' type='number' step='0.01' min='0' placeholder='Error budget burn rate' required>
+              <textarea name='measurement_note' rows='2' placeholder='Measurement note'></textarea>
+              <button>ADD SLO MEASUREMENT</button>
+            </form>
+            """
+
+        if alert and str(alert.get("alert_state") or "") in {"OPEN", "ACKNOWLEDGED", "INCIDENT_OPEN"}:
+            actions += f"""
+            <form action='/api/hunter-slo-budget/implementation/{iid}/action' onsubmit='return v349submit(this,event)'>
+              <select name='action_state'>
+                <option>ACKNOWLEDGE</option>
+                <option>OPEN_INCIDENT</option>
+                <option>REOPEN_RESILIENCE</option>
+              </select>
+              <textarea name='action_note' rows='2' placeholder='Alert action rationale'></textarea>
+              <button class='danger'>APPLY ALERT ACTION</button>
+            </form>
+            """
+
+        profile_html = ""
+        if profile:
+            profile_html = """
+            <div class='box'>
+              <b>{}</b> policy · SLO target <b>{}%</b> · budget <b>{}%</b>
+            </div>
+            """.format(
+                esc(profile.get("policy_level")),
+                esc(profile.get("availability_target")),
+                esc(profile.get("error_budget_pct"))
+            )
+
+        measurement_html = ""
+        if measurement:
+            state = _v349_classify(
+                profile,
+                measurement.get("observed_availability"),
+                measurement.get("burn_rate")
+            ) if profile else "HEALTHY"
+            measurement_html = """
+            <div class='box'>
+              Latest: <b>{}% availability</b> · burn <b>{}</b> · <b>{}</b>
+            </div>
+            """.format(
+                esc(measurement.get("observed_availability")),
+                esc(measurement.get("burn_rate")),
+                esc(state)
+            )
+
+        alert_html = ""
+        if alert:
+            alert_html = """
+            <div class='alert'>
+              ALERT <b>{}</b> · <b>{}</b> · state <b>{}</b><br>
+              <small>{}</small>
+            </div>
+            """.format(
+                esc(alert.get("priority")),
+                esc(alert.get("slo_state")),
+                esc(alert.get("alert_state")),
+                esc(alert.get("created_at"))
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>{esc(policy.get('policy_level'))}</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          {profile_html}
+          {measurement_html}
+          {alert_html}
+          {actions}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V34.9 SLO Budget + Alert Routing</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ffb86f;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ffb86f}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #6e4a28;border-radius:999px;padding:5px 8px;color:#ffb86f;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .danger{{background:#ff8797}}
+    .box{{margin-top:10px;padding:12px;border:1px solid #31596a;border-radius:12px;background:#0a151c}}
+    .alert{{margin-top:10px;padding:12px;border:1px solid #7d3846;border-radius:12px;background:#1a0c10;color:#ffb5bf}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V34.9 // SLO BUDGET + ALERT ROUTING GATE</div>
+        <h1>🚨 TURN RISK INTO ACTION</h1>
+        <p class='muted'>Adaptive monitoring now gets measurable SLO targets, error-budget burn tracking, and explicit alert routing.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>PROFILED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>OPEN ALERTS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>P1</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-adaptive-monitoring'>🎛 ADAPTIVE MONITORING</a><a href='/api/hunter-slo-budget'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v349submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["eligible"], c["profiled"], c["open_alerts"], c["p1"],
+        "".join(cards) or "<article class='card'><p>No adaptive monitoring policies are ready for SLO enforcement.</p></article>"
+    )
+
+
+try:
+    _v349_prev_page = app.view_functions.get("v348_page")
+    if _v349_prev_page:
+        def _v349_monitoring_with_slo(*args, **kwargs):
+            response = _v349_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-slo-budget" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-adaptive-monitoring'>JSON</a>",
+                    "<a href='/api/hunter-adaptive-monitoring'>JSON</a><a href='/hunter-slo-budget'>🚨 SLO BUDGET</a>",
+                    1
+                )
+            return response
+        app.view_functions["v348_page"] = _v349_monitoring_with_slo
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
