@@ -71239,6 +71239,752 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.4 ASSURANCE ESCALATION + AUTO-REMEDIATION GATE =====
+# V35.3 detects drift and requires revalidation.
+# V35.4 turns assurance signals into governed remediation work:
+#
+# DRIFT / REVALIDATION_REQUIRED
+#   -> ESCALATION POLICY
+#   -> REMEDIATION PLAN
+#   -> OWNER + DEADLINE
+#   -> IMPLEMENT
+#   -> VERIFY
+#   -> RESTORE HEALTHY
+#
+# This version prevents assurance warnings from becoming passive dashboard noise.
+
+V354_VERSION = "V35.4"
+
+V354_ESCALATION_LEVELS = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+V354_REMEDIATION_STATES = {
+    "OPEN",
+    "ASSIGNED",
+    "IN_PROGRESS",
+    "READY_FOR_VERIFY",
+    "VERIFIED",
+    "CANCELLED"
+}
+V354_VERIFY_VERDICTS = {"PASS", "FAIL", "INCONCLUSIVE"}
+
+
+def _v354_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_escalations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            control_adoption_id INTEGER NOT NULL,
+            reusable_lesson_id INTEGER NOT NULL,
+            escalation_level TEXT NOT NULL,
+            trigger_state TEXT NOT NULL,
+            trigger_reason TEXT,
+            escalation_state TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            closed_at TEXT
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v354_escalations
+        ON hunter_assurance_escalations(username, assurance_profile_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_remediations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            escalation_id INTEGER NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            control_adoption_id INTEGER NOT NULL,
+            remediation_state TEXT NOT NULL DEFAULT 'OPEN',
+            remediation_plan TEXT NOT NULL,
+            owner_label TEXT,
+            due_at TEXT,
+            implementation_note TEXT,
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            verified_at TEXT
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v354_remediations
+        ON hunter_assurance_remediations(username, escalation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_assurance_remediation_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            remediation_id INTEGER NOT NULL,
+            escalation_id INTEGER NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            verification_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v354_init()
+except Exception:
+    pass
+
+
+def _v354_open_escalation_for_profile(username, profile):
+    state = str(profile.get("assurance_state") or "").upper()
+
+    if state not in {"DRIFTED", "REVALIDATION_REQUIRED"}:
+        return False, "profile_not_escalation_eligible", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        existing = con.execute("""
+            SELECT * FROM hunter_assurance_escalations
+            WHERE username=? AND assurance_profile_id=?
+              AND escalation_state='OPEN'
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(profile["id"]))).fetchone()
+
+        if existing:
+            return False, "open_escalation_already_exists", int(existing["id"])
+
+        if state == "REVALIDATION_REQUIRED":
+            level = "HIGH"
+        else:
+            level = "MEDIUM"
+
+        if int(profile.get("consecutive_fails") or 0) >= 2:
+            level = "CRITICAL"
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_escalations
+            (username, assurance_profile_id, control_adoption_id,
+             reusable_lesson_id, escalation_level,
+             trigger_state, trigger_reason, escalation_state, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+        """, (
+            username,
+            int(profile["id"]),
+            int(profile["control_adoption_id"]),
+            int(profile["reusable_lesson_id"]),
+            level,
+            state,
+            "Automatic escalation from assurance state %s" % state,
+            now
+        ))
+
+        eid = int(cur.lastrowid)
+        con.commit()
+        return True, None, eid
+    finally:
+        con.close()
+
+
+def _v354_escalations(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_assurance_escalations
+            WHERE username=?
+            ORDER BY id DESC
+        """, (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v354_remediations(username, escalation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_assurance_remediations
+            WHERE username=? AND escalation_id=?
+            ORDER BY id DESC
+        """, (username, int(escalation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v354_verifications(username, remediation_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_assurance_remediation_verifications
+            WHERE username=? AND remediation_id=?
+            ORDER BY id DESC
+        """, (username, int(remediation_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v354_create_remediation(
+    username,
+    escalation_id,
+    remediation_plan,
+    owner_label="",
+    due_at=""
+):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_escalations
+            WHERE username=? AND id=?
+        """, (username, int(escalation_id))).fetchone()
+        escalation = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not escalation:
+        return False, "escalation_not_found", None
+
+    if str(escalation.get("escalation_state") or "") != "OPEN":
+        return False, "open_escalation_required", None
+
+    plan = str(remediation_plan or "").strip()
+    if not plan:
+        return False, "remediation_plan_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_remediations
+            (username, escalation_id, assurance_profile_id,
+             control_adoption_id, remediation_state,
+             remediation_plan, owner_label, due_at, created_at)
+            VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+        """, (
+            username,
+            int(escalation["id"]),
+            int(escalation["assurance_profile_id"]),
+            int(escalation["control_adoption_id"]),
+            plan[:6000],
+            str(owner_label or "").strip()[:500],
+            str(due_at or "").strip()[:100],
+            now
+        ))
+        rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v354_update_remediation_state(username, remediation_id, remediation_state, note=""):
+    state = str(remediation_state or "").strip().upper()
+
+    if state not in V354_REMEDIATION_STATES:
+        return False, "invalid_remediation_state", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_remediations
+            WHERE username=? AND id=?
+        """, (username, int(remediation_id))).fetchone()
+        remediation = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not remediation:
+        return False, "remediation_not_found", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        completed_at = remediation.get("completed_at")
+
+        if state == "READY_FOR_VERIFY":
+            completed_at = now
+
+        con.execute("""
+            UPDATE hunter_assurance_remediations
+            SET remediation_state=?,
+                implementation_note=CASE
+                    WHEN ?!='' THEN ?
+                    ELSE implementation_note
+                END,
+                completed_at=?
+            WHERE id=? AND username=?
+        """, (
+            state,
+            str(note or "").strip(),
+            str(note or "").strip()[:5000],
+            completed_at,
+            int(remediation_id),
+            username
+        ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(remediation_id)
+
+
+def _v354_verify_remediation(username, remediation_id, verdict, note=""):
+    verdict = str(verdict or "").strip().upper()
+
+    if verdict not in V354_VERIFY_VERDICTS:
+        return False, "invalid_verification_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_assurance_remediations
+            WHERE username=? AND id=?
+        """, (username, int(remediation_id))).fetchone()
+        remediation = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not remediation:
+        return False, "remediation_not_found", None
+
+    if str(remediation.get("remediation_state") or "") not in {"READY_FOR_VERIFY", "VERIFIED"}:
+        return False, "remediation_not_ready_for_verification", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_assurance_remediation_verifications
+            (username, remediation_id, escalation_id,
+             assurance_profile_id, verdict, verification_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(remediation["id"]),
+            int(remediation["escalation_id"]),
+            int(remediation["assurance_profile_id"]),
+            verdict,
+            str(note or "").strip()[:5000],
+            now
+        ))
+
+        vid = int(cur.lastrowid)
+
+        if verdict == "PASS":
+            con.execute("""
+                UPDATE hunter_assurance_remediations
+                SET remediation_state='VERIFIED',
+                    verified_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(remediation["id"]),
+                username
+            ))
+
+            con.execute("""
+                UPDATE hunter_assurance_escalations
+                SET escalation_state='CLOSED',
+                    closed_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(remediation["escalation_id"]),
+                username
+            ))
+
+            con.execute("""
+                UPDATE hunter_control_assurance_profiles
+                SET assurance_state='HEALTHY',
+                    consecutive_warns=0,
+                    consecutive_fails=0,
+                    last_revalidated_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(remediation["assurance_profile_id"]),
+                username
+            ))
+
+        elif verdict == "FAIL":
+            con.execute("""
+                UPDATE hunter_control_assurance_profiles
+                SET assurance_state='REVALIDATION_REQUIRED'
+                WHERE id=? AND username=?
+            """, (
+                int(remediation["assurance_profile_id"]),
+                username
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, vid
+
+
+def _v354_auto_scan(username):
+    snapshot = _v353_snapshot(username)
+    opened = 0
+    skipped = 0
+
+    for item in snapshot.get("items", []):
+        for row in item.get("assurance_rows", []):
+            profile = row.get("profile")
+            if not profile:
+                continue
+
+            if str(profile.get("assurance_state") or "") in {"DRIFTED", "REVALIDATION_REQUIRED"}:
+                ok, err, _ = _v354_open_escalation_for_profile(username, profile)
+                if ok:
+                    opened += 1
+                else:
+                    skipped += 1
+
+    return opened, skipped
+
+
+def _v354_snapshot(username):
+    try:
+        _v354_auto_scan(username)
+    except Exception:
+        pass
+
+    escalations = _v354_escalations(username)
+    items = []
+
+    for escalation in escalations:
+        rems = _v354_remediations(username, int(escalation["id"]))
+        enriched = []
+
+        for rem in rems:
+            r = dict(rem)
+            r["verifications"] = _v354_verifications(username, int(rem["id"]))[:10]
+            enriched.append(r)
+
+        item = {
+            "escalation": escalation,
+            "remediations": enriched,
+            "has_verified_remediation": any(
+                str(r.get("remediation_state") or "") == "VERIFIED"
+                for r in enriched
+            )
+        }
+        items.append(item)
+
+    return {
+        "version": V354_VERSION,
+        "counts": {
+            "total_escalations": len(items),
+            "open_escalations": sum(
+                1 for i in items
+                if str(i["escalation"].get("escalation_state") or "") == "OPEN"
+            ),
+            "critical": sum(
+                1 for i in items
+                if str(i["escalation"].get("escalation_level") or "") == "CRITICAL"
+                and str(i["escalation"].get("escalation_state") or "") == "OPEN"
+            ),
+            "verified_remediations": sum(
+                1 for i in items if i.get("has_verified_remediation")
+            )
+        },
+        "items": items,
+        "policy": "Assurance drift must create owned remediation work. A control returns to HEALTHY only after remediation verification PASS."
+    }
+
+
+@app.route("/api/hunter-assurance-remediation")
+def v354_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    return jsonify({"success": True, **_v354_snapshot(u)})
+
+
+@app.route("/api/hunter-assurance-remediation/scan", methods=["POST"])
+def v354_scan_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    opened, skipped = _v354_auto_scan(u)
+
+    return jsonify({
+        "success": True,
+        "opened": opened,
+        "skipped": skipped
+    })
+
+
+@app.route("/api/hunter-assurance-remediation/escalation/<int:escalation_id>/remediation", methods=["POST"])
+def v354_remediation_api(escalation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, rid = _v354_create_remediation(
+        u,
+        escalation_id,
+        p.get("remediation_plan") or "",
+        p.get("owner_label") or "",
+        p.get("due_at") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "remediation_id": rid}), 400
+
+    return jsonify({"success": True, "remediation_id": rid})
+
+
+@app.route("/api/hunter-assurance-remediation/remediation/<int:remediation_id>/state", methods=["POST"])
+def v354_remediation_state_api(remediation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, rid = _v354_update_remediation_state(
+        u,
+        remediation_id,
+        p.get("remediation_state") or "",
+        p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "remediation_id": rid}), 400
+
+    return jsonify({"success": True, "remediation_id": rid})
+
+
+@app.route("/api/hunter-assurance-remediation/remediation/<int:remediation_id>/verify", methods=["POST"])
+def v354_verify_api(remediation_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, vid = _v354_verify_remediation(
+        u,
+        remediation_id,
+        p.get("verdict") or "",
+        p.get("verification_note") or p.get("note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "verification_id": vid}), 400
+
+    return jsonify({"success": True, "verification_id": vid})
+
+
+@app.route("/hunter-assurance-remediation")
+def v354_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🚨 Assurance Remediation</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v354_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        escalation = item.get("escalation") or {}
+        rems = item.get("remediations") or []
+
+        eid = int(escalation.get("id") or 0)
+        level = str(escalation.get("escalation_level") or "")
+        state = str(escalation.get("escalation_state") or "")
+
+        forms = ""
+
+        if state == "OPEN" and not rems:
+            forms += f"""
+            <form action='/api/hunter-assurance-remediation/escalation/{eid}/remediation'
+                  onsubmit='return v354submit(this,event)'>
+              <textarea name='remediation_plan' rows='3' placeholder='Remediation plan' required></textarea>
+              <input name='owner_label' placeholder='Owner / role'>
+              <input name='due_at' placeholder='Due date / timestamp'>
+              <button class='safe'>CREATE REMEDIATION PLAN</button>
+            </form>
+            """
+
+        for rem in rems[:10]:
+            rid = int(rem["id"])
+            rstate = str(rem.get("remediation_state") or "")
+
+            forms += f"""
+            <div class='rem'>
+              <b>Remediation #{rid}</b> · <b>{esc(rstate)}</b><br>
+              <span>{esc(rem.get('remediation_plan'))}</span><br>
+              <small>Owner: {esc(rem.get('owner_label'))} · Due: {esc(rem.get('due_at'))}</small>
+            """
+
+            if rstate in {"OPEN", "ASSIGNED", "IN_PROGRESS"}:
+                forms += f"""
+                <form action='/api/hunter-assurance-remediation/remediation/{rid}/state'
+                      onsubmit='return v354submit(this,event)'>
+                  <select name='remediation_state'>
+                    <option>ASSIGNED</option>
+                    <option>IN_PROGRESS</option>
+                    <option>READY_FOR_VERIFY</option>
+                    <option>CANCELLED</option>
+                  </select>
+                  <textarea name='note' rows='2' placeholder='Implementation note'></textarea>
+                  <button class='warn'>UPDATE REMEDIATION</button>
+                </form>
+                """
+
+            if rstate == "READY_FOR_VERIFY":
+                forms += f"""
+                <form action='/api/hunter-assurance-remediation/remediation/{rid}/verify'
+                      onsubmit='return v354submit(this,event)'>
+                  <select name='verdict'>
+                    <option>PASS</option>
+                    <option>FAIL</option>
+                    <option>INCONCLUSIVE</option>
+                  </select>
+                  <textarea name='verification_note' rows='2' placeholder='Verification evidence'></textarea>
+                  <button class='safe'>VERIFY REMEDIATION</button>
+                </form>
+                """
+
+            forms += "</div>"
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>Assurance Profile #{esc(escalation.get('assurance_profile_id'))}</span>
+            <span class='pill'>{esc(level)}</span>
+          </div>
+          <h2>Escalation #{eid}</h2>
+          <p><b>{esc(escalation.get('trigger_state'))}</b> · {esc(escalation.get('trigger_reason'))}</p>
+          <div class='state'>ESCALATION <b>{esc(state)}</b></div>
+          {forms}
+        </article>
+        """)
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.4 Assurance Escalation</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ff9f7a;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ff9f7a}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #714939;border-radius:999px;padding:5px 8px;color:#ffb89d;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}}
+    .warn{{background:#ffd66f}}
+    .state,.rem{{margin-top:10px;padding:12px;border:1px solid #714939;border-radius:12px;background:#15100d}}
+    .rem{{border-color:#315c68;background:#0a151c}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.4 // ASSURANCE ESCALATION + AUTO-REMEDIATION GATE</div>
+        <h1>🚨 DRIFT MUST CREATE ACTION</h1>
+        <p class='muted'>Controls with drift or revalidation failures automatically escalate into owned, verifiable remediation work.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>TOTAL ESCALATIONS</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>OPEN</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CRITICAL</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>VERIFIED FIXES</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-control-assurance'>🛡️ CONTROL ASSURANCE</a>
+          <a href='/api/hunter-assurance-remediation'>JSON</a>
+        </div>
+      </section>
+
+      <section class='grid'>{}</section>
+    </div>
+
+    <script>
+    async function v354submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["total_escalations"],
+        c["open_escalations"],
+        c["critical"],
+        c["verified_remediations"],
+        "".join(cards) or "<article class='card'><p>No drift escalations are currently open.</p></article>"
+    )
+
+
+try:
+    _v354_prev_page = app.view_functions.get("v353_page")
+    if _v354_prev_page:
+        def _v354_assurance_with_remediation(*args, **kwargs):
+            response = _v354_prev_page(*args, **kwargs)
+
+            if isinstance(response, str) and "/hunter-assurance-remediation" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-control-assurance'>JSON</a>",
+                    "<a href='/api/hunter-control-assurance'>JSON</a><a href='/hunter-assurance-remediation'>🚨 REMEDIATION</a>",
+                    1
+                )
+
+            return response
+
+        app.view_functions["v353_page"] = _v354_assurance_with_remediation
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
