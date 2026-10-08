@@ -77551,6 +77551,256 @@ try:
 except Exception:
     pass
 
+
+
+# ===== V35.17 OPERATOR CERTIFICATION + RECERTIFICATION GATE =====
+# V35.16 proves that published knowledge can be executed in a verified drill.
+# V35.17 turns verified drill evidence into an auditable operator certification:
+#
+# VERIFIED DRILL -> CERTIFIED -> DUE -> RECERTIFIED / REVOKED
+#
+# Only VERIFIED drills can issue a certification.
+# Certification requires an operator, scope, and validity window.
+# Recertification requires fresh evidence; revocation is explicit and auditable.
+
+V3517_VERSION = "V35.17"
+V3517_STATES = {"CERTIFIED", "DUE", "RECERTIFIED", "REVOKED"}
+
+
+def _v3517_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_certifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            drill_id INTEGER NOT NULL,
+            operator TEXT NOT NULL,
+            certification_scope TEXT NOT NULL,
+            validity_days INTEGER NOT NULL DEFAULT 30,
+            certification_state TEXT NOT NULL DEFAULT 'CERTIFIED',
+            issue_evidence TEXT,
+            recertification_evidence TEXT,
+            revocation_reason TEXT,
+            issued_at TEXT NOT NULL,
+            due_at TEXT NOT NULL,
+            recertified_at TEXT,
+            revoked_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, drill_id, operator, certification_scope)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3517_user_state ON hunter_operator_certifications(username,certification_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3517_drill ON hunter_operator_certifications(username,drill_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3517_init()
+except Exception:
+    pass
+
+
+def _v3517_now_iso():
+    return _v3516_now_iso()
+
+
+def _v3517_parse_iso(v):
+    try:
+        return datetime.fromisoformat(str(v).replace('Z','+00:00'))
+    except Exception:
+        return None
+
+
+def _v3517_refresh_state(row):
+    if not row:
+        return row
+    d = dict(row)
+    state = str(d.get('certification_state') or '').upper()
+    if state in {'REVOKED'}:
+        return d
+    due = _v3517_parse_iso(d.get('due_at'))
+    now = _v3517_parse_iso(_v3517_now_iso())
+    if due and now and due <= now and state in {'CERTIFIED','RECERTIFIED'}:
+        d['certification_state'] = 'DUE'
+    return d
+
+
+def _v3517_entry(username, cert_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_operator_certifications WHERE username=? AND id=?", (username, int(cert_id))).fetchone()
+        if not row:
+            return None
+        d = _v3517_refresh_state(row)
+        if d.get('certification_state') != row['certification_state']:
+            con.execute("UPDATE hunter_operator_certifications SET certification_state=?,updated_at=? WHERE username=? AND id=?",
+                        (d['certification_state'], _v3517_now_iso(), username, int(cert_id)))
+            con.commit()
+        d['drill'] = _v3516_entry(username, d['drill_id'])
+        return d
+    finally:
+        con.close()
+
+
+def _v3517_verified_drills(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in con.execute("SELECT * FROM hunter_knowledge_drills WHERE username=? AND drill_state='VERIFIED' ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+
+
+def _v3517_issue(username, drill_id, operator, certification_scope, validity_days=30, issue_evidence=''):
+    try:
+        drill_id = int(drill_id)
+    except Exception:
+        return False, 'invalid_drill_id', None
+    drill = _v3516_entry(username, drill_id)
+    if not drill:
+        return False, 'drill_not_found', None
+    if str(drill.get('drill_state') or '').upper() != 'VERIFIED':
+        return False, 'verified_drill_required', None
+    operator = str(operator or '').strip()
+    scope = str(certification_scope or '').strip()
+    evidence = str(issue_evidence or '').strip() or str(drill.get('execution_evidence') or '').strip()
+    if not operator:
+        return False, 'operator_required', None
+    if not scope:
+        return False, 'certification_scope_required', None
+    if not evidence:
+        return False, 'issue_evidence_required', None
+    try:
+        validity_days = max(1, min(3650, int(validity_days or 30)))
+    except Exception:
+        validity_days = 30
+    now_dt = datetime.now().astimezone()
+    now = now_dt.isoformat(timespec='seconds')
+    due = (now_dt + timedelta(days=validity_days)).isoformat(timespec='seconds')
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""
+              INSERT INTO hunter_operator_certifications
+              (username,drill_id,operator,certification_scope,validity_days,certification_state,issue_evidence,issued_at,due_at,updated_at)
+              VALUES(?,?,?,?,?,'CERTIFIED',?,?,?,?)
+            """, (username,drill_id,operator,scope,validity_days,evidence,now,due,now))
+            con.commit(); cid = cur.lastrowid
+        except sqlite3.IntegrityError:
+            return False, 'duplicate_certification', None
+    finally:
+        con.close()
+    return True, None, cid
+
+
+def _v3517_decide(username, cert_id, decision, evidence='', reason=''):
+    entry = _v3517_entry(username, cert_id)
+    if not entry:
+        return False, 'certification_not_found', None
+    decision = str(decision or '').upper().strip()
+    evidence = str(evidence or '').strip()
+    reason = str(reason or '').strip()
+    now_dt = datetime.now().astimezone()
+    now = now_dt.isoformat(timespec='seconds')
+    con = sqlite3.connect(DB)
+    try:
+        if decision == 'RECERTIFY':
+            if entry['certification_state'] not in {'DUE','CERTIFIED','RECERTIFIED'}:
+                return False, 'certification_not_recertifiable', entry
+            if not evidence:
+                return False, 'recertification_evidence_required', entry
+            due = (now_dt + timedelta(days=int(entry.get('validity_days') or 30))).isoformat(timespec='seconds')
+            con.execute("""UPDATE hunter_operator_certifications
+                           SET certification_state='RECERTIFIED',recertification_evidence=?,recertified_at=?,due_at=?,updated_at=?
+                           WHERE username=? AND id=?""",
+                        (evidence,now,due,now,username,int(cert_id)))
+        elif decision == 'REVOKE':
+            if entry['certification_state'] == 'REVOKED':
+                return False, 'already_revoked', entry
+            if not reason:
+                return False, 'revocation_reason_required', entry
+            con.execute("""UPDATE hunter_operator_certifications
+                           SET certification_state='REVOKED',revocation_reason=?,revoked_at=?,updated_at=?
+                           WHERE username=? AND id=?""",
+                        (reason,now,now,username,int(cert_id)))
+        else:
+            return False, 'invalid_decision', entry
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3517_entry(username, cert_id)
+
+
+def _v3517_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute("SELECT * FROM hunter_operator_certifications WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+    finally:
+        con.close()
+    out=[]; counts={}
+    for r in rows:
+        d=_v3517_entry(username, r['id']) or r
+        out.append(d)
+        s=d.get('certification_state') or ''
+        counts[s]=counts.get(s,0)+1
+    return {'version':V3517_VERSION,'certifications':out,'counts':counts,'verified_drills':_v3517_verified_drills(username)}
+
+
+@app.route('/api/hunter-operator-certifications', methods=['GET','POST'])
+def v3517_api_certifications():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify({'success':True, **_v3517_snapshot(u)})
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,cid = _v3517_issue(u,p.get('drill_id'),p.get('operator') or '',p.get('certification_scope') or '',p.get('validity_days') or 30,p.get('issue_evidence') or '')
+    return jsonify({'success':ok,'error':e,'certification_id':cid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-operator-certifications/<int:cert_id>/decision', methods=['POST'])
+def v3517_api_decision(cert_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data = _v3517_decide(u,cert_id,p.get('decision'),p.get('recertification_evidence') or '',p.get('revocation_reason') or '')
+    return jsonify({'success':ok,'error':e,'certification':data}), (200 if ok else 400)
+
+
+@app.route('/hunter-operator-certifications')
+def v3517_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3517_snapshot(u); esc = html.escape
+    opts=''.join(f"<option value='{int(r['id'])}'>Verified Drill #{int(r['id'])} — {esc(r.get('scenario') or '')}</option>" for r in d['verified_drills'])
+    cards=[]
+    for x in d['certifications']:
+        state=esc(x.get('certification_state') or '')
+        drill=x.get('drill') or {}
+        action=''
+        if x.get('certification_state') != 'REVOKED':
+            action=f"""<form action='/api/hunter-operator-certifications/{int(x['id'])}/decision' onsubmit='return v3517submit(this,event)'><textarea name='recertification_evidence' placeholder='Fresh recertification evidence'></textarea><div class='actions'><button name='decision' value='RECERTIFY' class='safe'>RECERTIFY</button></div></form><form action='/api/hunter-operator-certifications/{int(x['id'])}/decision' onsubmit='return v3517submit(this,event)'><input name='revocation_reason' placeholder='Revocation reason'><button name='decision' value='REVOKE' class='danger'>REVOKE</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>Certification #{int(x['id'])}</span><span class='pill'>{state}</span></div><h2>{esc(x.get('operator') or '')}</h2><p><b>Scope:</b> {esc(x.get('certification_scope') or '')}</p><p class='muted'>Drill #{int(x['drill_id'])} · {esc(drill.get('scenario') or 'Verified drill')} · Due {esc(x.get('due_at') or '-')}</p>{action}</article>""")
+    co=d['counts']
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.17 Operator Certification</title><style>body{{margin:0;background:#06070a;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #2f4654;background:#0a0f14;border-radius:20px;padding:18px}}.eyebrow{{color:#a7ffcf;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#90a8b5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#a7ffcf}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.actions{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #348f68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.danger{{border-color:#a94455}}a{{color:#a7ffcf}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.17 · OPERATOR CERTIFICATION + RECERTIFICATION GATE</div><h1>Prove the operator can execute it again.</h1><p class='muted'>Verified drills become time-bounded certifications with explicit recertification evidence or revocation.</p><div class='stats'><div><div class='num'>{}</div>CERTIFIED</div><div><div class='num'>{}</div>DUE</div><div><div class='num'>{}</div>RECERTIFIED</div><div><div class='num'>{}</div>REVOKED</div></div><p><a href='/hunter-knowledge-drills'>← Knowledge Drills</a> · <a href='/api/hunter-operator-certifications'>JSON</a></p></section><section class='card'><h2>Issue certification</h2><form action='/api/hunter-operator-certifications' onsubmit='return v3517submit(this,event)'><select name='drill_id' required><option value=''>Select verified drill</option>{}</select><input name='operator' value='{}' placeholder='Operator' required><input name='certification_scope' placeholder='Certification scope' required><input name='validity_days' type='number' min='1' max='3650' value='30'><textarea name='issue_evidence' placeholder='Issue evidence (optional; defaults to drill execution evidence)'></textarea><button>ISSUE CERTIFICATION</button></form></section><section class='grid'>{}</section></div><script>async function v3517submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(co.get('CERTIFIED',0),co.get('DUE',0),co.get('RECERTIFIED',0),co.get('REVOKED',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No operator certifications yet.</p></article>")
+
+
+# Add navigation from V35.16 into V35.17.
+try:
+    _v3517_prev_page=app.view_functions.get('v3516_page')
+    if _v3517_prev_page:
+        def _v3517_drills_with_certification(*args,**kwargs):
+            response=_v3517_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-operator-certifications' not in response:
+                response=response.replace("<a href='/api/hunter-knowledge-drills'>JSON</a>","<a href='/api/hunter-knowledge-drills'>JSON</a><a href='/hunter-operator-certifications'>🏅 OPERATOR CERTIFICATION</a>",1)
+            return response
+        app.view_functions['v3516_page']=_v3517_drills_with_certification
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
