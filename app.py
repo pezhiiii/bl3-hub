@@ -85139,6 +85139,353 @@ except Exception:
 
 
 
+# ===== V35.36 DECISION PACKAGE + APPROVAL EVIDENCE GATE =====
+# V35.35 proves that a FIT discovery can become an aligned mutual action plan.
+# V35.36 turns a completed plan into a bounded, evidence-backed decision package:
+#
+# COMPLETE MAP -> DRAFT -> REVIEW_READY -> DECISION_PENDING -> APPROVED / DECLINED
+#
+# BL3 does not invent executive approval, customer acceptance, commercial terms,
+# or external decisions. A final decision requires explicit operator-entered evidence.
+
+V3536_VERSION = "V35.36"
+V3536_STATES = {"DRAFT", "REVIEW_READY", "DECISION_PENDING", "APPROVED", "DECLINED", "WITHDRAWN", "STALE"}
+
+
+def _v3536_now_iso():
+    return _v3535_now_iso()
+
+
+def _v3536_hash(payload):
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _v3536_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_decision_packages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            plan_id INTEGER NOT NULL,
+            package_title TEXT NOT NULL,
+            executive_summary TEXT NOT NULL,
+            business_case TEXT,
+            technical_validation TEXT,
+            risk_notes TEXT,
+            requested_decision TEXT,
+            decision_owner TEXT,
+            decision_deadline TEXT,
+            package_state TEXT NOT NULL DEFAULT 'DRAFT',
+            review_evidence TEXT,
+            decision_evidence TEXT,
+            decision_note TEXT,
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            review_ready_at TEXT,
+            submitted_at TEXT,
+            decided_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, plan_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3536_user_state ON hunter_decision_packages(username,package_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_decision_package_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            package_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT,
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3536_events_package ON hunter_decision_package_events(username,package_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3536_init()
+except Exception:
+    pass
+
+
+def _v3536_event(con, username, package_id, event_type, detail="", extra=None):
+    created = _v3536_now_iso()
+    payload = {
+        "package_id": int(package_id),
+        "event_type": str(event_type or "EVENT")[:80],
+        "detail": str(detail or '')[:1800],
+        "extra": extra or {},
+        "created_at": created,
+    }
+    digest = _v3536_hash(payload)
+    con.execute("""INSERT INTO hunter_decision_package_events
+                   (username,package_id,event_type,detail,evidence_digest,created_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (username, int(package_id), payload["event_type"], payload["detail"], digest, created))
+    return digest
+
+
+def _v3536_plan(username, plan_id):
+    return _v3535_entry(username, int(plan_id))
+
+
+def _v3536_entry(username, package_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_decision_packages WHERE username=? AND id=?", (username, int(package_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        plan = _v3536_plan(username, d['plan_id'])
+        d['plan'] = plan
+        state = str(d.get('package_state') or 'DRAFT')
+        source_current = bool(plan and plan.get('plan_state') == 'COMPLETE')
+        if not source_current and state not in {'APPROVED','DECLINED','WITHDRAWN','STALE'}:
+            now = _v3536_now_iso()
+            con.execute("UPDATE hunter_decision_packages SET package_state='STALE',updated_at=? WHERE username=? AND id=?",
+                        (now, username, int(package_id)))
+            _v3536_event(con, username, package_id, 'SOURCE_STALE', 'Completed mutual action plan is no longer current.')
+            con.commit(); state = 'STALE'
+        d['package_state'] = state
+        d['source_current'] = source_current
+        events = con.execute("SELECT * FROM hunter_decision_package_events WHERE username=? AND package_id=? ORDER BY id DESC LIMIT 30",
+                             (username, int(package_id))).fetchall()
+        d['events'] = [dict(x) for x in events]
+        return d
+    finally:
+        con.close()
+
+
+def _v3536_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = con.execute("SELECT id FROM hunter_decision_packages WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        completed = con.execute("SELECT id FROM hunter_mutual_action_plans WHERE username=? AND plan_state='COMPLETE' ORDER BY id DESC", (username,)).fetchall()
+        used = {int(r['plan_id']) for r in con.execute("SELECT plan_id FROM hunter_decision_packages WHERE username=?", (username,)).fetchall()}
+    finally:
+        con.close()
+    items = [x for x in (_v3536_entry(username, r['id']) for r in ids) if x]
+    eligible = []
+    for r in completed:
+        pid = int(r['id'])
+        if pid not in used:
+            p = _v3535_entry(username, pid)
+            if p and p.get('plan_state') == 'COMPLETE':
+                eligible.append(p)
+    counts = {k: 0 for k in V3536_STATES}
+    for x in items:
+        s = str(x.get('package_state') or 'DRAFT'); counts[s] = counts.get(s, 0) + 1
+    return {"success": True, "version": V3536_VERSION, "items": items, "eligible_plans": eligible, "counts": counts}
+
+
+def _v3536_create(username, plan_id, package_title, executive_summary, decision_deadline=''):
+    plan = _v3536_plan(username, plan_id)
+    if not plan or plan.get('plan_state') != 'COMPLETE':
+        return False, 'completed_mutual_action_plan_required', None
+    title = str(package_title or '').strip()[:300]
+    summary = str(executive_summary or '').strip()[:6000]
+    if not title or not summary:
+        return False, 'title_and_executive_summary_required', None
+    now = _v3536_now_iso()
+    seed = {
+        "plan_id": int(plan_id), "package_title": title,
+        "executive_summary": summary,
+        "decision_deadline": str(decision_deadline or '')[:40],
+        "created_at": now,
+    }
+    digest = _v3536_hash(seed)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_decision_packages
+                (username,plan_id,package_title,executive_summary,decision_deadline,package_state,evidence_digest,created_at,updated_at)
+                VALUES(?,?,?,?,?,'DRAFT',?,?,?)""",
+                (username, int(plan_id), title, summary, str(decision_deadline or '')[:40], digest, now, now))
+        except sqlite3.IntegrityError:
+            return False, 'decision_package_already_exists_for_plan', None
+        did = int(cur.lastrowid)
+        _v3536_event(con, username, did, 'PACKAGE_CREATED', f'Decision package created from completed plan #{int(plan_id)}.', seed)
+        con.commit(); return True, None, did
+    finally:
+        con.close()
+
+
+def _v3536_prepare(username, package_id, business_case, technical_validation, risk_notes, requested_decision, decision_owner):
+    item = _v3536_entry(username, package_id)
+    if not item: return False, 'package_not_found', None
+    if item.get('package_state') != 'DRAFT': return False, 'draft_state_required', None
+    business = str(business_case or '').strip()[:7000]
+    technical = str(technical_validation or '').strip()[:7000]
+    risks = str(risk_notes or '').strip()[:7000]
+    requested = str(requested_decision or '').strip()[:2500]
+    owner = str(decision_owner or '').strip()[:300]
+    if not business or not technical or not risks or not requested or not owner:
+        return False, 'business_technical_risk_decision_and_owner_required', None
+    now = _v3536_now_iso()
+    payload = {"business_case":business,"technical_validation":technical,"risk_notes":risks,
+               "requested_decision":requested,"decision_owner":owner,"review_ready_at":now}
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_decision_packages SET business_case=?,technical_validation=?,risk_notes=?,
+                       requested_decision=?,decision_owner=?,package_state='REVIEW_READY',review_ready_at=?,updated_at=?
+                       WHERE username=? AND id=?""",
+                    (business,technical,risks,requested,owner,now,now,username,int(package_id)))
+        _v3536_event(con, username, package_id, 'REVIEW_READY', 'Decision package prepared for evidence review.', payload)
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3536_entry(username, package_id)
+
+
+def _v3536_submit(username, package_id, review_evidence):
+    item = _v3536_entry(username, package_id)
+    if not item: return False, 'package_not_found', None
+    if item.get('package_state') != 'REVIEW_READY': return False, 'review_ready_state_required', None
+    evidence = str(review_evidence or '').strip()[:8000]
+    if not evidence: return False, 'explicit_review_evidence_required', None
+    now = _v3536_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_decision_packages SET review_evidence=?,package_state='DECISION_PENDING',submitted_at=?,updated_at=?
+                       WHERE username=? AND id=?""", (evidence,now,now,username,int(package_id)))
+        _v3536_event(con, username, package_id, 'DECISION_PENDING', 'Package submitted for an explicit decision.', {"review_evidence":evidence})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3536_entry(username, package_id)
+
+
+def _v3536_decide(username, package_id, decision, decision_evidence, decision_note=''):
+    item = _v3536_entry(username, package_id)
+    if not item: return False, 'package_not_found', None
+    if item.get('package_state') != 'DECISION_PENDING': return False, 'decision_pending_state_required', None
+    action = str(decision or '').strip().upper()
+    if action not in {'APPROVE','DECLINE'}: return False, 'decision_must_be_approve_or_decline', None
+    evidence = str(decision_evidence or '').strip()[:10000]
+    note = str(decision_note or '').strip()[:5000]
+    if not evidence: return False, 'explicit_decision_evidence_required', None
+    state = 'APPROVED' if action == 'APPROVE' else 'DECLINED'
+    now = _v3536_now_iso()
+    payload = {"decision":state,"decision_evidence":evidence,"decision_note":note,"decided_at":now}
+    digest = _v3536_hash(payload)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_decision_packages SET package_state=?,decision_evidence=?,decision_note=?,
+                       evidence_digest=?,decided_at=?,updated_at=? WHERE username=? AND id=?""",
+                    (state,evidence,note,digest,now,now,username,int(package_id)))
+        _v3536_event(con, username, package_id, f'DECISION_{state}', f'Explicit decision recorded as {state}.', payload)
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3536_entry(username, package_id)
+
+
+def _v3536_withdraw(username, package_id, note=''):
+    item = _v3536_entry(username, package_id)
+    if not item: return False, 'package_not_found', None
+    if item.get('package_state') in {'APPROVED','DECLINED','WITHDRAWN','STALE'}:
+        return False, 'package_not_withdrawable', None
+    reason = str(note or '').strip()[:5000]
+    now = _v3536_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_decision_packages SET package_state='WITHDRAWN',decision_note=?,updated_at=? WHERE username=? AND id=?",
+                    (reason,now,username,int(package_id)))
+        _v3536_event(con, username, package_id, 'WITHDRAWN', reason or 'Package withdrawn by operator.')
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3536_entry(username, package_id)
+
+
+@app.route('/api/hunter-decision-packages', methods=['GET','POST'])
+def v3536_api():
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET': return jsonify(_v3536_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,did = _v3536_create(u,p.get('plan_id'),p.get('package_title'),p.get('executive_summary'),p.get('decision_deadline') or '')
+    return jsonify({'success':ok,'error':e,'package_id':did}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-decision-packages/<int:package_id>/prepare', methods=['POST'])
+def v3536_api_prepare(package_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3536_prepare(u,package_id,p.get('business_case'),p.get('technical_validation'),p.get('risk_notes'),p.get('requested_decision'),p.get('decision_owner'))
+    return jsonify({'success':ok,'error':e,'package':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-decision-packages/<int:package_id>/submit', methods=['POST'])
+def v3536_api_submit(package_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3536_submit(u,package_id,p.get('review_evidence'))
+    return jsonify({'success':ok,'error':e,'package':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-decision-packages/<int:package_id>/decision', methods=['POST'])
+def v3536_api_decision(package_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3536_decide(u,package_id,p.get('decision'),p.get('decision_evidence'),p.get('decision_note') or '')
+    return jsonify({'success':ok,'error':e,'package':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-decision-packages/<int:package_id>/withdraw', methods=['POST'])
+def v3536_api_withdraw(package_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3536_withdraw(u,package_id,p.get('note') or '')
+    return jsonify({'success':ok,'error':e,'package':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-decision-packages')
+def v3536_page():
+    u = session.get('authenticated_username')
+    if not u: return redirect('/')
+    d = _v3536_snapshot(u); c=d['counts']; esc=html.escape
+    opts=''.join(f"<option value='{int(x['id'])}'>Plan #{int(x['id'])} · {esc(((x.get('discovery') or {}).get('lead') or {}).get('organization') or 'Opportunity')} · {esc((x.get('discovery') or {}).get('recommended_route') or 'route')}</option>" for x in d['eligible_plans'])
+    cards=[]
+    for x in d['items']:
+        did=int(x['id']); state=str(x.get('package_state') or ''); plan=x.get('plan') or {}; discovery=plan.get('discovery') or {}; lead=discovery.get('lead') or {}
+        actions=''
+        if state=='DRAFT':
+            actions += f"""<form action='/api/hunter-decision-packages/{did}/prepare' onsubmit='return v3536submit(this,event)'><textarea name='business_case' placeholder='Business case / expected value' required></textarea><textarea name='technical_validation' placeholder='Technical validation / implementation evidence' required></textarea><textarea name='risk_notes' placeholder='Risks, constraints, unresolved items' required></textarea><textarea name='requested_decision' placeholder='Exact decision being requested' required></textarea><input name='decision_owner' placeholder='Decision owner / role' required><button>PREPARE REVIEW</button></form>"""
+        if state=='REVIEW_READY':
+            actions += f"""<form action='/api/hunter-decision-packages/{did}/submit' onsubmit='return v3536submit(this,event)'><textarea name='review_evidence' placeholder='Explicit evidence that the package was reviewed / ready for decision' required></textarea><button class='safe'>SUBMIT FOR DECISION</button></form>"""
+        if state=='DECISION_PENDING':
+            actions += f"""<form action='/api/hunter-decision-packages/{did}/decision' onsubmit='return v3536submit(this,event)'><textarea name='decision_evidence' placeholder='Explicit decision evidence' required></textarea><textarea name='decision_note' placeholder='Decision note / conditions'></textarea><div class='actions'><button name='decision' value='APPROVE' class='safe'>RECORD APPROVAL</button><button name='decision' value='DECLINE' class='danger'>RECORD DECLINE</button></div></form>"""
+        if state not in {'APPROVED','DECLINED','WITHDRAWN','STALE'}:
+            actions += f"""<form action='/api/hunter-decision-packages/{did}/withdraw' onsubmit='return v3536submit(this,event)'><input name='note' placeholder='Withdrawal note'><button class='danger'>WITHDRAW PACKAGE</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>Decision Package #{did}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(x.get('package_title') or '')}</h2><p><b>Organization:</b> {esc(lead.get('organization') or '—')}</p><p>{esc(x.get('executive_summary') or '')}</p><p class='muted'>Plan #{int(x['plan_id'])} · Owner {esc(x.get('decision_owner') or '—')} · Deadline {esc(x.get('decision_deadline') or '—')}</p>{actions}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.36 Decision Packages</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1280px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #344957;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#8fffd3;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:26px;font-weight:900;color:#8fffd3}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}.top,.actions{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3b7e68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.danger{{border-color:#9e3f55}}a{{color:#8fffd3}}@media(max-width:850px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.36 · DECISION PACKAGE + APPROVAL EVIDENCE GATE</div><h1>Turn shared alignment into an explicit decision.</h1><p class='muted'>Package the business case, technical validation, risks, owner and exact ask. BL3 never invents executive approval or rejection: a final decision requires explicit evidence.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>REVIEW</div><div><div class='num'>{}</div>PENDING</div><div><div class='num'>{}</div>DECIDED</div></div><p><a href='/hunter-mutual-action-plans'>← Mutual Action Plans</a> · <a href='/api/hunter-decision-packages'>JSON</a></p></section><section class='card' style='margin-top:18px'><h2>Create decision package</h2><form action='/api/hunter-decision-packages' onsubmit='return v3536submit(this,event)'><select name='plan_id' required><option value=''>Completed mutual action plan</option>{}</select><input name='package_title' placeholder='Decision package title' required><textarea name='executive_summary' placeholder='Executive summary' required></textarea><input name='decision_deadline' type='date'><button>CREATE PACKAGE</button></form></section><section class='grid'>{}</section></div><script>async function v3536submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0),c.get('REVIEW_READY',0),c.get('DECISION_PENDING',0),c.get('APPROVED',0)+c.get('DECLINED',0),opts,''.join(cards) or "<article class='card'><p>No decision packages yet.</p></article>")
+
+
+# Add navigation from V35.35 into V35.36.
+try:
+    _v3536_prev_page = app.view_functions.get('v3535_page')
+    if _v3536_prev_page:
+        def _v3536_map_with_decision(*args, **kwargs):
+            response = _v3536_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-decision-packages' not in response:
+                response = response.replace("<a href='/api/hunter-mutual-action-plans'>JSON</a>", "<a href='/api/hunter-mutual-action-plans'>JSON</a> · <a href='/hunter-decision-packages'>📑 DECISION PACKAGE</a>", 1)
+            return response
+        app.view_functions['v3535_page'] = _v3536_map_with_decision
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -85266,6 +85613,7 @@ if __name__ == "__main__":
     print("📣 Reference Distribution + Qualified Lead Attribution Gate enabled")
     print("📅 Qualified Lead Discovery + Fit Score Gate enabled")
     print("🗺️ Solution Mapping + Mutual Action Plan Gate enabled")
+    print("📑 Decision Package + Approval Evidence Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
