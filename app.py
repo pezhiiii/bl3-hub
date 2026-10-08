@@ -63033,6 +63033,295 @@ except Exception:
     pass
 
 
+
+# ===== V34.0 GOVERNANCE FEEDBACK LOOP + CONTROL HARDENING GATE =====
+V340_VERSION = "V34.0"
+V340_TYPES = {"TIGHTEN_GUARDRAIL","ADD_PRECHECK","ADD_MONITORING","ADD_APPROVAL","CLARIFY_SCOPE","ADD_ROLLBACK_RULE"}
+
+def _v340_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS hunter_governance_hardening_proposals(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            corrective_seal_id INTEGER NOT NULL UNIQUE,
+            corrective_action_id INTEGER NOT NULL,
+            enforcement_id INTEGER NOT NULL,
+            policy_id INTEGER NOT NULL,
+            hardening_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            proposal_text TEXT NOT NULL,
+            verification_text TEXT,
+            proposal_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            staged_at TEXT,
+            adopted_at TEXT,
+            retired_at TEXT,
+            retire_note TEXT
+        )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS hunter_governance_hardening_reviews(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            proposal_id INTEGER NOT NULL,
+            review_state TEXT NOT NULL,
+            review_note TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v340_prop_state ON hunter_governance_hardening_proposals(username,proposal_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v340_review_prop ON hunter_governance_hardening_reviews(username,proposal_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v340_init()
+except Exception:
+    pass
+
+def _v340_proposal(username, seal_id=None, proposal_id=None):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        if proposal_id is not None:
+            r=con.execute("SELECT * FROM hunter_governance_hardening_proposals WHERE username=? AND id=?",(username,int(proposal_id))).fetchone()
+        else:
+            r=con.execute("SELECT * FROM hunter_governance_hardening_proposals WHERE username=? AND corrective_seal_id=? ORDER BY id DESC LIMIT 1",(username,int(seal_id))).fetchone()
+        return dict(r) if r else None
+    finally:
+        con.close()
+
+def _v340_reviews(username, proposal_id):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        rows=con.execute("SELECT * FROM hunter_governance_hardening_reviews WHERE username=? AND proposal_id=? ORDER BY id DESC",(username,int(proposal_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+def _v340_save(username, seal_id, hardening_type, title, proposal_text, verification_text=""):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("""SELECT s.*,a.policy_id FROM hunter_corrective_stability_seals s
+                         JOIN hunter_policy_corrective_actions a ON a.id=s.corrective_action_id
+                         WHERE s.username=? AND s.id=? AND s.seal_state='SEALED'""",(username,int(seal_id))).fetchone()
+        seal=dict(r) if r else None
+    finally:
+        con.close()
+    if not seal: return False,"sealed_correction_required",None
+    h=str(hardening_type or "").strip().upper()
+    if h not in V340_TYPES: return False,"invalid_hardening_type",None
+    title=str(title or "").strip(); proposal_text=str(proposal_text or "").strip()
+    if not title or not proposal_text: return False,"title_and_proposal_required",None
+    existing=_v340_proposal(username,seal_id=seal_id)
+    if existing and str(existing.get("proposal_state") or "")!="DRAFT":
+        return False,"proposal_not_editable",int(existing["id"])
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        if existing:
+            con.execute("""UPDATE hunter_governance_hardening_proposals
+                           SET hardening_type=?,title=?,proposal_text=?,verification_text=?
+                           WHERE id=? AND username=? AND proposal_state='DRAFT'""",
+                        (h,title[:240],proposal_text[:5000],str(verification_text or "")[:3000],int(existing["id"]),username))
+            pid=int(existing["id"])
+        else:
+            cur=con.execute("""INSERT INTO hunter_governance_hardening_proposals
+                (username,corrective_seal_id,corrective_action_id,enforcement_id,policy_id,hardening_type,title,proposal_text,verification_text,proposal_state,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,'DRAFT',?)""",
+                (username,int(seal_id),int(seal["corrective_action_id"]),int(seal["enforcement_id"]),int(seal["policy_id"]),h,title[:240],proposal_text[:5000],str(verification_text or "")[:3000],now))
+            pid=int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+    return True,None,pid
+
+def _v340_review(username, proposal_id, review_state, note=""):
+    p=_v340_proposal(username,proposal_id=proposal_id)
+    if not p: return False,"proposal_not_found",None
+    if str(p.get("proposal_state") or "")!="DRAFT": return False,"proposal_not_draft",None
+    rs=str(review_state or "").strip().upper()
+    if rs not in {"APPROVE","REQUEST_CHANGES","REJECT"}: return False,"invalid_review_state",None
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO hunter_governance_hardening_reviews(username,proposal_id,review_state,review_note,created_at) VALUES(?,?,?,?,?)",
+                        (username,int(proposal_id),rs,str(note or "")[:2400],now))
+        rid=int(cur.lastrowid); con.commit()
+    finally:
+        con.close()
+    return True,None,rid
+
+def _v340_stage(username, proposal_id):
+    p=_v340_proposal(username,proposal_id=proposal_id)
+    if not p: return False,"proposal_not_found",None
+    if str(p.get("proposal_state") or "")!="DRAFT": return False,"proposal_not_draft",int(p["id"])
+    if not any(str(r.get("review_state") or "")=="APPROVE" for r in _v340_reviews(username,proposal_id)):
+        return False,"approval_review_required",None
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_governance_hardening_proposals SET proposal_state='STAGED',staged_at=? WHERE id=? AND username=? AND proposal_state='DRAFT'",
+                    (now,int(proposal_id),username)); con.commit()
+    finally: con.close()
+    return True,None,int(proposal_id)
+
+def _v340_adopt(username, proposal_id):
+    p=_v340_proposal(username,proposal_id=proposal_id)
+    if not p: return False,"proposal_not_found",None
+    if str(p.get("proposal_state") or "")!="STAGED": return False,"proposal_not_staged",int(p["id"])
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_governance_hardening_proposals SET proposal_state='ADOPTED',adopted_at=? WHERE id=? AND username=? AND proposal_state='STAGED'",
+                    (now,int(proposal_id),username)); con.commit()
+    finally: con.close()
+    try:
+        _v316_log_event(username,"","GOVERNANCE_HARDENING_ADOPTED",
+                        detail="V34.0 hardening proposal #%s adopted for policy #%s. No runtime mutation occurred automatically."%(int(proposal_id),int(p.get("policy_id") or 0)))
+    except Exception:
+        pass
+    return True,None,int(proposal_id)
+
+def _v340_retire(username, proposal_id, note=""):
+    p=_v340_proposal(username,proposal_id=proposal_id)
+    if not p: return False,"proposal_not_found",None
+    if str(p.get("proposal_state") or "")!="ADOPTED": return False,"proposal_not_adopted",int(p["id"])
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_governance_hardening_proposals SET proposal_state='RETIRED',retired_at=?,retire_note=?
+                       WHERE id=? AND username=? AND proposal_state='ADOPTED'""",
+                    (now,str(note or "Explicit V34.0 retirement.")[:2400],int(proposal_id),username))
+        con.commit()
+    finally: con.close()
+    return True,None,int(proposal_id)
+
+def _v340_snapshot(username):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        seals=[dict(r) for r in con.execute("""SELECT s.*,a.objective,a.policy_id,p.title AS policy_title,p.policy_type,p.rule_text
+                 FROM hunter_corrective_stability_seals s
+                 JOIN hunter_policy_corrective_actions a ON a.id=s.corrective_action_id
+                 JOIN hunter_learning_policy_candidates p ON p.id=a.policy_id
+                 WHERE s.username=? AND s.seal_state='SEALED' ORDER BY s.id DESC""",(username,)).fetchall()]
+        props=[dict(r) for r in con.execute("SELECT * FROM hunter_governance_hardening_proposals WHERE username=? ORDER BY id DESC",(username,)).fetchall()]
+    finally: con.close()
+    byseal={int(p["corrective_seal_id"]):p for p in props}
+    items=[]
+    for s in seals:
+        pr=byseal.get(int(s["id"])); reviews=_v340_reviews(username,int(pr["id"])) if pr else []
+        x=dict(s); x["proposal"]=pr; x["reviews"]=reviews
+        x["has_approval"]=any(str(r.get("review_state") or "")=="APPROVE" for r in reviews)
+        items.append(x)
+    return {"version":V340_VERSION,
+            "counts":{"sealed_corrections":len(seals),
+                      "draft":sum(1 for p in props if p.get("proposal_state")=="DRAFT"),
+                      "staged":sum(1 for p in props if p.get("proposal_state")=="STAGED"),
+                      "adopted":sum(1 for p in props if p.get("proposal_state")=="ADOPTED")},
+            "items":items,
+            "policy":"Sealed corrective evidence can inform governance, but hardening requires explicit review, staging, and adoption."}
+
+@app.route("/api/hunter-governance-hardening")
+def v340_api():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,**_v340_snapshot(u)})
+
+@app.route("/api/hunter-governance-hardening/seal/<int:seal_id>/save",methods=["POST"])
+def v340_save_api(seal_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,pid=_v340_save(u,seal_id,p.get("hardening_type"),p.get("title"),p.get("proposal_text"),p.get("verification_text"))
+    if not ok: return jsonify({"success":False,"error":e,"proposal_id":pid}),400
+    return jsonify({"success":True,"proposal_id":pid})
+
+@app.route("/api/hunter-governance-hardening/proposal/<int:proposal_id>/review",methods=["POST"])
+def v340_review_api(proposal_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,rid=_v340_review(u,proposal_id,p.get("review_state"),p.get("review_note") or p.get("note") or "")
+    if not ok: return jsonify({"success":False,"error":e,"review_id":rid}),400
+    return jsonify({"success":True,"review_id":rid})
+
+@app.route("/api/hunter-governance-hardening/proposal/<int:proposal_id>/stage",methods=["POST"])
+def v340_stage_api(proposal_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,pid=_v340_stage(u,proposal_id)
+    if not ok: return jsonify({"success":False,"error":e,"proposal_id":pid}),400
+    return jsonify({"success":True,"proposal_id":pid})
+
+@app.route("/api/hunter-governance-hardening/proposal/<int:proposal_id>/adopt",methods=["POST"])
+def v340_adopt_api(proposal_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,pid=_v340_adopt(u,proposal_id)
+    if not ok: return jsonify({"success":False,"error":e,"proposal_id":pid}),400
+    return jsonify({"success":True,"proposal_id":pid})
+
+@app.route("/api/hunter-governance-hardening/proposal/<int:proposal_id>/retire",methods=["POST"])
+def v340_retire_api(proposal_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form or {}
+    ok,e,pid=_v340_retire(u,proposal_id,p.get("note") or "")
+    if not ok: return jsonify({"success":False,"error":e,"proposal_id":pid}),400
+    return jsonify({"success":True,"proposal_id":pid})
+
+@app.route("/hunter-governance-hardening")
+def v340_page():
+    u=session.get("authenticated_username")
+    if not u:
+        return "<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'><h1>🧠 Governance Hardening</h1><p>Sign in to continue.</p></body>",401
+    d=_v340_snapshot(u); c=d["counts"]; esc=lambda v: html.escape(str(v if v is not None else ""))
+    cards=[]
+    for item in d["items"]:
+        sid=int(item["id"]); p=item.get("proposal") or {}; state=str(p.get("proposal_state") or ""); reviews=item.get("reviews") or []
+        actions=""
+        if not p:
+            actions=f"""<form action='/api/hunter-governance-hardening/seal/{sid}/save' onsubmit='return v340submit(this,event)'>
+            <select name='hardening_type'><option>TIGHTEN_GUARDRAIL</option><option>ADD_PRECHECK</option><option>ADD_MONITORING</option><option>ADD_APPROVAL</option><option>CLARIFY_SCOPE</option><option>ADD_ROLLBACK_RULE</option></select>
+            <input name='title' placeholder='Hardening proposal title'><textarea name='proposal_text' rows='4' placeholder='What should governance change?'></textarea>
+            <textarea name='verification_text' rows='2' placeholder='How should this change be verified?'></textarea><button>CREATE HARDENING PROPOSAL</button></form>"""
+        elif state=="DRAFT":
+            actions+=f"<div class='box'><b>{esc(p.get('hardening_type'))}</b><h3>{esc(p.get('title'))}</h3><p>{esc(p.get('proposal_text'))}</p></div>"
+            actions+=f"""<form action='/api/hunter-governance-hardening/proposal/{int(p['id'])}/review' onsubmit='return v340submit(this,event)'>
+            <select name='review_state'><option>APPROVE</option><option>REQUEST_CHANGES</option><option>REJECT</option></select>
+            <textarea name='review_note' rows='2' placeholder='Review note'></textarea><button>ADD REVIEW</button></form>"""
+            if item.get("has_approval"):
+                actions+=f"<form action='/api/hunter-governance-hardening/proposal/{int(p['id'])}/stage' onsubmit='return v340submit(this,event)'><button class='warn'>STAGE HARDENING</button></form>"
+        elif state=="STAGED":
+            actions+=f"<div class='box'><b>STAGED</b><h3>{esc(p.get('title'))}</h3></div><form action='/api/hunter-governance-hardening/proposal/{int(p['id'])}/adopt' onsubmit='return v340submit(this,event)'><button class='safe'>ADOPT HARDENING</button></form>"
+        elif state=="ADOPTED":
+            actions+=f"<div class='adopted'>GOVERNANCE HARDENING ADOPTED</div><form action='/api/hunter-governance-hardening/proposal/{int(p['id'])}/retire' onsubmit='return v340submit(this,event)'><textarea name='note' placeholder='Retirement reason'></textarea><button class='danger'>RETIRE HARDENING</button></form>"
+        else:
+            actions+="<div class='retired'>HARDENING RETIRED</div>"
+        rh="".join(f"<div class='review'><b>{esc(r.get('review_state'))}</b><span>{esc(r.get('review_note'))}</span></div>" for r in reviews[:6]) or "<div class='muted'>No reviews yet.</div>"
+        cards.append(f"<article class='card'><div class='top'><span>Correction Seal #{sid}</span><span class='pill'>{esc(state or 'SEALED CORRECTION')}</span></div><h2>{esc(item.get('policy_title'))}</h2><p><b>{esc(item.get('policy_type'))}</b></p><p class='muted'>{esc(item.get('objective'))}</p>{actions}<div>{rh}</div></article>")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V34.0 Governance Hardening</title>
+    <style>body{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}.wrap{max-width:1180px;margin:auto;padding:28px}.hero,.card{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}.eyebrow{color:#d0a6ff;font-size:11px;letter-spacing:1.6px;font-weight:900}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}.num{font-size:26px;font-weight:900;color:#d0a6ff}.top{display:flex;justify-content:space-between}.pill{border:1px solid #5a3d77;border-radius:999px;padding:5px 8px;color:#d0a6ff;font-size:11px}.muted{color:#8ca7b4}textarea,select,input{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}button{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}.warn{background:#ffd66f}.safe{background:#8bf0c8}.danger{background:#ff8797}.box,.adopted,.retired{margin-top:10px;padding:12px;border:1px solid #3a2e4d;border-radius:12px;background:#100a17}.adopted{background:#0e2a21;color:#9bf2cb}.retired{background:#180c0f;color:#ffb5bf}.review{border-top:1px solid #15313f;padding:8px 0}.review b{display:block;color:#d0a6ff}.nav a{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}@media(max-width:760px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}</style></head>
+    <body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V34.0 // GOVERNANCE FEEDBACK LOOP + CONTROL HARDENING GATE</div><h1>🧠 HARDEN THE SYSTEM</h1>
+    <p class='muted'>Turn sealed corrective-action evidence into reviewed governance hardening proposals—without silently rewriting active policy.</p>
+    <div class='stats'><div class='card'><div class='eyebrow'>SEALED CORRECTIONS</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>DRAFT</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>STAGED</div><div class='num'>{}</div></div><div class='card'><div class='eyebrow'>ADOPTED</div><div class='num'>{}</div></div></div>
+    <div class='nav'><a href='/hunter-corrective-stability'>🧷 CORRECTIVE STABILITY</a><a href='/hunter-policy-compliance'>🧾 POLICY COMPLIANCE</a><a href='/api/hunter-governance-hardening'>JSON</a></div></section>
+    <section class='grid'>{}</section></div><script>
+    async function v340submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(c["sealed_corrections"],c["draft"],c["staged"],c["adopted"],"".join(cards) or "<article class='card'><p>No sealed corrections are ready for governance hardening.</p></article>")
+
+try:
+    _v340_prev_page=app.view_functions.get("v339_page")
+    if _v340_prev_page:
+        def _v340_prev_with_link(*args,**kwargs):
+            response=_v340_prev_page(*args,**kwargs)
+            if isinstance(response,str) and "/hunter-governance-hardening" not in response:
+                response=response.replace("<a href='/api/hunter-corrective-stability'>JSON</a>","<a href='/api/hunter-corrective-stability'>JSON</a><a href='/hunter-governance-hardening'>🧠 GOVERNANCE HARDENING</a>",1)
+            return response
+        app.view_functions["v339_page"]=_v340_prev_with_link
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
