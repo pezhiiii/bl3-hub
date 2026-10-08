@@ -84347,6 +84347,375 @@ except Exception:
     pass
 
 
+
+# ===== V35.34 QUALIFIED LEAD DISCOVERY + FIT SCORE GATE =====
+# V35.33 proves which published reference generated a qualified lead.
+# V35.34 converts that lead into an auditable discovery process:
+#
+# QUALIFIED LEAD -> DISCOVERY SCHEDULED -> COMPLETED -> FIT SCORE -> ROUTE / NO FIT
+#
+# Discovery never invents commercial intent. Scores are operator-entered observations,
+# and routing is explicit. No external meeting, contract, interview or pilot is created
+# automatically by this gate.
+
+V3534_VERSION = "V35.34"
+V3534_STATES = {"SCHEDULED", "COMPLETED", "FIT", "NO_FIT", "CANCELLED", "STALE"}
+V3534_ROUTES = {"DEMO", "PILOT", "COMMERCIAL", "INTERVIEW", "NURTURE", "OTHER"}
+V3534_FIT_THRESHOLD = 60
+
+
+def _v3534_now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3534_hash(payload):
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _v3534_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_lead_discovery_meetings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            lead_id INTEGER NOT NULL UNIQUE,
+            scheduled_for TEXT NOT NULL,
+            meeting_owner TEXT DEFAULT '',
+            meeting_mode TEXT DEFAULT 'CALL',
+            discovery_state TEXT NOT NULL DEFAULT 'SCHEDULED',
+            discovery_notes TEXT DEFAULT '',
+            recommended_route TEXT DEFAULT '',
+            routing_note TEXT DEFAULT '',
+            fit_score INTEGER DEFAULT 0,
+            fit_threshold INTEGER NOT NULL DEFAULT 60,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT '',
+            routed_at TEXT DEFAULT '',
+            cancelled_at TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            FOREIGN KEY(lead_id) REFERENCES hunter_reference_leads(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3534_user_state ON hunter_lead_discovery_meetings(username,discovery_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3534_lead ON hunter_lead_discovery_meetings(username,lead_id,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_lead_discovery_scores (
+            discovery_id INTEGER PRIMARY KEY,
+            need_score INTEGER NOT NULL DEFAULT 0,
+            urgency_score INTEGER NOT NULL DEFAULT 0,
+            decision_access_score INTEGER NOT NULL DEFAULT 0,
+            technical_fit_score INTEGER NOT NULL DEFAULT 0,
+            budget_signal_score INTEGER NOT NULL DEFAULT 0,
+            rationale TEXT DEFAULT '',
+            scored_at TEXT NOT NULL,
+            score_digest TEXT NOT NULL,
+            FOREIGN KEY(discovery_id) REFERENCES hunter_lead_discovery_meetings(id)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_lead_discovery_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            discovery_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            evidence_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(discovery_id) REFERENCES hunter_lead_discovery_meetings(id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3534_event_discovery ON hunter_lead_discovery_events(discovery_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3534_init()
+except Exception:
+    pass
+
+
+def _v3534_event(con, username, discovery_id, event_type, detail="", extra=None):
+    created = _v3534_now_iso()
+    payload = {
+        "username": str(username), "discovery_id": int(discovery_id),
+        "event_type": str(event_type), "detail": str(detail or ""),
+        "extra": extra or {}, "created_at": created
+    }
+    digest = _v3534_hash(payload)
+    con.execute("""INSERT INTO hunter_lead_discovery_events
+                   (username,discovery_id,event_type,detail,evidence_digest,created_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (username, int(discovery_id), str(event_type)[:80], str(detail or '')[:1600], digest, created))
+    return digest
+
+
+def _v3534_lead(username, lead_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_reference_leads WHERE username=? AND id=?", (username, int(lead_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3534_entry(username, discovery_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_lead_discovery_meetings WHERE username=? AND id=?", (username, int(discovery_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        lead = _v3534_lead(username, d['lead_id'])
+        d['lead'] = lead
+        source_current = bool(lead and str(lead.get('lead_state') or '') not in {'LOST','DISQUALIFIED'})
+        state = str(d.get('discovery_state') or 'SCHEDULED')
+        if not source_current and state not in {'NO_FIT','CANCELLED','STALE'}:
+            now = _v3534_now_iso()
+            con.execute("UPDATE hunter_lead_discovery_meetings SET discovery_state='STALE',updated_at=? WHERE username=? AND id=?", (now, username, int(discovery_id)))
+            _v3534_event(con, username, discovery_id, 'SOURCE_STALE', 'Attributed lead is no longer active.')
+            con.commit(); state = 'STALE'
+        score = con.execute("SELECT * FROM hunter_lead_discovery_scores WHERE discovery_id=?", (int(discovery_id),)).fetchone()
+        d['scorecard'] = dict(score) if score else None
+        d['discovery_state'] = state
+        d['source_current'] = source_current
+        return d
+    finally:
+        con.close()
+
+
+def _v3534_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        ids = con.execute("SELECT id FROM hunter_lead_discovery_meetings WHERE username=? ORDER BY id DESC", (username,)).fetchall()
+        leads = con.execute("""SELECT * FROM hunter_reference_leads
+                             WHERE username=? AND lead_state IN ('QUALIFIED','FOLLOW_UP','WON')
+                             ORDER BY id DESC""", (username,)).fetchall()
+        used = {int(r['lead_id']) for r in con.execute("SELECT lead_id FROM hunter_lead_discovery_meetings WHERE username=?", (username,)).fetchall()}
+    finally:
+        con.close()
+    items = [x for x in (_v3534_entry(username, r['id']) for r in ids) if x]
+    eligible = [dict(r) for r in leads if int(r['id']) not in used]
+    counts = {k: 0 for k in V3534_STATES}
+    for x in items:
+        s = str(x.get('discovery_state') or 'SCHEDULED'); counts[s] = counts.get(s, 0) + 1
+    avg = 0
+    scored = [int(x.get('fit_score') or 0) for x in items if x.get('scorecard')]
+    if scored: avg = round(sum(scored) / len(scored), 1)
+    return {"success": True, "version": V3534_VERSION, "items": items, "eligible_leads": eligible,
+            "counts": counts, "average_fit_score": avg, "fit_threshold": V3534_FIT_THRESHOLD}
+
+
+def _v3534_create(username, lead_id, scheduled_for, meeting_owner='', meeting_mode='CALL'):
+    lead = _v3534_lead(username, lead_id)
+    if not lead or str(lead.get('lead_state') or '') not in {'QUALIFIED','FOLLOW_UP','WON'}:
+        return False, 'qualified_active_lead_required', None
+    scheduled_for = str(scheduled_for or '').strip()[:40]
+    if not scheduled_for:
+        return False, 'scheduled_for_required', None
+    mode = str(meeting_mode or 'CALL').upper()[:30]
+    now = _v3534_now_iso()
+    seed = {"lead_id": int(lead_id), "scheduled_for": scheduled_for, "meeting_owner": str(meeting_owner or '')[:180], "meeting_mode": mode, "created_at": now}
+    digest = _v3534_hash(seed)
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_lead_discovery_meetings
+                               (username,lead_id,scheduled_for,meeting_owner,meeting_mode,discovery_state,fit_threshold,created_at,updated_at,evidence_digest)
+                               VALUES(?,?,?,?,?,'SCHEDULED',?,?,?,?)""",
+                              (username, int(lead_id), scheduled_for, str(meeting_owner or '')[:180], mode,
+                               V3534_FIT_THRESHOLD, now, now, digest))
+        except sqlite3.IntegrityError:
+            return False, 'discovery_already_exists_for_lead', None
+        did = int(cur.lastrowid)
+        _v3534_event(con, username, did, 'DISCOVERY_SCHEDULED', f'Discovery scheduled for lead #{int(lead_id)}.', seed)
+        con.commit(); return True, None, did
+    finally:
+        con.close()
+
+
+def _v3534_complete(username, discovery_id, notes):
+    item = _v3534_entry(username, discovery_id)
+    if not item: return False, 'discovery_not_found', None
+    if item.get('discovery_state') != 'SCHEDULED': return False, 'scheduled_state_required', None
+    notes = str(notes or '').strip()[:5000]
+    if not notes: return False, 'discovery_notes_required', None
+    now = _v3534_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_lead_discovery_meetings
+                       SET discovery_state='COMPLETED',discovery_notes=?,completed_at=?,updated_at=?
+                       WHERE username=? AND id=?""", (notes, now, now, username, int(discovery_id)))
+        _v3534_event(con, username, discovery_id, 'DISCOVERY_COMPLETED', 'Discovery notes recorded.', {"notes_sha256": hashlib.sha256(notes.encode('utf-8')).hexdigest()})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3534_entry(username, discovery_id)
+
+
+def _v3534_score(username, discovery_id, need_score, urgency_score, decision_access_score, technical_fit_score, budget_signal_score, rationale=''):
+    item = _v3534_entry(username, discovery_id)
+    if not item: return False, 'discovery_not_found', None
+    if item.get('discovery_state') not in {'COMPLETED','FIT','NO_FIT'}:
+        return False, 'completed_discovery_required', None
+    try:
+        vals = [int(need_score), int(urgency_score), int(decision_access_score), int(technical_fit_score), int(budget_signal_score)]
+    except Exception:
+        return False, 'scores_must_be_integers', None
+    if any(v < 0 or v > 20 for v in vals):
+        return False, 'each_score_must_be_0_to_20', None
+    total = sum(vals)
+    target = 'FIT' if total >= V3534_FIT_THRESHOLD else 'NO_FIT'
+    rationale = str(rationale or '').strip()[:3000]
+    if not rationale: return False, 'score_rationale_required', None
+    now = _v3534_now_iso()
+    payload = {"discovery_id": int(discovery_id), "need": vals[0], "urgency": vals[1], "decision_access": vals[2],
+               "technical_fit": vals[3], "budget_signal": vals[4], "total": total, "threshold": V3534_FIT_THRESHOLD,
+               "rationale": rationale, "scored_at": now}
+    digest = _v3534_hash(payload)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""INSERT INTO hunter_lead_discovery_scores
+                       (discovery_id,need_score,urgency_score,decision_access_score,technical_fit_score,budget_signal_score,rationale,scored_at,score_digest)
+                       VALUES(?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(discovery_id) DO UPDATE SET
+                       need_score=excluded.need_score,urgency_score=excluded.urgency_score,
+                       decision_access_score=excluded.decision_access_score,technical_fit_score=excluded.technical_fit_score,
+                       budget_signal_score=excluded.budget_signal_score,rationale=excluded.rationale,
+                       scored_at=excluded.scored_at,score_digest=excluded.score_digest""",
+                    (int(discovery_id), vals[0], vals[1], vals[2], vals[3], vals[4], rationale, now, digest))
+        con.execute("UPDATE hunter_lead_discovery_meetings SET fit_score=?,discovery_state=?,updated_at=? WHERE username=? AND id=?",
+                    (total, target, now, username, int(discovery_id)))
+        _v3534_event(con, username, discovery_id, 'FIT_SCORED', f'Fit score {total}/100 -> {target}.', {"score_digest": digest})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3534_entry(username, discovery_id)
+
+
+def _v3534_route(username, discovery_id, route, note):
+    item = _v3534_entry(username, discovery_id)
+    if not item: return False, 'discovery_not_found', None
+    if item.get('discovery_state') != 'FIT': return False, 'fit_state_required', None
+    route = str(route or '').upper()
+    if route not in V3534_ROUTES: return False, 'invalid_route', None
+    note = str(note or '').strip()[:3000]
+    if not note: return False, 'routing_note_required', None
+    now = _v3534_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_lead_discovery_meetings
+                       SET recommended_route=?,routing_note=?,routed_at=?,updated_at=?
+                       WHERE username=? AND id=?""", (route, note, now, now, username, int(discovery_id)))
+        _v3534_event(con, username, discovery_id, 'ROUTE_RECORDED', f'Explicit route: {route}.', {"routing_note": note})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3534_entry(username, discovery_id)
+
+
+def _v3534_cancel(username, discovery_id, note=''):
+    item = _v3534_entry(username, discovery_id)
+    if not item: return False, 'discovery_not_found', None
+    if item.get('discovery_state') not in {'SCHEDULED','COMPLETED'}: return False, 'cannot_cancel_in_current_state', None
+    now = _v3534_now_iso(); note = str(note or '')[:1200]
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_lead_discovery_meetings SET discovery_state='CANCELLED',cancelled_at=?,updated_at=? WHERE username=? AND id=?",
+                    (now, now, username, int(discovery_id)))
+        _v3534_event(con, username, discovery_id, 'DISCOVERY_CANCELLED', note or 'Discovery cancelled.')
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3534_entry(username, discovery_id)
+
+
+@app.route('/api/hunter-lead-discovery', methods=['GET','POST'])
+def v3534_api():
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET': return jsonify(_v3534_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,did = _v3534_create(u,p.get('lead_id'),p.get('scheduled_for'),p.get('meeting_owner') or '',p.get('meeting_mode') or 'CALL')
+    return jsonify({'success':ok,'error':e,'discovery_id':did}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-lead-discovery/<int:discovery_id>/complete', methods=['POST'])
+def v3534_api_complete(discovery_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3534_complete(u,discovery_id,p.get('discovery_notes') or '')
+    return jsonify({'success':ok,'error':e,'discovery':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-lead-discovery/<int:discovery_id>/score', methods=['POST'])
+def v3534_api_score(discovery_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3534_score(u,discovery_id,p.get('need_score'),p.get('urgency_score'),p.get('decision_access_score'),p.get('technical_fit_score'),p.get('budget_signal_score'),p.get('rationale') or '')
+    return jsonify({'success':ok,'error':e,'discovery':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-lead-discovery/<int:discovery_id>/route', methods=['POST'])
+def v3534_api_route(discovery_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3534_route(u,discovery_id,p.get('route'),p.get('routing_note') or '')
+    return jsonify({'success':ok,'error':e,'discovery':d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-lead-discovery/<int:discovery_id>/cancel', methods=['POST'])
+def v3534_api_cancel(discovery_id):
+    u = session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d = _v3534_cancel(u,discovery_id,p.get('note') or '')
+    return jsonify({'success':ok,'error':e,'discovery':d}), (200 if ok else 400)
+
+
+@app.route('/hunter-lead-discovery')
+def v3534_page():
+    u = session.get('authenticated_username')
+    if not u: return redirect('/')
+    d = _v3534_snapshot(u); esc = html.escape; c=d['counts']
+    lead_opts = ''.join(f"<option value='{int(x['id'])}'>Lead #{int(x['id'])} — {esc(x.get('organization') or '')} · {esc(x.get('lead_state') or '')}</option>" for x in d['eligible_leads'])
+    cards=[]
+    for x in d['items']:
+        did=int(x['id']); lead=x.get('lead') or {}; state=str(x.get('discovery_state') or '')
+        action=''
+        if state=='SCHEDULED':
+            action=f"""<form action='/api/hunter-lead-discovery/{did}/complete' onsubmit='return v3534submit(this,event)'><textarea name='discovery_notes' placeholder='Discovery notes: need, urgency, stakeholders, technical context' required></textarea><button class='safe'>COMPLETE DISCOVERY</button></form><form action='/api/hunter-lead-discovery/{did}/cancel' onsubmit='return v3534submit(this,event)'><input name='note' placeholder='Cancellation note'><button class='danger'>CANCEL</button></form>"""
+        elif state in {'COMPLETED','NO_FIT','FIT'}:
+            action=f"""<form action='/api/hunter-lead-discovery/{did}/score' onsubmit='return v3534submit(this,event)'><div class='scores'><input name='need_score' type='number' min='0' max='20' value='0' placeholder='Need 0-20' required><input name='urgency_score' type='number' min='0' max='20' value='0' placeholder='Urgency 0-20' required><input name='decision_access_score' type='number' min='0' max='20' value='0' placeholder='Decision access 0-20' required><input name='technical_fit_score' type='number' min='0' max='20' value='0' placeholder='Technical fit 0-20' required><input name='budget_signal_score' type='number' min='0' max='20' value='0' placeholder='Budget signal 0-20' required></div><textarea name='rationale' placeholder='Why these scores?' required></textarea><button>SCORE FIT</button></form>"""
+            if state=='FIT':
+                action += f"""<form action='/api/hunter-lead-discovery/{did}/route' onsubmit='return v3534submit(this,event)'><select name='route'><option>DEMO</option><option>PILOT</option><option>COMMERCIAL</option><option>INTERVIEW</option><option>NURTURE</option><option>OTHER</option></select><textarea name='routing_note' placeholder='Explicit next-step rationale' required></textarea><button class='safe'>RECORD ROUTE</button></form>"""
+        route = esc(x.get('recommended_route') or '—'); score=int(x.get('fit_score') or 0)
+        cards.append(f"""<article class='card'><div class='top'><span>Discovery #{did}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(lead.get('organization') or 'Lead')}</h2><p class='muted'>Lead #{int(x['lead_id'])} · Owner {esc(x.get('meeting_owner') or '—')} · Scheduled {esc(x.get('scheduled_for') or '—')}</p><div class='score'>{score}<small>/100</small></div><p><b>Route:</b> {route}</p>{action}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.34 Lead Discovery</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1260px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #334b59;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#7ef5c6;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num,.score{{font-size:26px;font-weight:900;color:#7ef5c6}}.score small{{font-size:12px;color:#91a9b7}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3b7e68;border-radius:999px;padding:5px 9px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.danger{{border-color:#9e3f55}}a{{color:#7ef5c6}}.scores{{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}}@media(max-width:850px){{.grid{{grid-template-columns:1fr}}.scores{{grid-template-columns:1fr 1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.34 · QUALIFIED LEAD DISCOVERY + FIT SCORE GATE</div><h1>Turn qualified interest into an evidence-backed next step.</h1><p class='muted'>Schedule discovery, capture operator-entered observations, score fit transparently, and route only after the threshold is met. No meeting outcome or commercial intent is invented automatically.</p><div class='stats'><div><div class='num'>{}</div>SCHEDULED</div><div><div class='num'>{}</div>FIT</div><div><div class='num'>{}</div>NO FIT</div><div><div class='num'>{}</div>AVG FIT</div></div><p><a href='/hunter-reference-distribution'>← Distribution + Leads</a> · <a href='/api/hunter-lead-discovery'>JSON</a></p></section><section class='card' style='margin-top:18px'><h2>Schedule discovery</h2><form action='/api/hunter-lead-discovery' onsubmit='return v3534submit(this,event)'><select name='lead_id' required><option value=''>Qualified lead</option>{}</select><input name='scheduled_for' type='datetime-local' required><input name='meeting_owner' value='{}' placeholder='Meeting owner'><select name='meeting_mode'><option>CALL</option><option>VIDEO</option><option>IN_PERSON</option><option>ASYNC</option></select><button>SCHEDULE DISCOVERY</button></form></section><section class='grid'>{}</section></div><script>async function v3534submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('SCHEDULED',0),c.get('FIT',0),c.get('NO_FIT',0),d.get('average_fit_score',0),lead_opts,esc(u),''.join(cards) or "<article class='card'><p>No discovery meetings yet.</p></article>")
+
+
+# Add navigation from V35.33 into V35.34.
+try:
+    _v3534_prev_page = app.view_functions.get('v3533_page')
+    if _v3534_prev_page:
+        def _v3534_distribution_with_discovery(*args, **kwargs):
+            response = _v3534_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-lead-discovery' not in response:
+                response = response.replace("<a href='/api/hunter-reference-distributions'>JSON</a>", "<a href='/api/hunter-reference-distributions'>JSON</a> · <a href='/hunter-lead-discovery'>📅 DISCOVERY + FIT</a>", 1)
+            return response
+        app.view_functions['v3533_page'] = _v3534_distribution_with_discovery
+except Exception:
+    pass
+
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -84472,6 +84841,7 @@ if __name__ == "__main__":
     print("📈 Outcome Validation + Reference Consent Gate enabled")
     print("📚 Case Study Publication + Proof-backed Reference Gate enabled")
     print("📣 Reference Distribution + Qualified Lead Attribution Gate enabled")
+    print("📅 Qualified Lead Discovery + Fit Score Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
