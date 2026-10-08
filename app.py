@@ -77057,6 +77057,234 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.15 KNOWLEDGE PROMOTION + RUNBOOK READINESS GATE =====
+# V35.14 closes the learning loop with verified corrective/preventive actions.
+# V35.15 turns a CLOSED learning review into durable operational knowledge:
+#
+# CLOSED REVIEW -> KNOWLEDGE DRAFT -> RUNBOOK READINESS -> PUBLISH -> RETIRE
+#
+# Publication requires the learning review to be CLOSED, its RCA/lesson fields present,
+# and at least one VERIFIED or WAIVED action. This keeps the knowledge base evidence-backed.
+
+V3515_VERSION = "V35.15"
+V3515_STATES = {"DRAFT", "READY", "PUBLISHED", "RETIRED"}
+V3515_KINDS = {"RUNBOOK", "LESSON", "RECOVERY_PATTERN", "DETECTION_PATTERN", "CAPACITY_NOTE", "CUSTOM"}
+
+
+def _v3515_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_knowledge_promotions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_id INTEGER NOT NULL,
+            knowledge_kind TEXT NOT NULL DEFAULT 'LESSON',
+            title TEXT NOT NULL,
+            summary TEXT,
+            runbook_change TEXT,
+            owner TEXT,
+            promotion_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            published_at TEXT,
+            retired_at TEXT,
+            UNIQUE(username, review_id, title)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3515_user_state ON hunter_knowledge_promotions(username,promotion_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3515_review ON hunter_knowledge_promotions(username,review_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3515_init()
+except Exception:
+    pass
+
+
+def _v3515_now_iso():
+    return _v3514_now_iso()
+
+
+def _v3515_review(username, review_id):
+    try:
+        return _v3514_review(username, int(review_id))
+    except Exception:
+        return None
+
+
+def _v3515_gate(review):
+    if not review:
+        return {'gate':'BLOCKED','reason':'review_not_found'}
+    actions = review.get('actions') or []
+    done = [a for a in actions if str(a.get('action_state') or '').upper() in {'VERIFIED','WAIVED'}]
+    reasons=[]
+    if str(review.get('review_state') or '').upper() != 'CLOSED': reasons.append('closed_learning_review_required')
+    if not str(review.get('root_cause') or '').strip(): reasons.append('root_cause_required')
+    if not str(review.get('lessons_learned') or '').strip(): reasons.append('lessons_learned_required')
+    if not done: reasons.append('verified_or_waived_action_required')
+    return {
+        'gate':'READY' if not reasons else 'BLOCKED',
+        'reasons':reasons,
+        'qualified_actions':len(done),
+        'total_actions':len(actions)
+    }
+
+
+def _v3515_entry(username, promotion_id):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        row=con.execute("SELECT * FROM hunter_knowledge_promotions WHERE username=? AND id=?",(username,int(promotion_id))).fetchone()
+        if not row: return None
+        d=dict(row)
+        d['review']=_v3515_review(username,d['review_id'])
+        d['gate']=_v3515_gate(d['review'])
+        return d
+    finally:
+        con.close()
+
+
+def _v3515_create(username, review_id, knowledge_kind, title, summary='', runbook_change='', owner=''):
+    try: review_id=int(review_id)
+    except Exception: return False,'invalid_review_id',None
+    review=_v3515_review(username,review_id)
+    gate=_v3515_gate(review)
+    if gate['gate']!='READY': return False,(gate.get('reasons') or ['review_not_ready'])[0],None
+    kind=str(knowledge_kind or 'LESSON').upper().strip()
+    if kind not in V3515_KINDS: return False,'invalid_knowledge_kind',None
+    title=str(title or '').strip()
+    if not title: return False,'title_required',None
+    now=_v3515_now_iso()
+    con=sqlite3.connect(DB)
+    try:
+        try:
+            cur=con.execute("""
+              INSERT INTO hunter_knowledge_promotions
+              (username,review_id,knowledge_kind,title,summary,runbook_change,owner,promotion_state,created_at,updated_at)
+              VALUES(?,?,?,?,?,?,?,?,?,?)
+            """,(username,review_id,kind,title,str(summary or '').strip(),str(runbook_change or '').strip(),str(owner or '').strip() or username,'DRAFT',now,now))
+            con.commit(); pid=cur.lastrowid
+        except sqlite3.IntegrityError:
+            return False,'duplicate_promotion',None
+    finally:
+        con.close()
+    return True,None,pid
+
+
+def _v3515_update(username,promotion_id,summary='',runbook_change='',owner=''):
+    entry=_v3515_entry(username,promotion_id)
+    if not entry: return False,'promotion_not_found',None
+    if entry['promotion_state'] in {'PUBLISHED','RETIRED'}: return False,'immutable_published_entry',entry
+    summary=str(summary or '').strip(); runbook_change=str(runbook_change or '').strip(); owner=str(owner or '').strip() or username
+    state='READY' if summary and (entry['knowledge_kind']!='RUNBOOK' or runbook_change) else 'DRAFT'
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_knowledge_promotions SET summary=?,runbook_change=?,owner=?,promotion_state=?,updated_at=? WHERE username=? AND id=?",
+                    (summary,runbook_change,owner,state,_v3515_now_iso(),username,int(promotion_id)))
+        con.commit()
+    finally: con.close()
+    return True,None,_v3515_entry(username,promotion_id)
+
+
+def _v3515_decide(username,promotion_id,decision):
+    entry=_v3515_entry(username,promotion_id)
+    if not entry: return False,'promotion_not_found',None
+    decision=str(decision or '').upper().strip(); now=_v3515_now_iso()
+    if decision=='PUBLISH':
+        if entry['promotion_state']!='READY': return False,'ready_entry_required',entry
+        if entry['gate']['gate']!='READY': return False,'source_review_gate_blocked',entry
+        new_state='PUBLISHED'; published_at=now; retired_at=entry.get('retired_at')
+    elif decision=='RETIRE':
+        if entry['promotion_state']!='PUBLISHED': return False,'published_entry_required',entry
+        new_state='RETIRED'; published_at=entry.get('published_at'); retired_at=now
+    else:
+        return False,'invalid_decision',entry
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_knowledge_promotions SET promotion_state=?,published_at=?,retired_at=?,updated_at=? WHERE username=? AND id=?",
+                    (new_state,published_at,retired_at,now,username,int(promotion_id)))
+        con.commit()
+    finally: con.close()
+    return True,None,_v3515_entry(username,promotion_id)
+
+
+def _v3515_snapshot(username):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        rows=[dict(r) for r in con.execute("SELECT * FROM hunter_knowledge_promotions WHERE username=? ORDER BY id DESC LIMIT 100",(username,)).fetchall()]
+        counts={}
+        for r in rows:
+            r['review']=_v3515_review(username,r['review_id']); r['gate']=_v3515_gate(r['review'])
+            counts[r['promotion_state']]=counts.get(r['promotion_state'],0)+1
+        reviews=[dict(r) for r in con.execute("SELECT * FROM hunter_learning_reviews WHERE username=? AND review_state='CLOSED' ORDER BY id DESC LIMIT 100",(username,)).fetchall()]
+        return {'version':V3515_VERSION,'promotions':rows,'counts':counts,'closed_reviews':reviews}
+    finally: con.close()
+
+
+@app.route('/api/hunter-knowledge-promotions',methods=['GET','POST'])
+def v3515_api_promotions():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET': return jsonify({'success':True,**_v3515_snapshot(u)})
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,pid=_v3515_create(u,p.get('review_id'),p.get('knowledge_kind') or 'LESSON',p.get('title') or '',p.get('summary') or '',p.get('runbook_change') or '',p.get('owner') or '')
+    return jsonify({'success':ok,'error':e,'promotion_id':pid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-knowledge-promotions/<int:promotion_id>',methods=['POST'])
+def v3515_api_update(promotion_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data=_v3515_update(u,promotion_id,p.get('summary') or '',p.get('runbook_change') or '',p.get('owner') or '')
+    return jsonify({'success':ok,'error':e,'promotion':data}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-knowledge-promotions/<int:promotion_id>/decision',methods=['POST'])
+def v3515_api_decision(promotion_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data=_v3515_decide(u,promotion_id,p.get('decision'))
+    return jsonify({'success':ok,'error':e,'promotion':data}),(200 if ok else 400)
+
+
+@app.route('/hunter-knowledge-promotion')
+def v3515_page():
+    u=session.get('authenticated_username')
+    if not u: return redirect('/')
+    d=_v3515_snapshot(u); esc=html.escape
+    opts=''.join(f"<option value='{int(r['id'])}'>Review #{int(r['id'])} — {esc(r['review_name'])}</option>" for r in d['closed_reviews'])
+    cards=[]
+    for x in d['promotions']:
+        gate=x.get('gate') or {}; state=x.get('promotion_state') or ''
+        edit=''
+        if state not in {'PUBLISHED','RETIRED'}:
+            edit=f"""<form action='/api/hunter-knowledge-promotions/{int(x['id'])}' onsubmit='return v3515submit(this,event)'><textarea name='summary' placeholder='Reusable knowledge summary' required>{esc(x.get('summary') or '')}</textarea><textarea name='runbook_change' placeholder='Runbook / operator change'>{esc(x.get('runbook_change') or '')}</textarea><input name='owner' value='{esc(x.get('owner') or u)}' placeholder='Knowledge owner'><button>SAVE + EVALUATE READINESS</button></form>"""
+        action=''
+        if state=='READY': action=f"<form action='/api/hunter-knowledge-promotions/{int(x['id'])}/decision' onsubmit='return v3515submit(this,event)'><input type='hidden' name='decision' value='PUBLISH'><button class='safe'>PUBLISH KNOWLEDGE</button></form>"
+        elif state=='PUBLISHED': action=f"<form action='/api/hunter-knowledge-promotions/{int(x['id'])}/decision' onsubmit='return v3515submit(this,event)'><input type='hidden' name='decision' value='RETIRE'><button class='danger'>RETIRE ENTRY</button></form>"
+        cards.append(f"""<article class='card'><div class='top'><span>Knowledge #{int(x['id'])}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(x['title'])}</h2><p class='muted'>{esc(x['knowledge_kind'])} · Review #{int(x['review_id'])} · Owner {esc(x.get('owner') or '-')}</p><div class='score'><b>SOURCE GATE {esc(gate.get('gate') or '')}</b><span>Qualified actions {int(gate.get('qualified_actions') or 0)} / {int(gate.get('total_actions') or 0)}</span></div>{edit}{action}</article>""")
+    co=d['counts']
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.15 Knowledge Promotion</title><style>body{{margin:0;background:#06070a;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #2f4654;background:#0a0f14;border-radius:20px;padding:18px}}.eyebrow{{color:#72e5ff;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#90a8b5}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#72e5ff}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.score{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #287489;border-radius:999px;padding:5px 8px;color:#b9f3ff;font-size:11px}}.score{{margin:12px 0;padding:14px;border:1px solid #24566a;border-radius:14px;background:#08181e}}select,input,textarea{{width:100%;box-sizing:border-box;background:#071014;color:white;border:1px solid #29414b;border-radius:12px;padding:10px;margin-top:8px}}textarea{{min-height:78px;resize:vertical}}button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#72e5ff;color:#021015;font-weight:900}}button.safe{{background:#a7ffcf}}button.danger{{background:#ff9ea9}}a{{color:#72e5ff;margin-right:12px}}@media(max-width:760px){{.stats{{grid-template-columns:1fr 1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.15 · KNOWLEDGE PROMOTION + RUNBOOK READINESS</div><h1>Turn verified learning into reusable operations knowledge.</h1><p class='muted'>Only CLOSED learning reviews with RCA, lessons, and qualified actions can enter the publication gate.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>PUBLISHED</div><div><div class='num'>{}</div>RETIRED</div></div><div style='margin-top:14px'><a href='/hunter-learning-review'>🧠 LEARNING REVIEW</a><a href='/api/hunter-knowledge-promotions'>JSON</a></div></section><section class='hero' style='margin-top:16px'><div class='eyebrow'>CREATE KNOWLEDGE PROMOTION</div><form action='/api/hunter-knowledge-promotions' onsubmit='return v3515submit(this,event)'><select name='review_id' required><option value=''>Closed learning review</option>{}</select><select name='knowledge_kind'>{}</select><input name='title' placeholder='Knowledge / runbook title' required><textarea name='summary' placeholder='Reusable summary'></textarea><textarea name='runbook_change' placeholder='Runbook / operator change'></textarea><input name='owner' value='{}' placeholder='Knowledge owner'><button>CREATE KNOWLEDGE DRAFT</button></form></section><section class='grid'>{}</section></div><script>async function v3515submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(co.get('DRAFT',0),co.get('READY',0),co.get('PUBLISHED',0),co.get('RETIRED',0),opts,''.join(f'<option>{x}</option>' for x in sorted(V3515_KINDS)),esc(u),''.join(cards) or "<article class='card'><p>No knowledge promotions yet.</p></article>")
+
+
+# Add navigation from V35.14 into V35.15.
+try:
+    _v3515_prev_page=app.view_functions.get('v3514_page')
+    if _v3515_prev_page:
+        def _v3515_learning_with_knowledge(*args,**kwargs):
+            response=_v3515_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-knowledge-promotion' not in response:
+                response=response.replace("<a href='/api/hunter-learning-reviews'>JSON</a>","<a href='/api/hunter-learning-reviews'>JSON</a><a href='/hunter-knowledge-promotion'>📚 KNOWLEDGE PROMOTION</a>",1)
+            return response
+        app.view_functions['v3514_page']=_v3515_learning_with_knowledge
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
