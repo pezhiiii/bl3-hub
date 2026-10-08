@@ -72587,6 +72587,640 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.6 RECURRENCE ROOT-CAUSE + PREVENTIVE ACTION GATE =====
+# V35.5 proves whether a remediation remains effective over time.
+# V35.6 reacts when recurrence appears by forcing a governed RCA/PCA cycle:
+#
+# RECURRENCE DETECTED
+#   -> ROOT CAUSE ANALYSIS
+#   -> PREVENTIVE ACTION
+#   -> OWNER + DEADLINE
+#   -> IMPLEMENT
+#   -> VERIFY
+#   -> SUPPRESSION CONFIRMED
+#
+# Goal: stop treating recurrence as a one-off failure and convert it into
+# permanent systemic prevention.
+
+V356_VERSION = "V35.6"
+
+V356_RCA_STATES = {
+    "OPEN",
+    "ANALYZING",
+    "ROOT_CAUSE_CONFIRMED",
+    "PREVENTIVE_ACTION_IN_PROGRESS",
+    "READY_FOR_VERIFY",
+    "VERIFIED",
+    "CLOSED"
+}
+
+V356_SEVERITY = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+V356_VERIFY = {"PASS", "FAIL", "INCONCLUSIVE"}
+
+
+def _v356_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recurrence_rca (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            effectiveness_id INTEGER NOT NULL,
+            remediation_id INTEGER NOT NULL,
+            escalation_id INTEGER NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'HIGH',
+            rca_state TEXT NOT NULL DEFAULT 'OPEN',
+            recurrence_summary TEXT,
+            root_cause TEXT,
+            contributing_factors TEXT,
+            preventive_action TEXT,
+            owner_label TEXT,
+            due_at TEXT,
+            implementation_note TEXT,
+            created_at TEXT NOT NULL,
+            verified_at TEXT,
+            closed_at TEXT,
+            UNIQUE(username, effectiveness_id)
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_recurrence_rca_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            rca_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            verification_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v356_rca
+        ON hunter_recurrence_rca(username, rca_state, id DESC)
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v356_rca_verify
+        ON hunter_recurrence_rca_verifications(username, rca_id, id DESC)
+        """)
+
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v356_init()
+except Exception:
+    pass
+
+
+def _v356_get_rca(username, effectiveness_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recurrence_rca
+            WHERE username=? AND effectiveness_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(effectiveness_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v356_verifications(username, rca_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_recurrence_rca_verifications
+            WHERE username=? AND rca_id=?
+            ORDER BY id DESC
+        """, (username, int(rca_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v356_auto_open(username):
+    snap = _v355_snapshot(username)
+    opened = 0
+
+    for item in snap.get("items", []):
+        escalation = item.get("escalation") or {}
+
+        for rem in item.get("remediations", []):
+            eff = rem.get("effectiveness")
+            if not eff:
+                continue
+
+            if str(eff.get("effectiveness_state") or "") != "RECURRENCE_DETECTED":
+                continue
+
+            if _v356_get_rca(username, int(eff["id"])):
+                continue
+
+            severity = "HIGH"
+            if int(eff.get("recurrence_count") or 0) >= 2:
+                severity = "CRITICAL"
+
+            now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+            con = sqlite3.connect(DB)
+            try:
+                con.execute("""
+                    INSERT INTO hunter_recurrence_rca
+                    (username, effectiveness_id, remediation_id,
+                     escalation_id, assurance_profile_id, severity,
+                     rca_state, recurrence_summary, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+                """, (
+                    username,
+                    int(eff["id"]),
+                    int(rem["id"]),
+                    int(escalation.get("id") or 0),
+                    int(eff["assurance_profile_id"]),
+                    severity,
+                    "Automatic RCA opened after recurrence detection.",
+                    now
+                ))
+                con.commit()
+                opened += 1
+            finally:
+                con.close()
+
+    return opened
+
+
+def _v356_update_rca(
+    username,
+    rca_id,
+    rca_state=None,
+    root_cause=None,
+    contributing_factors=None,
+    preventive_action=None,
+    owner_label=None,
+    due_at=None,
+    implementation_note=None
+):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recurrence_rca
+            WHERE username=? AND id=?
+        """, (username, int(rca_id))).fetchone()
+        rca = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not rca:
+        return False, "rca_not_found"
+
+    state = str(rca_state or rca.get("rca_state") or "OPEN").strip().upper()
+    if state not in V356_RCA_STATES:
+        return False, "invalid_rca_state"
+
+    values = {
+        "root_cause": str(root_cause if root_cause is not None else rca.get("root_cause") or "").strip()[:6000],
+        "contributing_factors": str(contributing_factors if contributing_factors is not None else rca.get("contributing_factors") or "").strip()[:6000],
+        "preventive_action": str(preventive_action if preventive_action is not None else rca.get("preventive_action") or "").strip()[:6000],
+        "owner_label": str(owner_label if owner_label is not None else rca.get("owner_label") or "").strip()[:500],
+        "due_at": str(due_at if due_at is not None else rca.get("due_at") or "").strip()[:100],
+        "implementation_note": str(implementation_note if implementation_note is not None else rca.get("implementation_note") or "").strip()[:6000],
+    }
+
+    if state in {"ROOT_CAUSE_CONFIRMED", "PREVENTIVE_ACTION_IN_PROGRESS", "READY_FOR_VERIFY", "VERIFIED", "CLOSED"}:
+        if not values["root_cause"]:
+            return False, "root_cause_required"
+
+    if state in {"PREVENTIVE_ACTION_IN_PROGRESS", "READY_FOR_VERIFY", "VERIFIED", "CLOSED"}:
+        if not values["preventive_action"]:
+            return False, "preventive_action_required"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_recurrence_rca
+            SET rca_state=?,
+                root_cause=?,
+                contributing_factors=?,
+                preventive_action=?,
+                owner_label=?,
+                due_at=?,
+                implementation_note=?
+            WHERE id=? AND username=?
+        """, (
+            state,
+            values["root_cause"],
+            values["contributing_factors"],
+            values["preventive_action"],
+            values["owner_label"],
+            values["due_at"],
+            values["implementation_note"],
+            int(rca_id),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None
+
+
+def _v356_verify_rca(username, rca_id, verdict, note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V356_VERIFY:
+        return False, "invalid_verification_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recurrence_rca
+            WHERE username=? AND id=?
+        """, (username, int(rca_id))).fetchone()
+        rca = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not rca:
+        return False, "rca_not_found", None
+
+    if str(rca.get("rca_state") or "") != "READY_FOR_VERIFY":
+        return False, "rca_not_ready_for_verification", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_recurrence_rca_verifications
+            (username, rca_id, verdict, verification_note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(rca_id),
+            verdict,
+            str(note or "").strip()[:5000],
+            now
+        ))
+
+        vid = int(cur.lastrowid)
+
+        if verdict == "PASS":
+            con.execute("""
+                UPDATE hunter_recurrence_rca
+                SET rca_state='VERIFIED',
+                    verified_at=?
+                WHERE id=? AND username=?
+            """, (now, int(rca_id), username))
+
+            con.execute("""
+                UPDATE hunter_remediation_effectiveness
+                SET effectiveness_state='MONITORING',
+                    passes=0,
+                    warns=0,
+                    fails=0,
+                    recurrence_count=0
+                WHERE id=? AND username=?
+            """, (
+                int(rca["effectiveness_id"]),
+                username
+            ))
+
+        elif verdict == "FAIL":
+            con.execute("""
+                UPDATE hunter_recurrence_rca
+                SET rca_state='PREVENTIVE_ACTION_IN_PROGRESS'
+                WHERE id=? AND username=?
+            """, (int(rca_id), username))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, vid
+
+
+def _v356_close_rca(username, rca_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_recurrence_rca
+            WHERE username=? AND id=?
+        """, (username, int(rca_id))).fetchone()
+        rca = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not rca:
+        return False, "rca_not_found"
+
+    if str(rca.get("rca_state") or "") != "VERIFIED":
+        return False, "verified_rca_required"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_recurrence_rca
+            SET rca_state='CLOSED',
+                closed_at=?
+            WHERE id=? AND username=?
+        """, (now, int(rca_id), username))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None
+
+
+def _v356_snapshot(username):
+    try:
+        _v356_auto_open(username)
+    except Exception:
+        pass
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_recurrence_rca
+            WHERE username=?
+            ORDER BY id DESC
+        """, (username,)).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        con.close()
+
+    for item in items:
+        item["verifications"] = _v356_verifications(username, int(item["id"]))[:20]
+
+    return {
+        "version": V356_VERSION,
+        "counts": {
+            "total": len(items),
+            "open": sum(1 for x in items if x.get("rca_state") == "OPEN"),
+            "analyzing": sum(1 for x in items if x.get("rca_state") in {"ANALYZING", "ROOT_CAUSE_CONFIRMED"}),
+            "preventive_action": sum(1 for x in items if x.get("rca_state") in {"PREVENTIVE_ACTION_IN_PROGRESS", "READY_FOR_VERIFY"}),
+            "verified": sum(1 for x in items if x.get("rca_state") in {"VERIFIED", "CLOSED"}),
+            "critical": sum(1 for x in items if x.get("severity") == "CRITICAL" and x.get("rca_state") != "CLOSED")
+        },
+        "items": items,
+        "policy": "Every recurrence must produce a documented root cause and verified preventive action before suppression can be trusted."
+    }
+
+
+@app.route("/api/hunter-recurrence-rca")
+def v356_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    return jsonify({"success": True, **_v356_snapshot(u)})
+
+
+@app.route("/api/hunter-recurrence-rca/<int:rca_id>/update", methods=["POST"])
+def v356_update_api(rca_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e = _v356_update_rca(
+        u,
+        rca_id,
+        p.get("rca_state"),
+        p.get("root_cause"),
+        p.get("contributing_factors"),
+        p.get("preventive_action"),
+        p.get("owner_label"),
+        p.get("due_at"),
+        p.get("implementation_note")
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/hunter-recurrence-rca/<int:rca_id>/verify", methods=["POST"])
+def v356_verify_api(rca_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, vid = _v356_verify_rca(
+        u,
+        rca_id,
+        p.get("verdict") or "",
+        p.get("verification_note") or ""
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "verification_id": vid}), 400
+
+    return jsonify({"success": True, "verification_id": vid})
+
+
+@app.route("/api/hunter-recurrence-rca/<int:rca_id>/close", methods=["POST"])
+def v356_close_api(rca_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    ok, e = _v356_close_rca(u, rca_id)
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-recurrence-rca")
+def v356_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🧬 Recurrence Root Cause</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v356_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for rca in d["items"]:
+        rid = int(rca["id"])
+        state = str(rca.get("rca_state") or "")
+        severity = str(rca.get("severity") or "")
+
+        action_form = ""
+
+        if state not in {"VERIFIED", "CLOSED"}:
+            action_form += f"""
+            <form action='/api/hunter-recurrence-rca/{rid}/update'
+                  onsubmit='return v356submit(this,event)'>
+              <select name='rca_state'>
+                <option {'selected' if state=='OPEN' else ''}>OPEN</option>
+                <option {'selected' if state=='ANALYZING' else ''}>ANALYZING</option>
+                <option {'selected' if state=='ROOT_CAUSE_CONFIRMED' else ''}>ROOT_CAUSE_CONFIRMED</option>
+                <option {'selected' if state=='PREVENTIVE_ACTION_IN_PROGRESS' else ''}>PREVENTIVE_ACTION_IN_PROGRESS</option>
+                <option {'selected' if state=='READY_FOR_VERIFY' else ''}>READY_FOR_VERIFY</option>
+              </select>
+              <textarea name='root_cause' rows='3' placeholder='Confirmed root cause'>{esc(rca.get('root_cause'))}</textarea>
+              <textarea name='contributing_factors' rows='2' placeholder='Contributing factors'>{esc(rca.get('contributing_factors'))}</textarea>
+              <textarea name='preventive_action' rows='3' placeholder='Preventive action'>{esc(rca.get('preventive_action'))}</textarea>
+              <input name='owner_label' placeholder='Owner / role' value='{esc(rca.get('owner_label'))}'>
+              <input name='due_at' placeholder='Due date / timestamp' value='{esc(rca.get('due_at'))}'>
+              <textarea name='implementation_note' rows='2' placeholder='Implementation note'>{esc(rca.get('implementation_note'))}</textarea>
+              <button class='warn'>SAVE RCA / PREVENTIVE ACTION</button>
+            </form>
+            """
+
+        if state == "READY_FOR_VERIFY":
+            action_form += f"""
+            <form action='/api/hunter-recurrence-rca/{rid}/verify'
+                  onsubmit='return v356submit(this,event)'>
+              <select name='verdict'>
+                <option>PASS</option>
+                <option>FAIL</option>
+                <option>INCONCLUSIVE</option>
+              </select>
+              <textarea name='verification_note' rows='2' placeholder='Verification evidence'></textarea>
+              <button class='safe'>VERIFY PREVENTIVE ACTION</button>
+            </form>
+            """
+
+        if state == "VERIFIED":
+            action_form += f"""
+            <form action='/api/hunter-recurrence-rca/{rid}/close'
+                  onsubmit='return v356submit(this,event)'>
+              <button class='safe'>CLOSE RCA</button>
+            </form>
+            """
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>RCA #{rid}</span>
+            <span class='pill'>{esc(severity)}</span>
+          </div>
+          <h2>Recurrence RCA</h2>
+          <p>Effectiveness #{esc(rca.get('effectiveness_id'))} · Remediation #{esc(rca.get('remediation_id'))}</p>
+          <div class='state'>STATE <b>{esc(state)}</b></div>
+          <p class='muted'>{esc(rca.get('recurrence_summary'))}</p>
+          {action_form}
+        </article>
+        """)
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.6 Recurrence RCA</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ff77c8;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ff77c8}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #7a315f;border-radius:999px;padding:5px 8px;color:#ffb6df;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}}
+    .warn{{background:#ffd66f}}
+    .state{{margin-top:10px;padding:12px;border:1px solid #7a315f;border-radius:12px;background:#160b12}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:1000px){{.stats{{grid-template-columns:repeat(3,1fr)}}}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.6 // RECURRENCE ROOT-CAUSE + PREVENTIVE ACTION GATE</div>
+        <h1>🧬 KILL THE ROOT CAUSE</h1>
+        <p class='muted'>Recurrence can no longer be dismissed as another isolated failure. It must generate RCA, preventive action, and verification.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>TOTAL RCA</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>OPEN</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>ANALYZING</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>PREVENTIVE ACTION</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>VERIFIED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>CRITICAL</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-remediation-effectiveness'>🧪 EFFECTIVENESS</a>
+          <a href='/api/hunter-recurrence-rca'>JSON</a>
+        </div>
+      </section>
+
+      <section class='grid'>{}</section>
+    </div>
+
+    <script>
+    async function v356submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["total"],
+        c["open"],
+        c["analyzing"],
+        c["preventive_action"],
+        c["verified"],
+        c["critical"],
+        "".join(cards) or "<article class='card'><p>No recurrence RCA cases are currently open.</p></article>"
+    )
+
+
+try:
+    _v356_prev_page = app.view_functions.get("v355_page")
+    if _v356_prev_page:
+        def _v356_effectiveness_with_rca(*args, **kwargs):
+            response = _v356_prev_page(*args, **kwargs)
+
+            if isinstance(response, str) and "/hunter-recurrence-rca" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-remediation-effectiveness'>JSON</a>",
+                    "<a href='/api/hunter-remediation-effectiveness'>JSON</a><a href='/hunter-recurrence-rca'>🧬 RCA</a>",
+                    1
+                )
+
+            return response
+
+        app.view_functions["v355_page"] = _v356_effectiveness_with_rca
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
