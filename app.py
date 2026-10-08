@@ -73452,6 +73452,673 @@ def v357_page():
 
 
 
+
+
+# ===== V35.8 CONTROL HEALTH + REVALIDATION EXPIRY GATE =====
+# V35.7 turns verified preventive actions into persistent controls.
+# V35.8 makes those controls time-aware:
+#
+# LOCKED CONTROL
+#   -> HEALTH WINDOW
+#   -> EVIDENCE FRESHNESS
+#   -> REVALIDATION DUE
+#   -> RECHECK
+#   -> HEALTHY / STALE / EXPIRED
+#   -> EXPIRED => ASSURANCE REVALIDATION REQUIRED
+#
+# Goal: a control cannot remain trusted forever without fresh evidence.
+
+V358_VERSION = "V35.8"
+
+V358_HEALTH_STATES = {
+    "HEALTHY",
+    "DUE_SOON",
+    "STALE",
+    "EXPIRED",
+    "SUSPENDED"
+}
+
+V358_REVALIDATION_RESULTS = {"PASS", "WARN", "FAIL"}
+
+
+def _v358_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_health (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_id INTEGER NOT NULL,
+            assurance_profile_id INTEGER NOT NULL,
+            health_state TEXT NOT NULL DEFAULT 'HEALTHY',
+            freshness_days INTEGER NOT NULL DEFAULT 30,
+            due_soon_days INTEGER NOT NULL DEFAULT 7,
+            last_evidence_at TEXT,
+            next_revalidation_at TEXT,
+            expiry_at TEXT,
+            last_result TEXT,
+            last_note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, control_id)
+        )
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_control_revalidations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            control_id INTEGER NOT NULL,
+            health_id INTEGER NOT NULL,
+            result TEXT NOT NULL,
+            evidence_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v358_health
+        ON hunter_control_health(username, health_state, id DESC)
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v358_revalidations
+        ON hunter_control_revalidations(username, control_id, id DESC)
+        """)
+
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v358_init()
+except Exception:
+    pass
+
+
+def _v358_now():
+    return datetime.utcnow()
+
+
+def _v358_iso(dt):
+    return dt.isoformat(timespec="seconds") + "Z"
+
+
+def _v358_parse(ts):
+    if not ts:
+        return None
+    raw = str(ts).strip().replace("Z", "")
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def _v358_get_health(username, control_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_control_health
+            WHERE username=? AND control_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(control_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v358_revalidations(username, control_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_revalidations
+            WHERE username=? AND control_id=?
+            ORDER BY id DESC
+        """, (username, int(control_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v358_provision(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_preventive_controls
+            WHERE username=? AND control_state IN ('ACTIVE','LOCKED','DEGRADED','BREACHED')
+            ORDER BY id DESC
+        """, (username,)).fetchall()
+        controls = [dict(r) for r in rows]
+    finally:
+        con.close()
+
+    created = 0
+    now = _v358_now()
+
+    for ctl in controls:
+        if _v358_get_health(username, int(ctl["id"])):
+            continue
+
+        freshness_days = 30
+        due_soon_days = 7
+        next_revalidation = now + timedelta(days=freshness_days)
+        expiry_at = next_revalidation + timedelta(days=due_soon_days)
+
+        con = sqlite3.connect(DB)
+        try:
+            con.execute("""
+                INSERT INTO hunter_control_health
+                (username, control_id, assurance_profile_id, health_state,
+                 freshness_days, due_soon_days, last_evidence_at,
+                 next_revalidation_at, expiry_at, created_at, updated_at)
+                VALUES (?, ?, ?, 'HEALTHY', ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                username,
+                int(ctl["id"]),
+                int(ctl["assurance_profile_id"]),
+                freshness_days,
+                due_soon_days,
+                _v358_iso(now),
+                _v358_iso(next_revalidation),
+                _v358_iso(expiry_at),
+                _v358_iso(now),
+                _v358_iso(now)
+            ))
+            con.commit()
+            created += 1
+        finally:
+            con.close()
+
+    return created
+
+
+def _v358_compute_state(health):
+    now = _v358_now()
+    next_revalidation = _v358_parse(health.get("next_revalidation_at"))
+    expiry_at = _v358_parse(health.get("expiry_at"))
+    due_soon_days = int(health.get("due_soon_days") or 7)
+
+    if str(health.get("health_state") or "") == "SUSPENDED":
+        return "SUSPENDED"
+
+    if expiry_at and now >= expiry_at:
+        return "EXPIRED"
+
+    if next_revalidation and now >= next_revalidation:
+        return "STALE"
+
+    if next_revalidation and now >= (next_revalidation - timedelta(days=due_soon_days)):
+        return "DUE_SOON"
+
+    return "HEALTHY"
+
+
+def _v358_refresh_states(username):
+    _v358_provision(username)
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_control_health
+            WHERE username=?
+            ORDER BY id DESC
+        """, (username,)).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        con.close()
+
+    now_iso = _v358_iso(_v358_now())
+
+    for h in items:
+        target = _v358_compute_state(h)
+        current = str(h.get("health_state") or "")
+
+        if target != current:
+            con = sqlite3.connect(DB)
+            try:
+                con.execute("""
+                    UPDATE hunter_control_health
+                    SET health_state=?, updated_at=?
+                    WHERE id=? AND username=?
+                """, (target, now_iso, int(h["id"]), username))
+
+                if target == "EXPIRED":
+                    con.execute("""
+                        UPDATE hunter_control_assurance_profiles
+                        SET assurance_state='REVALIDATION_REQUIRED'
+                        WHERE id=? AND username=?
+                    """, (int(h["assurance_profile_id"]), username))
+
+                    con.execute("""
+                        UPDATE hunter_preventive_controls
+                        SET control_state='DEGRADED'
+                        WHERE id=? AND username=? AND control_state='LOCKED'
+                    """, (int(h["control_id"]), username))
+
+                con.commit()
+            finally:
+                con.close()
+
+
+def _v358_revalidate(username, control_id, result, evidence_note="", freshness_days=None, due_soon_days=None):
+    result = str(result or "").strip().upper()
+    if result not in V358_REVALIDATION_RESULTS:
+        return False, "invalid_revalidation_result", None
+
+    _v358_refresh_states(username)
+    health = _v358_get_health(username, control_id)
+    if not health:
+        return False, "control_health_not_found", None
+
+    try:
+        fresh = int(freshness_days if freshness_days is not None else health.get("freshness_days") or 30)
+        due = int(due_soon_days if due_soon_days is not None else health.get("due_soon_days") or 7)
+    except Exception:
+        return False, "invalid_health_window", None
+
+    fresh = max(1, min(fresh, 3650))
+    due = max(1, min(due, fresh))
+
+    now = _v358_now()
+    next_revalidation = now + timedelta(days=fresh)
+    expiry_at = next_revalidation + timedelta(days=due)
+
+    if result == "PASS":
+        state = "HEALTHY"
+        control_state = "LOCKED"
+        assurance_state = "VALIDATED"
+    elif result == "WARN":
+        state = "DUE_SOON"
+        control_state = "DEGRADED"
+        assurance_state = "REVALIDATION_REQUIRED"
+    else:
+        state = "EXPIRED"
+        control_state = "BREACHED"
+        assurance_state = "REVALIDATION_REQUIRED"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_control_revalidations
+            (username, control_id, health_id, result, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(control_id),
+            int(health["id"]),
+            result,
+            str(evidence_note or "").strip()[:5000],
+            _v358_iso(now)
+        ))
+        rid = int(cur.lastrowid)
+
+        con.execute("""
+            UPDATE hunter_control_health
+            SET health_state=?,
+                freshness_days=?,
+                due_soon_days=?,
+                last_evidence_at=?,
+                next_revalidation_at=?,
+                expiry_at=?,
+                last_result=?,
+                last_note=?,
+                updated_at=?
+            WHERE id=? AND username=?
+        """, (
+            state,
+            fresh,
+            due,
+            _v358_iso(now),
+            _v358_iso(next_revalidation),
+            _v358_iso(expiry_at),
+            result,
+            str(evidence_note or "").strip()[:5000],
+            _v358_iso(now),
+            int(health["id"]),
+            username
+        ))
+
+        con.execute("""
+            UPDATE hunter_preventive_controls
+            SET control_state=?
+            WHERE id=? AND username=?
+        """, (
+            control_state,
+            int(control_id),
+            username
+        ))
+
+        con.execute("""
+            UPDATE hunter_control_assurance_profiles
+            SET assurance_state=?
+            WHERE id=? AND username=?
+        """, (
+            assurance_state,
+            int(health["assurance_profile_id"]),
+            username
+        ))
+
+        if result == "FAIL":
+            con.execute("""
+                UPDATE hunter_recurrence_rca
+                SET rca_state='PREVENTIVE_ACTION_IN_PROGRESS',
+                    closed_at=NULL
+                WHERE id=(
+                    SELECT rca_id FROM hunter_preventive_controls
+                    WHERE id=? AND username=?
+                ) AND username=?
+            """, (
+                int(control_id),
+                username,
+                username
+            ))
+
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v358_set_window(username, control_id, freshness_days, due_soon_days):
+    health = _v358_get_health(username, control_id)
+    if not health:
+        return False, "control_health_not_found"
+
+    try:
+        fresh = max(1, min(int(freshness_days), 3650))
+        due = max(1, min(int(due_soon_days), fresh))
+    except Exception:
+        return False, "invalid_health_window"
+
+    base = _v358_parse(health.get("last_evidence_at")) or _v358_now()
+    next_revalidation = base + timedelta(days=fresh)
+    expiry_at = next_revalidation + timedelta(days=due)
+    now = _v358_now()
+
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_control_health
+            SET freshness_days=?,
+                due_soon_days=?,
+                next_revalidation_at=?,
+                expiry_at=?,
+                updated_at=?
+            WHERE id=? AND username=?
+        """, (
+            fresh,
+            due,
+            _v358_iso(next_revalidation),
+            _v358_iso(expiry_at),
+            _v358_iso(now),
+            int(health["id"]),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    _v358_refresh_states(username)
+    return True, None
+
+
+def _v358_snapshot(username):
+    _v358_refresh_states(username)
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT h.*,
+                   c.control_name,
+                   c.control_description,
+                   c.owner_label,
+                   c.control_state
+            FROM hunter_control_health h
+            JOIN hunter_preventive_controls c
+              ON c.id=h.control_id AND c.username=h.username
+            WHERE h.username=?
+            ORDER BY h.id DESC
+        """, (username,)).fetchall()
+        items = [dict(r) for r in rows]
+    finally:
+        con.close()
+
+    for item in items:
+        item["revalidations"] = _v358_revalidations(username, int(item["control_id"]))[:20]
+
+    states = [str(x.get("health_state") or "") for x in items]
+
+    return {
+        "version": V358_VERSION,
+        "counts": {
+            "total": len(items),
+            "healthy": sum(1 for s in states if s == "HEALTHY"),
+            "due_soon": sum(1 for s in states if s == "DUE_SOON"),
+            "stale": sum(1 for s in states if s == "STALE"),
+            "expired": sum(1 for s in states if s == "EXPIRED"),
+            "suspended": sum(1 for s in states if s == "SUSPENDED")
+        },
+        "items": items,
+        "policy": "Preventive controls require fresh evidence. Stale or expired controls lose trusted status and trigger assurance revalidation."
+    }
+
+
+@app.route("/api/hunter-control-health")
+def v358_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    return jsonify({"success": True, **_v358_snapshot(u)})
+
+
+@app.route("/api/hunter-control-health/<int:control_id>/revalidate", methods=["POST"])
+def v358_revalidate_api(control_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e, rid = _v358_revalidate(
+        u,
+        control_id,
+        p.get("result") or "",
+        p.get("evidence_note") or "",
+        p.get("freshness_days"),
+        p.get("due_soon_days")
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e, "revalidation_id": rid}), 400
+
+    return jsonify({"success": True, "revalidation_id": rid})
+
+
+@app.route("/api/hunter-control-health/<int:control_id>/window", methods=["POST"])
+def v358_window_api(control_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form or {}
+
+    ok, e = _v358_set_window(
+        u,
+        control_id,
+        p.get("freshness_days") or 30,
+        p.get("due_soon_days") or 7
+    )
+
+    if not ok:
+        return jsonify({"success": False, "error": e}), 400
+
+    return jsonify({"success": True})
+
+
+@app.route("/hunter-control-health")
+def v358_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'>
+        <body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>⏳ Control Health</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v358_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+
+    cards = []
+
+    for h in d["items"]:
+        cid = int(h["control_id"])
+        state = str(h.get("health_state") or "")
+        cstate = str(h.get("control_state") or "")
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'>
+            <span>Control #{cid}</span>
+            <span class='pill'>{esc(state)}</span>
+          </div>
+
+          <h2>{esc(h.get('control_name'))}</h2>
+          <p class='muted'>{esc(h.get('control_description'))}</p>
+
+          <div class='state'>
+            HEALTH <b>{esc(state)}</b><br>
+            <small>
+              control {esc(cstate)}
+              · owner {esc(h.get('owner_label'))}
+              · next {esc(h.get('next_revalidation_at'))}
+              · expiry {esc(h.get('expiry_at'))}
+            </small>
+          </div>
+
+          <form action='/api/hunter-control-health/{cid}/revalidate'
+                onsubmit='return v358submit(this,event)'>
+            <select name='result'>
+              <option>PASS</option>
+              <option>WARN</option>
+              <option>FAIL</option>
+            </select>
+            <textarea name='evidence_note' rows='2' placeholder='Fresh control evidence / revalidation note'></textarea>
+            <input name='freshness_days' type='number' min='1' max='3650' value='{esc(h.get('freshness_days'))}'>
+            <input name='due_soon_days' type='number' min='1' max='3650' value='{esc(h.get('due_soon_days'))}'>
+            <button class='safe'>REVALIDATE CONTROL</button>
+          </form>
+
+          <form action='/api/hunter-control-health/{cid}/window'
+                onsubmit='return v358submit(this,event)'>
+            <input name='freshness_days' type='number' min='1' max='3650' value='{esc(h.get('freshness_days'))}'>
+            <input name='due_soon_days' type='number' min='1' max='3650' value='{esc(h.get('due_soon_days'))}'>
+            <button>UPDATE HEALTH WINDOW</button>
+          </form>
+        </article>
+        """)
+
+    return """<!doctype html><html><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.8 Control Health</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}}
+    .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#ffc86f;font-size:11px;letter-spacing:1.6px;font-weight:900}}
+    h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#ffc86f}}
+    .muted,small{{color:#8ca7b4}}
+    .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #7a5a24;border-radius:999px;padding:5px 8px;color:#ffd98d;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}}
+    .state{{margin-top:10px;padding:12px;border:1px solid #7a5a24;border-radius:12px;background:#181307}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:1000px){{.stats{{grid-template-columns:repeat(3,1fr)}}}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.8 // CONTROL HEALTH + REVALIDATION EXPIRY GATE</div>
+        <h1>⏳ TRUST MUST STAY FRESH</h1>
+        <p class='muted'>Locked controls now expire without fresh evidence. Health windows make assurance time-aware instead of permanent-by-default.</p>
+
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>TOTAL</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>HEALTHY</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>DUE SOON</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>STALE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>EXPIRED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>SUSPENDED</div><div class='num'>{}</div></div>
+        </div>
+
+        <div class='nav'>
+          <a href='/hunter-preventive-controls'>🔒 CONTROLS</a>
+          <a href='/api/hunter-control-health'>JSON</a>
+        </div>
+      </section>
+
+      <section class='grid'>{}</section>
+    </div>
+
+    <script>
+    async function v358submit(form,e){{
+      e.preventDefault();
+      const b=form.querySelector('button');
+      if(b)b.disabled=true;
+      try{{
+        const fd=new FormData(form);
+        const r=await fetch(form.action,{{method:'POST',body:fd}});
+        const j=await r.json();
+        if(!j.success) alert('Failed: '+(j.error||'unknown'));
+        else location.reload();
+      }}catch(err){{
+        alert('Request failed.');
+      }}finally{{
+        if(b)b.disabled=false;
+      }}
+      return false;
+    }}
+    </script></body></html>""".format(
+        c["total"],
+        c["healthy"],
+        c["due_soon"],
+        c["stale"],
+        c["expired"],
+        c["suspended"],
+        "".join(cards) or "<article class='card'><p>No control-health profiles yet.</p></article>"
+    )
+
+
+try:
+    _v358_prev_page = app.view_functions.get("v357_page")
+    if _v358_prev_page:
+        def _v358_controls_with_health(*args, **kwargs):
+            response = _v358_prev_page(*args, **kwargs)
+
+            if isinstance(response, str) and "/hunter-control-health" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-preventive-controls'>JSON</a>",
+                    "<a href='/api/hunter-preventive-controls'>JSON</a><a href='/hunter-control-health'>⏳ HEALTH</a>",
+                    1
+                )
+
+            return response
+
+        app.view_functions["v357_page"] = _v358_controls_with_health
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
