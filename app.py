@@ -77285,6 +77285,272 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.16 KNOWLEDGE ADOPTION + DRILL VERIFICATION GATE =====
+# V35.15 publishes evidence-backed operational knowledge.
+# V35.16 proves that published knowledge can actually be executed by an operator:
+#
+# PUBLISHED KNOWLEDGE -> DRILL DRAFT -> READY -> VERIFIED / FAILED -> RETIRED
+#
+# A drill can only be created from a currently PUBLISHED knowledge promotion.
+# Readiness requires a scenario, validation steps, and expected signal.
+# Verification records execution evidence so runbooks are not merely "published", but usable.
+
+V3516_VERSION = "V35.16"
+V3516_STATES = {"DRAFT", "READY", "VERIFIED", "FAILED", "RETIRED"}
+
+
+def _v3516_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_knowledge_drills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            promotion_id INTEGER NOT NULL,
+            scenario TEXT NOT NULL,
+            validation_steps TEXT,
+            expected_signal TEXT,
+            execution_evidence TEXT,
+            owner TEXT,
+            drill_state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            verified_at TEXT,
+            failed_at TEXT,
+            retired_at TEXT,
+            UNIQUE(username, promotion_id, scenario)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3516_user_state ON hunter_knowledge_drills(username,drill_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3516_promotion ON hunter_knowledge_drills(username,promotion_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3516_init()
+except Exception:
+    pass
+
+
+def _v3516_now_iso():
+    return _v3515_now_iso()
+
+
+def _v3516_promotion(username, promotion_id):
+    try:
+        return _v3515_entry(username, int(promotion_id))
+    except Exception:
+        return None
+
+
+def _v3516_source_gate(promotion):
+    if not promotion:
+        return {'gate': 'BLOCKED', 'reason': 'promotion_not_found'}
+    reasons = []
+    if str(promotion.get('promotion_state') or '').upper() != 'PUBLISHED':
+        reasons.append('published_knowledge_required')
+    if (promotion.get('gate') or {}).get('gate') != 'READY':
+        reasons.append('source_review_gate_blocked')
+    return {'gate': 'READY' if not reasons else 'BLOCKED', 'reasons': reasons}
+
+
+def _v3516_entry(username, drill_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_knowledge_drills WHERE username=? AND id=?", (username, int(drill_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d['promotion'] = _v3516_promotion(username, d['promotion_id'])
+        d['source_gate'] = _v3516_source_gate(d['promotion'])
+        return d
+    finally:
+        con.close()
+
+
+def _v3516_create(username, promotion_id, scenario, validation_steps='', expected_signal='', owner=''):
+    try:
+        promotion_id = int(promotion_id)
+    except Exception:
+        return False, 'invalid_promotion_id', None
+    promotion = _v3516_promotion(username, promotion_id)
+    gate = _v3516_source_gate(promotion)
+    if gate['gate'] != 'READY':
+        return False, (gate.get('reasons') or ['promotion_not_ready'])[0], None
+    scenario = str(scenario or '').strip()
+    if not scenario:
+        return False, 'scenario_required', None
+    validation_steps = str(validation_steps or '').strip()
+    expected_signal = str(expected_signal or '').strip()
+    state = 'READY' if validation_steps and expected_signal else 'DRAFT'
+    now = _v3516_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""
+              INSERT INTO hunter_knowledge_drills
+              (username,promotion_id,scenario,validation_steps,expected_signal,owner,drill_state,created_at,updated_at)
+              VALUES(?,?,?,?,?,?,?,?,?)
+            """, (username,promotion_id,scenario,validation_steps,expected_signal,str(owner or '').strip() or username,state,now,now))
+            con.commit(); did = cur.lastrowid
+        except sqlite3.IntegrityError:
+            return False, 'duplicate_drill', None
+    finally:
+        con.close()
+    return True, None, did
+
+
+def _v3516_update(username, drill_id, validation_steps='', expected_signal='', owner=''):
+    entry = _v3516_entry(username, drill_id)
+    if not entry:
+        return False, 'drill_not_found', None
+    if entry['drill_state'] in {'VERIFIED','FAILED','RETIRED'}:
+        return False, 'immutable_completed_drill', entry
+    if entry['source_gate']['gate'] != 'READY':
+        return False, 'source_knowledge_not_published', entry
+    validation_steps = str(validation_steps or '').strip()
+    expected_signal = str(expected_signal or '').strip()
+    owner = str(owner or '').strip() or username
+    state = 'READY' if validation_steps and expected_signal else 'DRAFT'
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_knowledge_drills SET validation_steps=?,expected_signal=?,owner=?,drill_state=?,updated_at=? WHERE username=? AND id=?",
+                    (validation_steps,expected_signal,owner,state,_v3516_now_iso(),username,int(drill_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3516_entry(username, drill_id)
+
+
+def _v3516_decide(username, drill_id, decision, execution_evidence=''):
+    entry = _v3516_entry(username, drill_id)
+    if not entry:
+        return False, 'drill_not_found', None
+    decision = str(decision or '').upper().strip()
+    evidence = str(execution_evidence or '').strip()
+    now = _v3516_now_iso()
+    verified_at = entry.get('verified_at'); failed_at = entry.get('failed_at'); retired_at = entry.get('retired_at')
+    if decision == 'VERIFY':
+        if entry['drill_state'] != 'READY':
+            return False, 'ready_drill_required', entry
+        if entry['source_gate']['gate'] != 'READY':
+            return False, 'source_knowledge_not_published', entry
+        if not evidence:
+            return False, 'execution_evidence_required', entry
+        new_state = 'VERIFIED'; verified_at = now
+    elif decision == 'FAIL':
+        if entry['drill_state'] != 'READY':
+            return False, 'ready_drill_required', entry
+        if not evidence:
+            return False, 'failure_evidence_required', entry
+        new_state = 'FAILED'; failed_at = now
+    elif decision == 'RETIRE':
+        if entry['drill_state'] not in {'VERIFIED','FAILED'}:
+            return False, 'completed_drill_required', entry
+        new_state = 'RETIRED'; retired_at = now
+    else:
+        return False, 'invalid_decision', entry
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_knowledge_drills
+                       SET drill_state=?,execution_evidence=?,verified_at=?,failed_at=?,retired_at=?,updated_at=?
+                       WHERE username=? AND id=?""",
+                    (new_state,evidence or entry.get('execution_evidence') or '',verified_at,failed_at,retired_at,now,username,int(drill_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, _v3516_entry(username, drill_id)
+
+
+def _v3516_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute("SELECT * FROM hunter_knowledge_drills WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+        counts = {}
+        for r in rows:
+            r['promotion'] = _v3516_promotion(username, r['promotion_id'])
+            r['source_gate'] = _v3516_source_gate(r['promotion'])
+            counts[r['drill_state']] = counts.get(r['drill_state'], 0) + 1
+        promotions = [dict(r) for r in con.execute("SELECT * FROM hunter_knowledge_promotions WHERE username=? AND promotion_state='PUBLISHED' ORDER BY id DESC LIMIT 100", (username,)).fetchall()]
+        return {'version': V3516_VERSION, 'drills': rows, 'counts': counts, 'published_promotions': promotions}
+    finally:
+        con.close()
+
+
+@app.route('/api/hunter-knowledge-drills', methods=['GET','POST'])
+def v3516_api_drills():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify({'success':True, **_v3516_snapshot(u)})
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,did = _v3516_create(u,p.get('promotion_id'),p.get('scenario') or '',p.get('validation_steps') or '',p.get('expected_signal') or '',p.get('owner') or '')
+    return jsonify({'success':ok,'error':e,'drill_id':did}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-knowledge-drills/<int:drill_id>', methods=['POST'])
+def v3516_api_update(drill_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data = _v3516_update(u,drill_id,p.get('validation_steps') or '',p.get('expected_signal') or '',p.get('owner') or '')
+    return jsonify({'success':ok,'error':e,'drill':data}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-knowledge-drills/<int:drill_id>/decision', methods=['POST'])
+def v3516_api_decision(drill_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,data = _v3516_decide(u,drill_id,p.get('decision'),p.get('execution_evidence') or '')
+    return jsonify({'success':ok,'error':e,'drill':data}), (200 if ok else 400)
+
+
+@app.route('/hunter-knowledge-drills')
+def v3516_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3516_snapshot(u); esc = html.escape
+    opts = ''.join(f"<option value='{int(r['id'])}'>Knowledge #{int(r['id'])} — {esc(r['title'])}</option>" for r in d['published_promotions'])
+    cards = []
+    for x in d['drills']:
+        state = x.get('drill_state') or ''
+        promo = x.get('promotion') or {}
+        source_gate = x.get('source_gate') or {}
+        edit = ''
+        if state not in {'VERIFIED','FAILED','RETIRED'}:
+            edit = f"""<form action='/api/hunter-knowledge-drills/{int(x['id'])}' onsubmit='return v3516submit(this,event)'><textarea name='validation_steps' placeholder='Validation steps' required>{esc(x.get('validation_steps') or '')}</textarea><textarea name='expected_signal' placeholder='Expected observable signal / outcome' required>{esc(x.get('expected_signal') or '')}</textarea><input name='owner' value='{esc(x.get('owner') or u)}' placeholder='Drill owner'><button>SAVE + EVALUATE READINESS</button></form>"""
+        action = ''
+        if state == 'READY':
+            action = f"""<form action='/api/hunter-knowledge-drills/{int(x['id'])}/decision' onsubmit='return v3516submit(this,event)'><textarea name='execution_evidence' placeholder='Execution evidence / observed result' required></textarea><div class='actions'><button name='decision' value='VERIFY' class='safe'>VERIFY DRILL</button><button name='decision' value='FAIL' class='danger'>MARK FAILED</button></div></form>"""
+        elif state in {'VERIFIED','FAILED'}:
+            action = f"""<form action='/api/hunter-knowledge-drills/{int(x['id'])}/decision' onsubmit='return v3516submit(this,event)'><input type='hidden' name='decision' value='RETIRE'><button class='mutebtn'>RETIRE DRILL</button></form>"""
+        evidence = esc(x.get('execution_evidence') or '')
+        ev = f"<div class='evidence'><b>Execution evidence</b><p>{evidence}</p></div>" if evidence else ''
+        cards.append(f"""<article class='card'><div class='top'><span>Drill #{int(x['id'])}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(x['scenario'])}</h2><p class='muted'>Knowledge #{int(x['promotion_id'])} · {esc(promo.get('title') or 'Unknown knowledge')} · Owner {esc(x.get('owner') or '-')}</p><div class='score'><b>SOURCE {esc(source_gate.get('gate') or '')}</b><span>{esc(promo.get('knowledge_kind') or '-')}</span></div>{ev}{edit}{action}</article>""")
+    co = d['counts']
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.16 Knowledge Drills</title><style>body{{margin:0;background:#06070a;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #2f4654;background:#0a0f14;border-radius:20px;padding:18px}}.eyebrow{{color:#a7ffcf;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#90a8b5}}.stats{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.num{{font-size:26px;font-weight:900;color:#a7ffcf}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.score,.actions{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #348f68;border-radius:999px;padding:5px 8px;color:#c9ffe1;font-size:11px}}.score,.evidence{{margin:12px 0;padding:14px;border:1px solid #275a46;border-radius:14px;background:#081510}}select,input,textarea{{width:100%;box-sizing:border-box;background:#071014;color:white;border:1px solid #29414b;border-radius:12px;padding:10px;margin-top:8px}}textarea{{min-height:78px;resize:vertical}}button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#a7ffcf;color:#03120b;font-weight:900}}button.safe{{background:#a7ffcf}}button.danger{{background:#ff9ea9}}button.mutebtn{{background:#b8c4c9}}a{{color:#a7ffcf;margin-right:12px}}@media(max-width:760px){{.stats{{grid-template-columns:1fr 1fr}}.actions{{display:block}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.16 · KNOWLEDGE ADOPTION + DRILL VERIFICATION</div><h1>Prove published knowledge works under execution.</h1><p class='muted'>Create an operator drill from PUBLISHED knowledge, define the expected signal, then verify with execution evidence.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>VERIFIED</div><div><div class='num'>{}</div>FAILED</div><div><div class='num'>{}</div>RETIRED</div></div><div style='margin-top:14px'><a href='/hunter-knowledge-promotion'>📚 KNOWLEDGE</a><a href='/api/hunter-knowledge-drills'>JSON</a></div></section><section class='hero' style='margin-top:16px'><div class='eyebrow'>CREATE EXECUTION DRILL</div><form action='/api/hunter-knowledge-drills' onsubmit='return v3516submit(this,event)'><select name='promotion_id' required><option value=''>Published knowledge</option>{}</select><textarea name='scenario' placeholder='Operator drill / incident scenario' required></textarea><textarea name='validation_steps' placeholder='Validation steps'></textarea><textarea name='expected_signal' placeholder='Expected observable signal / outcome'></textarea><input name='owner' value='{}' placeholder='Drill owner'><button>CREATE DRILL</button></form></section><section class='grid'>{}</section></div><script>async function v3516submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(co.get('DRAFT',0),co.get('READY',0),co.get('VERIFIED',0),co.get('FAILED',0),co.get('RETIRED',0),opts,esc(u),''.join(cards) or "<article class='card'><p>No knowledge drills yet.</p></article>")
+
+
+# Add navigation from V35.15 into V35.16.
+try:
+    _v3516_prev_page = app.view_functions.get('v3515_page')
+    if _v3516_prev_page:
+        def _v3516_knowledge_with_drills(*args, **kwargs):
+            response = _v3516_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-knowledge-drills' not in response:
+                response = response.replace("<a href='/api/hunter-knowledge-promotions'>JSON</a>", "<a href='/api/hunter-knowledge-promotions'>JSON</a><a href='/hunter-knowledge-drills'>🧪 ADOPTION DRILLS</a>", 1)
+            return response
+        app.view_functions['v3515_page'] = _v3516_knowledge_with_drills
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
