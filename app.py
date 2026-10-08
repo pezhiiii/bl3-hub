@@ -82899,6 +82899,367 @@ try:
 except Exception:
     pass
 
+
+
+# ===== V35.30 ENGAGEMENT ACTIVATION + DELIVERY ACCEPTANCE GATE =====
+# V35.29 records an explicit CONVERTED decision from a pilot-backed opportunity.
+# V35.30 turns that conversion into a bounded delivery engagement with explicit
+# kickoff evidence, measurable milestones, delivery evidence and acceptance evidence.
+# It never invents external acceptance: ACCEPTED requires every milestone to be
+# explicitly accepted with evidence.
+
+V3530_VERSION = "V35.30"
+V3530_STATES = {"DRAFT", "KICKOFF_READY", "ACTIVE", "ACCEPTANCE_DUE", "ACCEPTED", "CLOSED", "STALE"}
+V3530_MILESTONE_STATES = {"PLANNED", "DELIVERED", "ACCEPTED", "REJECTED"}
+
+
+def _v3530_now_iso():
+    return _v3529_now_iso()
+
+
+def _v3530_hash(payload):
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",",":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _v3530_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_engagements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            conversion_id INTEGER NOT NULL,
+            engagement_key TEXT NOT NULL UNIQUE,
+            engagement_title TEXT NOT NULL,
+            engagement_scope TEXT NOT NULL,
+            delivery_owner TEXT,
+            stakeholder TEXT,
+            start_at TEXT,
+            target_end_at TEXT,
+            engagement_state TEXT NOT NULL DEFAULT 'DRAFT',
+            kickoff_note TEXT,
+            kickoff_evidence TEXT,
+            acceptance_note TEXT,
+            acceptance_evidence TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            activated_at TEXT,
+            accepted_at TEXT,
+            closed_at TEXT,
+            evidence_sha256 TEXT NOT NULL,
+            UNIQUE(username, conversion_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3530_user_state ON hunter_startup_engagements(username,engagement_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_engagement_milestones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            engagement_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            milestone_title TEXT NOT NULL,
+            acceptance_criteria TEXT NOT NULL,
+            due_at TEXT,
+            milestone_state TEXT NOT NULL DEFAULT 'PLANNED',
+            delivery_note TEXT,
+            delivery_evidence TEXT,
+            acceptance_note TEXT,
+            acceptance_evidence TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            delivered_at TEXT,
+            decided_at TEXT,
+            evidence_sha256 TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3530_milestones_engagement ON hunter_startup_engagement_milestones(engagement_id,id)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_startup_engagement_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            engagement_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            event_sha256 TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3530_events_engagement ON hunter_startup_engagement_events(engagement_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3530_init()
+except Exception:
+    pass
+
+
+def _v3530_event(con, engagement_id, username, event_type, detail=""):
+    created = _v3530_now_iso()
+    payload = {"engagement_id":int(engagement_id),"username":username,"event_type":event_type,"detail":str(detail or ""),"created_at":created}
+    digest = _v3530_hash(payload)
+    con.execute("INSERT INTO hunter_startup_engagement_events (engagement_id,username,event_type,detail,created_at,event_sha256) VALUES (?,?,?,?,?,?)",
+                (int(engagement_id),username,event_type,str(detail or "")[:1600],created,digest))
+    return digest
+
+
+def _v3530_refresh(username, engagement_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_startup_engagements WHERE username=? AND id=?", (username,int(engagement_id))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        conversion = _v3529_entry(username, int(d.get('conversion_id') or 0))
+        d['conversion'] = conversion
+        state = str(d.get('engagement_state') or 'DRAFT').upper()
+        if not conversion or str(conversion.get('conversion_state') or '').upper() != 'CONVERTED':
+            if state not in {'ACCEPTED','CLOSED','STALE'}:
+                state = 'STALE'
+                con.execute("UPDATE hunter_startup_engagements SET engagement_state='STALE',updated_at=? WHERE username=? AND id=?", (_v3530_now_iso(),username,int(engagement_id)))
+                _v3530_event(con,engagement_id,username,'SOURCE_STALE','Conversion is no longer CONVERTED.')
+                con.commit()
+        milestones = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_engagement_milestones WHERE username=? AND engagement_id=? ORDER BY id", (username,int(engagement_id))).fetchall()]
+        if state not in {'STALE','ACCEPTED','CLOSED'}:
+            if state == 'DRAFT' and milestones:
+                state = 'KICKOFF_READY'
+            if state == 'ACTIVE' and milestones and all(str(m.get('milestone_state') or '').upper() in {'DELIVERED','ACCEPTED','REJECTED'} for m in milestones):
+                state = 'ACCEPTANCE_DUE'
+            if state != str(d.get('engagement_state') or '').upper():
+                con.execute("UPDATE hunter_startup_engagements SET engagement_state=?,updated_at=? WHERE username=? AND id=?", (state,_v3530_now_iso(),username,int(engagement_id)))
+                con.commit()
+        d['engagement_state'] = state
+        d['milestones'] = milestones
+        d['milestone_counts'] = {s:sum(1 for m in milestones if str(m.get('milestone_state') or '').upper()==s) for s in V3530_MILESTONE_STATES}
+        d['events'] = [dict(r) for r in con.execute("SELECT * FROM hunter_startup_engagement_events WHERE username=? AND engagement_id=? ORDER BY id DESC LIMIT 60", (username,int(engagement_id))).fetchall()]
+        d['all_accepted'] = bool(milestones) and all(str(m.get('milestone_state') or '').upper() == 'ACCEPTED' for m in milestones)
+        return d
+    finally:
+        con.close()
+
+
+def _v3530_create(username, conversion_id, engagement_title, engagement_scope, delivery_owner='', stakeholder='', start_at='', target_end_at=''):
+    try:
+        conversion_id = int(conversion_id)
+    except Exception:
+        return False,'invalid_conversion_id',None
+    conversion = _v3529_entry(username, conversion_id)
+    if not conversion:
+        return False,'conversion_not_found',None
+    if str(conversion.get('conversion_state') or '').upper() != 'CONVERTED':
+        return False,'conversion_not_converted',None
+    title = str(engagement_title or '').strip(); scope = str(engagement_scope or '').strip()
+    if not title or not scope:
+        return False,'title_and_scope_required',None
+    now=_v3530_now_iso(); key='ENG-' + secrets.token_hex(5).upper()
+    payload={"username":username,"conversion_id":conversion_id,"engagement_key":key,"engagement_title":title,"engagement_scope":scope,"delivery_owner":str(delivery_owner or ''),"stakeholder":str(stakeholder or ''),"start_at":str(start_at or ''),"target_end_at":str(target_end_at or ''),"created_at":now}
+    digest=_v3530_hash(payload)
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO hunter_startup_engagements
+            (username,conversion_id,engagement_key,engagement_title,engagement_scope,delivery_owner,stakeholder,start_at,target_end_at,engagement_state,created_at,updated_at,evidence_sha256)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (username,conversion_id,key,title[:220],scope[:3000],str(delivery_owner or '')[:180],str(stakeholder or '')[:180],str(start_at or '')[:80],str(target_end_at or '')[:80],'DRAFT',now,now,digest))
+        eid=int(cur.lastrowid); _v3530_event(con,eid,username,'ENGAGEMENT_CREATED',f'{key} · conversion {conversion_id}')
+        con.commit(); return True,'',eid
+    except sqlite3.IntegrityError:
+        return False,'engagement_already_exists',None
+    finally:
+        con.close()
+
+
+def _v3530_add_milestone(username, engagement_id, milestone_title, acceptance_criteria, due_at=''):
+    d=_v3530_refresh(username,engagement_id)
+    if not d: return False,'engagement_not_found',None
+    if d.get('engagement_state') in {'ACCEPTED','CLOSED','STALE'}: return False,'engagement_final',None
+    title=str(milestone_title or '').strip(); criteria=str(acceptance_criteria or '').strip()
+    if not title or not criteria: return False,'title_and_criteria_required',None
+    now=_v3530_now_iso(); payload={"engagement_id":int(engagement_id),"milestone_title":title,"acceptance_criteria":criteria,"due_at":str(due_at or ''),"created_at":now}
+    digest=_v3530_hash(payload); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO hunter_startup_engagement_milestones
+            (engagement_id,username,milestone_title,acceptance_criteria,due_at,milestone_state,created_at,updated_at,evidence_sha256)
+            VALUES (?,?,?,?,?,'PLANNED',?,?,?)""",(int(engagement_id),username,title[:240],criteria[:2500],str(due_at or '')[:80],now,now,digest))
+        mid=int(cur.lastrowid)
+        con.execute("UPDATE hunter_startup_engagements SET engagement_state=CASE WHEN engagement_state='DRAFT' THEN 'KICKOFF_READY' ELSE engagement_state END,updated_at=? WHERE username=? AND id=?",(now,username,int(engagement_id)))
+        _v3530_event(con,engagement_id,username,'MILESTONE_ADDED',f'#{mid} {title}')
+        con.commit(); return True,'',mid
+    finally: con.close()
+
+
+def _v3530_activate(username, engagement_id, kickoff_note='', kickoff_evidence=''):
+    d=_v3530_refresh(username,engagement_id)
+    if not d: return False,'engagement_not_found',None
+    if d.get('engagement_state') not in {'KICKOFF_READY'}: return False,'engagement_not_kickoff_ready',d
+    evidence=str(kickoff_evidence or '').strip()
+    if not evidence: return False,'kickoff_evidence_required',d
+    now=_v3530_now_iso(); payload={"engagement_id":int(engagement_id),"kickoff_note":str(kickoff_note or ''),"kickoff_evidence":evidence,"activated_at":now}; digest=_v3530_hash(payload)
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_startup_engagements SET engagement_state='ACTIVE',kickoff_note=?,kickoff_evidence=?,activated_at=?,updated_at=?,evidence_sha256=? WHERE username=? AND id=?",
+                    (str(kickoff_note or '')[:1800],evidence[:3000],now,now,digest,username,int(engagement_id)))
+        _v3530_event(con,engagement_id,username,'ENGAGEMENT_ACTIVATED',(str(kickoff_note or '')+' | '+evidence)[:1400]); con.commit()
+    finally: con.close()
+    return True,'',_v3530_refresh(username,engagement_id)
+
+
+def _v3530_milestone_decision(username, engagement_id, milestone_id, action, note='', evidence=''):
+    d=_v3530_refresh(username,engagement_id)
+    if not d: return False,'engagement_not_found',None
+    if d.get('engagement_state') not in {'ACTIVE','ACCEPTANCE_DUE'}: return False,'engagement_not_active',d
+    action=str(action or '').upper().strip(); evidence=str(evidence or '').strip()
+    if action not in {'DELIVER','ACCEPT','REJECT'}: return False,'invalid_action',d
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        row=con.execute("SELECT * FROM hunter_startup_engagement_milestones WHERE username=? AND engagement_id=? AND id=?",(username,int(engagement_id),int(milestone_id))).fetchone()
+        if not row: return False,'milestone_not_found',d
+        old=str(row['milestone_state'] or '').upper(); now=_v3530_now_iso()
+        if action=='DELIVER':
+            if old!='PLANNED': return False,'milestone_not_planned',d
+            if not evidence: return False,'delivery_evidence_required',d
+            payload={"milestone_id":int(milestone_id),"action":"DELIVER","note":str(note or ''),"evidence":evidence,"at":now}; digest=_v3530_hash(payload)
+            con.execute("UPDATE hunter_startup_engagement_milestones SET milestone_state='DELIVERED',delivery_note=?,delivery_evidence=?,delivered_at=?,updated_at=?,evidence_sha256=? WHERE id=? AND username=?",
+                        (str(note or '')[:1600],evidence[:3000],now,now,digest,int(milestone_id),username))
+        else:
+            if old!='DELIVERED': return False,'milestone_not_delivered',d
+            if not evidence: return False,'acceptance_evidence_required',d
+            new='ACCEPTED' if action=='ACCEPT' else 'REJECTED'
+            payload={"milestone_id":int(milestone_id),"action":action,"note":str(note or ''),"evidence":evidence,"at":now}; digest=_v3530_hash(payload)
+            con.execute("UPDATE hunter_startup_engagement_milestones SET milestone_state=?,acceptance_note=?,acceptance_evidence=?,decided_at=?,updated_at=?,evidence_sha256=? WHERE id=? AND username=?",
+                        (new,str(note or '')[:1600],evidence[:3000],now,now,digest,int(milestone_id),username))
+        _v3530_event(con,engagement_id,username,'MILESTONE_'+action,f'#{int(milestone_id)} · {str(note or "")}'[:1400]); con.commit()
+    finally: con.close()
+    return True,'',_v3530_refresh(username,engagement_id)
+
+
+def _v3530_accept_engagement(username, engagement_id, acceptance_note='', acceptance_evidence=''):
+    d=_v3530_refresh(username,engagement_id)
+    if not d: return False,'engagement_not_found',None
+    if not d.get('all_accepted'): return False,'all_milestones_must_be_accepted',d
+    if d.get('engagement_state') not in {'ACTIVE','ACCEPTANCE_DUE'}: return False,'engagement_not_acceptance_ready',d
+    evidence=str(acceptance_evidence or '').strip()
+    if not evidence: return False,'engagement_acceptance_evidence_required',d
+    now=_v3530_now_iso(); payload={"engagement_id":int(engagement_id),"acceptance_note":str(acceptance_note or ''),"acceptance_evidence":evidence,"accepted_at":now}; digest=_v3530_hash(payload)
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE hunter_startup_engagements SET engagement_state='ACCEPTED',acceptance_note=?,acceptance_evidence=?,accepted_at=?,updated_at=?,evidence_sha256=? WHERE username=? AND id=?",
+                    (str(acceptance_note or '')[:1800],evidence[:3000],now,now,digest,username,int(engagement_id)))
+        _v3530_event(con,engagement_id,username,'ENGAGEMENT_ACCEPTED',(str(acceptance_note or '')+' | '+evidence)[:1400]); con.commit()
+    finally: con.close()
+    return True,'',_v3530_refresh(username,engagement_id)
+
+
+def _v3530_snapshot(username):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: ids=[int(r['id']) for r in con.execute("SELECT id FROM hunter_startup_engagements WHERE username=? ORDER BY id DESC LIMIT 100",(username,)).fetchall()]
+    finally: con.close()
+    engagements=[_v3530_refresh(username,i) for i in ids]; engagements=[x for x in engagements if x]
+    counts={k:0 for k in V3530_STATES}
+    for x in engagements:
+        s=str(x.get('engagement_state') or 'STALE').upper(); counts[s if s in counts else 'STALE']+=1
+    d29=_v3529_snapshot(username); used={int(x.get('conversion_id') or 0) for x in engagements}
+    eligible=[c for c in (d29.get('conversions') or []) if str(c.get('conversion_state') or '').upper()=='CONVERTED' and int(c.get('id') or 0) not in used]
+    return {'success':True,'version':V3530_VERSION,'counts':counts,'engagements':engagements,'eligible_conversions':eligible}
+
+
+@app.route('/api/hunter-startup-engagements', methods=['GET','POST'])
+def v3530_api_engagements():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET': return jsonify(_v3530_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,eid=_v3530_create(u,p.get('conversion_id'),p.get('engagement_title'),p.get('engagement_scope'),p.get('delivery_owner') or '',p.get('stakeholder') or '',p.get('start_at') or '',p.get('target_end_at') or '')
+    return jsonify({'success':ok,'error':e,'engagement_id':eid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-engagements/<int:engagement_id>')
+def v3530_api_engagement(engagement_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    d=_v3530_refresh(u,engagement_id)
+    if not d: return jsonify({'success':False,'error':'engagement_not_found'}),404
+    return jsonify({'success':True,'version':V3530_VERSION,'engagement':d})
+
+
+@app.route('/api/hunter-startup-engagements/<int:engagement_id>/milestones', methods=['POST'])
+def v3530_api_add_milestone(engagement_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,mid=_v3530_add_milestone(u,engagement_id,p.get('milestone_title'),p.get('acceptance_criteria'),p.get('due_at') or '')
+    return jsonify({'success':ok,'error':e,'milestone_id':mid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-engagements/<int:engagement_id>/activate', methods=['POST'])
+def v3530_api_activate(engagement_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3530_activate(u,engagement_id,p.get('kickoff_note') or '',p.get('kickoff_evidence') or '')
+    return jsonify({'success':ok,'error':e,'engagement':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-engagements/<int:engagement_id>/milestones/<int:milestone_id>/decision', methods=['POST'])
+def v3530_api_milestone_decision(engagement_id,milestone_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3530_milestone_decision(u,engagement_id,milestone_id,p.get('action'),p.get('note') or '',p.get('evidence') or '')
+    return jsonify({'success':ok,'error':e,'engagement':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-startup-engagements/<int:engagement_id>/accept', methods=['POST'])
+def v3530_api_accept(engagement_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3530_accept_engagement(u,engagement_id,p.get('acceptance_note') or '',p.get('acceptance_evidence') or '')
+    return jsonify({'success':ok,'error':e,'engagement':d}),(200 if ok else 400)
+
+
+@app.route('/hunter-startup-engagements')
+def v3530_page():
+    u=session.get('authenticated_username')
+    if not u: return redirect('/')
+    d=_v3530_snapshot(u); esc=html.escape; c=d['counts']
+    opts=''.join(f"<option value='{int(x['id'])}'>{esc(x.get('conversion_key') or '')} — {esc(x.get('conversion_path') or '')}</option>" for x in d['eligible_conversions'])
+    cards=[]
+    for x in d['engagements']:
+        eid=int(x['id']); state=esc(x.get('engagement_state') or '')
+        milestone_html=[]
+        for m in x.get('milestones') or []:
+            mid=int(m['id']); ms=esc(m.get('milestone_state') or '')
+            actions=''
+            if x.get('engagement_state') in {'ACTIVE','ACCEPTANCE_DUE'} and m.get('milestone_state')=='PLANNED':
+                actions=f"""<form action='/api/hunter-startup-engagements/{eid}/milestones/{mid}/decision' onsubmit='return v3530submit(this,event)'><input type='hidden' name='action' value='DELIVER'><textarea name='note' placeholder='Delivery note'></textarea><textarea name='evidence' placeholder='Delivery evidence' required></textarea><button>MARK DELIVERED</button></form>"""
+            elif x.get('engagement_state') in {'ACTIVE','ACCEPTANCE_DUE'} and m.get('milestone_state')=='DELIVERED':
+                actions=f"""<form action='/api/hunter-startup-engagements/{eid}/milestones/{mid}/decision' onsubmit='return v3530submit(this,event)'><textarea name='note' placeholder='Acceptance / rejection note'></textarea><textarea name='evidence' placeholder='Acceptance evidence' required></textarea><div class='actions'><button name='action' value='ACCEPT' class='safe'>ACCEPT</button><button name='action' value='REJECT' class='danger'>REJECT</button></div></form>"""
+            milestone_html.append(f"<div class='milestone'><div class='top'><b>{esc(m.get('milestone_title') or '')}</b><span class='pill'>{ms}</span></div><p>{esc(m.get('acceptance_criteria') or '')}</p><p class='muted'>Due {esc(m.get('due_at') or '-')}</p>{actions}</div>")
+        controls=''
+        if x.get('engagement_state') in {'DRAFT','KICKOFF_READY'}:
+            controls+=f"""<form action='/api/hunter-startup-engagements/{eid}/milestones' onsubmit='return v3530submit(this,event)'><input name='milestone_title' placeholder='Milestone title' required><textarea name='acceptance_criteria' placeholder='Explicit acceptance criteria' required></textarea><input name='due_at' placeholder='Due ISO'><button>ADD MILESTONE</button></form>"""
+        if x.get('engagement_state')=='KICKOFF_READY':
+            controls+=f"""<form action='/api/hunter-startup-engagements/{eid}/activate' onsubmit='return v3530submit(this,event)'><textarea name='kickoff_note' placeholder='Kickoff note'></textarea><textarea name='kickoff_evidence' placeholder='Kickoff evidence' required></textarea><button class='safe'>ACTIVATE ENGAGEMENT</button></form>"""
+        if x.get('all_accepted') and x.get('engagement_state') in {'ACTIVE','ACCEPTANCE_DUE'}:
+            controls+=f"""<form action='/api/hunter-startup-engagements/{eid}/accept' onsubmit='return v3530submit(this,event)'><textarea name='acceptance_note' placeholder='Final acceptance note'></textarea><textarea name='acceptance_evidence' placeholder='Final engagement acceptance evidence' required></textarea><button class='safe'>SEAL ACCEPTANCE</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>{esc(x.get('engagement_key') or '')}</span><span class='pill'>{state}</span></div><h2>{esc(x.get('engagement_title') or '')}</h2><p><b>Scope:</b> {esc(x.get('engagement_scope') or '')}</p><p class='muted'>Owner {esc(x.get('delivery_owner') or '-')} · Stakeholder {esc(x.get('stakeholder') or '-')} · Target end {esc(x.get('target_end_at') or '-')}</p>{''.join(milestone_html) or '<p class="muted">No milestones yet.</p>'}{controls}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.30 Engagement Delivery</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304958;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#9fffc8;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:25px;font-weight:900;color:#9fffc8}}.grid{{display:grid;gap:14px;margin-top:18px}}.top,.actions{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #378d68;border-radius:999px;padding:5px 9px}}.milestone{{margin-top:12px;padding:12px;border:1px solid #223846;border-radius:14px;background:#071017}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}.danger{{border-color:#a94455}}a{{color:#9fffc8}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.30 · ENGAGEMENT ACTIVATION + DELIVERY ACCEPTANCE GATE</div><h1>Turn a conversion into accountable delivery.</h1><p class='muted'>A CONVERTED decision can become a bounded engagement, but activation needs kickoff evidence and acceptance is only sealed after every milestone has explicit acceptance evidence.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>ACTIVE</div><div><div class='num'>{}</div>ACCEPTANCE DUE</div><div><div class='num'>{}</div>ACCEPTED</div></div><p><a href='/hunter-startup-conversions'>← Startup Conversions</a> · <a href='/api/hunter-startup-engagements'>JSON</a></p></section><section class='card'><h2>Create engagement</h2><form action='/api/hunter-startup-engagements' onsubmit='return v3530submit(this,event)'><select name='conversion_id' required><option value=''>CONVERTED opportunity</option>{}</select><input name='engagement_title' placeholder='Engagement title' required><textarea name='engagement_scope' placeholder='Bounded delivery scope' required></textarea><input name='delivery_owner' placeholder='Delivery owner'><input name='stakeholder' placeholder='External stakeholder / role'><input name='start_at' placeholder='Start ISO'><input name='target_end_at' placeholder='Target end ISO'><button>CREATE ENGAGEMENT</button></form></section><section class='grid'>{}</section></div><script>async function v3530submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0)+c.get('KICKOFF_READY',0),c.get('ACTIVE',0),c.get('ACCEPTANCE_DUE',0),c.get('ACCEPTED',0),opts,''.join(cards) or "<article class='card'><p>No delivery engagements yet.</p></article>")
+
+
+# Add navigation from V35.29 into V35.30.
+try:
+    _v3530_prev_page=app.view_functions.get('v3529_page')
+    if _v3530_prev_page:
+        def _v3530_conversions_with_engagement(*args,**kwargs):
+            response=_v3530_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-startup-engagements' not in response:
+                response=response.replace("<a href='/api/hunter-startup-conversions'>JSON</a>","<a href='/api/hunter-startup-conversions'>JSON</a> · <a href='/hunter-startup-engagements'>🚀 DELIVERY ENGAGEMENT</a>",1)
+            return response
+        app.view_functions['v3529_page']=_v3530_conversions_with_engagement
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -83020,6 +83381,7 @@ if __name__ == "__main__":
     print("🎤 Startup Demo Session + Guided Presentation Gate enabled")
     print("🎯 Startup Feedback Capture + Opportunity Follow-up Gate enabled")
     print("🤝 Commercial Conversion + Decision Gate enabled")
+    print("🚀 Engagement Activation + Delivery Acceptance Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
