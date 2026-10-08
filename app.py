@@ -85486,6 +85486,342 @@ except Exception:
     pass
 
 
+
+# ===== V35.37 APPROVED DECISION -> EXECUTION HANDOFF + KICKOFF READINESS GATE =====
+# Approval is not the same as execution readiness.
+# This gate turns an APPROVED V35.36 decision package into an auditable handoff,
+# verifies owner/scope/dependencies/access/checklist evidence, and only then allows kickoff.
+
+V3537_VERSION = "V35.37"
+V3537_STATES = {"DRAFT", "READINESS_CHECK", "READY_TO_KICKOFF", "KICKED_OFF", "STALE"}
+V3537_CHECK_KINDS = {"OWNER", "SCOPE", "DEPENDENCY", "ACCESS", "ENVIRONMENT", "COMMS", "OTHER"}
+
+
+def _v3537_now():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3537_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _v3537_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS startup_execution_handoffs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            decision_package_id INTEGER NOT NULL,
+            handoff_title TEXT NOT NULL,
+            execution_owner TEXT NOT NULL DEFAULT '',
+            stakeholder_owner TEXT NOT NULL DEFAULT '',
+            execution_scope TEXT NOT NULL DEFAULT '',
+            kickoff_target TEXT NOT NULL DEFAULT '',
+            handoff_state TEXT NOT NULL DEFAULT 'DRAFT',
+            readiness_evidence TEXT NOT NULL DEFAULT '',
+            kickoff_evidence TEXT NOT NULL DEFAULT '',
+            source_digest TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            ready_at TEXT DEFAULT '',
+            kicked_off_at TEXT DEFAULT '',
+            UNIQUE(username, decision_package_id)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS startup_execution_handoff_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            handoff_id INTEGER NOT NULL,
+            check_kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            owner_side TEXT NOT NULL DEFAULT 'US',
+            requirement TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT '',
+            updated_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3537_handoff_user_state ON startup_execution_handoffs(username,handoff_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3537_checks_handoff ON startup_execution_handoff_checks(handoff_id,status,id)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS startup_execution_handoff_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            handoff_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3537_events_handoff ON startup_execution_handoff_events(handoff_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3537_init()
+except Exception:
+    pass
+
+
+def _v3537_event(con, handoff_id, event_type, detail=""):
+    created = _v3537_now()
+    payload = {"handoff_id": int(handoff_id), "event_type": str(event_type), "detail": str(detail or "")[:1200], "created_at": created}
+    digest = _v3537_digest(payload)
+    con.execute("INSERT INTO startup_execution_handoff_events(handoff_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",
+                (int(handoff_id), str(event_type)[:80], str(detail or "")[:1200], digest, created))
+    return digest
+
+
+def _v3537_source_package(username, package_id):
+    try:
+        return _v3536_entry(username, int(package_id))
+    except Exception:
+        return None
+
+
+def _v3537_entry(username, handoff_id, refresh=True):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM startup_execution_handoffs WHERE username=? AND id=?", (username, int(handoff_id))).fetchone()
+        if not row: return None
+        d = dict(row)
+        source = _v3537_source_package(username, d['decision_package_id'])
+        d['decision_package'] = source
+        if refresh and d.get('handoff_state') not in {'KICKED_OFF','STALE'}:
+            if not source or str(source.get('package_state') or '') != 'APPROVED':
+                con.execute("UPDATE startup_execution_handoffs SET handoff_state='STALE',updated_at=? WHERE id=?", (_v3537_now(), int(handoff_id)))
+                _v3537_event(con, handoff_id, 'source_became_stale', 'Source decision package is no longer APPROVED.')
+                con.commit(); d['handoff_state'] = 'STALE'
+        checks = con.execute("SELECT * FROM startup_execution_handoff_checks WHERE handoff_id=? ORDER BY id", (int(handoff_id),)).fetchall()
+        d['checks'] = [dict(x) for x in checks]
+        d['open_checks'] = sum(1 for x in d['checks'] if str(x.get('status')) != 'COMPLETE')
+        d['completed_checks'] = sum(1 for x in d['checks'] if str(x.get('status')) == 'COMPLETE')
+        d['events'] = [dict(x) for x in con.execute("SELECT * FROM startup_execution_handoff_events WHERE handoff_id=? ORDER BY id DESC LIMIT 20", (int(handoff_id),)).fetchall()]
+        return d
+    finally:
+        con.close()
+
+
+def _v3537_create(username, package_id, handoff_title, execution_owner, stakeholder_owner, execution_scope, kickoff_target=""):
+    source = _v3537_source_package(username, package_id)
+    if not source: return False, 'decision_package_not_found', None
+    if str(source.get('package_state') or '') != 'APPROVED': return False, 'approved_decision_required', None
+    if not str(handoff_title or '').strip() or not str(execution_owner or '').strip() or not str(execution_scope or '').strip():
+        return False, 'title_owner_scope_required', None
+    now = _v3537_now()
+    source_digest = _v3537_digest({
+        'decision_package_id': int(package_id),
+        'package_state': source.get('package_state'),
+        'decision_evidence': source.get('decision_evidence'),
+        'decision_note': source.get('decision_note'),
+        'updated_at': source.get('updated_at')
+    })
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO startup_execution_handoffs
+            (username,decision_package_id,handoff_title,execution_owner,stakeholder_owner,execution_scope,kickoff_target,handoff_state,source_digest,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,'DRAFT',?,?,?)""",
+            (username,int(package_id),str(handoff_title).strip()[:180],str(execution_owner).strip()[:160],str(stakeholder_owner or '').strip()[:160],str(execution_scope).strip()[:2000],str(kickoff_target or '').strip()[:80],source_digest,now,now))
+        hid = int(cur.lastrowid)
+        defaults = [
+            ('OWNER','Execution owner confirmed','US','Named owner has accepted responsibility.'),
+            ('SCOPE','Execution scope frozen','JOINT','Scope and exclusions are explicit.'),
+            ('DEPENDENCY','Dependencies reviewed','JOINT','Critical dependencies and blockers are understood.'),
+            ('ACCESS','Required access ready','THEM','Required systems, permissions or credentials are available.'),
+            ('COMMS','Kickoff communication path ready','JOINT','Stakeholders know where execution updates will be shared.')
+        ]
+        for kind,title,side,req in defaults:
+            con.execute("""INSERT INTO startup_execution_handoff_checks
+                (handoff_id,check_kind,title,owner_side,requirement,status,evidence,created_at,updated_at)
+                VALUES(?,?,?,?,?,'OPEN','',?,?)""", (hid,kind,title,side,req,now,now))
+        _v3537_event(con,hid,'handoff_created',f'Approved decision package #{int(package_id)}')
+        con.commit(); return True, '', hid
+    except sqlite3.IntegrityError:
+        return False, 'handoff_already_exists', None
+    finally:
+        con.close()
+
+
+def _v3537_add_check(username, handoff_id, check_kind, title, owner_side='US', requirement=''):
+    d = _v3537_entry(username,handoff_id)
+    if not d: return False,'handoff_not_found',None
+    if d['handoff_state'] in {'KICKED_OFF','STALE'}: return False,'handoff_locked',None
+    kind = str(check_kind or 'OTHER').upper()
+    if kind not in V3537_CHECK_KINDS: kind='OTHER'
+    side = str(owner_side or 'US').upper()
+    if side not in {'US','THEM','JOINT'}: side='US'
+    if not str(title or '').strip(): return False,'title_required',None
+    now=_v3537_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_execution_handoff_checks
+            (handoff_id,check_kind,title,owner_side,requirement,status,evidence,created_at,updated_at)
+            VALUES(?,?,?,?,?,'OPEN','',?,?)""",(int(handoff_id),kind,str(title).strip()[:180],side,str(requirement or '').strip()[:1200],now,now))
+        _v3537_event(con,handoff_id,'check_added',f'{kind}: {str(title).strip()[:180]}')
+        con.commit(); return True,'',int(cur.lastrowid)
+    finally: con.close()
+
+
+def _v3537_complete_check(username, handoff_id, check_id, evidence):
+    d=_v3537_entry(username,handoff_id)
+    if not d: return False,'handoff_not_found',None
+    if d['handoff_state'] in {'KICKED_OFF','STALE'}: return False,'handoff_locked',None
+    if not str(evidence or '').strip(): return False,'evidence_required',None
+    now=_v3537_now(); con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        row=con.execute("SELECT * FROM startup_execution_handoff_checks WHERE id=? AND handoff_id=?",(int(check_id),int(handoff_id))).fetchone()
+        if not row: return False,'check_not_found',None
+        con.execute("UPDATE startup_execution_handoff_checks SET status='COMPLETE',evidence=?,completed_at=?,updated_at=? WHERE id=?",
+                    (str(evidence).strip()[:2000],now,now,int(check_id)))
+        con.execute("UPDATE startup_execution_handoffs SET handoff_state=CASE WHEN handoff_state='DRAFT' THEN 'READINESS_CHECK' ELSE handoff_state END,updated_at=? WHERE id=?",(now,int(handoff_id)))
+        _v3537_event(con,handoff_id,'check_completed',f'Check #{int(check_id)} · {row["title"]}')
+        con.commit(); return True,'',_v3537_entry(username,handoff_id)
+    finally: con.close()
+
+
+def _v3537_mark_ready(username, handoff_id, readiness_evidence):
+    d=_v3537_entry(username,handoff_id)
+    if not d: return False,'handoff_not_found',None
+    if d['handoff_state']=='STALE': return False,'source_stale',None
+    if d['handoff_state']=='KICKED_OFF': return False,'already_kicked_off',None
+    if not d['checks']: return False,'checks_required',None
+    if d['open_checks'] > 0: return False,'all_checks_must_be_complete',None
+    if not str(readiness_evidence or '').strip(): return False,'readiness_evidence_required',None
+    now=_v3537_now(); con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE startup_execution_handoffs SET handoff_state='READY_TO_KICKOFF',readiness_evidence=?,ready_at=?,updated_at=? WHERE id=? AND username=?",
+                    (str(readiness_evidence).strip()[:3000],now,now,int(handoff_id),username))
+        _v3537_event(con,handoff_id,'readiness_sealed',str(readiness_evidence).strip()[:1200])
+        con.commit(); return True,'',_v3537_entry(username,handoff_id)
+    finally: con.close()
+
+
+def _v3537_kickoff(username, handoff_id, kickoff_evidence):
+    d=_v3537_entry(username,handoff_id)
+    if not d: return False,'handoff_not_found',None
+    if d['handoff_state']!='READY_TO_KICKOFF': return False,'ready_to_kickoff_required',None
+    if not str(kickoff_evidence or '').strip(): return False,'kickoff_evidence_required',None
+    now=_v3537_now(); con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE startup_execution_handoffs SET handoff_state='KICKED_OFF',kickoff_evidence=?,kicked_off_at=?,updated_at=? WHERE id=? AND username=?",
+                    (str(kickoff_evidence).strip()[:3000],now,now,int(handoff_id),username))
+        _v3537_event(con,handoff_id,'kickoff_recorded',str(kickoff_evidence).strip()[:1200])
+        con.commit(); return True,'',_v3537_entry(username,handoff_id,refresh=False)
+    finally: con.close()
+
+
+def _v3537_snapshot(username):
+    # Refresh current rows first so stale source decisions are reflected.
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    ids=[int(r['id']) for r in con.execute("SELECT id FROM startup_execution_handoffs WHERE username=? ORDER BY id DESC",(username,)).fetchall()]
+    con.close()
+    items=[_v3537_entry(username,i) for i in ids]
+    items=[x for x in items if x]
+    counts={s:0 for s in V3537_STATES}
+    for x in items: counts[str(x.get('handoff_state') or 'DRAFT')] = counts.get(str(x.get('handoff_state') or 'DRAFT'),0)+1
+    # Eligible approved packages without an existing handoff.
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        existing={int(r['decision_package_id']) for r in con.execute("SELECT decision_package_id FROM startup_execution_handoffs WHERE username=?",(username,)).fetchall()}
+    finally: con.close()
+    try:
+        src=_v3536_snapshot(username).get('items') or []
+    except Exception:
+        src=[]
+    eligible=[x for x in src if str(x.get('package_state') or '')=='APPROVED' and int(x.get('id') or 0) not in existing]
+    return {'success':True,'version':V3537_VERSION,'counts':counts,'items':items,'eligible_packages':eligible}
+
+
+@app.route('/api/hunter-execution-handoffs', methods=['GET','POST'])
+def v3537_api():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET': return jsonify(_v3537_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,hid=_v3537_create(u,p.get('decision_package_id'),p.get('handoff_title'),p.get('execution_owner'),p.get('stakeholder_owner') or '',p.get('execution_scope'),p.get('kickoff_target') or '')
+    return jsonify({'success':ok,'error':e,'handoff_id':hid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-execution-handoffs/<int:handoff_id>/checks', methods=['POST'])
+def v3537_add_check_api(handoff_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,cid=_v3537_add_check(u,handoff_id,p.get('check_kind'),p.get('title'),p.get('owner_side') or 'US',p.get('requirement') or '')
+    return jsonify({'success':ok,'error':e,'check_id':cid}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-execution-handoffs/<int:handoff_id>/checks/<int:check_id>/complete', methods=['POST'])
+def v3537_complete_check_api(handoff_id,check_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3537_complete_check(u,handoff_id,check_id,p.get('evidence'))
+    return jsonify({'success':ok,'error':e,'handoff':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-execution-handoffs/<int:handoff_id>/ready', methods=['POST'])
+def v3537_ready_api(handoff_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3537_mark_ready(u,handoff_id,p.get('readiness_evidence'))
+    return jsonify({'success':ok,'error':e,'handoff':d}),(200 if ok else 400)
+
+
+@app.route('/api/hunter-execution-handoffs/<int:handoff_id>/kickoff', methods=['POST'])
+def v3537_kickoff_api(handoff_id):
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,d=_v3537_kickoff(u,handoff_id,p.get('kickoff_evidence'))
+    return jsonify({'success':ok,'error':e,'handoff':d}),(200 if ok else 400)
+
+
+@app.route('/hunter-execution-handoffs')
+def v3537_page():
+    u=session.get('authenticated_username')
+    if not u: return redirect('/')
+    d=_v3537_snapshot(u); c=d['counts']; esc=html.escape
+    opts=''.join(f"<option value='{int(x['id'])}'>Approved Package #{int(x['id'])} · {esc(x.get('package_title') or 'Decision')}</option>" for x in d['eligible_packages'])
+    cards=[]
+    for x in d['items']:
+        hid=int(x['id']); state=str(x.get('handoff_state') or 'DRAFT'); source=x.get('decision_package') or {}; checks=x.get('checks') or []
+        checklist=[]
+        for ch in checks:
+            status=str(ch.get('status') or 'OPEN'); action=''
+            if status!='COMPLETE' and state not in {'KICKED_OFF','STALE'}:
+                action=f"""<form action='/api/hunter-execution-handoffs/{hid}/checks/{int(ch['id'])}/complete' onsubmit='return v3537submit(this,event)'><input name='evidence' placeholder='Completion evidence' required><button class='safe'>COMPLETE CHECK</button></form>"""
+            checklist.append(f"<div class='check'><b>{esc(ch.get('check_kind') or '')} · {esc(ch.get('title') or '')}</b><span class='pill'>{esc(status)}</span><p class='muted'>{esc(ch.get('owner_side') or '')} · {esc(ch.get('requirement') or '')}</p>{action}</div>")
+        actions=''
+        if state not in {'KICKED_OFF','STALE'}:
+            actions += f"""<form action='/api/hunter-execution-handoffs/{hid}/checks' onsubmit='return v3537submit(this,event)'><select name='check_kind'><option>DEPENDENCY</option><option>ACCESS</option><option>ENVIRONMENT</option><option>COMMS</option><option>OTHER</option></select><input name='title' placeholder='Additional readiness check' required><select name='owner_side'><option>US</option><option>THEM</option><option>JOINT</option></select><input name='requirement' placeholder='Requirement'><button>ADD CHECK</button></form>"""
+        if state in {'DRAFT','READINESS_CHECK'} and int(x.get('open_checks') or 0)==0:
+            actions += f"""<form action='/api/hunter-execution-handoffs/{hid}/ready' onsubmit='return v3537submit(this,event)'><textarea name='readiness_evidence' placeholder='Evidence that owner, scope, dependencies, access and kickoff prerequisites are ready' required></textarea><button class='safe'>SEAL READY TO KICKOFF</button></form>"""
+        if state=='READY_TO_KICKOFF':
+            actions += f"""<form action='/api/hunter-execution-handoffs/{hid}/kickoff' onsubmit='return v3537submit(this,event)'><textarea name='kickoff_evidence' placeholder='Explicit kickoff evidence / meeting or execution start record' required></textarea><button class='safe'>RECORD KICKOFF</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>Execution Handoff #{hid}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(x.get('handoff_title') or '')}</h2><p><b>Execution owner:</b> {esc(x.get('execution_owner') or '—')} · <b>Stakeholder:</b> {esc(x.get('stakeholder_owner') or '—')}</p><p>{esc(x.get('execution_scope') or '')}</p><p class='muted'>Decision Package #{int(x['decision_package_id'])} · Target kickoff {esc(x.get('kickoff_target') or '—')} · Checks {int(x.get('completed_checks') or 0)}/{len(checks)}</p><div class='checks'>{''.join(checklist)}</div>{actions}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.37 Execution Handoff</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1280px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #344957;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#8fffd3;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:26px;font-weight:900;color:#8fffd3}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3b7e68;border-radius:999px;padding:5px 9px;font-size:12px}}.check{{border-top:1px solid #263743;padding:10px 0;margin-top:8px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}a{{color:#8fffd3}}@media(max-width:850px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.37 · EXECUTION HANDOFF + KICKOFF READINESS GATE</div><h1>Approval is not kickoff.</h1><p class='muted'>Turn an approved decision into an accountable execution handoff. Owner, scope, dependencies, access and checklist evidence must be complete before kickoff can be recorded.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>CHECKING</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>KICKED OFF</div></div><p><a href='/hunter-decision-packages'>← Decision Packages</a> · <a href='/api/hunter-execution-handoffs'>JSON</a></p></section><section class='card' style='margin-top:18px'><h2>Create execution handoff</h2><form action='/api/hunter-execution-handoffs' onsubmit='return v3537submit(this,event)'><select name='decision_package_id' required><option value=''>Approved decision package</option>{}</select><input name='handoff_title' placeholder='Execution handoff title' required><input name='execution_owner' placeholder='Execution owner' required><input name='stakeholder_owner' placeholder='Stakeholder / counterpart'><textarea name='execution_scope' placeholder='Execution scope and exclusions' required></textarea><input name='kickoff_target' type='date'><button>CREATE HANDOFF</button></form></section><section class='grid'>{}</section></div><script>async function v3537submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0),c.get('READINESS_CHECK',0),c.get('READY_TO_KICKOFF',0),c.get('KICKED_OFF',0),opts,''.join(cards) or "<article class='card'><p>No execution handoffs yet.</p></article>")
+
+
+# Add navigation from V35.36 into V35.37.
+try:
+    _v3537_prev_page=app.view_functions.get('v3536_page')
+    if _v3537_prev_page:
+        def _v3537_decision_with_handoff(*args,**kwargs):
+            response=_v3537_prev_page(*args,**kwargs)
+            if isinstance(response,str) and '/hunter-execution-handoffs' not in response:
+                response=response.replace("<a href='/api/hunter-decision-packages'>JSON</a>","<a href='/api/hunter-decision-packages'>JSON</a> · <a href='/hunter-execution-handoffs'>🚀 EXECUTION HANDOFF</a>",1)
+            return response
+        app.view_functions['v3536_page']=_v3537_decision_with_handoff
+except Exception:
+    pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -85614,6 +85950,7 @@ if __name__ == "__main__":
     print("📅 Qualified Lead Discovery + Fit Score Gate enabled")
     print("🗺️ Solution Mapping + Mutual Action Plan Gate enabled")
     print("📑 Decision Package + Approval Evidence Gate enabled")
+    print("🚀 Execution Handoff + Kickoff Readiness Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
