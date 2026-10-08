@@ -79192,6 +79192,599 @@ except Exception:
 
 
 
+# ===== V35.21 POST-INCIDENT REVIEW + CORRECTIVE ACTION CLOSURE GATE =====
+# V35.20 proves that a live duty roster can acknowledge, escalate and resolve an incident.
+# V35.21 proves that resolution becomes organizational learning instead of a dead-end:
+#
+# RESOLVED INCIDENT -> OPEN REVIEW -> ROOT CAUSE + IMPACT
+#                   -> CORRECTIVE ACTIONS -> VERIFIED / WAIVED
+#                   -> FINAL REVIEW -> CLOSED WITH EVIDENCE
+#
+# Reviews are only available for RESOLVED incidents. Corrective actions require an owner
+# and a due date. Closure is blocked until every action is VERIFIED or explicitly WAIVED.
+# Review and action events are immutable and SHA-256 digest-stamped.
+
+V3521_VERSION = "V35.21"
+V3521_REVIEW_STATES = {"DRAFT", "ACTION_REQUIRED", "READY_TO_CLOSE", "CLOSED"}
+V3521_ACTION_STATES = {"OPEN", "IN_PROGRESS", "VERIFIED", "WAIVED"}
+V3521_EVENT_TYPES = {
+    "REVIEW_OPENED", "REVIEW_UPDATED", "ACTION_CREATED", "ACTION_STARTED",
+    "ACTION_VERIFIED", "ACTION_WAIVED", "REVIEW_FINALIZED", "REVIEW_CLOSED"
+}
+
+
+def _v3521_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            reviewer TEXT NOT NULL,
+            root_cause TEXT DEFAULT '',
+            impact_summary TEXT DEFAULT '',
+            lessons_learned TEXT DEFAULT '',
+            final_review_evidence TEXT DEFAULT '',
+            review_state TEXT NOT NULL DEFAULT 'DRAFT',
+            opened_at TEXT NOT NULL,
+            finalized_at TEXT,
+            closed_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, incident_id)
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_corrective_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            due_at TEXT NOT NULL,
+            action_state TEXT NOT NULL DEFAULT 'OPEN',
+            action_note TEXT DEFAULT '',
+            verification_evidence TEXT DEFAULT '',
+            waiver_reason TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            verified_at TEXT,
+            waived_at TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_incident_review_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_id INTEGER NOT NULL,
+            action_id INTEGER,
+            event_type TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3521_review_user_state ON hunter_incident_reviews(username,review_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3521_action_review_state ON hunter_incident_corrective_actions(username,review_id,action_state,id ASC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3521_event_review ON hunter_incident_review_events(username,review_id,id ASC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3521_init()
+except Exception:
+    pass
+
+
+def _v3521_now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _v3521_parse_time(value):
+    return _v3520_parse_time(value)
+
+
+def _v3521_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), canonical
+
+
+def _v3521_add_event(con, username, review_id, event_type, actor, note="", action_id=None, extra=None):
+    event_type = str(event_type or "").upper().strip()
+    if event_type not in V3521_EVENT_TYPES:
+        raise ValueError("invalid_event_type")
+    now = _v3521_now_iso()
+    payload = {
+        "version": V3521_VERSION,
+        "review_id": int(review_id),
+        "action_id": int(action_id) if action_id else None,
+        "event_type": event_type,
+        "actor": str(actor or "")[:160],
+        "note": str(note or "")[:3000],
+        "created_at": now,
+        "extra": extra or {},
+    }
+    digest, canonical = _v3521_digest(payload)
+    cur = con.execute("""INSERT INTO hunter_incident_review_events
+      (username,review_id,action_id,event_type,actor,note,evidence_sha256,payload_json,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?)""",
+      (username, int(review_id), payload["action_id"], event_type, payload["actor"], payload["note"], digest, canonical, now))
+    return int(cur.lastrowid), digest
+
+
+def _v3521_review_row(username, review_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("SELECT * FROM hunter_incident_reviews WHERE username=? AND id=?", (username, int(review_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3521_actions(username, review_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""SELECT * FROM hunter_incident_corrective_actions
+            WHERE username=? AND review_id=? ORDER BY id ASC""", (username, int(review_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v3521_events(username, review_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""SELECT * FROM hunter_incident_review_events
+            WHERE username=? AND review_id=? ORDER BY id ASC""", (username, int(review_id))).fetchall()
+        out = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["payload"] = json.loads(d.get("payload_json") or "{}")
+            except Exception:
+                d["payload"] = {}
+            out.append(d)
+        return out
+    finally:
+        con.close()
+
+
+def _v3521_evaluate(username, review):
+    d = dict(review or {})
+    if not d:
+        return None
+    incident = _v3520_incident(username, int(d.get("incident_id") or 0))
+    d["incident"] = _v3520_evaluate(username, incident) if incident else None
+    actions = _v3521_actions(username, int(d["id"]))
+    d["actions"] = actions
+    d["events"] = _v3521_events(username, int(d["id"]))
+    counts = {s: 0 for s in V3521_ACTION_STATES}
+    overdue = 0
+    now = _v3521_parse_time(_v3521_now_iso())
+    for a in actions:
+        state = str(a.get("action_state") or "OPEN").upper()
+        counts[state] = counts.get(state, 0) + 1
+        due = _v3521_parse_time(a.get("due_at"))
+        if state not in {"VERIFIED", "WAIVED"} and due and now and due < now:
+            overdue += 1
+    terminal = bool(actions) and all(str(a.get("action_state") or "").upper() in {"VERIFIED", "WAIVED"} for a in actions)
+    root_complete = bool(str(d.get("root_cause") or "").strip() and str(d.get("impact_summary") or "").strip())
+    finalized = bool(d.get("finalized_at"))
+    state = str(d.get("review_state") or "DRAFT").upper()
+    if state != "CLOSED":
+        if finalized and terminal:
+            state = "READY_TO_CLOSE"
+        elif finalized or actions:
+            state = "ACTION_REQUIRED"
+        else:
+            state = "DRAFT"
+    if state != str(d.get("review_state") or "").upper():
+        con = sqlite3.connect(DB)
+        try:
+            con.execute("UPDATE hunter_incident_reviews SET review_state=?,updated_at=? WHERE username=? AND id=?",
+                        (state, _v3521_now_iso(), username, int(d["id"])))
+            con.commit()
+        finally:
+            con.close()
+        d["review_state"] = state
+    d["action_counts"] = counts
+    d["overdue_actions"] = overdue
+    d["root_cause_complete"] = root_complete
+    d["all_actions_terminal"] = terminal
+    d["closure_ready"] = bool(state == "READY_TO_CLOSE" and root_complete and str(d.get("lessons_learned") or "").strip())
+    return d
+
+
+def _v3521_open(username, incident_id, reviewer):
+    incident = _v3520_incident(username, incident_id)
+    if not incident:
+        return False, "incident_not_found", None
+    incident = _v3520_evaluate(username, incident)
+    if str(incident.get("incident_state") or "").upper() != "RESOLVED":
+        return False, "resolved_incident_required", None
+    reviewer = " ".join(str(reviewer or username).split())[:160]
+    if not reviewer:
+        return False, "reviewer_required", None
+    now = _v3521_now_iso()
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        existing = con.execute("SELECT id FROM hunter_incident_reviews WHERE username=? AND incident_id=?", (username, int(incident_id))).fetchone()
+        if existing:
+            return False, "review_already_exists", int(existing["id"])
+        cur = con.execute("""INSERT INTO hunter_incident_reviews
+          (username,incident_id,reviewer,review_state,opened_at,updated_at)
+          VALUES(?,?,?,?,?,?)""", (username, int(incident_id), reviewer, "DRAFT", now, now))
+        rid = int(cur.lastrowid)
+        _v3521_add_event(con, username, rid, "REVIEW_OPENED", reviewer,
+                         "Post-incident review opened.", extra={"incident_id": int(incident_id)})
+        con.commit()
+    finally:
+        con.close()
+    return True, None, rid
+
+
+def _v3521_update_review(username, review_id, root_cause, impact_summary, lessons_learned):
+    review = _v3521_review_row(username, review_id)
+    if not review:
+        return False, "review_not_found"
+    if str(review.get("review_state") or "").upper() == "CLOSED":
+        return False, "closed_review_is_immutable"
+    root = str(root_cause or "").strip()[:8000]
+    impact = str(impact_summary or "").strip()[:8000]
+    lessons = str(lessons_learned or "").strip()[:8000]
+    now = _v3521_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_incident_reviews
+            SET root_cause=?,impact_summary=?,lessons_learned=?,updated_at=?
+            WHERE username=? AND id=?""", (root, impact, lessons, now, username, int(review_id)))
+        _v3521_add_event(con, username, int(review_id), "REVIEW_UPDATED", username,
+                         "Review narrative updated.", extra={"root_cause_present": bool(root), "impact_present": bool(impact), "lessons_present": bool(lessons)})
+        con.commit()
+    finally:
+        con.close()
+    _v3521_evaluate(username, _v3521_review_row(username, review_id))
+    return True, None
+
+
+def _v3521_create_action(username, review_id, title, owner, due_at, action_note=""):
+    review = _v3521_review_row(username, review_id)
+    if not review:
+        return False, "review_not_found", None
+    if str(review.get("review_state") or "").upper() == "CLOSED":
+        return False, "closed_review_is_immutable", None
+    title = " ".join(str(title or "").split())[:500]
+    owner = " ".join(str(owner or "").split())[:160]
+    note = str(action_note or "").strip()[:4000]
+    due = _v3521_parse_time(due_at)
+    if not title:
+        return False, "action_title_required", None
+    if not owner:
+        return False, "action_owner_required", None
+    if not due:
+        return False, "valid_due_at_required", None
+    now_dt = _v3521_parse_time(_v3521_now_iso())
+    if now_dt and due <= now_dt:
+        return False, "due_at_must_be_future", None
+    due_iso = due.isoformat(timespec="seconds")
+    now = _v3521_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO hunter_incident_corrective_actions
+          (username,review_id,title,owner,due_at,action_state,action_note,created_at,updated_at)
+          VALUES(?,?,?,?,?,'OPEN',?,?,?)""", (username, int(review_id), title, owner, due_iso, note, now, now))
+        aid = int(cur.lastrowid)
+        _v3521_add_event(con, username, int(review_id), "ACTION_CREATED", username, title, action_id=aid,
+                         extra={"owner": owner, "due_at": due_iso})
+        con.execute("UPDATE hunter_incident_reviews SET review_state='ACTION_REQUIRED',updated_at=? WHERE username=? AND id=?",
+                    (now, username, int(review_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None, aid
+
+
+def _v3521_action_decision(username, review_id, action_id, decision, evidence="", waiver_reason=""):
+    review = _v3521_review_row(username, review_id)
+    if not review:
+        return False, "review_not_found", None
+    if str(review.get("review_state") or "").upper() == "CLOSED":
+        return False, "closed_review_is_immutable", None
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""SELECT * FROM hunter_incident_corrective_actions
+            WHERE username=? AND review_id=? AND id=?""", (username, int(review_id), int(action_id))).fetchone()
+        if not row:
+            return False, "action_not_found", None
+        current = str(row["action_state"] or "OPEN").upper()
+        decision = str(decision or "").upper().strip()
+        now = _v3521_now_iso()
+        if decision == "START":
+            if current != "OPEN":
+                return False, "only_open_action_can_start", None
+            con.execute("""UPDATE hunter_incident_corrective_actions
+                SET action_state='IN_PROGRESS',started_at=?,updated_at=? WHERE username=? AND id=?""",
+                (now, now, username, int(action_id)))
+            event_type = "ACTION_STARTED"; note = "Corrective action started."; extra = {}
+        elif decision == "VERIFY":
+            evidence = str(evidence or "").strip()[:8000]
+            if current not in {"OPEN", "IN_PROGRESS"}:
+                return False, "action_not_verifiable", None
+            if not evidence:
+                return False, "verification_evidence_required", None
+            con.execute("""UPDATE hunter_incident_corrective_actions
+                SET action_state='VERIFIED',verification_evidence=?,verified_at=?,updated_at=? WHERE username=? AND id=?""",
+                (evidence, now, now, username, int(action_id)))
+            event_type = "ACTION_VERIFIED"; note = evidence; extra = {"verification_evidence_present": True}
+        elif decision == "WAIVE":
+            waiver_reason = str(waiver_reason or "").strip()[:8000]
+            if current in {"VERIFIED", "WAIVED"}:
+                return False, "terminal_action_cannot_be_waived", None
+            if not waiver_reason:
+                return False, "waiver_reason_required", None
+            con.execute("""UPDATE hunter_incident_corrective_actions
+                SET action_state='WAIVED',waiver_reason=?,waived_at=?,updated_at=? WHERE username=? AND id=?""",
+                (waiver_reason, now, now, username, int(action_id)))
+            event_type = "ACTION_WAIVED"; note = waiver_reason; extra = {"waiver_reason_present": True}
+        else:
+            return False, "invalid_action_decision", None
+        event_id, digest = _v3521_add_event(con, username, int(review_id), event_type, username, note, action_id=int(action_id), extra=extra)
+        con.commit()
+    finally:
+        con.close()
+    _v3521_evaluate(username, _v3521_review_row(username, review_id))
+    return True, None, {"event_id": event_id, "evidence_sha256": digest}
+
+
+def _v3521_finalize(username, review_id):
+    review = _v3521_evaluate(username, _v3521_review_row(username, review_id))
+    if not review:
+        return False, "review_not_found", None
+    if str(review.get("review_state") or "").upper() == "CLOSED":
+        return False, "review_already_closed", None
+    if not review.get("root_cause_complete"):
+        return False, "root_cause_and_impact_required", None
+    if not str(review.get("lessons_learned") or "").strip():
+        return False, "lessons_learned_required", None
+    if not review.get("actions"):
+        return False, "at_least_one_corrective_action_required", None
+    now = _v3521_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_incident_reviews
+            SET finalized_at=COALESCE(finalized_at,?),review_state='ACTION_REQUIRED',updated_at=?
+            WHERE username=? AND id=?""", (now, now, username, int(review_id)))
+        event_id, digest = _v3521_add_event(con, username, int(review_id), "REVIEW_FINALIZED", username,
+            "Review narrative finalized; corrective actions remain the closure gate.",
+            extra={"action_count": len(review.get("actions") or [])})
+        con.commit()
+    finally:
+        con.close()
+    refreshed = _v3521_evaluate(username, _v3521_review_row(username, review_id))
+    return True, None, {"event_id": event_id, "evidence_sha256": digest, "review_state": refreshed.get("review_state") if refreshed else None}
+
+
+def _v3521_close(username, review_id, final_review_evidence):
+    review = _v3521_evaluate(username, _v3521_review_row(username, review_id))
+    if not review:
+        return False, "review_not_found", None
+    if str(review.get("review_state") or "").upper() == "CLOSED":
+        return False, "review_already_closed", None
+    if not review.get("closure_ready"):
+        return False, "closure_gate_not_ready", None
+    evidence = str(final_review_evidence or "").strip()[:10000]
+    if not evidence:
+        return False, "final_review_evidence_required", None
+    now = _v3521_now_iso()
+    action_summary = [{"id": int(a["id"]), "state": a.get("action_state"), "owner": a.get("owner"), "due_at": a.get("due_at")} for a in review.get("actions") or []]
+    closure_payload = {
+        "incident_id": int(review.get("incident_id") or 0),
+        "root_cause": review.get("root_cause") or "",
+        "impact_summary": review.get("impact_summary") or "",
+        "lessons_learned": review.get("lessons_learned") or "",
+        "corrective_actions": action_summary,
+        "final_review_evidence": evidence,
+    }
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_incident_reviews
+            SET review_state='CLOSED',final_review_evidence=?,closed_at=?,updated_at=?
+            WHERE username=? AND id=?""", (evidence, now, now, username, int(review_id)))
+        event_id, digest = _v3521_add_event(con, username, int(review_id), "REVIEW_CLOSED", username,
+            evidence, extra=closure_payload)
+        con.commit()
+    finally:
+        con.close()
+    return True, None, {"event_id": event_id, "evidence_sha256": digest}
+
+
+def _v3521_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("SELECT * FROM hunter_incident_reviews WHERE username=? ORDER BY id DESC LIMIT 100", (username,)).fetchall()
+    finally:
+        con.close()
+    reviews = [_v3521_evaluate(username, dict(r)) for r in rows]
+    reviewed_incidents = {int(r.get("incident_id") or 0) for r in reviews if r}
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        incidents = con.execute("""SELECT * FROM hunter_operator_incidents
+            WHERE username=? AND incident_state='RESOLVED' ORDER BY id DESC LIMIT 100""", (username,)).fetchall()
+    finally:
+        con.close()
+    eligible = [dict(i) for i in incidents if int(i["id"]) not in reviewed_incidents]
+    counts = {s: 0 for s in V3521_REVIEW_STATES}
+    overdue = 0
+    for r in reviews:
+        if not r:
+            continue
+        st = str(r.get("review_state") or "DRAFT").upper()
+        counts[st] = counts.get(st, 0) + 1
+        overdue += int(r.get("overdue_actions") or 0)
+    gate_ready = all(str(r.get("review_state") or "").upper() == "CLOSED" for r in reviews) if reviews else True
+    return {
+        "success": True,
+        "version": V3521_VERSION,
+        "reviews": reviews,
+        "eligible_incidents": eligible,
+        "counts": counts,
+        "overdue_actions": overdue,
+        "learning_gate_ready": bool(gate_ready and not eligible),
+    }
+
+
+@app.route('/api/hunter-post-incident-reviews')
+def v3521_api_list():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    return jsonify(_v3521_snapshot(u))
+
+
+@app.route('/api/hunter-post-incident-reviews', methods=['POST'])
+def v3521_api_open():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    try:
+        incident_id = int(p.get('incident_id') or 0)
+    except Exception:
+        return jsonify({'success': False, 'error': 'invalid_incident_id'}), 400
+    ok, error, rid = _v3521_open(u, incident_id, p.get('reviewer') or u)
+    return jsonify({'success': ok, 'error': error, 'review_id': rid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-post-incident-reviews/<int:review_id>/update', methods=['POST'])
+def v3521_api_update(review_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error = _v3521_update_review(u, review_id, p.get('root_cause') or '', p.get('impact_summary') or '', p.get('lessons_learned') or '')
+    return jsonify({'success': ok, 'error': error}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-post-incident-reviews/<int:review_id>/actions', methods=['POST'])
+def v3521_api_create_action(review_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, aid = _v3521_create_action(u, review_id, p.get('title') or '', p.get('owner') or '', p.get('due_at') or '', p.get('action_note') or '')
+    return jsonify({'success': ok, 'error': error, 'action_id': aid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-post-incident-reviews/<int:review_id>/actions/<int:action_id>/decision', methods=['POST'])
+def v3521_api_action_decision(review_id, action_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, evidence = _v3521_action_decision(u, review_id, action_id, p.get('decision') or '', p.get('verification_evidence') or '', p.get('waiver_reason') or '')
+    return jsonify({'success': ok, 'error': error, 'evidence': evidence}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-post-incident-reviews/<int:review_id>/finalize', methods=['POST'])
+def v3521_api_finalize(review_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    ok, error, evidence = _v3521_finalize(u, review_id)
+    return jsonify({'success': ok, 'error': error, 'evidence': evidence}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-post-incident-reviews/<int:review_id>/close', methods=['POST'])
+def v3521_api_close(review_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, evidence = _v3521_close(u, review_id, p.get('final_review_evidence') or '')
+    return jsonify({'success': ok, 'error': error, 'evidence': evidence}), (200 if ok else 400)
+
+
+@app.route('/hunter-post-incident-reviews')
+def v3521_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3521_snapshot(u); esc = html.escape; c = d['counts']
+    incident_opts = ''.join(
+        "<option value='{}'>Incident #{} · {} · {}</option>".format(int(i['id']), int(i['id']), esc(i.get('severity') or ''), esc(i.get('summary') or ''))
+        for i in d['eligible_incidents']
+    )
+    cards = []
+    for r in d['reviews']:
+        rid = int(r['id']); state = str(r.get('review_state') or 'DRAFT')
+        incident = r.get('incident') or {}
+        actions = r.get('actions') or []
+        action_html = []
+        for a in actions:
+            aid = int(a['id']); ast = str(a.get('action_state') or 'OPEN')
+            overdue = ''
+            due = _v3521_parse_time(a.get('due_at')); now = _v3521_parse_time(_v3521_now_iso())
+            if ast not in {'VERIFIED','WAIVED'} and due and now and due < now:
+                overdue = "<span class='dangerText'>OVERDUE</span>"
+            controls = ''
+            if state != 'CLOSED' and ast == 'OPEN':
+                controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/actions/{aid}/decision' onsubmit='return v3521submit(this,event)'><button name='decision' value='START'>START ACTION</button></form>"""
+            if state != 'CLOSED' and ast in {'OPEN','IN_PROGRESS'}:
+                controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/actions/{aid}/decision' onsubmit='return v3521submit(this,event)'><textarea name='verification_evidence' placeholder='Observable verification evidence' required></textarea><button class='safeBtn' name='decision' value='VERIFY'>VERIFY ACTION</button></form>"""
+                controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/actions/{aid}/decision' onsubmit='return v3521submit(this,event)'><input name='waiver_reason' placeholder='Explicit waiver reason' required><button class='warnBtn' name='decision' value='WAIVE'>WAIVE ACTION</button></form>"""
+            action_html.append(f"""<div class='action'><div class='top'><b>Action #{aid} · {esc(a.get('title') or '')}</b><span class='pill'>{esc(ast)}</span></div><p class='muted'>Owner {esc(a.get('owner') or '')} · Due {esc(a.get('due_at') or '')} {overdue}</p>{controls}</div>""")
+        controls = ''
+        if state != 'CLOSED':
+            controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/update' onsubmit='return v3521submit(this,event)'><textarea name='root_cause' placeholder='Root cause' required>{esc(r.get('root_cause') or '')}</textarea><textarea name='impact_summary' placeholder='Impact summary' required>{esc(r.get('impact_summary') or '')}</textarea><textarea name='lessons_learned' placeholder='Lessons learned' required>{esc(r.get('lessons_learned') or '')}</textarea><button>SAVE REVIEW</button></form>"""
+            controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/actions' onsubmit='return v3521submit(this,event)'><input name='title' placeholder='Corrective action' required><input name='owner' value='{esc(u)}' placeholder='Owner' required><input name='due_at' type='datetime-local' required><textarea name='action_note' placeholder='Implementation note / acceptance criteria'></textarea><button>ADD CORRECTIVE ACTION</button></form>"""
+            if not r.get('finalized_at'):
+                controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/finalize' onsubmit='return v3521submit(this,event)'><button class='warnBtn'>FINALIZE REVIEW</button></form>"""
+            if r.get('closure_ready'):
+                controls += f"""<form action='/api/hunter-post-incident-reviews/{rid}/close' onsubmit='return v3521submit(this,event)'><textarea name='final_review_evidence' placeholder='Final closure evidence / learning proof' required></textarea><button class='safeBtn'>CLOSE REVIEW</button></form>"""
+        evidence = ' · '.join(str(e.get('evidence_sha256') or '')[:10] for e in (r.get('events') or [])[-4:]) or 'none'
+        cards.append(f"""<article class='card'><div class='top'><span>Review #{rid} · Incident #{int(r.get('incident_id') or 0)}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(incident.get('summary') or 'Resolved incident')}</h2><p><b>Reviewer:</b> {esc(r.get('reviewer') or '')}</p><p class='muted'>Actions {len(actions)} · overdue {int(r.get('overdue_actions') or 0)} · event evidence <code>{esc(evidence)}</code></p>{''.join(action_html)}{controls}</article>""")
+    gate = 'READY' if d['learning_gate_ready'] else 'ACTION REQUIRED'
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.21 Post-Incident Review</title><style>
+    body{{margin:0;background:#05070a;color:#edf8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #304654;background:#091016;border-radius:20px;padding:18px}}.eyebrow{{color:#9cfbd3;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}h2{{line-height:1.15}}.muted{{color:#8fa6b2}}.stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}.stats>div{{border:1px solid #223944;border-radius:14px;padding:12px}}.num{{font-size:24px;font-weight:900;color:#9cfbd3}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3d6070;border-radius:999px;padding:5px 9px}}.action{{border:1px solid #243944;background:#071017;border-radius:14px;padding:13px;margin:12px 0}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safeBtn{{border-color:#2f9e67}}.warnBtn{{border-color:#a48331}}.dangerText{{color:#ff9eaa;font-weight:900}}a,code{{color:#9cfbd3}}@media(max-width:760px){{.stats{{grid-template-columns:repeat(2,1fr)}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.21 · POST-INCIDENT REVIEW + CORRECTIVE ACTION CLOSURE GATE</div><h1>Resolved is not learned.</h1><p class='muted'>Turn every resolved incident into an auditable learning loop. Root cause, impact, lessons and corrective actions are required; closure stays blocked until each action is VERIFIED or explicitly WAIVED.</p>
+    <div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>ACTION REQUIRED</div><div><div class='num'>{}</div>READY TO CLOSE</div><div><div class='num'>{}</div>CLOSED</div><div><div class='num'>{}</div>OVERDUE ACTIONS</div><div><div class='num'>{}</div>LEARNING GATE</div></div>
+    <p><a href='/hunter-incident-response'>← Incident Response</a> · <a href='/api/hunter-post-incident-reviews'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Open post-incident review</h2><form action='/api/hunter-post-incident-reviews' onsubmit='return v3521submit(this,event)'><select name='incident_id' required><option value=''>Select resolved incident</option>{}</select><input name='reviewer' value='{}' placeholder='Reviewer' required><button>OPEN REVIEW</button></form></section>
+    <section class='grid'>{}</section></div><script>
+    async function v3521submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c.get('DRAFT',0), c.get('ACTION_REQUIRED',0), c.get('READY_TO_CLOSE',0), c.get('CLOSED',0), d['overdue_actions'], gate,
+        incident_opts, esc(u), ''.join(cards) or "<article class='card'><p>No post-incident reviews yet.</p></article>"
+    )
+
+
+# Add navigation from V35.20 into V35.21.
+try:
+    _v3521_prev_page = app.view_functions.get('v3520_page')
+    if _v3521_prev_page:
+        def _v3521_incidents_with_reviews(*args, **kwargs):
+            response = _v3521_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-post-incident-reviews' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-incident-response'>JSON</a>",
+                    "<a href='/api/hunter-incident-response'>JSON</a> · <a href='/hunter-post-incident-reviews'>🧠 POST-INCIDENT REVIEW</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3520_page'] = _v3521_incidents_with_reviews
+except Exception:
+    pass
+
+
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -79305,6 +79898,7 @@ if __name__ == "__main__":
     print("🛡️ Operator Coverage + Failover Readiness Gate enabled")
     print("🕒 Live Duty Roster + Handoff Acknowledgement Gate enabled")
     print("🚨 Live Incident Activation + Response SLA Gate enabled")
+    print("🧠 Post-Incident Review + Corrective Action Closure Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
