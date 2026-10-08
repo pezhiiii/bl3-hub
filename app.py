@@ -85822,6 +85822,370 @@ try:
 except Exception:
     pass
 
+
+# ===== V35.38 FIRST VALUE CHECKPOINT + LAUNCH-TO-VALUE GATE =====
+# Kickoff is only the start. This gate turns a KICKED_OFF V35.37 handoff into
+# an explicit first-value target, requires observable checkpoint evidence, and
+# records whether measurable value was reached or the execution needs attention.
+# No customer outcome is inferred automatically; final status requires explicit evidence.
+
+V3538_VERSION = "V35.38"
+V3538_STATES = {"DRAFT", "ACTIVE", "FIRST_VALUE_REACHED", "NEEDS_ATTENTION", "STALE"}
+V3538_OUTCOMES = {"FIRST_VALUE_REACHED", "NEEDS_ATTENTION"}
+
+
+def _v3538_now():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _v3538_digest(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _v3538_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS startup_first_value_checkpoints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            checkpoint_title TEXT NOT NULL,
+            value_statement TEXT NOT NULL,
+            measurement_method TEXT NOT NULL,
+            target_value TEXT NOT NULL,
+            checkpoint_due_at TEXT NOT NULL DEFAULT '',
+            checkpoint_state TEXT NOT NULL DEFAULT 'DRAFT',
+            checkpoint_evidence TEXT NOT NULL DEFAULT '',
+            outcome_note TEXT NOT NULL DEFAULT '',
+            source_digest TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            activated_at TEXT DEFAULT '',
+            completed_at TEXT DEFAULT '',
+            UNIQUE(username, handoff_id)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3538_user_state ON startup_first_value_checkpoints(username,checkpoint_state,id DESC)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS startup_first_value_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            checkpoint_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3538_events_checkpoint ON startup_first_value_events(checkpoint_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3538_init()
+except Exception:
+    pass
+
+
+def _v3538_event(con, checkpoint_id, event_type, detail=""):
+    created = _v3538_now()
+    payload = {
+        "checkpoint_id": int(checkpoint_id),
+        "event_type": str(event_type or "event")[:80],
+        "detail": str(detail or "")[:1600],
+        "created_at": created,
+    }
+    digest = _v3538_digest(payload)
+    con.execute(
+        "INSERT INTO startup_first_value_events(checkpoint_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",
+        (int(checkpoint_id), payload["event_type"], payload["detail"], digest, created),
+    )
+    return digest
+
+
+def _v3538_source_handoff(username, handoff_id):
+    try:
+        return _v3537_entry(username, int(handoff_id), refresh=False)
+    except Exception:
+        return None
+
+
+def _v3538_entry(username, checkpoint_id, refresh=True):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM startup_first_value_checkpoints WHERE username=? AND id=?",
+            (username, int(checkpoint_id)),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        source = _v3538_source_handoff(username, d["handoff_id"])
+        d["handoff"] = source
+        state = str(d.get("checkpoint_state") or "DRAFT")
+        if refresh and state not in {"FIRST_VALUE_REACHED", "NEEDS_ATTENTION", "STALE"}:
+            if not source or str(source.get("handoff_state") or "") != "KICKED_OFF":
+                now = _v3538_now()
+                con.execute(
+                    "UPDATE startup_first_value_checkpoints SET checkpoint_state='STALE',updated_at=? WHERE id=?",
+                    (now, int(checkpoint_id)),
+                )
+                _v3538_event(con, checkpoint_id, "source_became_stale", "Source execution handoff is no longer KICKED_OFF.")
+                con.commit()
+                d["checkpoint_state"] = "STALE"
+                d["updated_at"] = now
+        d["events"] = [
+            dict(x)
+            for x in con.execute(
+                "SELECT * FROM startup_first_value_events WHERE checkpoint_id=? ORDER BY id DESC LIMIT 20",
+                (int(checkpoint_id),),
+            ).fetchall()
+        ]
+        return d
+    finally:
+        con.close()
+
+
+def _v3538_create(username, handoff_id, checkpoint_title, value_statement, measurement_method, target_value, checkpoint_due_at=""):
+    source = _v3538_source_handoff(username, handoff_id)
+    if not source:
+        return False, "handoff_not_found", None
+    if str(source.get("handoff_state") or "") != "KICKED_OFF":
+        return False, "kicked_off_handoff_required", None
+    required = [checkpoint_title, value_statement, measurement_method, target_value]
+    if any(not str(v or "").strip() for v in required):
+        return False, "title_value_measurement_target_required", None
+    now = _v3538_now()
+    source_digest = _v3538_digest({
+        "handoff_id": int(handoff_id),
+        "handoff_state": source.get("handoff_state"),
+        "handoff_title": source.get("handoff_title"),
+        "execution_scope": source.get("execution_scope"),
+        "kickoff_evidence": source.get("kickoff_evidence"),
+        "kicked_off_at": source.get("kicked_off_at"),
+    })
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_first_value_checkpoints
+            (username,handoff_id,checkpoint_title,value_statement,measurement_method,target_value,checkpoint_due_at,
+             checkpoint_state,source_digest,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,'DRAFT',?,?,?)""",
+            (
+                username,
+                int(handoff_id),
+                str(checkpoint_title).strip()[:180],
+                str(value_statement).strip()[:2000],
+                str(measurement_method).strip()[:1600],
+                str(target_value).strip()[:1000],
+                str(checkpoint_due_at or "").strip()[:80],
+                source_digest,
+                now,
+                now,
+            ),
+        )
+        cid = int(cur.lastrowid)
+        _v3538_event(con, cid, "checkpoint_created", f"Kicked-off handoff #{int(handoff_id)} · target defined")
+        con.commit()
+        return True, "", cid
+    except sqlite3.IntegrityError:
+        return False, "checkpoint_already_exists", None
+    finally:
+        con.close()
+
+
+def _v3538_activate(username, checkpoint_id, activation_evidence):
+    d = _v3538_entry(username, checkpoint_id)
+    if not d:
+        return False, "checkpoint_not_found", None
+    if str(d.get("checkpoint_state") or "") != "DRAFT":
+        return False, "draft_required", None
+    if not str(activation_evidence or "").strip():
+        return False, "activation_evidence_required", None
+    now = _v3538_now()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute(
+            "UPDATE startup_first_value_checkpoints SET checkpoint_state='ACTIVE',activated_at=?,updated_at=? WHERE username=? AND id=?",
+            (now, now, username, int(checkpoint_id)),
+        )
+        _v3538_event(con, checkpoint_id, "checkpoint_activated", str(activation_evidence).strip()[:1600])
+        con.commit()
+        return True, "", _v3538_entry(username, checkpoint_id, refresh=False)
+    finally:
+        con.close()
+
+
+def _v3538_record_outcome(username, checkpoint_id, outcome, checkpoint_evidence, outcome_note=""):
+    d = _v3538_entry(username, checkpoint_id)
+    if not d:
+        return False, "checkpoint_not_found", None
+    if str(d.get("checkpoint_state") or "") != "ACTIVE":
+        return False, "active_checkpoint_required", None
+    outcome = str(outcome or "").upper().strip()
+    if outcome not in V3538_OUTCOMES:
+        return False, "invalid_outcome", None
+    evidence = str(checkpoint_evidence or "").strip()
+    if not evidence:
+        return False, "checkpoint_evidence_required", None
+    note = str(outcome_note or "").strip()
+    now = _v3538_now()
+    evidence_digest = _v3538_digest({
+        "checkpoint_id": int(checkpoint_id),
+        "outcome": outcome,
+        "checkpoint_evidence": evidence,
+        "outcome_note": note,
+        "recorded_at": now,
+    })
+    con = sqlite3.connect(DB)
+    try:
+        con.execute(
+            """UPDATE startup_first_value_checkpoints
+               SET checkpoint_state=?,checkpoint_evidence=?,outcome_note=?,completed_at=?,updated_at=?
+               WHERE username=? AND id=?""",
+            (outcome, evidence[:4000], note[:2000], now, now, username, int(checkpoint_id)),
+        )
+        _v3538_event(con, checkpoint_id, "first_value_outcome", f"{outcome} · evidence {evidence_digest[:16]}")
+        con.commit()
+        return True, "", _v3538_entry(username, checkpoint_id, refresh=False)
+    finally:
+        con.close()
+
+
+def _v3538_snapshot(username):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        ids = [int(r["id"]) for r in con.execute(
+            "SELECT id FROM startup_first_value_checkpoints WHERE username=? ORDER BY id DESC",
+            (username,),
+        ).fetchall()]
+        existing_handoffs = {
+            int(r["handoff_id"]) for r in con.execute(
+                "SELECT handoff_id FROM startup_first_value_checkpoints WHERE username=?",
+                (username,),
+            ).fetchall()
+        }
+    finally:
+        con.close()
+    items = [_v3538_entry(username, i) for i in ids]
+    items = [x for x in items if x]
+    eligible = []
+    try:
+        hd = _v3537_snapshot(username)
+        for h in hd.get("items") or []:
+            if str(h.get("handoff_state") or "") == "KICKED_OFF" and int(h.get("id") or 0) not in existing_handoffs:
+                eligible.append(h)
+    except Exception:
+        pass
+    counts = {s: 0 for s in V3538_STATES}
+    for x in items:
+        st = str(x.get("checkpoint_state") or "DRAFT")
+        counts[st] = counts.get(st, 0) + 1
+    return {
+        "success": True,
+        "version": V3538_VERSION,
+        "counts": counts,
+        "items": items,
+        "eligible_handoffs": eligible,
+        "policy": "A first-value checkpoint records operator-entered targets and explicit evidence. BL3 does not infer customer value, business impact, ROI, or stakeholder acceptance automatically.",
+    }
+
+
+@app.route('/api/hunter-first-value-checkpoints', methods=['GET', 'POST'])
+def v3538_api():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify(_v3538_snapshot(u))
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, e, cid = _v3538_create(
+        u,
+        p.get('handoff_id'),
+        p.get('checkpoint_title'),
+        p.get('value_statement'),
+        p.get('measurement_method'),
+        p.get('target_value'),
+        p.get('checkpoint_due_at') or '',
+    )
+    return jsonify({'success': ok, 'error': e, 'checkpoint_id': cid}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-first-value-checkpoints/<int:checkpoint_id>/activate', methods=['POST'])
+def v3538_activate_api(checkpoint_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, e, d = _v3538_activate(u, checkpoint_id, p.get('activation_evidence'))
+    return jsonify({'success': ok, 'error': e, 'checkpoint': d}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-first-value-checkpoints/<int:checkpoint_id>/outcome', methods=['POST'])
+def v3538_outcome_api(checkpoint_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, e, d = _v3538_record_outcome(
+        u,
+        checkpoint_id,
+        p.get('outcome'),
+        p.get('checkpoint_evidence'),
+        p.get('outcome_note') or '',
+    )
+    return jsonify({'success': ok, 'error': e, 'checkpoint': d}), (200 if ok else 400)
+
+
+@app.route('/hunter-first-value-checkpoints')
+def v3538_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3538_snapshot(u)
+    c = d['counts']
+    esc = html.escape
+    opts = ''.join(
+        f"<option value='{int(h['id'])}'>Handoff #{int(h['id'])} · {esc(h.get('handoff_title') or 'Execution')}</option>"
+        for h in d['eligible_handoffs']
+    )
+    cards = []
+    for x in d['items']:
+        cid = int(x['id'])
+        state = str(x.get('checkpoint_state') or 'DRAFT')
+        h = x.get('handoff') or {}
+        actions = ''
+        if state == 'DRAFT':
+            actions = f"""<form action='/api/hunter-first-value-checkpoints/{cid}/activate' onsubmit='return v3538submit(this,event)'><textarea name='activation_evidence' placeholder='Evidence that the target, measurement method and checkpoint timing are agreed for execution' required></textarea><button class='safe'>ACTIVATE CHECKPOINT</button></form>"""
+        elif state == 'ACTIVE':
+            actions = f"""<form action='/api/hunter-first-value-checkpoints/{cid}/outcome' onsubmit='return v3538submit(this,event)'><select name='outcome'><option>FIRST_VALUE_REACHED</option><option>NEEDS_ATTENTION</option></select><textarea name='checkpoint_evidence' placeholder='Observable checkpoint evidence' required></textarea><textarea name='outcome_note' placeholder='Outcome note / next action'></textarea><button class='safe'>RECORD CHECKPOINT OUTCOME</button></form>"""
+        cards.append(f"""<article class='card'><div class='top'><span>First Value #{cid}</span><span class='pill'>{esc(state)}</span></div><h2>{esc(x.get('checkpoint_title') or '')}</h2><p><b>Value target:</b> {esc(x.get('value_statement') or '')}</p><p><b>Target:</b> {esc(x.get('target_value') or '')}</p><p><b>Measurement:</b> {esc(x.get('measurement_method') or '')}</p><p class='muted'>Handoff #{int(x['handoff_id'])} · {esc(h.get('handoff_title') or 'Kicked-off execution')} · Due {esc(x.get('checkpoint_due_at') or '—')}</p>{actions}</article>""")
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V35.38 First Value</title><style>body{{margin:0;background:#06080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1280px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #354d58;background:#0a1016;border-radius:20px;padding:18px}}.eyebrow{{color:#9affd7;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#91a9b7}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}}.num{{font-size:26px;font-weight:900;color:#9affd7}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3b7e68;border-radius:999px;padding:5px 9px;font-size:12px}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #39414b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safe{{border-color:#2f9e67}}a{{color:#9affd7}}@media(max-width:850px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><div class='wrap'><section class='hero'><div class='eyebrow'>BL3 V35.38 · FIRST VALUE CHECKPOINT + LAUNCH-TO-VALUE GATE</div><h1>Kickoff is not value.</h1><p class='muted'>Define the first measurable outcome after kickoff, record observable evidence, and explicitly decide whether first value was reached or execution needs attention.</p><div class='stats'><div><div class='num'>{}</div>DRAFT</div><div><div class='num'>{}</div>ACTIVE</div><div><div class='num'>{}</div>VALUE REACHED</div><div><div class='num'>{}</div>NEEDS ATTENTION</div></div><p><a href='/hunter-execution-handoffs'>← Execution Handoffs</a> · <a href='/api/hunter-first-value-checkpoints'>JSON</a></p></section><section class='card' style='margin-top:18px'><h2>Create first-value checkpoint</h2><form action='/api/hunter-first-value-checkpoints' onsubmit='return v3538submit(this,event)'><select name='handoff_id' required><option value=''>Kicked-off execution handoff</option>{}</select><input name='checkpoint_title' placeholder='Checkpoint title' required><textarea name='value_statement' placeholder='What is the first measurable value we expect to observe?' required></textarea><textarea name='measurement_method' placeholder='How will it be measured / observed?' required></textarea><input name='target_value' placeholder='Target or success threshold' required><input name='checkpoint_due_at' type='date'><button>CREATE CHECKPOINT</button></form></section><section class='grid'>{}</section></div><script>async function v3538submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}</script></body></html>""".format(c.get('DRAFT',0),c.get('ACTIVE',0),c.get('FIRST_VALUE_REACHED',0),c.get('NEEDS_ATTENTION',0),opts,''.join(cards) or "<article class='card'><p>No first-value checkpoints yet.</p></article>")
+
+
+# Add navigation from V35.37 into V35.38.
+try:
+    _v3538_prev_page = app.view_functions.get('v3537_page')
+    if _v3538_prev_page:
+        def _v3538_handoff_with_first_value(*args, **kwargs):
+            response = _v3538_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-first-value-checkpoints' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-execution-handoffs'>JSON</a>",
+                    "<a href='/api/hunter-execution-handoffs'>JSON</a> · <a href='/hunter-first-value-checkpoints'>🎯 FIRST VALUE</a>",
+                    1,
+                )
+            return response
+        app.view_functions['v3537_page'] = _v3538_handoff_with_first_value
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -85951,6 +86315,7 @@ if __name__ == "__main__":
     print("🗺️ Solution Mapping + Mutual Action Plan Gate enabled")
     print("📑 Decision Package + Approval Evidence Gate enabled")
     print("🚀 Execution Handoff + Kickoff Readiness Gate enabled")
+    print("🎯 First Value Checkpoint + Launch-to-Value Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
