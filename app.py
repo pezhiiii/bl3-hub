@@ -78188,6 +78188,488 @@ except Exception:
     pass
 
 
+# ===== V35.19 LIVE DUTY ROSTER + HANDOFF ACKNOWLEDGEMENT GATE =====
+# V35.18 proves that enough CURRENT certified operators exist for a scope.
+# V35.19 proves that the coverage is actually assigned for a live duty window:
+#
+# COVERED SCOPE -> PRIMARY + BACKUP ROSTER -> BOTH ACKNOWLEDGE
+#               -> READY -> ACTIVE -> EXPIRED
+#
+# If either assigned operator loses current certification while the duty window
+# is live, the roster becomes AT_RISK. Handoff acknowledgements are immutable,
+# digest-stamped evidence and never mutate certification state.
+
+V3519_VERSION = "V35.19"
+V3519_STATES = {"PENDING_ACK", "READY", "ACTIVE", "AT_RISK", "EXPIRED", "CANCELLED"}
+V3519_ROLES = {"PRIMARY", "BACKUP"}
+
+
+def _v3519_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_duty_rosters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            requirement_id INTEGER NOT NULL,
+            certification_scope TEXT NOT NULL,
+            primary_operator TEXT NOT NULL,
+            backup_operator TEXT NOT NULL,
+            starts_at TEXT NOT NULL,
+            ends_at TEXT NOT NULL,
+            roster_state TEXT NOT NULL DEFAULT 'PENDING_ACK',
+            handoff_note TEXT DEFAULT '',
+            cancel_reason TEXT DEFAULT '',
+            cancelled_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """)
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_operator_handoff_acks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            roster_id INTEGER NOT NULL,
+            operator TEXT NOT NULL,
+            role TEXT NOT NULL,
+            acknowledgement_note TEXT DEFAULT '',
+            evidence_sha256 TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            acknowledged_at TEXT NOT NULL,
+            UNIQUE(username, roster_id, role)
+        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3519_roster_user_state ON hunter_operator_duty_rosters(username,roster_state,id DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3519_roster_req_time ON hunter_operator_duty_rosters(username,requirement_id,starts_at,ends_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3519_ack_roster ON hunter_operator_handoff_acks(username,roster_id,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v3519_init()
+except Exception:
+    pass
+
+
+def _v3519_now_iso():
+    return datetime.now().astimezone().isoformat(timespec='seconds')
+
+
+def _v3519_parse_time(value):
+    try:
+        raw = str(value or '').strip()
+        if not raw:
+            return None
+        dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.astimezone()
+        return dt
+    except Exception:
+        return None
+
+
+def _v3519_roster(username, roster_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM hunter_operator_duty_rosters WHERE username=? AND id=?",
+            (username, int(roster_id))
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v3519_acks(username, roster_id):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT * FROM hunter_operator_handoff_acks WHERE username=? AND roster_id=? ORDER BY id ASC",
+            (username, int(roster_id))
+        ).fetchall()
+        out = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d['payload'] = json.loads(d.get('payload_json') or '{}')
+            except Exception:
+                d['payload'] = {}
+            out.append(d)
+        return out
+    finally:
+        con.close()
+
+
+def _v3519_active_operator_map(username, requirement_id):
+    req = _v3518_requirement(username, requirement_id)
+    if not req:
+        return None, {}, None
+    cov = _v3518_coverage(username, req)
+    active = {}
+    for cert in cov.get('active_certifications') or []:
+        name = str(cert.get('operator') or '').strip()
+        if name:
+            active[name.casefold()] = cert
+    return req, active, cov
+
+
+def _v3519_evaluate(username, roster):
+    r = dict(roster or {})
+    if not r:
+        return None
+    stored = str(r.get('roster_state') or 'PENDING_ACK').upper()
+    acks = _v3519_acks(username, int(r['id']))
+    ack_roles = {str(a.get('role') or '').upper() for a in acks}
+    primary_ack = 'PRIMARY' in ack_roles
+    backup_ack = 'BACKUP' in ack_roles
+
+    req, active_map, cov = _v3519_active_operator_map(username, int(r.get('requirement_id') or 0))
+    primary_key = str(r.get('primary_operator') or '').strip().casefold()
+    backup_key = str(r.get('backup_operator') or '').strip().casefold()
+    primary_current = bool(primary_key and primary_key in active_map)
+    backup_current = bool(backup_key and backup_key in active_map)
+    assigned_current = primary_current and backup_current and primary_key != backup_key
+
+    start = _v3519_parse_time(r.get('starts_at'))
+    end = _v3519_parse_time(r.get('ends_at'))
+    now = _v3519_parse_time(_v3519_now_iso())
+
+    if stored == 'CANCELLED':
+        state = 'CANCELLED'
+    elif end and now and now >= end:
+        state = 'EXPIRED'
+    elif start and now and now < start:
+        state = 'READY' if (primary_ack and backup_ack and assigned_current) else 'PENDING_ACK'
+    else:
+        state = 'ACTIVE' if (primary_ack and backup_ack and assigned_current) else 'AT_RISK'
+
+    changed = state != stored
+    if changed and stored != 'CANCELLED':
+        con = sqlite3.connect(DB)
+        try:
+            con.execute(
+                "UPDATE hunter_operator_duty_rosters SET roster_state=?,updated_at=? WHERE username=? AND id=?",
+                (state, _v3519_now_iso(), username, int(r['id']))
+            )
+            con.commit()
+        finally:
+            con.close()
+        r['roster_state'] = state
+    else:
+        r['roster_state'] = stored if stored == 'CANCELLED' else state
+
+    r['acks'] = acks
+    r['primary_ack'] = primary_ack
+    r['backup_ack'] = backup_ack
+    r['primary_current'] = primary_current
+    r['backup_current'] = backup_current
+    r['assigned_current'] = assigned_current
+    r['coverage'] = cov
+    r['requirement'] = req
+    r['handoff_ready'] = bool(r['roster_state'] in {'READY', 'ACTIVE'} and assigned_current and primary_ack and backup_ack)
+    return r
+
+
+def _v3519_create_roster(username, requirement_id, primary_operator, backup_operator, starts_at, ends_at, handoff_note=''):
+    req, active_map, cov = _v3519_active_operator_map(username, requirement_id)
+    if not req:
+        return False, 'requirement_not_found', None
+    if not cov or cov.get('coverage_state') != 'COVERED':
+        return False, 'scope_not_covered', None
+
+    primary = str(primary_operator or '').strip()
+    backup = str(backup_operator or '').strip()
+    if not primary or not backup:
+        return False, 'primary_and_backup_required', None
+    if primary.casefold() == backup.casefold():
+        return False, 'primary_backup_must_differ', None
+    if primary.casefold() not in active_map:
+        return False, 'primary_not_currently_certified', None
+    if backup.casefold() not in active_map:
+        return False, 'backup_not_currently_certified', None
+
+    start_dt = _v3519_parse_time(starts_at)
+    end_dt = _v3519_parse_time(ends_at)
+    if not start_dt or not end_dt:
+        return False, 'valid_start_and_end_required', None
+    if end_dt <= start_dt:
+        return False, 'end_must_be_after_start', None
+
+    start_iso = start_dt.isoformat(timespec='seconds')
+    end_iso = end_dt.isoformat(timespec='seconds')
+    note = str(handoff_note or '').strip()[:1200]
+    now = _v3519_now_iso()
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        overlap = con.execute(
+            """SELECT id FROM hunter_operator_duty_rosters
+               WHERE username=? AND requirement_id=? AND roster_state <> 'CANCELLED'
+               AND NOT (ends_at <= ? OR starts_at >= ?) LIMIT 1""",
+            (username, int(requirement_id), start_iso, end_iso)
+        ).fetchone()
+        if overlap:
+            return False, 'overlapping_roster_exists', int(overlap['id'])
+        cur = con.execute("""INSERT INTO hunter_operator_duty_rosters
+          (username,requirement_id,certification_scope,primary_operator,backup_operator,starts_at,ends_at,roster_state,handoff_note,created_at,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+          (username, int(requirement_id), req.get('certification_scope') or '', primary, backup, start_iso, end_iso,
+           'PENDING_ACK', note, now, now))
+        con.commit(); roster_id = int(cur.lastrowid)
+    finally:
+        con.close()
+    _v3519_evaluate(username, _v3519_roster(username, roster_id))
+    return True, None, roster_id
+
+
+def _v3519_ack(username, roster_id, role, operator, acknowledgement_note=''):
+    roster = _v3519_roster(username, roster_id)
+    if not roster:
+        return False, 'roster_not_found', None
+    if str(roster.get('roster_state') or '').upper() in {'CANCELLED', 'EXPIRED'}:
+        return False, 'roster_closed', None
+    role = str(role or '').upper().strip()
+    if role not in V3519_ROLES:
+        return False, 'invalid_role', None
+    expected = str(roster.get('primary_operator') if role == 'PRIMARY' else roster.get('backup_operator') or '').strip()
+    supplied = str(operator or '').strip()
+    if not supplied:
+        supplied = expected
+    if supplied.casefold() != expected.casefold():
+        return False, 'operator_does_not_match_role', None
+
+    req, active_map, cov = _v3519_active_operator_map(username, int(roster['requirement_id']))
+    cert = active_map.get(supplied.casefold())
+    if not cert:
+        return False, 'operator_not_currently_certified', None
+
+    acknowledged_at = _v3519_now_iso()
+    note = str(acknowledgement_note or '').strip()[:1200]
+    payload = {
+        'version': V3519_VERSION,
+        'roster_id': int(roster['id']),
+        'requirement_id': int(roster['requirement_id']),
+        'certification_scope': roster.get('certification_scope') or '',
+        'role': role,
+        'operator': supplied,
+        'certification_id': int(cert.get('id') or 0),
+        'certification_state': cert.get('certification_state') or '',
+        'certification_due_at': cert.get('due_at') or '',
+        'starts_at': roster.get('starts_at') or '',
+        'ends_at': roster.get('ends_at') or '',
+        'acknowledgement_note': note,
+        'acknowledged_at': acknowledged_at,
+        'policy': 'A handoff acknowledgement proves the assigned operator accepted the duty role while holding a current certification. It does not extend, recertify, revoke, or otherwise mutate the underlying certification.'
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    digest = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+    con = sqlite3.connect(DB)
+    try:
+        try:
+            cur = con.execute("""INSERT INTO hunter_operator_handoff_acks
+              (username,roster_id,operator,role,acknowledgement_note,evidence_sha256,payload_json,acknowledged_at)
+              VALUES(?,?,?,?,?,?,?,?)""",
+              (username, int(roster_id), supplied, role, note, digest, canonical, acknowledged_at))
+            con.commit(); ack_id = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            return False, 'role_already_acknowledged', None
+    finally:
+        con.close()
+    _v3519_evaluate(username, _v3519_roster(username, roster_id))
+    return True, None, ack_id
+
+
+def _v3519_cancel(username, roster_id, reason=''):
+    roster = _v3519_roster(username, roster_id)
+    if not roster:
+        return False, 'roster_not_found'
+    if str(roster.get('roster_state') or '').upper() in {'CANCELLED', 'EXPIRED'}:
+        return False, 'roster_closed'
+    reason = str(reason or '').strip()[:1000]
+    if not reason:
+        return False, 'cancel_reason_required'
+    now = _v3519_now_iso()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE hunter_operator_duty_rosters
+                       SET roster_state='CANCELLED',cancel_reason=?,cancelled_at=?,updated_at=?
+                       WHERE username=? AND id=?""",
+                    (reason, now, now, username, int(roster_id)))
+        con.commit()
+    finally:
+        con.close()
+    return True, None
+
+
+def _v3519_snapshot(username):
+    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM hunter_operator_duty_rosters WHERE username=? ORDER BY id DESC LIMIT 150",
+            (username,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    items = []
+    counts = {s: 0 for s in V3519_STATES}
+    for row in rows:
+        item = _v3519_evaluate(username, row)
+        if item:
+            counts[item['roster_state']] = counts.get(item['roster_state'], 0) + 1
+            items.append(item)
+
+    coverage = _v3518_snapshot(username)
+    requirements = []
+    for item in coverage.get('requirements') or []:
+        req = item.get('requirement') or {}
+        if item.get('coverage_state') == 'COVERED':
+            requirements.append({
+                'id': int(req.get('id') or 0),
+                'certification_scope': req.get('certification_scope') or '',
+                'active_operators': [x.get('operator') or '' for x in item.get('active_certifications') or []]
+            })
+
+    now = _v3519_parse_time(_v3519_now_iso())
+    live = []
+    upcoming = []
+    for item in items:
+        state = item.get('roster_state')
+        if state in {'ACTIVE', 'AT_RISK'}:
+            live.append(item)
+        elif state in {'READY', 'PENDING_ACK'}:
+            start = _v3519_parse_time(item.get('starts_at'))
+            if not start or not now or start >= now:
+                upcoming.append(item)
+
+    return {
+        'version': V3519_VERSION,
+        'rosters': items,
+        'counts': counts,
+        'covered_requirements': requirements,
+        'live_rosters': live,
+        'upcoming_rosters': upcoming,
+        'handoff_gate_ready': bool(coverage.get('gate_ready')) and all(x.get('roster_state') != 'AT_RISK' for x in live),
+        'coverage_gate_ready': bool(coverage.get('gate_ready')),
+    }
+
+
+@app.route('/api/hunter-duty-rosters', methods=['GET', 'POST'])
+def v3519_api_rosters():
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    if request.method == 'GET':
+        return jsonify({'success': True, **_v3519_snapshot(u)})
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, roster_id = _v3519_create_roster(
+        u,
+        p.get('requirement_id') or 0,
+        p.get('primary_operator') or '',
+        p.get('backup_operator') or '',
+        p.get('starts_at') or '',
+        p.get('ends_at') or '',
+        p.get('handoff_note') or ''
+    )
+    return jsonify({'success': ok, 'error': error, 'roster_id': roster_id}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-duty-rosters/<int:roster_id>/ack', methods=['POST'])
+def v3519_api_ack(roster_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error, ack_id = _v3519_ack(
+        u, roster_id, p.get('role') or '', p.get('operator') or '', p.get('acknowledgement_note') or ''
+    )
+    return jsonify({'success': ok, 'error': error, 'ack_id': ack_id}), (200 if ok else 400)
+
+
+@app.route('/api/hunter-duty-rosters/<int:roster_id>/cancel', methods=['POST'])
+def v3519_api_cancel(roster_id):
+    u = session.get('authenticated_username')
+    if not u:
+        return jsonify({'success': False, 'error': 'auth_required'}), 401
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    ok, error = _v3519_cancel(u, roster_id, p.get('cancel_reason') or '')
+    return jsonify({'success': ok, 'error': error}), (200 if ok else 400)
+
+
+@app.route('/hunter-duty-rosters')
+def v3519_page():
+    u = session.get('authenticated_username')
+    if not u:
+        return redirect('/')
+    d = _v3519_snapshot(u); esc = html.escape
+    c = d['counts']
+    req_options = ''.join(
+        "<option value='{}'>{} · {} current</option>".format(int(x['id']), esc(x['certification_scope']), len(x['active_operators']))
+        for x in d['covered_requirements']
+    )
+    req_json = json.dumps({str(x['id']): x['active_operators'] for x in d['covered_requirements']}, ensure_ascii=False).replace('</', '<\\/')
+    cards = []
+    for x in d['rosters']:
+        rid = int(x['id']); state = str(x.get('roster_state') or '')
+        badge = 'safe' if state in {'READY','ACTIVE'} else ('warn' if state in {'PENDING_ACK','AT_RISK'} else 'mutedpill')
+        ack_text = ('PRIMARY ✓' if x.get('primary_ack') else 'PRIMARY ○') + ' · ' + ('BACKUP ✓' if x.get('backup_ack') else 'BACKUP ○')
+        current_text = ('PRIMARY ✓' if x.get('primary_current') else 'PRIMARY ✕') + ' · ' + ('BACKUP ✓' if x.get('backup_current') else 'BACKUP ✕')
+        actions = ''
+        if state not in {'CANCELLED','EXPIRED'}:
+            if not x.get('primary_ack'):
+                actions += f"""<form action='/api/hunter-duty-rosters/{rid}/ack' onsubmit='return v3519submit(this,event)'><input type='hidden' name='role' value='PRIMARY'><input type='hidden' name='operator' value='{esc(x.get('primary_operator') or '')}'><input name='acknowledgement_note' placeholder='Primary handoff acknowledgement evidence'><button class='safeBtn'>ACK PRIMARY</button></form>"""
+            if not x.get('backup_ack'):
+                actions += f"""<form action='/api/hunter-duty-rosters/{rid}/ack' onsubmit='return v3519submit(this,event)'><input type='hidden' name='role' value='BACKUP'><input type='hidden' name='operator' value='{esc(x.get('backup_operator') or '')}'><input name='acknowledgement_note' placeholder='Backup handoff acknowledgement evidence'><button class='safeBtn'>ACK BACKUP</button></form>"""
+            actions += f"""<form action='/api/hunter-duty-rosters/{rid}/cancel' onsubmit='return v3519submit(this,event)'><input name='cancel_reason' placeholder='Cancellation reason' required><button class='dangerBtn'>CANCEL ROSTER</button></form>"""
+        ack_digests = ', '.join(esc((a.get('evidence_sha256') or '')[:10]) for a in x.get('acks') or []) or 'none'
+        cards.append(f"""<article class='card'>
+          <div class='top'><span>Roster #{rid}</span><span class='pill {badge}'>{esc(state)}</span></div>
+          <h2>{esc(x.get('certification_scope') or '')}</h2>
+          <div class='duo'><div><span>PRIMARY</span><b>{esc(x.get('primary_operator') or '')}</b></div><div><span>BACKUP</span><b>{esc(x.get('backup_operator') or '')}</b></div></div>
+          <p><b>Window:</b> {esc(x.get('starts_at') or '')} → {esc(x.get('ends_at') or '')}</p>
+          <p class='muted'><b>Handoff:</b> {ack_text} · <b>Current cert:</b> {current_text}</p>
+          <p class='muted'>{esc(x.get('handoff_note') or '')}</p>
+          <p class='muted'>Ack evidence digests: <code>{ack_digests}</code></p>{actions}
+        </article>""")
+    gate = 'READY' if d['handoff_gate_ready'] else 'NOT READY'
+    coverage_gate = 'READY' if d['coverage_gate_ready'] else 'NOT READY'
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.19 Live Duty Roster</title><style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}.wrap{{max-width:1240px;margin:auto;padding:28px}}.hero,.card{{border:1px solid #2b4654;background:#091117;border-radius:20px;padding:18px}}.eyebrow{{color:#8df8c6;font-size:11px;letter-spacing:1.5px;font-weight:900}}h1{{font-size:42px;margin:9px 0}}.muted{{color:#8ea7b4}}.stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}}.stats>div,.duo>div{{border:1px solid #223944;border-radius:14px;padding:12px}}.num{{font-size:24px;font-weight:900;color:#8df8c6}}.grid{{display:grid;gap:14px;margin-top:18px}}.top{{display:flex;justify-content:space-between;gap:10px}}.pill{{border:1px solid #3d6070;border-radius:999px;padding:5px 9px}}.pill.safe{{border-color:#2f9e67;color:#8dffc0}}.pill.warn{{border-color:#a48331;color:#ffd978}}.mutedpill{{color:#8ea7b4}}input,textarea,select,button{{box-sizing:border-box;width:100%;margin-top:9px;padding:11px;border-radius:10px;border:1px solid #29404b;background:#071017;color:#eef8fb}}button{{cursor:pointer;font-weight:900}}.safeBtn{{border-color:#2f9e67}}.dangerBtn{{border-color:#a94455}}a{{color:#8df8c6}}.duo{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}}.duo span{{display:block;color:#78909c;font-size:10px;font-weight:900}}.duo b{{display:block;margin-top:5px}}code{{color:#8df8c6}}@media(max-width:760px){{.stats{{grid-template-columns:repeat(2,1fr)}}.duo{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
+    </style></head><body><div class='wrap'>
+    <section class='hero'><div class='eyebrow'>BL3 V35.19 · LIVE DUTY ROSTER + HANDOFF ACKNOWLEDGEMENT GATE</div><h1>Coverage exists. Now assign the watch.</h1><p class='muted'>Bind a covered scope to a Primary + Backup duty window, require both handoff acknowledgements, and continuously re-check that both operators still hold current certifications.</p>
+    <div class='stats'><div><div class='num'>{}</div>PENDING ACK</div><div><div class='num'>{}</div>READY</div><div><div class='num'>{}</div>ACTIVE</div><div><div class='num'>{}</div>AT RISK</div><div><div class='num'>{}</div>HANDOFF GATE</div><div><div class='num'>{}</div>COVERAGE</div></div>
+    <p><a href='/hunter-operator-coverage'>← Coverage + Failover</a> · <a href='/api/hunter-duty-rosters'>JSON</a></p></section>
+    <section class='card' style='margin-top:16px'><h2>Create duty roster</h2><form action='/api/hunter-duty-rosters' onsubmit='return v3519submit(this,event)'><select id='v3519req' name='requirement_id' onchange='v3519ops()' required><option value=''>Select covered scope</option>{}</select><select id='v3519primary' name='primary_operator' required><option value=''>Primary operator</option></select><select id='v3519backup' name='backup_operator' required><option value=''>Backup operator</option></select><label class='muted'>Starts</label><input name='starts_at' type='datetime-local' required><label class='muted'>Ends</label><input name='ends_at' type='datetime-local' required><textarea name='handoff_note' placeholder='Shift context / handoff note'></textarea><button>CREATE DUTY ROSTER</button></form></section>
+    <section class='grid'>{}</section></div><script>
+    const V3519OPS={};
+    function v3519ops(){{const rid=document.getElementById('v3519req').value;const ops=V3519OPS[rid]||[];for(const id of ['v3519primary','v3519backup']){{const s=document.getElementById(id);s.innerHTML='<option value="">'+(id==='v3519primary'?'Primary operator':'Backup operator')+'</option>'+ops.map(x=>'<option value="'+String(x).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')+'">'+String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>').join('');}}}}
+    async function v3519submit(form,e){{e.preventDefault();const b=e.submitter||form.querySelector('button');if(b)b.disabled=true;try{{const fd=new FormData(form);if(e.submitter&&e.submitter.name)fd.set(e.submitter.name,e.submitter.value);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c.get('PENDING_ACK',0), c.get('READY',0), c.get('ACTIVE',0), c.get('AT_RISK',0), gate, coverage_gate,
+        req_options, ''.join(cards) or "<article class='card'><p>No duty rosters yet. Create one from a COVERED scope above.</p></article>", req_json
+    )
+
+
+# Add navigation from V35.18 into V35.19.
+try:
+    _v3519_prev_page = app.view_functions.get('v3518_page')
+    if _v3519_prev_page:
+        def _v3519_coverage_with_roster(*args, **kwargs):
+            response = _v3519_prev_page(*args, **kwargs)
+            if isinstance(response, str) and '/hunter-duty-rosters' not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-operator-coverage'>JSON</a>",
+                    "<a href='/api/hunter-operator-coverage'>JSON</a> · <a href='/hunter-duty-rosters'>🕒 LIVE DUTY ROSTER</a>",
+                    1
+                )
+            return response
+        app.view_functions['v3518_page'] = _v3519_coverage_with_roster
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -78299,6 +78781,7 @@ if __name__ == "__main__":
     print("")
     print("💌 Guestbook Control Center enabled")
     print("🛡️ Operator Coverage + Failover Readiness Gate enabled")
+    print("🕒 Live Duty Roster + Handoff Acknowledgement Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
