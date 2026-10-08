@@ -69143,6 +69143,739 @@ except Exception:
     pass
 
 
+
+
+# ===== V35.1 POST-INCIDENT LEARNING + PREVENTION GATE =====
+# V35.0 closes incidents with verified remediation.
+# V35.1 makes closure produce durable learning:
+#
+# RESOLVED INCIDENT -> ROOT CAUSE -> PREVENTION ACTIONS -> OWNERSHIP -> VERIFY PREVENTION
+#
+# This prevents "resolved" from meaning "forgotten".
+# Every resolved incident can now yield explicit prevention work and a reusable lesson record.
+
+V351_VERSION = "V35.1"
+V351_ROOT_CAUSE_CLASSES = {
+    "PROCESS",
+    "CONFIGURATION",
+    "CODE",
+    "DEPENDENCY",
+    "CAPACITY",
+    "SECURITY",
+    "OBSERVABILITY",
+    "HUMAN_ERROR",
+    "UNKNOWN"
+}
+V351_PREVENTION_STATES = {"PLANNED", "IN_PROGRESS", "DONE", "VERIFIED"}
+V351_VERDICTS = {"PASS", "FAIL", "INCONCLUSIVE"}
+
+
+def _v351_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_post_incident_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            incident_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            root_cause_class TEXT NOT NULL,
+            root_cause_summary TEXT NOT NULL,
+            contributing_factors TEXT,
+            lesson_text TEXT,
+            review_state TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            closed_at TEXT,
+            close_note TEXT,
+            UNIQUE(username, incident_id)
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v351_pir_impl
+        ON hunter_post_incident_reviews(username, implementation_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_prevention_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            post_incident_review_id INTEGER NOT NULL,
+            incident_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            action_text TEXT NOT NULL,
+            owner_label TEXT,
+            prevention_state TEXT NOT NULL DEFAULT 'PLANNED',
+            evidence_note TEXT,
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            verified_at TEXT
+        )
+        """)
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_v351_prevention_actions
+        ON hunter_prevention_actions(username, post_incident_review_id, id DESC)
+        """)
+
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS hunter_prevention_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            prevention_action_id INTEGER NOT NULL,
+            post_incident_review_id INTEGER NOT NULL,
+            incident_id INTEGER NOT NULL,
+            implementation_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            verification_note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+try:
+    _v351_init()
+except Exception:
+    pass
+
+
+def _v351_review_for_incident(username, incident_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_post_incident_reviews
+            WHERE username=? AND incident_id=?
+            ORDER BY id DESC LIMIT 1
+        """, (username, int(incident_id))).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def _v351_actions(username, review_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_prevention_actions
+            WHERE username=? AND post_incident_review_id=?
+            ORDER BY id DESC
+        """, (username, int(review_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v351_verifications(username, action_id):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT * FROM hunter_prevention_verifications
+            WHERE username=? AND prevention_action_id=?
+            ORDER BY id DESC
+        """, (username, int(action_id))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def _v351_create_review(username, incident_id, root_cause_class, root_cause_summary, contributing_factors="", lesson_text=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_incidents
+            WHERE username=? AND id=?
+        """, (username, int(incident_id))).fetchone()
+        incident = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not incident:
+        return False, "incident_not_found", None
+    if str(incident.get("incident_state") or "") != "RESOLVED":
+        return False, "resolved_incident_required", None
+
+    if _v351_review_for_incident(username, incident_id):
+        return False, "post_incident_review_already_exists", None
+
+    root_class = str(root_cause_class or "").strip().upper()
+    if root_class not in V351_ROOT_CAUSE_CLASSES:
+        return False, "invalid_root_cause_class", None
+
+    summary = str(root_cause_summary or "").strip()
+    if not summary:
+        return False, "root_cause_summary_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_post_incident_reviews
+            (username, incident_id, implementation_id, root_cause_class,
+             root_cause_summary, contributing_factors, lesson_text,
+             review_state, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+        """, (
+            username,
+            int(incident_id),
+            int(incident["implementation_id"]),
+            root_class,
+            summary[:5000],
+            str(contributing_factors or "").strip()[:5000],
+            str(lesson_text or "").strip()[:5000],
+            now
+        ))
+        rid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, rid
+
+
+def _v351_add_prevention_action(username, review_id, action_text, owner_label="", evidence_note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_post_incident_reviews
+            WHERE username=? AND id=?
+        """, (username, int(review_id))).fetchone()
+        review = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not review:
+        return False, "post_incident_review_not_found", None
+
+    action = str(action_text or "").strip()
+    if not action:
+        return False, "prevention_action_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_prevention_actions
+            (username, post_incident_review_id, incident_id, implementation_id,
+             action_text, owner_label, prevention_state, evidence_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'PLANNED', ?, ?)
+        """, (
+            username,
+            int(review["id"]),
+            int(review["incident_id"]),
+            int(review["implementation_id"]),
+            action[:5000],
+            str(owner_label or "").strip()[:500],
+            str(evidence_note or "").strip()[:4000],
+            now
+        ))
+        aid = int(cur.lastrowid)
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, aid
+
+
+def _v351_update_prevention_state(username, action_id, prevention_state, note=""):
+    state = str(prevention_state or "").strip().upper()
+    if state not in V351_PREVENTION_STATES:
+        return False, "invalid_prevention_state", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_prevention_actions
+            WHERE username=? AND id=?
+        """, (username, int(action_id))).fetchone()
+        action = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not action:
+        return False, "prevention_action_not_found", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        if state == "DONE":
+            con.execute("""
+                UPDATE hunter_prevention_actions
+                SET prevention_state='DONE',
+                    completed_at=?,
+                    evidence_note=CASE
+                        WHEN ?!='' THEN ?
+                        ELSE evidence_note
+                    END
+                WHERE id=? AND username=?
+            """, (
+                now,
+                str(note or "").strip(),
+                str(note or "").strip()[:4000],
+                int(action_id),
+                username
+            ))
+        elif state == "VERIFIED":
+            verdicts = _v351_verifications(username, int(action_id))
+            if not verdicts or str(verdicts[0].get("verdict") or "") != "PASS":
+                return False, "passing_prevention_verification_required", None
+            con.execute("""
+                UPDATE hunter_prevention_actions
+                SET prevention_state='VERIFIED',
+                    verified_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(action_id),
+                username
+            ))
+        else:
+            con.execute("""
+                UPDATE hunter_prevention_actions
+                SET prevention_state=?
+                WHERE id=? AND username=?
+            """, (
+                state,
+                int(action_id),
+                username
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, int(action_id)
+
+
+def _v351_verify_prevention(username, action_id, verdict, note=""):
+    verdict = str(verdict or "").strip().upper()
+    if verdict not in V351_VERDICTS:
+        return False, "invalid_verdict", None
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_prevention_actions
+            WHERE username=? AND id=?
+        """, (username, int(action_id))).fetchone()
+        action = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not action:
+        return False, "prevention_action_not_found", None
+    if str(action.get("prevention_state") or "") not in {"DONE", "VERIFIED"}:
+        return False, "completed_prevention_action_required", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""
+            INSERT INTO hunter_prevention_verifications
+            (username, prevention_action_id, post_incident_review_id, incident_id,
+             implementation_id, verdict, verification_note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username,
+            int(action["id"]),
+            int(action["post_incident_review_id"]),
+            int(action["incident_id"]),
+            int(action["implementation_id"]),
+            verdict,
+            str(note or "").strip()[:4000],
+            now
+        ))
+        vid = int(cur.lastrowid)
+
+        if verdict == "PASS":
+            con.execute("""
+                UPDATE hunter_prevention_actions
+                SET prevention_state='VERIFIED',
+                    verified_at=?
+                WHERE id=? AND username=?
+            """, (
+                now,
+                int(action["id"]),
+                username
+            ))
+        con.commit()
+    finally:
+        con.close()
+
+    return True, None, vid
+
+
+def _v351_close_review(username, review_id, note=""):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute("""
+            SELECT * FROM hunter_post_incident_reviews
+            WHERE username=? AND id=?
+        """, (username, int(review_id))).fetchone()
+        review = dict(row) if row else None
+    finally:
+        con.close()
+
+    if not review:
+        return False, "post_incident_review_not_found", None
+
+    actions = _v351_actions(username, int(review_id))
+    if not actions:
+        return False, "prevention_action_required_before_closure", None
+
+    if any(str(a.get("prevention_state") or "") != "VERIFIED" for a in actions):
+        return False, "all_prevention_actions_must_be_verified", None
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""
+            UPDATE hunter_post_incident_reviews
+            SET review_state='CLOSED',
+                closed_at=?,
+                close_note=?
+            WHERE id=? AND username=?
+        """, (
+            now,
+            str(note or "").strip()[:4000],
+            int(review_id),
+            username
+        ))
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        _v316_log_event(
+            username,
+            "",
+            "POST_INCIDENT_REVIEW_CLOSED",
+            detail="V35.1 PIR #%s closed for implementation #%s." % (
+                int(review_id), int(review["implementation_id"])
+            )
+        )
+    except Exception:
+        pass
+
+    return True, None, int(review_id)
+
+
+def _v351_snapshot(username):
+    base = _v350_snapshot(username)
+    items = []
+
+    for item0 in base.get("items", []):
+        incident = item0.get("incident") or {}
+        if not incident:
+            continue
+        if str(incident.get("incident_state") or "") != "RESOLVED":
+            continue
+
+        review = _v351_review_for_incident(username, int(incident["id"]))
+        actions = _v351_actions(username, int(review["id"])) if review else []
+
+        enriched_actions = []
+        for action in actions:
+            aa = dict(action)
+            aa["verifications"] = _v351_verifications(username, int(action["id"]))[:10]
+            enriched_actions.append(aa)
+
+        item = dict(item0)
+        item["post_incident_review"] = review
+        item["prevention_actions"] = enriched_actions
+        item["can_close_review"] = bool(
+            review and enriched_actions and
+            all(str(a.get("prevention_state") or "") == "VERIFIED" for a in enriched_actions)
+        )
+        items.append(item)
+
+    return {
+        "version": V351_VERSION,
+        "counts": {
+            "eligible": len(items),
+            "reviews_open": sum(
+                1 for i in items
+                if i.get("post_incident_review") and str(i["post_incident_review"].get("review_state") or "") == "OPEN"
+            ),
+            "reviews_closed": sum(
+                1 for i in items
+                if i.get("post_incident_review") and str(i["post_incident_review"].get("review_state") or "") == "CLOSED"
+            ),
+            "verified_preventions": sum(
+                len([a for a in i.get("prevention_actions", []) if str(a.get("prevention_state") or "") == "VERIFIED"])
+                for i in items
+            ),
+        },
+        "items": items,
+        "policy": "An incident is operationally closed at V35.0; organizationally learned only after root cause, prevention actions, and verified prevention closure at V35.1."
+    }
+
+
+@app.route("/api/hunter-post-incident")
+def v351_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    return jsonify({"success": True, **_v351_snapshot(u)})
+
+
+@app.route("/api/hunter-post-incident/incident/<int:incident_id>/review", methods=["POST"])
+def v351_review_api(incident_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, rid = _v351_create_review(
+        u,
+        incident_id,
+        p.get("root_cause_class") or "",
+        p.get("root_cause_summary") or "",
+        p.get("contributing_factors") or "",
+        p.get("lesson_text") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "review_id": rid}), 400
+    return jsonify({"success": True, "review_id": rid})
+
+
+@app.route("/api/hunter-post-incident/review/<int:review_id>/prevention", methods=["POST"])
+def v351_prevention_api(review_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, aid = _v351_add_prevention_action(
+        u,
+        review_id,
+        p.get("action_text") or "",
+        p.get("owner_label") or "",
+        p.get("evidence_note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/api/hunter-post-incident/prevention/<int:action_id>/state", methods=["POST"])
+def v351_state_api(action_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, aid = _v351_update_prevention_state(
+        u,
+        action_id,
+        p.get("prevention_state") or "",
+        p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "action_id": aid}), 400
+    return jsonify({"success": True, "action_id": aid})
+
+
+@app.route("/api/hunter-post-incident/prevention/<int:action_id>/verify", methods=["POST"])
+def v351_verify_api(action_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, vid = _v351_verify_prevention(
+        u,
+        action_id,
+        p.get("verdict") or "",
+        p.get("verification_note") or p.get("note") or ""
+    )
+    if not ok:
+        return jsonify({"success": False, "error": e, "verification_id": vid}), 400
+    return jsonify({"success": True, "verification_id": vid})
+
+
+@app.route("/api/hunter-post-incident/review/<int:review_id>/close", methods=["POST"])
+def v351_close_api(review_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form or {}
+    ok, e, rid = _v351_close_review(u, review_id, p.get("note") or "")
+    if not ok:
+        return jsonify({"success": False, "error": e, "review_id": rid}), 400
+    return jsonify({"success": True, "review_id": rid})
+
+
+@app.route("/hunter-post-incident")
+def v351_page():
+    u = session.get("authenticated_username")
+    if not u:
+        return """<!doctype html><meta charset='utf-8'><body style='background:#05080b;color:white;font-family:Arial;padding:32px'>
+        <h1>🧠 Post-Incident Learning</h1><p>Sign in to continue.</p></body>""", 401
+
+    d = _v351_snapshot(u)
+    c = d["counts"]
+    esc = lambda v: html.escape(str(v if v is not None else ""))
+    cards = []
+
+    for item in d["items"]:
+        incident = item.get("incident") or {}
+        review = item.get("post_incident_review") or {}
+        actions = item.get("prevention_actions") or []
+        iid = int((item.get("implementation") or {}).get("id") or 0)
+        incident_id = int(incident.get("id") or 0)
+
+        forms = ""
+
+        if not review:
+            forms += f"""
+            <form action='/api/hunter-post-incident/incident/{incident_id}/review' onsubmit='return v351submit(this,event)'>
+              <select name='root_cause_class'>
+                <option>PROCESS</option><option>CONFIGURATION</option><option>CODE</option>
+                <option>DEPENDENCY</option><option>CAPACITY</option><option>SECURITY</option>
+                <option>OBSERVABILITY</option><option>HUMAN_ERROR</option><option>UNKNOWN</option>
+              </select>
+              <textarea name='root_cause_summary' rows='2' placeholder='Root cause summary' required></textarea>
+              <textarea name='contributing_factors' rows='2' placeholder='Contributing factors'></textarea>
+              <textarea name='lesson_text' rows='2' placeholder='What did we learn?'></textarea>
+              <button class='safe'>CREATE POST-INCIDENT REVIEW</button>
+            </form>
+            """
+        else:
+            rid = int(review["id"])
+            if str(review.get("review_state") or "") == "OPEN":
+                forms += f"""
+                <form action='/api/hunter-post-incident/review/{rid}/prevention' onsubmit='return v351submit(this,event)'>
+                  <textarea name='action_text' rows='2' placeholder='Prevention action' required></textarea>
+                  <input name='owner_label' placeholder='Owner / role'>
+                  <textarea name='evidence_note' rows='2' placeholder='Planned evidence / proof'></textarea>
+                  <button>ADD PREVENTION ACTION</button>
+                </form>
+                """
+
+                for a in actions[:8]:
+                    aid = int(a["id"])
+                    if str(a.get("prevention_state") or "") != "VERIFIED":
+                        forms += f"""
+                        <div class='action'>
+                          <b>#{aid} {esc(a.get('prevention_state'))}</b>
+                          <div>{esc(a.get('action_text'))}</div>
+                          <small>{esc(a.get('owner_label'))}</small>
+                          <form action='/api/hunter-post-incident/prevention/{aid}/state' onsubmit='return v351submit(this,event)'>
+                            <select name='prevention_state'>
+                              <option>PLANNED</option><option>IN_PROGRESS</option><option>DONE</option>
+                            </select>
+                            <textarea name='note' rows='2' placeholder='State update evidence'></textarea>
+                            <button class='warn'>UPDATE PREVENTION STATE</button>
+                          </form>
+                        """
+
+                        if str(a.get("prevention_state") or "") == "DONE":
+                            forms += f"""
+                            <form action='/api/hunter-post-incident/prevention/{aid}/verify' onsubmit='return v351submit(this,event)'>
+                              <select name='verdict'>
+                                <option>PASS</option><option>FAIL</option><option>INCONCLUSIVE</option>
+                              </select>
+                              <textarea name='verification_note' rows='2' placeholder='Prevention verification evidence'></textarea>
+                              <button class='safe'>VERIFY PREVENTION</button>
+                            </form>
+                            """
+                        forms += "</div>"
+
+                if item.get("can_close_review"):
+                    forms += f"""
+                    <form action='/api/hunter-post-incident/review/{rid}/close' onsubmit='return v351submit(this,event)'>
+                      <textarea name='note' rows='2' placeholder='Final learning closure note'></textarea>
+                      <button class='safe'>CLOSE POST-INCIDENT REVIEW</button>
+                    </form>
+                    """
+
+        review_html = ""
+        if review:
+            review_html = """
+            <div class='review'>
+              PIR <b>#{}</b> · <b>{}</b> · root cause <b>{}</b><br>
+              <small>{}</small>
+            </div>
+            """.format(
+                esc(review.get("id")),
+                esc(review.get("review_state")),
+                esc(review.get("root_cause_class")),
+                esc(review.get("root_cause_summary"))
+            )
+
+        cards.append(f"""
+        <article class='card'>
+          <div class='top'><span>Implementation #{iid}</span><span class='pill'>Incident #{incident_id}</span></div>
+          <h2>{esc(item.get('title'))}</h2>
+          <p><b>{esc(incident.get('severity'))}</b> · resolved {esc(incident.get('resolved_at'))}</p>
+          {review_html}
+          {forms}
+        </article>
+        """)
+
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>BL3 V35.1 Post-Incident Learning</title>
+    <style>
+    body{{margin:0;background:#05080b;color:#eef8fb;font-family:Inter,Arial}}
+    .wrap{{max-width:1180px;margin:auto;padding:28px}} .hero,.card{{border:1px solid #173342;background:#081116;border-radius:20px;padding:18px}}
+    .eyebrow{{color:#c9a7ff;font-size:11px;letter-spacing:1.6px;font-weight:900}} h1{{font-size:42px;margin:9px 0}}
+    .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}}
+    .num{{font-size:26px;font-weight:900;color:#c9a7ff}} .muted,small{{color:#8ca7b4}} .top{{display:flex;justify-content:space-between}}
+    .pill{{border:1px solid #5f477f;border-radius:999px;padding:5px 8px;color:#d7c0ff;font-size:11px}}
+    textarea,select,input{{width:100%;box-sizing:border-box;background:#051016;color:white;border:1px solid #234758;border-radius:12px;padding:10px;margin-top:8px}}
+    button{{width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:#43c8ff;font-weight:900}}
+    .safe{{background:#8bf0c8}} .warn{{background:#ffd66f}}
+    .review,.action{{margin-top:10px;padding:12px;border:1px solid #5f477f;border-radius:12px;background:#120d19}}
+    .action{{border-color:#31596a;background:#0a151c}}
+    .nav a{{display:inline-block;color:#8bd6ff;margin:12px 10px 0 0;text-decoration:none}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}}}
+    </style></head><body><div class='wrap'>
+      <section class='hero'>
+        <div class='eyebrow'>BL3 V35.1 // POST-INCIDENT LEARNING + PREVENTION GATE</div>
+        <h1>🧠 RESOLVED ≠ LEARNED</h1>
+        <p class='muted'>A resolved incident must produce root-cause learning, prevention work, evidence, and verified closure before the lesson is complete.</p>
+        <div class='stats'>
+          <div class='card'><div class='eyebrow'>ELIGIBLE</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>REVIEWS OPEN</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>REVIEWS CLOSED</div><div class='num'>{}</div></div>
+          <div class='card'><div class='eyebrow'>VERIFIED PREVENTIONS</div><div class='num'>{}</div></div>
+        </div>
+        <div class='nav'><a href='/hunter-incidents'>🧯 INCIDENTS</a><a href='/api/hunter-post-incident'>JSON</a></div>
+      </section>
+      <section class='grid'>{}</section>
+    </div>
+    <script>
+    async function v351submit(form,e){{e.preventDefault();const b=form.querySelector('button');if(b)b.disabled=true;
+      try{{const fd=new FormData(form);const r=await fetch(form.action,{{method:'POST',body:fd}});const j=await r.json();
+      if(!j.success)alert('Failed: '+(j.error||'unknown'));else location.reload();}}
+      catch(err){{alert('Request failed.')}}finally{{if(b)b.disabled=false;}}return false;}}
+    </script></body></html>""".format(
+        c["eligible"], c["reviews_open"], c["reviews_closed"], c["verified_preventions"],
+        "".join(cards) or "<article class='card'><p>No resolved incidents are ready for post-incident learning.</p></article>"
+    )
+
+
+try:
+    _v351_prev_page = app.view_functions.get("v350_page")
+    if _v351_prev_page:
+        def _v351_incidents_with_learning(*args, **kwargs):
+            response = _v351_prev_page(*args, **kwargs)
+            if isinstance(response, str) and "/hunter-post-incident" not in response:
+                response = response.replace(
+                    "<a href='/api/hunter-incidents'>JSON</a>",
+                    "<a href='/api/hunter-incidents'>JSON</a><a href='/hunter-post-incident'>🧠 POST-INCIDENT</a>",
+                    1
+                )
+            return response
+        app.view_functions["v350_page"] = _v351_incidents_with_learning
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
 
     init_db()
