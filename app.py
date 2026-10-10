@@ -87640,6 +87640,112 @@ def v3552_page():
     d=_v3552_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Activation #{x['id']} · {esc(x.get('activation_name') or '')}</option>" for x in d['eligible_activations']);cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['cadence_name'])}</h2><p>{esc(x['meeting_frequency'])} · Chair {esc(x['chair'])} · Decisions {len(x['decisions'])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.52 Governance Cadence</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.52 · GOVERNANCE CADENCE</small><h1>Run the partnership with an explicit operating rhythm and decision log.</h1><a href='/hunter-partnership-activations'>← Partnership Activation</a></div><div class='card'><form action='/api/hunter-governance-cadences' onsubmit='return s(this,event)'><select name='activation_id' required><option value=''>Active partnership</option>{}</select><input name='cadence_name' placeholder='Cadence name' required><input name='meeting_frequency' value='MONTHLY'><input name='chair' placeholder='Chair' required><textarea name='participants' placeholder='Participants'></textarea><textarea name='escalation_path' placeholder='Escalation path'></textarea><button>CREATE CADENCE</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No governance cadences yet.</div>')
 
+
+# ===== V35.53 PORTFOLIO VALUE REALIZATION + BENEFIT LEDGER GATE =====
+V3553_VERSION="V35.53"
+V3553_STATES={"DRAFT","TRACKING","VALUE_CONFIRMED","AT_RISK","STALE"}
+def _v3553_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3553_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_value_realization_ledgers(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,cadence_id INTEGER NOT NULL,ledger_name TEXT NOT NULL,value_owner TEXT NOT NULL,measurement_window TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',summary_evidence TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,confirmed_at TEXT DEFAULT '',UNIQUE(username,cadence_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_value_realization_items(id INTEGER PRIMARY KEY AUTOINCREMENT,ledger_id INTEGER NOT NULL,benefit_name TEXT NOT NULL,baseline TEXT NOT NULL DEFAULT '',target TEXT NOT NULL DEFAULT '',observed TEXT NOT NULL DEFAULT '',measurement_method TEXT NOT NULL DEFAULT '',evidence TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'OPEN',created_at TEXT NOT NULL,updated_at TEXT NOT NULL)""")
+        con.commit()
+    finally:con.close()
+try:_v3553_init()
+except Exception:pass
+
+def _v3553_source(u,i):
+    try:return _v3552_entry(u,int(i))
+    except:return None
+
+def _v3553_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_value_realization_ledgers WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d['cadence']=_v3553_source(u,d['cadence_id']);d['items']=[dict(x) for x in con.execute("SELECT * FROM startup_value_realization_items WHERE ledger_id=? ORDER BY id",(int(i),)).fetchall()]
+        if refresh and d['state'] not in ('VALUE_CONFIRMED','AT_RISK','STALE') and (not d['cadence'] or d['cadence'].get('state')!='ACTIVE'):
+            con.execute("UPDATE startup_value_realization_ledgers SET state='STALE',updated_at=? WHERE id=?",(_v3553_now(),int(i)));con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3553_create(u,cid,name,owner,window=''):
+    src=_v3553_source(u,cid)
+    if not src or src.get('state')!='ACTIVE':return False,'active_governance_required',None
+    if not str(name or '').strip() or not str(owner or '').strip():return False,'name_and_owner_required',None
+    now=_v3553_now();con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_value_realization_ledgers(username,cadence_id,ledger_name,value_owner,measurement_window,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(cid),str(name)[:240],str(owner)[:180],str(window or '')[:300],now,now));con.commit();return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'ledger_already_exists',None
+    finally:con.close()
+
+def _v3553_add_item(u,i,name,baseline='',target='',method=''):
+    d=_v3553_entry(u,i)
+    if not d or d['state'] not in ('DRAFT','TRACKING'):return False,'ledger_not_editable',None
+    if not str(name or '').strip():return False,'benefit_name_required',None
+    con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_value_realization_items(ledger_id,benefit_name,baseline,target,measurement_method,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(int(i),str(name)[:500],str(baseline or '')[:1000],str(target or '')[:1000],str(method or '')[:1200],_v3553_now(),_v3553_now()));con.execute("UPDATE startup_value_realization_ledgers SET state='TRACKING',updated_at=? WHERE id=?",(_v3553_now(),int(i)));con.commit();return True,'',cur.lastrowid
+    finally:con.close()
+
+def _v3553_measure(u,i,item_id,observed,evidence,status='MEASURED'):
+    d=_v3553_entry(u,i)
+    if not d or d['state'] not in ('TRACKING','AT_RISK'):return False,'ledger_not_tracking',None
+    if not str(observed or '').strip() or not str(evidence or '').strip():return False,'observed_and_evidence_required',None
+    con=sqlite3.connect(DB)
+    try:
+        row=con.execute("SELECT id FROM startup_value_realization_items WHERE ledger_id=? AND id=?",(int(i),int(item_id))).fetchone()
+        if not row:return False,'item_not_found',None
+        con.execute("UPDATE startup_value_realization_items SET observed=?,evidence=?,status=?,updated_at=? WHERE id=?",(str(observed)[:1500],str(evidence)[:4000],str(status or 'MEASURED')[:40],_v3553_now(),int(item_id)));con.commit();return True,'',_v3553_entry(u,i,False)
+    finally:con.close()
+
+def _v3553_close(u,i,outcome,evidence):
+    d=_v3553_entry(u,i);ev=str(evidence or '').strip();o=str(outcome or '').upper()
+    if not d or d['state']!='TRACKING' or not ev:return False,'tracking_ledger_and_evidence_required',None
+    if not d['items'] or not all(str(x.get('evidence') or '').strip() for x in d['items']):return False,'all_benefits_need_evidence',None
+    new='VALUE_CONFIRMED' if o=='VALUE_CONFIRMED' else 'AT_RISK' if o=='AT_RISK' else ''
+    if not new:return False,'invalid_outcome',None
+    con=sqlite3.connect(DB)
+    try:con.execute("UPDATE startup_value_realization_ledgers SET state=?,summary_evidence=?,updated_at=?,confirmed_at=? WHERE username=? AND id=?",(new,ev[:5000],_v3553_now(),_v3553_now() if new=='VALUE_CONFIRMED' else '',u,int(i)));con.commit();return True,'',_v3553_entry(u,i,False)
+    finally:con.close()
+
+def _v3553_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_value_realization_ledgers WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['cadence_id'] for r in con.execute("SELECT cadence_id FROM startup_value_realization_ledgers WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3553_entry(u,i) for i in ids];eligible=[]
+    try:
+        for x in _v3552_snapshot(u).get('items',[]):
+            if x.get('state')=='ACTIVE' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3553_VERSION,'items':[x for x in items if x],'eligible_cadences':eligible}
+@app.route('/api/hunter-value-realization-ledgers',methods=['GET','POST'])
+def v3553_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3553_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3553_create(u,p.get('cadence_id'),p.get('ledger_name'),p.get('value_owner'),p.get('measurement_window'));return jsonify({'success':ok,'error':e,'ledger_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-value-realization-ledgers/<int:i>/item',methods=['POST'])
+def v3553_item_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,x=_v3553_add_item(u,i,p.get('benefit_name'),p.get('baseline'),p.get('target'),p.get('measurement_method'));return jsonify({'success':ok,'error':e,'item_id':x}),(200 if ok else 400)
+@app.route('/api/hunter-value-realization-ledgers/<int:i>/measure',methods=['POST'])
+def v3553_measure_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3553_measure(u,i,p.get('item_id'),p.get('observed'),p.get('evidence'),p.get('status'));return jsonify({'success':ok,'error':e,'ledger':d}),(200 if ok else 400)
+@app.route('/api/hunter-value-realization-ledgers/<int:i>/close',methods=['POST'])
+def v3553_close_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3553_close(u,i,p.get('outcome'),p.get('evidence'));return jsonify({'success':ok,'error':e,'ledger':d}),(200 if ok else 400)
+@app.route('/hunter-value-realization')
+def v3553_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3553_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Cadence #{x['id']} · {esc(x.get('cadence_name') or '')}</option>" for x in d['eligible_cadences']);cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['ledger_name'])}</h2><p>Owner: {esc(x['value_owner'])} · Benefits: {len(x['items'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.53 Value Realization</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.53 · PORTFOLIO VALUE REALIZATION</small><h1>Track realized value as evidence-backed benefits.</h1><a href='/hunter-governance-cadences'>← Governance Cadence</a></div><div class='card'><form action='/api/hunter-value-realization-ledgers' onsubmit='return s(this,event)'><select name='cadence_id' required><option value=''>Active cadence</option>{}</select><input name='ledger_name' placeholder='Ledger name' required><input name='value_owner' placeholder='Value owner' required><input name='measurement_window' placeholder='Measurement window'><button>CREATE LEDGER</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No value ledgers yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
@@ -87784,6 +87890,7 @@ if __name__ == "__main__":
     print("🌐 Multi-Year Partnership Plan + Commitment Gate enabled")
     print("🤝 Partnership Activation + Operating Model Gate enabled")
     print("🧭 Governance Cadence + Decision Log Gate enabled")
+    print("📈 Portfolio Value Realization + Benefit Ledger Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
