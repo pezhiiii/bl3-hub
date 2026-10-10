@@ -88306,6 +88306,114 @@ def v3559_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Due: {esc(x.get('due_at') or '-')}</p><p>Owner: {esc(x.get('review_owner') or '-')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.59 Assurance Review Cycles</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.59 · ASSURANCE REVIEW CYCLE</small><h1>Keep continuity assurance current over time.</h1><a href='/hunter-executive-continuity-assurance'>← Executive Assurance</a></div>{}</div>""".format(cards or '<div class="card">No assurance cycles yet.</div>')
 
+
+# ===== V35.60 EVIDENCE FRESHNESS + ASSURANCE DECAY GATE =====
+V3560_VERSION="V35.60"
+V3560_STATES={"FRESH","AGING","STALE","RECHECK_REQUIRED"}
+
+def _v3560_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3560_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_assurance_evidence_freshness(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            cycle_id INTEGER NOT NULL,
+            evidence_timestamp TEXT NOT NULL,
+            fresh_hours INTEGER NOT NULL DEFAULT 168,
+            aging_hours INTEGER NOT NULL DEFAULT 336,
+            state TEXT NOT NULL DEFAULT 'FRESH',
+            evidence_note TEXT NOT NULL DEFAULT '',
+            last_reviewed_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username,cycle_id)
+        )""")
+        con.commit()
+    finally:
+        con.close()
+try:
+    _v3560_init()
+except Exception:
+    pass
+
+def _v3560_source(u,i):
+    try:
+        return _v3559_entry(u,int(i))
+    except Exception:
+        return None
+
+def _v3560_eval(ts,fresh_h,aging_h):
+    try:
+        t=datetime.fromisoformat(str(ts).replace("Z","+00:00"))
+        n=datetime.fromisoformat(_v3560_now().replace("Z","+00:00"))
+        age=(n-t).total_seconds()/3600.0
+        if age <= float(fresh_h): return "FRESH"
+        if age <= float(aging_h): return "AGING"
+        return "STALE"
+    except Exception:
+        return "RECHECK_REQUIRED"
+
+def _v3560_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_assurance_evidence_freshness WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r: return None
+        d=dict(r); d["cycle"]=_v3560_source(u,d["cycle_id"])
+        if refresh:
+            new=_v3560_eval(d["evidence_timestamp"],d["fresh_hours"],d["aging_hours"])
+            if not d["cycle"] or d["cycle"].get("state") in ("EXPIRED","STALE"):
+                new="RECHECK_REQUIRED"
+            if new!=d["state"]:
+                con.execute("UPDATE startup_assurance_evidence_freshness SET state=?,last_reviewed_at=?,updated_at=? WHERE id=?",(new,_v3560_now(),_v3560_now(),int(i)))
+                con.commit(); d["state"]=new
+        return d
+    finally:
+        con.close()
+
+def _v3560_create(u,cid,evidence_ts,note="",fresh_h=168,aging_h=336):
+    s=_v3560_source(u,cid)
+    if not s: return False,"assurance_cycle_required",None
+    fresh_h=max(1,int(fresh_h or 168)); aging_h=max(fresh_h+1,int(aging_h or 336))
+    if not str(evidence_ts or "").strip(): evidence_ts=_v3560_now()
+    state=_v3560_eval(evidence_ts,fresh_h,aging_h); now=_v3560_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_assurance_evidence_freshness
+        (username,cycle_id,evidence_timestamp,fresh_hours,aging_hours,state,evidence_note,last_reviewed_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)""",(u,int(cid),str(evidence_ts)[:80],fresh_h,aging_h,state,str(note or "")[:3000],now,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:
+        return False,"freshness_record_already_exists",None
+    finally:
+        con.close()
+
+def _v3560_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        ids=[r["id"] for r in con.execute("SELECT id FROM startup_assurance_evidence_freshness WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3560_VERSION,"items":[x for x in (_v3560_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-assurance-evidence-freshness",methods=["GET","POST"])
+def v3560_api():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3560_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3560_create(u,p.get("cycle_id"),p.get("evidence_timestamp"),p.get("evidence_note"),p.get("fresh_hours") or 168,p.get("aging_hours") or 336)
+    return jsonify({"success":ok,"error":e,"freshness_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-assurance-evidence-freshness")
+def v3560_page():
+    u=session.get("authenticated_username")
+    if not u: return redirect("/")
+    d=_v3560_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Evidence: {esc(x.get('evidence_timestamp') or '-')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.60 Evidence Freshness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.60 · EVIDENCE FRESHNESS</small><h1>Assurance evidence decays if it is not refreshed.</h1><a href='/hunter-assurance-review-cycles'>← Review Cycles</a></div>{}</div>""".format(cards or '<div class="card">No freshness records yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
