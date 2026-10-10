@@ -88804,6 +88804,91 @@ def v3563_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['plan_name'])}</h2><p>Owner: {esc(x['remediation_owner'])} · Actions: {len(x['actions'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.63 Board Remediation</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.63 · BOARD REMEDIATION PLAN</small><h1>Turn board resilience gaps into owned corrective action.</h1><a href='/hunter-board-resilience-scorecards'>← Board Scorecards</a></div>{}</div>""".format(cards or '<div class="card">No remediation plans yet.</div>')
 
+
+# ===== V35.64 CONTINUOUS CONTROL MONITORING + DRIFT GATE =====
+V3564_VERSION="V35.64"
+V3564_STATES={"HEALTHY","WATCH","DRIFT","INCIDENT","STALE"}
+
+def _v3564_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3564_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_continuity_control_monitors(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,scorecard_id INTEGER NOT NULL,
+            control_name TEXT NOT NULL,control_owner TEXT NOT NULL,expected_signal TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'HEALTHY',last_signal TEXT NOT NULL DEFAULT '',evidence TEXT NOT NULL DEFAULT '',
+            last_checked_at TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+            UNIQUE(username,scorecard_id,control_name))""")
+        con.commit()
+    finally:con.close()
+try:_v3564_init()
+except Exception:pass
+
+def _v3564_source(u,i):
+    try:return _v3562_entry(u,int(i))
+    except Exception:return None
+
+def _v3564_entry(u,i):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_continuity_control_monitors WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d["scorecard"]=_v3564_source(u,d["scorecard_id"])
+        if not d["scorecard"] and d["state"]!="STALE":
+            con.execute("UPDATE startup_continuity_control_monitors SET state='STALE',updated_at=? WHERE id=?",(_v3564_now(),int(i))); con.commit(); d["state"]="STALE"
+        return d
+    finally:con.close()
+
+def _v3564_create(u,sid,name,owner,expected=""):
+    s=_v3564_source(u,sid)
+    if not s:return False,"scorecard_required",None
+    if not str(name or "").strip() or not str(owner or "").strip():return False,"control_and_owner_required",None
+    now=_v3564_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_continuity_control_monitors
+        (username,scorecard_id,control_name,control_owner,expected_signal,last_checked_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(sid),str(name)[:240],str(owner)[:180],str(expected or "")[:3000],now,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"control_already_exists",None
+    finally:con.close()
+
+def _v3564_check(u,i,signal_state,signal,evidence=""):
+    d=_v3564_entry(u,i); st=str(signal_state or "").upper(); ev=str(evidence or "").strip()
+    if not d:return False,"control_not_found",None
+    if st not in ("HEALTHY","WATCH","DRIFT","INCIDENT"):return False,"invalid_signal_state",None
+    if st in ("DRIFT","INCIDENT") and not ev:return False,"evidence_required_for_degraded_state",None
+    now=_v3564_now(); con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_continuity_control_monitors SET state=?,last_signal=?,evidence=?,last_checked_at=?,updated_at=? WHERE username=? AND id=?""",
+                    (st,str(signal or "")[:2500],ev[:5000],now,now,u,int(i)))
+        con.commit(); return True,"",_v3564_entry(u,i)
+    finally:con.close()
+
+def _v3564_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_continuity_control_monitors WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    items=[x for x in (_v3564_entry(u,i) for i in ids) if x]
+    counts={k:sum(1 for x in items if x["state"]==k) for k in V3564_STATES}
+    return {"success":True,"version":V3564_VERSION,"items":items,"counts":counts}
+
+@app.route("/api/hunter-continuity-control-monitors",methods=["GET","POST"])
+def v3564_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3564_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3564_create(u,p.get("scorecard_id"),p.get("control_name"),p.get("control_owner"),p.get("expected_signal"))
+    return jsonify({"success":ok,"error":e,"monitor_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-continuity-control-monitors")
+def v3564_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3564_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['control_name'])}</h2><p>Owner: {esc(x['control_owner'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.64 Continuous Controls</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.64 · CONTINUOUS CONTROL MONITORING</small><h1>Detect resilience drift before it becomes failure.</h1><a href='/hunter-board-resilience-scorecards'>← Board Scorecards</a></div>{}</div>""".format(cards or '<div class="card">No monitors yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
