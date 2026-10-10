@@ -88022,6 +88022,80 @@ def v3556_page():
     d=_v3556_snapshot(u);esc=html.escape;cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['critical_role'])}</h2><p>Primary: {esc(x['primary_owner'])} · Successor: {esc(x.get('successor_owner') or '-')} · Backup: {esc(x.get('backup_owner') or '-')}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.56 Succession Readiness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.56 · SUCCESSION READINESS</small><h1>Make critical roles survivable beyond one person.</h1><a href='/hunter-continuity-transition-plans'>← Transition Plans</a></div>{}</div>""".format(cards or '<div class="card">No succession readiness records yet.</div>')
 
+
+# ===== V35.57 RESILIENCE EXERCISE + SCENARIO VALIDATION GATE =====
+V3557_VERSION="V35.57"
+V3557_STATES={"DRAFT","READY","EXECUTED","PASSED","FAILED","STALE"}
+def _v3557_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3557_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_continuity_resilience_exercises(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,succession_id INTEGER NOT NULL,scenario_name TEXT NOT NULL,scenario_description TEXT NOT NULL DEFAULT '',expected_response TEXT NOT NULL DEFAULT '',exercise_owner TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'DRAFT',execution_evidence TEXT NOT NULL DEFAULT '',result_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,executed_at TEXT DEFAULT '',UNIQUE(username,succession_id,scenario_name))""");con.commit()
+    finally:con.close()
+try:_v3557_init()
+except Exception:pass
+
+def _v3557_source(u,i):
+    try:return _v3556_entry(u,int(i))
+    except:return None
+
+def _v3557_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_continuity_resilience_exercises WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d['succession']=_v3557_source(u,d['succession_id'])
+        if refresh and d['state'] not in ('PASSED','FAILED','STALE') and (not d['succession'] or d['succession'].get('state')!='SUCCESSION_READY'):
+            con.execute("UPDATE startup_continuity_resilience_exercises SET state='STALE',updated_at=? WHERE id=?",(_v3557_now(),int(i)));con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3557_create(u,sid,name,desc='',expected='',owner=''):
+    s=_v3557_source(u,sid)
+    if not s or s.get('state')!='SUCCESSION_READY':return False,'succession_ready_required',None
+    if not str(name or '').strip() or not str(owner or '').strip():return False,'scenario_and_owner_required',None
+    now=_v3557_now();con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_continuity_resilience_exercises(username,succession_id,scenario_name,scenario_description,expected_response,exercise_owner,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(u,int(sid),str(name)[:240],str(desc or '')[:3500],str(expected or '')[:3000],str(owner)[:180],now,now));con.commit();return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'exercise_already_exists',None
+    finally:con.close()
+
+def _v3557_action(u,i,action,evidence='',note=''):
+    d=_v3557_entry(u,i);a=str(action or '').upper();ev=str(evidence or '').strip();now=_v3557_now()
+    if not d:return False,'exercise_not_found',None
+    if a=='READY' and d['state']=='DRAFT':new='READY'
+    elif a=='EXECUTED' and d['state']=='READY' and ev:new='EXECUTED'
+    elif a in ('PASSED','FAILED') and d['state']=='EXECUTED' and ev:new=a
+    else:return False,'invalid_transition_or_evidence_required',None
+    con=sqlite3.connect(DB)
+    try:con.execute("UPDATE startup_continuity_resilience_exercises SET state=?,execution_evidence=?,result_note=?,executed_at=CASE WHEN ? IN ('EXECUTED','PASSED','FAILED') THEN ? ELSE executed_at END,updated_at=? WHERE username=? AND id=?",(new,ev[:5000],str(note or '')[:1800],new,now,now,u,int(i)));con.commit();return True,'',_v3557_entry(u,i,False)
+    finally:con.close()
+
+def _v3557_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_continuity_resilience_exercises WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {'success':True,'version':V3557_VERSION,'items':[x for x in (_v3557_entry(u,i) for i in ids) if x]}
+
+@app.route('/api/hunter-continuity-resilience-exercises',methods=['GET','POST'])
+def v3557_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3557_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3557_create(u,p.get('succession_id'),p.get('scenario_name'),p.get('scenario_description'),p.get('expected_response'),p.get('exercise_owner'));return jsonify({'success':ok,'error':e,'exercise_id':i}),(200 if ok else 400)
+
+@app.route('/api/hunter-continuity-resilience-exercises/<int:i>/action',methods=['POST'])
+def v3557_action_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3557_action(u,i,p.get('action'),p.get('evidence'),p.get('note'));return jsonify({'success':ok,'error':e,'exercise':d}),(200 if ok else 400)
+
+@app.route('/hunter-continuity-resilience-exercises')
+def v3557_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3557_snapshot(u);esc=html.escape;cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['scenario_name'])}</h2><p>Owner: {esc(x['exercise_owner'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.57 Continuity Resilience Exercises</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.57 · RESILIENCE EXERCISE</small><h1>Prove succession works under a real scenario.</h1><a href='/hunter-succession-readiness'>← Succession Readiness</a></div>{}</div>""".format(cards or '<div class="card">No resilience exercises yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
