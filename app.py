@@ -89454,6 +89454,64 @@ def v3571_public(slug):
         return """<!doctype html><meta charset='utf-8'><title>BL3 Trust Profile</title><style>body{background:#071017;color:#fff;font-family:Arial}.w{max-width:1000px;margin:auto;padding:28px}.card{background:#0b151d;border:1px solid #35525e;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 VERIFIED TRUST PROFILE</small><h1>{}</h1><p>{}</p><p>Digest: {}</p></div>{}</div>""".format(esc(d["profile_name"]),esc(d["summary"]),esc(d["evidence_sha256"]),cards or "<div class='card'>No verified claims.</div>")
     finally:con.close()
 
+
+# ===== V35.72 TRUST PROFILE CHANGE WATCH + SNAPSHOT DIFF GATE =====
+V3572_VERSION="V35.72"
+V3572_STATES={"UNCHANGED","CHANGED","REVIEW_REQUIRED"}
+
+def _v3572_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3572_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_trust_profile_change_watch(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            profile_id INTEGER NOT NULL,
+            previous_sha256 TEXT NOT NULL,
+            current_sha256 TEXT NOT NULL,
+            state TEXT NOT NULL,
+            diff_summary TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            UNIQUE(username,profile_id,current_sha256)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3572_init()
+except Exception:pass
+
+def _v3572_check(u,pid):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        p=con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        if not p:return False,"profile_not_found",None
+        snap=_v3571_build_snapshot(u);raw=json.dumps(snap,sort_keys=True,separators=(",",":"))
+        cur=hashlib.sha256(raw.encode()).hexdigest();prev=p["evidence_sha256"]
+        state="UNCHANGED" if cur==prev else "CHANGED"
+        old_count=len(json.loads(p["registry_snapshot_json"]).get("registry_items",[]))
+        new_count=len(snap.get("registry_items",[]))
+        diff=f"registry_items {old_count} -> {new_count}; digest {'same' if state=='UNCHANGED' else 'changed'}"
+        con.execute("""INSERT OR IGNORE INTO startup_trust_profile_change_watch
+        (username,profile_id,previous_sha256,current_sha256,state,diff_summary,created_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,int(pid),prev,cur,state,diff,_v3572_now()))
+        if state=="CHANGED" and p["state"]=="PUBLISHED":
+            con.execute("UPDATE startup_public_trust_profiles SET state='STALE',updated_at=? WHERE username=? AND id=?",(_v3572_now(),u,int(pid)))
+        con.commit()
+        return True,"",{"state":state,"previous_sha256":prev,"current_sha256":cur,"diff_summary":diff}
+    finally:con.close()
+
+def _v3572_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_trust_profile_change_watch WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3572_VERSION,"items":items}
+
+@app.route("/api/hunter-trust-profile-change-watch/<int:i>/check",methods=["POST"])
+def v3572_check_api(i):
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,d=_v3572_check(u,i)
+    return jsonify({"success":ok,"error":e,"result":d}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
