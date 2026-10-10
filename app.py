@@ -88889,6 +88889,76 @@ def v3564_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['control_name'])}</h2><p>Owner: {esc(x['control_owner'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.64 Continuous Controls</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.64 · CONTINUOUS CONTROL MONITORING</small><h1>Detect resilience drift before it becomes failure.</h1><a href='/hunter-board-resilience-scorecards'>← Board Scorecards</a></div>{}</div>""".format(cards or '<div class="card">No monitors yet.</div>')
 
+
+# ===== V35.65 ENTERPRISE RESILIENCE BENCHMARK GATE =====
+V3565_VERSION="V35.65"
+V3565_BANDS={"CRITICAL","DEVELOPING","GOOD","STRONG","LEADING"}
+
+def _v3565_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3565_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_enterprise_resilience_benchmarks(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,benchmark_name TEXT NOT NULL,
+            owner TEXT NOT NULL,score INTEGER NOT NULL DEFAULT 0,band TEXT NOT NULL DEFAULT 'CRITICAL',
+            scorecard_count INTEGER NOT NULL DEFAULT 0,monitor_count INTEGER NOT NULL DEFAULT 0,
+            drift_count INTEGER NOT NULL DEFAULT 0,incident_count INTEGER NOT NULL DEFAULT 0,
+            methodology TEXT NOT NULL DEFAULT '',evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3565_init()
+except Exception:pass
+
+def _v3565_calc(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        sc=[dict(r) for r in con.execute("SELECT score,state FROM startup_board_resilience_scorecards WHERE username=?",(u,)).fetchall()]
+        mons=[dict(r) for r in con.execute("SELECT state FROM startup_continuity_control_monitors WHERE username=?",(u,)).fetchall()]
+    finally:con.close()
+    avg=int(sum(int(x["score"] or 0) for x in sc)/len(sc)) if sc else 0
+    drift=sum(1 for x in mons if x["state"]=="DRIFT"); inc=sum(1 for x in mons if x["state"]=="INCIDENT")
+    penalty=min(50,drift*5+inc*15)
+    score=max(0,min(100,avg-penalty))
+    band="LEADING" if score>=90 else "STRONG" if score>=80 else "GOOD" if score>=65 else "DEVELOPING" if score>=45 else "CRITICAL"
+    return {"score":score,"band":band,"scorecard_count":len(sc),"monitor_count":len(mons),"drift_count":drift,"incident_count":inc}
+
+def _v3565_create(u,name,owner,methodology=""):
+    if not str(name or "").strip() or not str(owner or "").strip():return False,"name_and_owner_required",None
+    snap=_v3565_calc(u); now=_v3565_now()
+    digest=hashlib.sha256(json.dumps({"benchmark":name,"snapshot":snap,"methodology":methodology,"utc":now},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_enterprise_resilience_benchmarks
+        (username,benchmark_name,owner,score,band,scorecard_count,monitor_count,drift_count,incident_count,methodology,evidence_sha256,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(u,str(name)[:240],str(owner)[:180],snap["score"],snap["band"],snap["scorecard_count"],snap["monitor_count"],snap["drift_count"],snap["incident_count"],str(methodology or "")[:3500],digest,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3565_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_enterprise_resilience_benchmarks WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3565_VERSION,"current":_v3565_calc(u),"items":items}
+
+@app.route("/api/hunter-enterprise-resilience-benchmarks",methods=["GET","POST"])
+def v3565_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3565_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3565_create(u,p.get("benchmark_name"),p.get("owner"),p.get("methodology"))
+    return jsonify({"success":ok,"error":e,"benchmark_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-enterprise-resilience-benchmarks")
+def v3565_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3565_snapshot(u); esc=html.escape; c=d["current"]
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['band'])}</b><h2>{esc(x['benchmark_name'])}</h2><p>Score: {x['score']}/100 · SHA-256 {esc(x['evidence_sha256'][:16])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.65 Enterprise Benchmark</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.65 · ENTERPRISE RESILIENCE BENCHMARK</small><h1>Current resilience: {}/100 · {}</h1></div>{}</div>""".format(c["score"],esc(c["band"]),cards or '<div class="card">No benchmark snapshots yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
