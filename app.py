@@ -88660,6 +88660,150 @@ def v3562_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['scorecard_name'])}</h2><p>Score: {int(x['score'])}/100 · Owner: {esc(x['executive_owner'])}</p><p>SHA-256: {esc((x.get('evidence_sha256') or '')[:16])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.62 Board Resilience Scorecard</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.62 · BOARD RESILIENCE SCORECARD</small><h1>Aggregate tested resilience into an executive sign-off artifact.</h1><a href='/hunter-resilience-portfolios'>← Resilience Portfolio</a></div>{}</div>""".format(cards or '<div class="card">No board scorecards yet.</div>')
 
+
+# ===== V35.63 BOARD REMEDIATION PLAN + CLOSURE GATE =====
+V3563_VERSION="V35.63"
+V3563_STATES={"DRAFT","ACTION_REQUIRED","IN_PROGRESS","READY_TO_CLOSE","CLOSED","STALE"}
+
+def _v3563_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3563_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_board_remediation_plans(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            scorecard_id INTEGER NOT NULL,
+            plan_name TEXT NOT NULL,
+            remediation_owner TEXT NOT NULL,
+            issue_summary TEXT NOT NULL DEFAULT '',
+            target_date TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            closure_evidence TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            closed_at TEXT DEFAULT '',
+            UNIQUE(username,scorecard_id)
+        )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_board_remediation_actions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            plan_id INTEGER NOT NULL,
+            action_text TEXT NOT NULL,
+            action_owner TEXT NOT NULL,
+            target_date TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'OPEN',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+try:_v3563_init()
+except Exception:pass
+
+def _v3563_source(u,i):
+    try:return _v3562_entry(u,int(i))
+    except Exception:return None
+
+def _v3563_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_board_remediation_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d["scorecard"]=_v3563_source(u,d["scorecard_id"])
+        acts=[dict(x) for x in con.execute("SELECT * FROM startup_board_remediation_actions WHERE username=? AND plan_id=? ORDER BY id",(u,int(i))).fetchall()]
+        d["actions"]=acts
+        if refresh and d["state"] not in ("CLOSED","STALE"):
+            if not d["scorecard"]:
+                new="STALE"
+            else:
+                open_count=sum(1 for a in acts if a["state"]!="VERIFIED")
+                if not acts:new="DRAFT"
+                elif open_count==0:new="READY_TO_CLOSE"
+                elif any(a["state"]=="IN_PROGRESS" for a in acts):new="IN_PROGRESS"
+                else:new="ACTION_REQUIRED"
+            if new!=d["state"]:
+                con.execute("UPDATE startup_board_remediation_plans SET state=?,updated_at=? WHERE id=?",(new,_v3563_now(),int(i))); con.commit(); d["state"]=new
+        return d
+    finally:con.close()
+
+def _v3563_create(u,sid,name,owner,issue="",target=""):
+    s=_v3563_source(u,sid)
+    if not s:return False,"scorecard_required",None
+    if s.get("state") not in ("REMEDIATION_REQUIRED","BOARD_REVIEW","SIGNED_OFF"):return False,"scorecard_not_eligible",None
+    if not str(name or "").strip() or not str(owner or "").strip():return False,"name_and_owner_required",None
+    now=_v3563_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_board_remediation_plans
+        (username,scorecard_id,plan_name,remediation_owner,issue_summary,target_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(sid),str(name)[:240],str(owner)[:180],str(issue or "")[:3500],str(target or "")[:80],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"remediation_plan_already_exists",None
+    finally:con.close()
+
+def _v3563_add_action(u,pid,text,owner,target=""):
+    p=_v3563_entry(u,pid)
+    if not p or p["state"] in ("CLOSED","STALE"):return False,"active_plan_required",None
+    if not str(text or "").strip() or not str(owner or "").strip():return False,"action_and_owner_required",None
+    now=_v3563_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_board_remediation_actions
+        (username,plan_id,action_text,action_owner,target_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,int(pid),str(text)[:2500],str(owner)[:180],str(target or "")[:80],now,now))
+        con.commit(); _v3563_entry(u,pid); return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3563_action_update(u,aid,state,evidence=""):
+    st=str(state or "").upper(); ev=str(evidence or "").strip()
+    if st not in ("OPEN","IN_PROGRESS","VERIFIED"):return False,"invalid_action_state"
+    if st=="VERIFIED" and not ev:return False,"verification_evidence_required"
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT plan_id FROM startup_board_remediation_actions WHERE username=? AND id=?",(u,int(aid))).fetchone()
+        if not r:return False,"action_not_found"
+        con.execute("UPDATE startup_board_remediation_actions SET state=?,evidence=?,updated_at=? WHERE username=? AND id=?",(st,ev[:5000],_v3563_now(),u,int(aid)))
+        con.commit(); _v3563_entry(u,r["plan_id"]); return True,""
+    finally:con.close()
+
+def _v3563_close(u,pid,evidence,note=""):
+    p=_v3563_entry(u,pid); ev=str(evidence or "").strip(); now=_v3563_now()
+    if not p or p["state"]!="READY_TO_CLOSE" or not ev:return False,"plan_not_ready_or_evidence_missing",None
+    digest=hashlib.sha256(json.dumps({"plan_id":int(pid),"evidence":ev,"note":str(note or ""),"utc":now},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_board_remediation_plans SET state='CLOSED',closure_evidence=?,evidence_sha256=?,note=?,closed_at=?,updated_at=? WHERE username=? AND id=?""",
+                    (ev[:5000],digest,str(note or "")[:1800],now,now,u,int(pid)))
+        con.commit(); return True,"",_v3563_entry(u,pid,False)
+    finally:con.close()
+
+def _v3563_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_board_remediation_plans WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3563_VERSION,"items":[x for x in (_v3563_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-board-remediation-plans",methods=["GET","POST"])
+def v3563_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3563_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3563_create(u,p.get("scorecard_id"),p.get("plan_name"),p.get("remediation_owner"),p.get("issue_summary"),p.get("target_date"))
+    return jsonify({"success":ok,"error":e,"plan_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-board-remediation-plans")
+def v3563_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3563_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['plan_name'])}</h2><p>Owner: {esc(x['remediation_owner'])} · Actions: {len(x['actions'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.63 Board Remediation</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.63 · BOARD REMEDIATION PLAN</small><h1>Turn board resilience gaps into owned corrective action.</h1><a href='/hunter-board-resilience-scorecards'>← Board Scorecards</a></div>{}</div>""".format(cards or '<div class="card">No remediation plans yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
