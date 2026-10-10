@@ -89512,6 +89512,76 @@ def v3572_check_api(i):
     ok,e,d=_v3572_check(u,i)
     return jsonify({"success":ok,"error":e,"result":d}),(200 if ok else 400)
 
+
+# ===== V35.73 COMPLIANCE MAPPING + CONTROL TRACEABILITY GATE =====
+V3573_VERSION="V35.73"
+V3573_STATES={"DRAFT","MAPPED","VERIFIED","GAP"}
+
+def _v3573_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3573_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_compliance_mappings(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            profile_id INTEGER NOT NULL,
+            framework_name TEXT NOT NULL,
+            control_id TEXT NOT NULL,
+            control_title TEXT NOT NULL DEFAULT '',
+            evidence_reference TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            verification_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username,profile_id,framework_name,control_id)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3573_init()
+except Exception:pass
+
+def _v3573_create(u,pid,fw,cid,title="",eref=""):
+    if not str(fw or "").strip() or not str(cid or "").strip():return False,"framework_and_control_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        p=con.execute("SELECT id FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        if not p:return False,"profile_not_found",None
+        now=_v3573_now()
+        cur=con.execute("""INSERT INTO startup_compliance_mappings
+        (username,profile_id,framework_name,control_id,control_title,evidence_reference,state,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?, ?,?)""",(u,int(pid),str(fw)[:160],str(cid)[:160],str(title or "")[:300],str(eref or "")[:1500],"MAPPED",now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"mapping_already_exists",None
+    finally:con.close()
+
+def _v3573_verify(u,i,evidence):
+    ev=str(evidence or "").strip()
+    if not ev:return False,"verification_evidence_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_compliance_mappings WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"mapping_not_found",None
+        con.execute("UPDATE startup_compliance_mappings SET state='VERIFIED',verification_evidence=?,updated_at=? WHERE username=? AND id=?",(ev[:5000],_v3573_now(),u,int(i)))
+        con.commit()
+        r=con.execute("SELECT * FROM startup_compliance_mappings WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(r)
+    finally:con.close()
+
+def _v3573_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_compliance_mappings WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3573_VERSION,"items":items}
+
+@app.route("/api/hunter-compliance-mappings",methods=["GET","POST"])
+def v3573_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3573_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3573_create(u,p.get("profile_id"),p.get("framework_name"),p.get("control_id"),p.get("control_title"),p.get("evidence_reference"))
+    return jsonify({"success":ok,"error":e,"mapping_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
