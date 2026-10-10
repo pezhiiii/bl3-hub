@@ -86712,6 +86712,107 @@ try:
         app.view_functions['v3542_page']=_v3543_wrap
 except Exception:pass
 
+
+# ===== V35.44 RENEWAL EXECUTION + CONTRACT ACTIVATION GATE =====
+V3544_VERSION="V35.44"; V3544_STATES={"DRAFT","SIGNATURE_PENDING","ACTIVE","BLOCKED","STALE"}
+def _v3544_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3544_digest(p):return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3544_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_renewal_executions(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,decision_id INTEGER NOT NULL,renewal_period TEXT NOT NULL,activation_owner TEXT NOT NULL,commercial_reference TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',signature_evidence TEXT NOT NULL DEFAULT '',activation_evidence TEXT NOT NULL DEFAULT '',blocker_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,activated_at TEXT DEFAULT '',UNIQUE(username,decision_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_renewal_execution_events(id INTEGER PRIMARY KEY AUTOINCREMENT,execution_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)"""); con.commit()
+    finally:con.close()
+try:_v3544_init()
+except Exception:pass
+
+def _v3544_source(u,i):
+    try:return _v3543_entry(u,int(i))
+    except:return None
+
+def _v3544_event(con,i,t,d=''):
+    at=_v3544_now(); h=_v3544_digest({'execution_id':int(i),'event_type':t,'detail':str(d),'created_at':at}); con.execute("INSERT INTO startup_renewal_execution_events(execution_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),str(t)[:80],str(d)[:1800],h,at)); return h
+
+def _v3544_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_renewal_executions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); src=_v3544_source(u,d['decision_id']); d['decision']=src
+        if refresh and d['state'] not in ('ACTIVE','STALE') and (not src or src.get('state')!='APPROVED'):
+            con.execute("UPDATE startup_renewal_executions SET state='STALE',updated_at=? WHERE id=?",(_v3544_now(),int(i))); _v3544_event(con,i,'source_stale','Approved renewal decision no longer valid.'); con.commit(); d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3544_create(u,decision_id,period,owner,reference=''):
+    src=_v3544_source(u,decision_id)
+    if not src or src.get('state')!='APPROVED':return False,'approved_renewal_required',None
+    if not str(period or '').strip() or not str(owner or '').strip():return False,'period_and_owner_required',None
+    now=_v3544_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_renewal_executions(username,decision_id,renewal_period,activation_owner,commercial_reference,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(decision_id),str(period)[:180],str(owner)[:180],str(reference or '')[:1000],now,now)); i=cur.lastrowid; _v3544_event(con,i,'renewal_execution_created',f'decision #{int(decision_id)}'); con.commit(); return True,'',i
+    except sqlite3.IntegrityError:return False,'renewal_execution_already_exists',None
+    finally:con.close()
+
+def _v3544_action(u,i,action,evidence,note=''):
+    d=_v3544_entry(u,i)
+    if not d:return False,'execution_not_found',None
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); note=str(note or '').strip(); now=_v3544_now()
+    if a!='BLOCKED' and not ev:return False,'evidence_required',None
+    if a=='SIGNATURE_PENDING' and d['state']=='DRAFT':new='SIGNATURE_PENDING'
+    elif a=='ACTIVE' and d['state']=='SIGNATURE_PENDING':new='ACTIVE'
+    elif a=='BLOCKED' and d['state'] in ('DRAFT','SIGNATURE_PENDING'):new='BLOCKED'
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        if new=='ACTIVE':con.execute("UPDATE startup_renewal_executions SET state=?,activation_evidence=?,activated_at=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],now,now,u,int(i)))
+        elif new=='SIGNATURE_PENDING':con.execute("UPDATE startup_renewal_executions SET state=?,signature_evidence=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],now,u,int(i)))
+        else:con.execute("UPDATE startup_renewal_executions SET state='BLOCKED',blocker_note=?,updated_at=? WHERE username=? AND id=?",(note[:1800] or ev[:1800],now,u,int(i)))
+        _v3544_event(con,i,'state_'+new.lower(),ev[:1200] or note[:1200]); con.commit(); return True,'',_v3544_entry(u,i,False)
+    finally:con.close()
+
+def _v3544_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_renewal_executions WHERE username=? ORDER BY id DESC",(u,)).fetchall()]; used={r['decision_id'] for r in con.execute("SELECT decision_id FROM startup_renewal_executions WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3544_entry(u,i) for i in ids]; elig=[]
+    try:
+        for x in _v3543_snapshot(u).get('items',[]):
+            if x.get('state')=='APPROVED' and x.get('id') not in used:elig.append(x)
+    except:pass
+    return {'success':True,'version':V3544_VERSION,'items':[x for x in items if x],'eligible_decisions':elig,'policy':'Contract activation requires explicit signature and activation evidence.'}
+@app.route('/api/hunter-renewal-executions',methods=['GET','POST'])
+def v3544_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3544_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3544_create(u,p.get('decision_id'),p.get('renewal_period'),p.get('activation_owner'),p.get('commercial_reference'));return jsonify({'success':ok,'error':e,'execution_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-renewal-executions/<int:i>/action',methods=['POST'])
+def v3544_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,d=_v3544_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or '');return jsonify({'success':ok,'error':e,'execution':d}),(200 if ok else 400)
+@app.route('/hunter-renewal-executions')
+def v3544_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3544_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Decision #{x['id']} · {esc(x.get('decision_owner') or '')}</option>" for x in d['eligible_decisions']);cards=[]
+    for x in d['items']:
+        i=x['id'];st=x['state'];act=''
+        if st=='DRAFT':act=f"<form action='/api/hunter-renewal-executions/{i}/action' onsubmit='return v3544submit(this,event)'><input type='hidden' name='action' value='SIGNATURE_PENDING'><textarea name='evidence' placeholder='Signature / contracting evidence' required></textarea><button>MARK SIGNATURE PENDING</button></form>"
+        elif st=='SIGNATURE_PENDING':act=f"<form action='/api/hunter-renewal-executions/{i}/action' onsubmit='return v3544submit(this,event)'><select name='action'><option>ACTIVE</option><option>BLOCKED</option></select><textarea name='evidence' placeholder='Activation evidence'></textarea><textarea name='note' placeholder='Blocker note'></textarea><button>RECORD</button></form>"
+        cards.append(f"<div class='card'><b>#{i} · {esc(st)}</b><h2>{esc(x['renewal_period'])}</h2><p>Owner: {esc(x['activation_owner'])}</p>{act}</div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.44 Renewal Execution</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:#fff;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.44 · RENEWAL EXECUTION + CONTRACT ACTIVATION</small><h1>Turn approval into an activated renewal.</h1><a href='/hunter-renewal-decisions'>← Renewal Decision</a></div><div class='card'><form action='/api/hunter-renewal-executions' onsubmit='return v3544submit(this,event)'><select name='decision_id' required><option value=''>Approved renewal</option>{}</select><input name='renewal_period' placeholder='Renewal period' required><input name='activation_owner' placeholder='Activation owner' required><textarea name='commercial_reference' placeholder='Commercial reference'></textarea><button>CREATE EXECUTION</button></form></div>{}</div><script>async function v3544submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No renewal executions yet.</div>')
+try:
+    _p=app.view_functions.get('v3543_page')
+    if _p:
+        def _v3544_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-renewal-executions' not in r:r=r.replace("← Account Health</a>","← Account Health</a> · <a href='/hunter-renewal-executions'>✍️ RENEWAL EXECUTION</a>",1)
+            return r
+        app.view_functions['v3543_page']=_v3544_wrap
+except Exception:pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -86847,6 +86948,7 @@ if __name__ == "__main__":
     print("🧭 Expansion Readiness + Stakeholder Validation Gate enabled")
     print("📈 Value Adoption + Usage Evidence Gate enabled")
     print("📑 Renewal Decision + Executive Approval Gate enabled")
+    print("✍️ Renewal Execution + Contract Activation Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
