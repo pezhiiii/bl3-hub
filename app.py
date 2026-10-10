@@ -88414,6 +88414,123 @@ def v3560_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Evidence: {esc(x.get('evidence_timestamp') or '-')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.60 Evidence Freshness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.60 · EVIDENCE FRESHNESS</small><h1>Assurance evidence decays if it is not refreshed.</h1><a href='/hunter-assurance-review-cycles'>← Review Cycles</a></div>{}</div>""".format(cards or '<div class="card">No freshness records yet.</div>')
 
+
+# ===== V35.61 MULTI-SCENARIO RESILIENCE PORTFOLIO GATE =====
+V3561_VERSION="V35.61"
+V3561_STATES={"DRAFT","IN_PROGRESS","PORTFOLIO_READY","GAPS_FOUND","COMPLETE"}
+
+def _v3561_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3561_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_resilience_portfolios(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            portfolio_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            required_passes INTEGER NOT NULL DEFAULT 3,
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_resilience_portfolio_items(
+            portfolio_id INTEGER NOT NULL,
+            exercise_id INTEGER NOT NULL,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY(portfolio_id,exercise_id)
+        )""")
+        con.commit()
+    finally:
+        con.close()
+try:
+    _v3561_init()
+except Exception:
+    pass
+
+def _v3561_entry(u,i):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_resilience_portfolios WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r: return None
+        d=dict(r)
+        rows=con.execute("SELECT exercise_id FROM startup_resilience_portfolio_items WHERE portfolio_id=? ORDER BY exercise_id",(int(i),)).fetchall()
+        items=[]; passed=0; failed=0
+        for row in rows:
+            try:
+                ex=_v3557_entry(u,int(row["exercise_id"]))
+            except Exception:
+                ex=None
+            if ex:
+                items.append(ex)
+                if ex.get("state")=="PASSED": passed+=1
+                if ex.get("state")=="FAILED": failed+=1
+        d["items"]=items; d["passed"]=passed; d["failed"]=failed
+        if failed>0: state="GAPS_FOUND"
+        elif passed>=int(d["required_passes"] or 0): state="PORTFOLIO_READY"
+        elif items: state="IN_PROGRESS"
+        else: state="DRAFT"
+        if state!=d["state"]:
+            con.execute("UPDATE startup_resilience_portfolios SET state=?,updated_at=? WHERE id=?",(state,_v3561_now(),int(i))); con.commit(); d["state"]=state
+        return d
+    finally:
+        con.close()
+
+def _v3561_create(u,name,owner,required=3):
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"name_and_owner_required",None
+    required=max(1,min(int(required or 3),50)); now=_v3561_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_resilience_portfolios(username,portfolio_name,owner,required_passes,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                        (u,str(name)[:240],str(owner)[:180],required,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3561_add(u,pid,eid):
+    p=_v3561_entry(u,pid)
+    try: ex=_v3557_entry(u,int(eid))
+    except Exception: ex=None
+    if not p or not ex: return False,"portfolio_or_exercise_not_found",None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("INSERT OR IGNORE INTO startup_resilience_portfolio_items(portfolio_id,exercise_id,added_at) VALUES(?,?,?)",(int(pid),int(eid),_v3561_now()))
+        con.commit(); return True,"",_v3561_entry(u,pid)
+    finally: con.close()
+
+def _v3561_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: ids=[r["id"] for r in con.execute("SELECT id FROM startup_resilience_portfolios WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3561_VERSION,"items":[x for x in (_v3561_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-resilience-portfolios",methods=["GET","POST"])
+def v3561_api():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3561_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3561_create(u,p.get("portfolio_name"),p.get("owner"),p.get("required_passes") or 3)
+    return jsonify({"success":ok,"error":e,"portfolio_id":i}),(200 if ok else 400)
+
+@app.route("/api/hunter-resilience-portfolios/<int:i>/add",methods=["POST"])
+def v3561_add_api(i):
+    u=session.get("authenticated_username"); p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,d=_v3561_add(u,i,p.get("exercise_id"))
+    return jsonify({"success":ok,"error":e,"portfolio":d}),(200 if ok else 400)
+
+@app.route("/hunter-resilience-portfolios")
+def v3561_page():
+    u=session.get("authenticated_username")
+    if not u: return redirect("/")
+    d=_v3561_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['portfolio_name'])}</h2><p>Passed {x['passed']} / Required {x['required_passes']} · Failed {x['failed']}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.61 Resilience Portfolio</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.61 · MULTI-SCENARIO RESILIENCE PORTFOLIO</small><h1>Prove resilience across more than one scenario.</h1><a href='/hunter-continuity-resilience-exercises'>← Resilience Exercises</a></div>{}</div>""".format(cards or '<div class="card">No resilience portfolios yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
