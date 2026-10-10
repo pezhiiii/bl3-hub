@@ -89196,6 +89196,103 @@ def v3568_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['reviewer_label'])}</h2><p>{esc(x.get('organization_label') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.68 External Review Requests</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.68 · EXTERNAL REVIEW REQUEST</small><h1>Hand sealed assurance evidence to a named reviewer with explicit status.</h1><a href='/hunter-assurance-verification'>← Verification Portal</a></div>{}</div>""".format(cards or '<div class="card">No external review requests yet.</div>')
 
+
+# ===== V35.69 REVIEWER FINDINGS + RESPONSE CLOSURE GATE =====
+V3569_VERSION="V35.69"
+V3569_STATES={"OPEN","RESPONSE_REQUIRED","RESPONDED","ACCEPTED","CLOSED"}
+
+def _v3569_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3569_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_review_findings(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            request_id INTEGER NOT NULL,
+            severity TEXT NOT NULL,
+            finding_text TEXT NOT NULL,
+            reviewer_reference TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'OPEN',
+            response_text TEXT NOT NULL DEFAULT '',
+            response_evidence TEXT NOT NULL DEFAULT '',
+            closure_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3569_init()
+except Exception:pass
+
+def _v3569_request(u,i):
+    try:return _v3568_entry(u,int(i))
+    except Exception:return None
+
+def _v3569_entry(u,i):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_review_findings WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d["request"]=_v3569_request(u,d["request_id"]);return d
+    finally:con.close()
+
+def _v3569_create(u,rid,severity,text,ref=""):
+    req=_v3569_request(u,rid)
+    if not req or req.get("state") not in ("SENT","ACKNOWLEDGED","CLOSED"):return False,"review_request_not_ready",None
+    sev=str(severity or "").upper()
+    if sev not in ("INFO","LOW","MEDIUM","HIGH","CRITICAL"):return False,"invalid_severity",None
+    if not str(text or "").strip():return False,"finding_text_required",None
+    state="RESPONSE_REQUIRED" if sev in ("MEDIUM","HIGH","CRITICAL") else "OPEN"
+    now=_v3569_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_external_review_findings
+        (username,request_id,severity,finding_text,reviewer_reference,state,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(rid),sev,str(text)[:5000],str(ref or "")[:1000],state,now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3569_action(u,i,action,response="",evidence=""):
+    d=_v3569_entry(u,i);a=str(action or "").upper();resp=str(response or "").strip();ev=str(evidence or "").strip()
+    if not d:return False,"finding_not_found",None
+    if a=="RESPOND" and d["state"] in ("OPEN","RESPONSE_REQUIRED") and resp and ev:new="RESPONDED"
+    elif a=="ACCEPT" and d["state"]=="RESPONDED" and ev:new="ACCEPTED"
+    elif a=="CLOSE" and d["state"]=="ACCEPTED" and ev:new="CLOSED"
+    else:return False,"invalid_transition_or_evidence_required",None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_external_review_findings SET state=?,
+        response_text=CASE WHEN ?='RESPONDED' THEN ? ELSE response_text END,
+        response_evidence=CASE WHEN ? IN ('RESPONDED','ACCEPTED') THEN ? ELSE response_evidence END,
+        closure_evidence=CASE WHEN ?='CLOSED' THEN ? ELSE closure_evidence END,
+        updated_at=? WHERE username=? AND id=?""",
+        (new,new,resp[:5000],new,ev[:5000],new,ev[:5000],_v3569_now(),u,int(i)))
+        con.commit();return True,"",_v3569_entry(u,i)
+    finally:con.close()
+
+def _v3569_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_external_review_findings WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    items=[x for x in (_v3569_entry(u,i) for i in ids) if x]
+    return {"success":True,"version":V3569_VERSION,"items":items}
+
+@app.route("/api/hunter-external-review-findings",methods=["GET","POST"])
+def v3569_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3569_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3569_create(u,p.get("request_id"),p.get("severity"),p.get("finding_text"),p.get("reviewer_reference"))
+    return jsonify({"success":ok,"error":e,"finding_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-external-review-findings")
+def v3569_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3569_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['severity'])} · {esc(x['state'])}</b><p>{esc(x['finding_text'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.69 Review Findings</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.69 · REVIEWER FINDINGS</small><h1>Capture external findings and close them with explicit response evidence.</h1><a href='/hunter-external-review-requests'>← Review Requests</a></div>{}</div>""".format(cards or '<div class="card">No findings yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
