@@ -89582,6 +89582,100 @@ def v3573_api():
     ok,e,i=_v3573_create(u,p.get("profile_id"),p.get("framework_name"),p.get("control_id"),p.get("control_title"),p.get("evidence_reference"))
     return jsonify({"success":ok,"error":e,"mapping_id":i}),(200 if ok else 400)
 
+
+# ===== V35.74 EXECUTIVE ATTESTATION + TRUST SEAL GATE =====
+V3574_VERSION="V35.74"
+V3574_STATES={"DRAFT","READY","ATTESTED","REVOKED","STALE"}
+
+def _v3574_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3574_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_attestations(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            profile_id INTEGER NOT NULL,
+            attestation_name TEXT NOT NULL,
+            executive_name TEXT NOT NULL,
+            attestation_text TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            profile_sha256 TEXT NOT NULL DEFAULT '',
+            attestation_sha256 TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            attested_at TEXT DEFAULT '',
+            revoked_at TEXT DEFAULT '',
+            UNIQUE(username,profile_id,attestation_name)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3574_init()
+except Exception:pass
+
+def _v3574_profile(u,pid):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3574_create(u,pid,name,executive,text):
+    p=_v3574_profile(u,pid)
+    if not p or p.get("state")!="PUBLISHED":return False,"published_profile_required",None
+    if not str(name or "").strip() or not str(executive or "").strip() or not str(text or "").strip():return False,"attestation_fields_required",None
+    now=_v3574_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_executive_attestations
+        (username,profile_id,attestation_name,executive_name,attestation_text,state,profile_sha256,created_at,updated_at)
+        VALUES(?,?,?,?,?,'READY',?,?,?)""",(u,int(pid),str(name)[:240],str(executive)[:240],str(text)[:5000],p.get("evidence_sha256") or "",now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"attestation_already_exists",None
+    finally:con.close()
+
+def _v3574_attest(u,i,evidence):
+    ev=str(evidence or "").strip()
+    if not ev:return False,"attestation_evidence_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_executive_attestations WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"attestation_not_found",None
+        p=_v3574_profile(u,r["profile_id"])
+        if not p or p.get("state")!="PUBLISHED" or p.get("evidence_sha256")!=r["profile_sha256"]:
+            con.execute("UPDATE startup_executive_attestations SET state='STALE',updated_at=? WHERE username=? AND id=?",(_v3574_now(),u,int(i)));con.commit()
+            return False,"profile_changed_or_stale",None
+        now=_v3574_now()
+        digest=hashlib.sha256(json.dumps({"attestation_id":int(i),"profile_sha256":r["profile_sha256"],"executive":r["executive_name"],"text":r["attestation_text"],"evidence":ev,"utc":now},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+        con.execute("""UPDATE startup_executive_attestations SET state='ATTESTED',attestation_sha256=?,evidence=?,attested_at=?,updated_at=? WHERE username=? AND id=?""",
+                    (digest,ev[:5000],now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_executive_attestations WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3574_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_executive_attestations WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3574_VERSION,"items":items}
+
+@app.route("/api/hunter-executive-attestations",methods=["GET","POST"])
+def v3574_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3574_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3574_create(u,p.get("profile_id"),p.get("attestation_name"),p.get("executive_name"),p.get("attestation_text"))
+    return jsonify({"success":ok,"error":e,"attestation_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-executive-attestations")
+def v3574_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3574_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['attestation_name'])}</h2><p>Executive: {esc(x['executive_name'])}</p><p>Seal: {esc((x.get('attestation_sha256') or '')[:24])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.74 Executive Attestation</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.74 · EXECUTIVE ATTESTATION</small><h1>Seal a published trust profile with explicit executive attestation.</h1></div>{}</div>""".format(cards or '<div class="card">No attestations yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
