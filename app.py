@@ -89293,6 +89293,65 @@ def v3569_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['severity'])} · {esc(x['state'])}</b><p>{esc(x['finding_text'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.69 Review Findings</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.69 · REVIEWER FINDINGS</small><h1>Capture external findings and close them with explicit response evidence.</h1><a href='/hunter-external-review-requests'>← Review Requests</a></div>{}</div>""".format(cards or '<div class="card">No findings yet.</div>')
 
+
+# ===== V35.70 ASSURANCE REGISTRY + VERIFIED STATUS GATE =====
+V3570_VERSION="V35.70"
+V3570_STATES={"VERIFIED","VERIFIED_WITH_FINDINGS","REVIEW_PENDING","NOT_READY"}
+
+def _v3570_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3570_registry(u):
+    try:packs=_v3566_snapshot(u).get("items",[])
+    except Exception:packs=[]
+    try:reqs=_v3568_snapshot(u).get("items",[])
+    except Exception:reqs=[]
+    try:finds=_v3569_snapshot(u).get("items",[])
+    except Exception:finds=[]
+    req_by_pack={}
+    for r in reqs:req_by_pack.setdefault(r.get("pack_id"),[]).append(r)
+    find_by_req={}
+    for f in finds:find_by_req.setdefault(f.get("request_id"),[]).append(f)
+    items=[]
+    for p in packs:
+        verify=_v3567_verify_payload(p)
+        rs=req_by_pack.get(p.get("id"),[])
+        related=[]
+        for r in rs:related.extend(find_by_req.get(r.get("id"),[]))
+        open_findings=[f for f in related if f.get("state")!="CLOSED"]
+        if p.get("state")!="SEALED" or not verify.get("valid"):
+            status="NOT_READY"
+        elif any(r.get("state") in ("DRAFT","READY_TO_SEND","SENT") for r in rs):
+            status="REVIEW_PENDING"
+        elif open_findings:
+            status="VERIFIED_WITH_FINDINGS"
+        else:
+            status="VERIFIED"
+        items.append({
+            "pack_id":p.get("id"),
+            "pack_name":p.get("pack_name"),
+            "recipient_label":p.get("recipient_label"),
+            "status":status,
+            "sha256":p.get("evidence_sha256"),
+            "review_requests":len(rs),
+            "findings":len(related),
+            "open_findings":len(open_findings)
+        })
+    return {"success":True,"version":V3570_VERSION,"generated_at":_v3570_now(),"items":items}
+
+@app.route("/api/hunter-assurance-registry")
+def v3570_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify(_v3570_registry(u))
+
+@app.route("/hunter-assurance-registry")
+def v3570_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3570_registry(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>Pack #{x['pack_id']} · {esc(x['status'])}</b><h2>{esc(x.get('pack_name') or '')}</h2><p>Reviews: {x['review_requests']} · Findings: {x['findings']} · Open: {x['open_findings']}</p><p>SHA-256: {esc((x.get('sha256') or '')[:24])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.70 Assurance Registry</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.70 · ASSURANCE REGISTRY</small><h1>One registry for sealed, reviewed and verified assurance packs.</h1><a href='/hunter-external-assurance-packs'>← Assurance Packs</a></div>{}</div>""".format(cards or '<div class="card">No registry entries yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
