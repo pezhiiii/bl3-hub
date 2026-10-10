@@ -89844,6 +89844,96 @@ def v3576_page():
         cards.append(f"<div class='card'><b>Attestation #{i} · {esc(c['status'])}</b><h2>{esc(c.get('attestation_name') or '')}</h2><p>Executive: {esc(c.get('executive_name') or '')}</p><p>Seal: {esc((c.get('attestation_sha256') or '')[:24])}</p></div>")
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.76 Verification Certificates</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.76 · PUBLIC VERIFICATION CERTIFICATE</small><h1>Verify attestation status against its trust profile and lifecycle.</h1></div>{}</div>""".format("".join(cards) or '<div class="card">No certificates yet.</div>')
 
+
+# ===== V35.77 EXCEPTION + WAIVER REGISTRY GATE =====
+V3577_VERSION="V35.77"
+V3577_STATES={"OPEN","APPROVED","EXPIRED","REVOKED","CLOSED"}
+
+def _v3577_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3577_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_trust_exceptions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            profile_id INTEGER NOT NULL,
+            exception_name TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            expires_at TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'OPEN',
+            approval_evidence TEXT NOT NULL DEFAULT '',
+            closure_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3577_init()
+except Exception:pass
+
+def _v3577_profile(u,pid):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT id,state FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3577_create(u,pid,name,reason,owner,expires=""):
+    if not _v3577_profile(u,pid):return False,"profile_not_found",None
+    if not all(str(x or "").strip() for x in (name,reason,owner)):return False,"name_reason_owner_required",None
+    now=_v3577_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_trust_exceptions
+        (username,profile_id,exception_name,reason,owner,expires_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(pid),str(name)[:240],str(reason)[:4000],str(owner)[:180],str(expires or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3577_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_trust_exceptions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"exception_not_found",None
+        cur=r["state"]
+        if a=="APPROVE" and cur=="OPEN" and ev:new="APPROVED"
+        elif a=="REVOKE" and cur=="APPROVED" and ev:new="REVOKED"
+        elif a=="CLOSE" and cur in ("APPROVED","EXPIRED","REVOKED") and ev:new="CLOSED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute("""UPDATE startup_trust_exceptions SET state=?,
+        approval_evidence=CASE WHEN ?='APPROVED' THEN ? ELSE approval_evidence END,
+        closure_evidence=CASE WHEN ? IN ('REVOKED','CLOSED') THEN ? ELSE closure_evidence END,
+        updated_at=? WHERE username=? AND id=?""",
+        (new,new,ev[:5000],new,ev[:5000],_v3577_now(),u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_trust_exceptions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3577_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_trust_exceptions WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3577_VERSION,"items":items}
+
+@app.route("/api/hunter-trust-exceptions",methods=["GET","POST"])
+def v3577_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3577_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3577_create(u,p.get("profile_id"),p.get("exception_name"),p.get("reason"),p.get("owner"),p.get("expires_at"))
+    return jsonify({"success":ok,"error":e,"exception_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-trust-exceptions")
+def v3577_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3577_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['exception_name'])}</h2><p>Owner: {esc(x['owner'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.77 Trust Exceptions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.77 · EXCEPTION + WAIVER REGISTRY</small><h1>Track explicit trust exceptions instead of hiding them.</h1></div>{}</div>""".format(cards or '<div class="card">No exceptions yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
