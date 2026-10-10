@@ -87117,6 +87117,129 @@ try:
 except Exception:pass
 
 
+
+# ===== V35.48 PORTFOLIO EXPANSION ROADMAP GATE =====
+V3548_VERSION="V35.48"
+V3548_STATES={"DRAFT","ROADMAP_READY","ACTIVE","COMPLETE","STALE"}
+def _v3548_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3548_digest(p): return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3548_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_portfolio_expansion_roadmaps(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,strategic_decision_id INTEGER NOT NULL,roadmap_name TEXT NOT NULL,roadmap_owner TEXT NOT NULL,horizon TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',activation_evidence TEXT NOT NULL DEFAULT '',completion_evidence TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(username,strategic_decision_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_portfolio_expansion_items(id INTEGER PRIMARY KEY AUTOINCREMENT,roadmap_id INTEGER NOT NULL,initiative TEXT NOT NULL,owner_side TEXT NOT NULL DEFAULT 'JOINT',target_date TEXT NOT NULL DEFAULT '',success_signal TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'OPEN',completion_evidence TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL)""")
+        con.commit()
+    finally:con.close()
+try:_v3548_init()
+except Exception:pass
+
+def _v3548_source(u,i):
+    try:return _v3547_entry(u,int(i))
+    except:return None
+
+def _v3548_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_portfolio_expansion_roadmaps WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d['strategic_decision']=_v3548_source(u,d['strategic_decision_id']); d['items']=[dict(x) for x in con.execute("SELECT * FROM startup_portfolio_expansion_items WHERE roadmap_id=? ORDER BY id",(int(i),)).fetchall()]
+        if refresh and d['state'] not in ('COMPLETE','STALE') and (not d['strategic_decision'] or d['strategic_decision'].get('state')!='PRIORITIZED'):
+            con.execute("UPDATE startup_portfolio_expansion_roadmaps SET state='STALE',updated_at=? WHERE id=?",(_v3548_now(),int(i))); con.commit(); d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3548_create(u,did,name,owner,horizon=''):
+    src=_v3548_source(u,did)
+    if not src or src.get('state')!='PRIORITIZED':return False,'prioritized_decision_required',None
+    if not str(name or '').strip() or not str(owner or '').strip():return False,'name_and_owner_required',None
+    now=_v3548_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_portfolio_expansion_roadmaps(username,strategic_decision_id,roadmap_name,roadmap_owner,horizon,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(did),str(name)[:240],str(owner)[:180],str(horizon or '')[:120],now,now)); con.commit(); return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'roadmap_already_exists',None
+    finally:con.close()
+
+def _v3548_add_item(u,i,initiative,owner_side,target_date='',success_signal=''):
+    d=_v3548_entry(u,i)
+    if not d or d['state'] in ('COMPLETE','STALE'):return False,'roadmap_not_editable',None
+    if not str(initiative or '').strip():return False,'initiative_required',None
+    now=_v3548_now(); side=str(owner_side or 'JOINT').upper(); side=side if side in ('US','THEM','JOINT') else 'JOINT'; con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_portfolio_expansion_items(roadmap_id,initiative,owner_side,target_date,success_signal,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(int(i),str(initiative)[:1200],side,str(target_date or '')[:120],str(success_signal or '')[:1200],now,now)); con.commit(); return True,'',cur.lastrowid
+    finally:con.close()
+
+def _v3548_action(u,i,action,evidence=''):
+    d=_v3548_entry(u,i)
+    if not d:return False,'roadmap_not_found',None
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); now=_v3548_now()
+    if a=='ROADMAP_READY' and d['state']=='DRAFT' and d['items']:new='ROADMAP_READY'
+    elif a=='ACTIVE' and d['state']=='ROADMAP_READY' and ev:new='ACTIVE'
+    elif a=='COMPLETE' and d['state']=='ACTIVE' and d['items'] and all(x.get('status')=='DONE' for x in d['items']) and ev:new='COMPLETE'
+    else:return False,'invalid_transition_or_missing_evidence',None
+    con=sqlite3.connect(DB)
+    try:
+        field='completion_evidence' if new=='COMPLETE' else 'activation_evidence'; con.execute(f"UPDATE startup_portfolio_expansion_roadmaps SET state=?,{field}=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],now,u,int(i))); con.commit(); return True,'',_v3548_entry(u,i,False)
+    finally:con.close()
+
+def _v3548_complete_item(u,i,item_id,evidence):
+    d=_v3548_entry(u,i)
+    if not d or d['state'] not in ('ROADMAP_READY','ACTIVE'):return False,'roadmap_not_active',None
+    ev=str(evidence or '').strip()
+    if not ev:return False,'evidence_required',None
+    now=_v3548_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("UPDATE startup_portfolio_expansion_items SET status='DONE',completion_evidence=?,updated_at=? WHERE roadmap_id=? AND id=?",(ev[:4000],now,int(i),int(item_id))); con.commit(); return (cur.rowcount>0),('' if cur.rowcount>0 else 'item_not_found'),_v3548_entry(u,i,False)
+    finally:con.close()
+
+def _v3548_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: ids=[r['id'] for r in con.execute("SELECT id FROM startup_portfolio_expansion_roadmaps WHERE username=? ORDER BY id DESC",(u,)).fetchall()]; used={r['strategic_decision_id'] for r in con.execute("SELECT strategic_decision_id FROM startup_portfolio_expansion_roadmaps WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3548_entry(u,i) for i in ids]; eligible=[]
+    try:
+        for x in _v3547_snapshot(u).get('items',[]):
+            if x.get('state')=='PRIORITIZED' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3548_VERSION,'items':[x for x in items if x],'eligible_decisions':eligible}
+@app.route('/api/hunter-portfolio-roadmaps',methods=['GET','POST'])
+def v3548_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3548_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,i=_v3548_create(u,p.get('strategic_decision_id'),p.get('roadmap_name'),p.get('roadmap_owner'),p.get('horizon')); return jsonify({'success':ok,'error':e,'roadmap_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-portfolio-roadmaps/<int:i>/item',methods=['POST'])
+def v3548_item_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,item=_v3548_add_item(u,i,p.get('initiative'),p.get('owner_side'),p.get('target_date'),p.get('success_signal')); return jsonify({'success':ok,'error':e,'item_id':item}),(200 if ok else 400)
+@app.route('/api/hunter-portfolio-roadmaps/<int:i>/action',methods=['POST'])
+def v3548_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3548_action(u,i,p.get('action'),p.get('evidence') or ''); return jsonify({'success':ok,'error':e,'roadmap':d}),(200 if ok else 400)
+@app.route('/api/hunter-portfolio-roadmaps/<int:i>/item/<int:item_id>/complete',methods=['POST'])
+def v3548_item_complete_api(i,item_id):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3548_complete_item(u,i,item_id,p.get('evidence')); return jsonify({'success':ok,'error':e,'roadmap':d}),(200 if ok else 400)
+@app.route('/hunter-portfolio-roadmaps')
+def v3548_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3548_snapshot(u); esc=html.escape; opts=''.join(f"<option value='{x['id']}'>Decision #{x['id']} · {esc(x.get('priority_theme') or '')}</option>" for x in d['eligible_decisions']); cards=[]
+    for x in d['items']:
+        its=''.join(f"<li>{esc(it['initiative'])} · {esc(it['status'])}</li>" for it in x['items']) or '<li>No initiatives yet</li>'
+        cards.append(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['roadmap_name'])}</h2><ul>{its}</ul></div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.48 Portfolio Roadmap</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.48 · PORTFOLIO EXPANSION ROADMAP</small><h1>Translate priority into a mutual expansion roadmap.</h1><a href='/hunter-strategic-review-decisions'>← Strategic Decision</a></div><div class='card'><form action='/api/hunter-portfolio-roadmaps' onsubmit='return v3548submit(this,event)'><select name='strategic_decision_id' required><option value=''>Prioritized strategic decision</option>{}</select><input name='roadmap_name' placeholder='Roadmap name' required><input name='roadmap_owner' placeholder='Roadmap owner' required><input name='horizon' placeholder='Horizon'><button>CREATE ROADMAP</button></form></div>{}</div><script>async function v3548submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No portfolio roadmaps yet.</div>')
+try:
+    _p=app.view_functions.get('v3547_page')
+    if _p:
+        def _v3548_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-portfolio-roadmaps' not in r:r=r.replace("← Account Growth</a>","← Account Growth</a> · <a href='/hunter-portfolio-roadmaps'>🗺️ PORTFOLIO ROADMAP</a>",1)
+            return r
+        app.view_functions['v3547_page']=_v3548_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -87256,6 +87379,7 @@ if __name__ == "__main__":
     print("➕ Expansion Contract + Scope Amendment Gate enabled")
     print("📈 Account Growth + Strategic Review Gate enabled")
     print("🧭 Strategic Review Decision + Priority Gate enabled")
+    print("🗺️ Portfolio Expansion Roadmap Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
