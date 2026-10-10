@@ -89792,6 +89792,58 @@ def v3575_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Due: {esc(x.get('due_at') or '-')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.75 Attestation Lifecycle</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.75 · ATTESTATION LIFECYCLE</small><h1>Renew or revoke executive attestations explicitly.</h1><a href='/hunter-executive-attestations'>← Executive Attestations</a></div>{}</div>""".format(cards or '<div class="card">No attestation lifecycle records yet.</div>')
 
+
+# ===== V35.76 PUBLIC VERIFICATION CERTIFICATE GATE =====
+V3576_VERSION="V35.76"
+
+def _v3576_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3576_certificate(u,att_id):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        a=con.execute("SELECT * FROM startup_executive_attestations WHERE username=? AND id=?",(u,int(att_id))).fetchone()
+        if not a:return None
+        a=dict(a)
+        p=con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(a["profile_id"]))).fetchone()
+        p=dict(p) if p else None
+        lc=con.execute("SELECT * FROM startup_attestation_lifecycle WHERE username=? AND attestation_id=? ORDER BY id DESC LIMIT 1",(u,int(att_id))).fetchone()
+        lc=dict(lc) if lc else None
+    finally:con.close()
+    valid=bool(a and p and a.get("state")=="ATTESTED" and p.get("state")=="PUBLISHED" and (not lc or lc.get("state") not in ("REVOKED","STALE")))
+    return {
+        "version":V3576_VERSION,
+        "attestation_id":att_id,
+        "attestation_name":a.get("attestation_name"),
+        "executive_name":a.get("executive_name"),
+        "profile_name":p.get("profile_name") if p else None,
+        "profile_sha256":a.get("profile_sha256"),
+        "attestation_sha256":a.get("attestation_sha256"),
+        "status":"VALID" if valid else "NOT_VALID",
+        "lifecycle_state":lc.get("state") if lc else "UNTRACKED",
+        "verified_at":_v3576_now()
+    }
+
+@app.route("/api/hunter-attestation-certificates/<int:i>")
+def v3576_api(i):
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    cert=_v3576_certificate(u,i)
+    if not cert:return jsonify({"success":False,"error":"attestation_not_found"}),404
+    return jsonify({"success":True,**cert})
+
+@app.route("/hunter-attestation-certificates")
+def v3576_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_executive_attestations WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    esc=html.escape;cards=[]
+    for i in ids:
+        c=_v3576_certificate(u,i)
+        cards.append(f"<div class='card'><b>Attestation #{i} · {esc(c['status'])}</b><h2>{esc(c.get('attestation_name') or '')}</h2><p>Executive: {esc(c.get('executive_name') or '')}</p><p>Seal: {esc((c.get('attestation_sha256') or '')[:24])}</p></div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.76 Verification Certificates</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.76 · PUBLIC VERIFICATION CERTIFICATE</small><h1>Verify attestation status against its trust profile and lifecycle.</h1></div>{}</div>""".format("".join(cards) or '<div class="card">No certificates yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
