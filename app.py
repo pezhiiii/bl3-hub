@@ -86813,6 +86813,103 @@ try:
         app.view_functions['v3543_page']=_v3544_wrap
 except Exception:pass
 
+
+# ===== V35.45 EXPANSION CONTRACT + SCOPE AMENDMENT GATE =====
+V3545_VERSION="V35.45"; V3545_STATES={"DRAFT","REVIEW_READY","APPROVED","REJECTED","STALE"}
+def _v3545_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3545_digest(p):return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3545_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_scope_amendments(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,execution_id INTEGER NOT NULL,amendment_title TEXT NOT NULL,added_scope TEXT NOT NULL,commercial_delta TEXT NOT NULL DEFAULT '',delivery_impact TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',review_evidence TEXT NOT NULL DEFAULT '',decision_evidence TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,decided_at TEXT DEFAULT '',UNIQUE(username,execution_id,amendment_title))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_scope_amendment_events(id INTEGER PRIMARY KEY AUTOINCREMENT,amendment_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""");con.commit()
+    finally:con.close()
+try:_v3545_init()
+except Exception:pass
+
+def _v3545_source(u,i):
+    try:return _v3544_entry(u,int(i))
+    except:return None
+
+def _v3545_event(con,i,t,d=''):
+    at=_v3545_now();h=_v3545_digest({'amendment_id':int(i),'event_type':t,'detail':str(d),'created_at':at});con.execute("INSERT INTO startup_scope_amendment_events(amendment_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),str(t)[:80],str(d)[:1800],h,at));return h
+
+def _v3545_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_scope_amendments WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);src=_v3545_source(u,d['execution_id']);d['execution']=src
+        if refresh and d['state'] not in ('APPROVED','REJECTED','STALE') and (not src or src.get('state')!='ACTIVE'):
+            con.execute("UPDATE startup_scope_amendments SET state='STALE',updated_at=? WHERE id=?",(_v3545_now(),int(i)));_v3545_event(con,i,'source_stale','Active renewal execution no longer valid.');con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3545_create(u,execution_id,title,scope,delta='',impact=''):
+    src=_v3545_source(u,execution_id)
+    if not src or src.get('state')!='ACTIVE':return False,'active_renewal_required',None
+    if not str(title or '').strip() or not str(scope or '').strip():return False,'title_and_scope_required',None
+    now=_v3545_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_scope_amendments(username,execution_id,amendment_title,added_scope,commercial_delta,delivery_impact,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(u,int(execution_id),str(title)[:220],str(scope)[:3500],str(delta or '')[:2200],str(impact or '')[:2200],now,now));i=cur.lastrowid;_v3545_event(con,i,'scope_amendment_created',f'execution #{int(execution_id)}');con.commit();return True,'',i
+    except sqlite3.IntegrityError:return False,'scope_amendment_exists',None
+    finally:con.close()
+
+def _v3545_action(u,i,action,evidence):
+    d=_v3545_entry(u,i)
+    if not d:return False,'amendment_not_found',None
+    a=str(action or '').upper();ev=str(evidence or '').strip();now=_v3545_now()
+    if not ev:return False,'evidence_required',None
+    if a=='REVIEW_READY' and d['state']=='DRAFT':new='REVIEW_READY';field='review_evidence';dec=''
+    elif a in ('APPROVED','REJECTED') and d['state']=='REVIEW_READY':new=a;field='decision_evidence';dec=',decided_at=?'
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        vals=(new,ev[:4000],now,now,u,int(i)) if dec else (new,ev[:4000],now,u,int(i)); con.execute(f"UPDATE startup_scope_amendments SET state=?,{field}=?,updated_at=?{dec} WHERE username=? AND id=?",vals);_v3545_event(con,i,'state_'+new.lower(),ev[:1200]);con.commit();return True,'',_v3545_entry(u,i,False)
+    finally:con.close()
+
+def _v3545_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_scope_amendments WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    items=[_v3545_entry(u,i) for i in ids]; elig=[]
+    try:
+        for x in _v3544_snapshot(u).get('items',[]):
+            if x.get('state')=='ACTIVE':elig.append(x)
+    except:pass
+    return {'success':True,'version':V3545_VERSION,'items':[x for x in items if x],'active_renewals':elig,'policy':'Expanded scope requires explicit amendment review and approval evidence.'}
+@app.route('/api/hunter-scope-amendments',methods=['GET','POST'])
+def v3545_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3545_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3545_create(u,p.get('execution_id'),p.get('amendment_title'),p.get('added_scope'),p.get('commercial_delta'),p.get('delivery_impact'));return jsonify({'success':ok,'error':e,'amendment_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-scope-amendments/<int:i>/action',methods=['POST'])
+def v3545_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,d=_v3545_action(u,i,p.get('action'),p.get('evidence'));return jsonify({'success':ok,'error':e,'amendment':d}),(200 if ok else 400)
+@app.route('/hunter-scope-amendments')
+def v3545_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3545_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Renewal #{x['id']} · {esc(x.get('renewal_period') or '')}</option>" for x in d['active_renewals']);cards=[]
+    for x in d['items']:
+        i=x['id'];st=x['state'];act=''
+        if st=='DRAFT':act=f"<form action='/api/hunter-scope-amendments/{i}/action' onsubmit='return v3545submit(this,event)'><input type='hidden' name='action' value='REVIEW_READY'><textarea name='evidence' placeholder='Review evidence' required></textarea><button>READY FOR REVIEW</button></form>"
+        elif st=='REVIEW_READY':act=f"<form action='/api/hunter-scope-amendments/{i}/action' onsubmit='return v3545submit(this,event)'><select name='action'><option>APPROVED</option><option>REJECTED</option></select><textarea name='evidence' placeholder='Decision evidence' required></textarea><button>RECORD DECISION</button></form>"
+        cards.append(f"<div class='card'><b>#{i} · {esc(st)}</b><h2>{esc(x['amendment_title'])}</h2><p>{esc(x['added_scope'])}</p>{act}</div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.45 Scope Amendment</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:#fff;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.45 · EXPANSION CONTRACT + SCOPE AMENDMENT</small><h1>Expand scope with explicit commercial control.</h1><a href='/hunter-renewal-executions'>← Renewal Execution</a></div><div class='card'><form action='/api/hunter-scope-amendments' onsubmit='return v3545submit(this,event)'><select name='execution_id' required><option value=''>Active renewal</option>{}</select><input name='amendment_title' placeholder='Amendment title' required><textarea name='added_scope' placeholder='Added scope' required></textarea><textarea name='commercial_delta' placeholder='Commercial delta'></textarea><textarea name='delivery_impact' placeholder='Delivery impact'></textarea><button>CREATE AMENDMENT</button></form></div>{}</div><script>async function v3545submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No scope amendments yet.</div>')
+try:
+    _p=app.view_functions.get('v3544_page')
+    if _p:
+        def _v3545_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-scope-amendments' not in r:r=r.replace("← Renewal Decision</a>","← Renewal Decision</a> · <a href='/hunter-scope-amendments'>➕ SCOPE AMENDMENT</a>",1)
+            return r
+        app.view_functions['v3544_page']=_v3545_wrap
+except Exception:pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -86949,6 +87046,7 @@ if __name__ == "__main__":
     print("📈 Value Adoption + Usage Evidence Gate enabled")
     print("📑 Renewal Decision + Executive Approval Gate enabled")
     print("✍️ Renewal Execution + Contract Activation Gate enabled")
+    print("➕ Expansion Contract + Scope Amendment Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
