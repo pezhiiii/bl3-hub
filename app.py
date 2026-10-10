@@ -87334,6 +87334,120 @@ try:
 except Exception:pass
 
 
+
+# ===== V35.50 MULTI-YEAR PARTNERSHIP PLAN + COMMITMENT GATE =====
+V3550_VERSION="V35.50"
+V3550_STATES={"DRAFT","PLAN_READY","COMMITMENT_PENDING","COMMITTED","DECLINED","STALE"}
+def _v3550_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3550_digest(p):return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3550_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_multi_year_partnership_plans(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,qbr_id INTEGER NOT NULL,plan_name TEXT NOT NULL,term_years INTEGER NOT NULL DEFAULT 1,executive_sponsor TEXT NOT NULL,strategic_outcomes TEXT NOT NULL DEFAULT '',investment_model TEXT NOT NULL DEFAULT '',governance_model TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',plan_evidence TEXT NOT NULL DEFAULT '',commitment_evidence TEXT NOT NULL DEFAULT '',commitment_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,committed_at TEXT DEFAULT '',UNIQUE(username,qbr_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_multi_year_plan_milestones(id INTEGER PRIMARY KEY AUTOINCREMENT,plan_id INTEGER NOT NULL,year_no INTEGER NOT NULL,milestone TEXT NOT NULL,success_signal TEXT NOT NULL DEFAULT '',owner TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL)""")
+        con.commit()
+    finally:con.close()
+try:_v3550_init()
+except Exception:pass
+
+def _v3550_source(u,i):
+    try:return _v3549_entry(u,int(i))
+    except:return None
+
+def _v3550_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_multi_year_partnership_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d['qbr']=_v3550_source(u,d['qbr_id']); d['milestones']=[dict(x) for x in con.execute("SELECT * FROM startup_multi_year_plan_milestones WHERE plan_id=? ORDER BY year_no,id",(int(i),)).fetchall()]
+        if refresh and d['state'] not in ('COMMITTED','DECLINED','STALE') and (not d['qbr'] or d['qbr'].get('state')!='COMMITTED'):
+            con.execute("UPDATE startup_multi_year_partnership_plans SET state='STALE',updated_at=? WHERE id=?",(_v3550_now(),int(i))); con.commit(); d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3550_create(u,qid,name,years,sponsor,outcomes='',investment='',governance=''):
+    src=_v3550_source(u,qid)
+    if not src or src.get('state')!='COMMITTED':return False,'committed_qbr_required',None
+    try:years=max(1,min(int(years or 1),10))
+    except:years=1
+    if not str(name or '').strip() or not str(sponsor or '').strip():return False,'name_and_sponsor_required',None
+    now=_v3550_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_multi_year_partnership_plans(username,qbr_id,plan_name,term_years,executive_sponsor,strategic_outcomes,investment_model,governance_model,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(u,int(qid),str(name)[:240],years,str(sponsor)[:180],str(outcomes or '')[:3000],str(investment or '')[:2000],str(governance or '')[:2000],now,now)); con.commit(); return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'plan_already_exists',None
+    finally:con.close()
+
+def _v3550_add_milestone(u,i,year_no,milestone,signal='',owner=''):
+    d=_v3550_entry(u,i)
+    if not d or d['state'] not in ('DRAFT','PLAN_READY'):return False,'plan_not_editable',None
+    try:y=max(1,min(int(year_no or 1),int(d['term_years'])))
+    except:y=1
+    if not str(milestone or '').strip():return False,'milestone_required',None
+    con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_multi_year_plan_milestones(plan_id,year_no,milestone,success_signal,owner,created_at) VALUES(?,?,?,?,?,?)",(int(i),y,str(milestone)[:1200],str(signal or '')[:1200],str(owner or '')[:180],_v3550_now())); con.commit(); return True,'',cur.lastrowid
+    finally:con.close()
+
+def _v3550_action(u,i,action,evidence,note=''):
+    d=_v3550_entry(u,i)
+    if not d:return False,'plan_not_found',None
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); note=str(note or '').strip(); now=_v3550_now()
+    if not ev:return False,'evidence_required',None
+    if a=='PLAN_READY' and d['state']=='DRAFT' and d['milestones']:new='PLAN_READY'
+    elif a=='SUBMIT' and d['state']=='PLAN_READY':new='COMMITMENT_PENDING'
+    elif a in ('COMMITTED','DECLINED') and d['state']=='COMMITMENT_PENDING':new=a
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        if new in ('COMMITTED','DECLINED'):
+            con.execute("UPDATE startup_multi_year_partnership_plans SET state=?,commitment_evidence=?,commitment_note=?,committed_at=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,now,u,int(i)))
+        else:
+            con.execute("UPDATE startup_multi_year_partnership_plans SET state=?,plan_evidence=?,commitment_note=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,u,int(i)))
+        con.commit(); return True,'',_v3550_entry(u,i,False)
+    finally:con.close()
+
+def _v3550_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_multi_year_partnership_plans WHERE username=? ORDER BY id DESC",(u,)).fetchall()]; used={r['qbr_id'] for r in con.execute("SELECT qbr_id FROM startup_multi_year_partnership_plans WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3550_entry(u,i) for i in ids]; eligible=[]
+    try:
+        for x in _v3549_snapshot(u).get('items',[]):
+            if x.get('state')=='COMMITTED' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3550_VERSION,'items':[x for x in items if x],'eligible_qbrs':eligible,'policy':'A multi-year commitment is recorded only from explicit operator-entered evidence.'}
+@app.route('/api/hunter-multi-year-plans',methods=['GET','POST'])
+def v3550_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3550_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,i=_v3550_create(u,p.get('qbr_id'),p.get('plan_name'),p.get('term_years'),p.get('executive_sponsor'),p.get('strategic_outcomes'),p.get('investment_model'),p.get('governance_model')); return jsonify({'success':ok,'error':e,'plan_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-multi-year-plans/<int:i>/milestone',methods=['POST'])
+def v3550_milestone_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,m=_v3550_add_milestone(u,i,p.get('year_no'),p.get('milestone'),p.get('success_signal'),p.get('owner')); return jsonify({'success':ok,'error':e,'milestone_id':m}),(200 if ok else 400)
+@app.route('/api/hunter-multi-year-plans/<int:i>/action',methods=['POST'])
+def v3550_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3550_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or ''); return jsonify({'success':ok,'error':e,'plan':d}),(200 if ok else 400)
+@app.route('/hunter-multi-year-plans')
+def v3550_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3550_snapshot(u); esc=html.escape; opts=''.join(f"<option value='{x['id']}'>QBR #{x['id']} · {esc(x.get('period_label') or '')}</option>" for x in d['eligible_qbrs']); cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['plan_name'])}</h2><p>{x['term_years']} year(s) · Sponsor: {esc(x['executive_sponsor'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.50 Multi-Year Partnership</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.50 · MULTI-YEAR PARTNERSHIP PLAN</small><h1>Convert executive commitment into a governed long-term plan.</h1><a href='/hunter-executive-qbrs'>← Executive QBR</a></div><div class='card'><form action='/api/hunter-multi-year-plans' onsubmit='return v3550submit(this,event)'><select name='qbr_id' required><option value=''>Committed QBR</option>{}</select><input name='plan_name' placeholder='Plan name' required><input name='term_years' type='number' min='1' max='10' value='3'><input name='executive_sponsor' placeholder='Executive sponsor' required><textarea name='strategic_outcomes' placeholder='Strategic outcomes'></textarea><textarea name='investment_model' placeholder='Investment model'></textarea><textarea name='governance_model' placeholder='Governance model'></textarea><button>CREATE MULTI-YEAR PLAN</button></form></div>{}</div><script>async function v3550submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No multi-year plans yet.</div>')
+try:
+    _p=app.view_functions.get('v3549_page')
+    if _p:
+        def _v3550_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-multi-year-plans' not in r:r=r.replace("← Portfolio Roadmap</a>","← Portfolio Roadmap</a> · <a href='/hunter-multi-year-plans'>🌐 MULTI-YEAR PLAN</a>",1)
+            return r
+        app.view_functions['v3549_page']=_v3550_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -87475,6 +87589,7 @@ if __name__ == "__main__":
     print("🧭 Strategic Review Decision + Priority Gate enabled")
     print("🗺️ Portfolio Expansion Roadmap Gate enabled")
     print("📊 Executive QBR Evidence + Commitment Gate enabled")
+    print("🌐 Multi-Year Partnership Plan + Commitment Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
