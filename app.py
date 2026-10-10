@@ -88171,6 +88171,141 @@ def v3558_page():
     d=_v3558_snapshot(u);esc=html.escape;cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['assurance_name'])}</h2><p>Executive owner: {esc(x['executive_owner'])}</p><p>SHA-256: {esc((x.get('evidence_sha256') or '')[:16])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.58 Executive Continuity Assurance</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.58 · EXECUTIVE CONTINUITY ASSURANCE</small><h1>Seal tested continuity evidence into executive assurance.</h1><a href='/hunter-continuity-resilience-exercises'>← Resilience Exercises</a></div>{}</div>""".format(cards or '<div class="card">No continuity assurance records yet.</div>')
 
+
+# ===== V35.59 ASSURANCE REVIEW CYCLE + RECERTIFICATION WINDOW GATE =====
+V3559_VERSION="V35.59"
+V3559_STATES={"CURRENT","DUE","IN_REVIEW","RECERTIFIED","EXPIRED","STALE"}
+
+def _v3559_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3559_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_continuity_assurance_cycles(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            assurance_id INTEGER NOT NULL,
+            review_interval_days INTEGER NOT NULL DEFAULT 90,
+            due_at TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'CURRENT',
+            review_owner TEXT NOT NULL,
+            review_evidence TEXT NOT NULL DEFAULT '',
+            recertification_evidence TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            recertified_at TEXT DEFAULT '',
+            UNIQUE(username, assurance_id)
+        )""")
+        con.commit()
+    finally:
+        con.close()
+try:
+    _v3559_init()
+except Exception:
+    pass
+
+def _v3559_source(u,i):
+    try:
+        return _v3558_entry(u,int(i))
+    except Exception:
+        return None
+
+def _v3559_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_continuity_assurance_cycles WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:
+            return None
+        d=dict(r); d["assurance"]=_v3559_source(u,d["assurance_id"])
+        if refresh and d["state"] not in ("RECERTIFIED","EXPIRED","STALE"):
+            if not d["assurance"] or d["assurance"].get("state")!="CERTIFIED":
+                con.execute("UPDATE startup_continuity_assurance_cycles SET state='STALE',updated_at=? WHERE id=?",(_v3559_now(),int(i)))
+                con.commit(); d["state"]="STALE"
+            else:
+                try:
+                    due=datetime.fromisoformat(str(d["due_at"]).replace("Z","+00:00"))
+                    now=datetime.fromisoformat(_v3559_now().replace("Z","+00:00"))
+                    if due <= now and d["state"]=="CURRENT":
+                        con.execute("UPDATE startup_continuity_assurance_cycles SET state='DUE',updated_at=? WHERE id=?",(_v3559_now(),int(i)))
+                        con.commit(); d["state"]="DUE"
+                except Exception:
+                    pass
+        return d
+    finally:
+        con.close()
+
+def _v3559_create(u,aid,owner,days=90):
+    s=_v3559_source(u,aid)
+    if not s or s.get("state")!="CERTIFIED":
+        return False,"certified_assurance_required",None
+    if not str(owner or "").strip():
+        return False,"review_owner_required",None
+    days=max(1,min(int(days or 90),3650))
+    now=datetime.utcnow()
+    due=(now+timedelta(days=days)).isoformat(timespec="seconds")+"Z"
+    now_iso=now.isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_continuity_assurance_cycles
+        (username,assurance_id,review_interval_days,due_at,review_owner,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,int(aid),days,due,str(owner)[:180],now_iso,now_iso))
+        con.commit(); return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:
+        return False,"assurance_cycle_already_exists",None
+    finally:
+        con.close()
+
+def _v3559_action(u,i,action,evidence="",note=""):
+    d=_v3559_entry(u,i); a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3559_now()
+    if not d:
+        return False,"cycle_not_found",None
+    if a=="START_REVIEW" and d["state"] in ("CURRENT","DUE") and ev:
+        new="IN_REVIEW"
+    elif a=="RECERTIFY" and d["state"]=="IN_REVIEW" and ev:
+        new="RECERTIFIED"
+    elif a=="EXPIRE" and d["state"] in ("DUE","IN_REVIEW") and ev:
+        new="EXPIRED"
+    else:
+        return False,"invalid_transition_or_evidence_required",None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_continuity_assurance_cycles SET state=?,
+        review_evidence=CASE WHEN ?='IN_REVIEW' THEN ? ELSE review_evidence END,
+        recertification_evidence=CASE WHEN ?='RECERTIFIED' THEN ? ELSE recertification_evidence END,
+        note=?,recertified_at=CASE WHEN ?='RECERTIFIED' THEN ? ELSE recertified_at END,updated_at=?
+        WHERE username=? AND id=?""",
+        (new,new,ev[:5000],new,ev[:5000],str(note or "")[:1800],new,now,now,u,int(i)))
+        con.commit(); return True,"",_v3559_entry(u,i,False)
+    finally:
+        con.close()
+
+def _v3559_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        ids=[r["id"] for r in con.execute("SELECT id FROM startup_continuity_assurance_cycles WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    return {"success":True,"version":V3559_VERSION,"items":[x for x in (_v3559_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-assurance-review-cycles",methods=["GET","POST"])
+def v3559_api():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3559_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3559_create(u,p.get("assurance_id"),p.get("review_owner"),p.get("review_interval_days") or 90)
+    return jsonify({"success":ok,"error":e,"cycle_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-assurance-review-cycles")
+def v3559_page():
+    u=session.get("authenticated_username")
+    if not u: return redirect("/")
+    d=_v3559_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Due: {esc(x.get('due_at') or '-')}</p><p>Owner: {esc(x.get('review_owner') or '-')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.59 Assurance Review Cycles</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.59 · ASSURANCE REVIEW CYCLE</small><h1>Keep continuity assurance current over time.</h1><a href='/hunter-executive-continuity-assurance'>← Executive Assurance</a></div>{}</div>""".format(cards or '<div class="card">No assurance cycles yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
