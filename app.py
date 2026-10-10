@@ -87830,6 +87830,122 @@ def v3554_page():
     d=_v3554_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Ledger #{x['id']} · {esc(x.get('ledger_name') or '')}</option>" for x in d['eligible_ledgers']);cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['horizon_name'])}</h2><p>{x['review_months']} months · Executive owner: {esc(x['executive_owner'])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.54 Executive Renewal Horizon</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.54 · EXECUTIVE RENEWAL HORIZON</small><h1>Turn proven value into an explicit continuity decision.</h1><a href='/hunter-value-realization'>← Value Realization</a></div><div class='card'><form action='/api/hunter-executive-renewal-horizons' onsubmit='return s(this,event)'><select name='ledger_id' required><option value=''>Confirmed value ledger</option>{}</select><input name='horizon_name' placeholder='Horizon name' required><input name='review_months' type='number' min='1' max='60' value='12'><input name='executive_owner' placeholder='Executive owner' required><textarea name='continuity_objectives' placeholder='Continuity objectives'></textarea><textarea name='renewal_options' placeholder='Renewal options'></textarea><textarea name='risk_summary' placeholder='Risk summary'></textarea><button>CREATE HORIZON</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No renewal horizons yet.</div>')
 
+
+# ===== V35.55 CONTINUITY TRANSITION PLAN GATE =====
+V3555_VERSION="V35.55"
+V3555_STATES={"DRAFT","TRANSITION_READY","IN_PROGRESS","COMPLETE","BLOCKED","STALE"}
+
+def _v3555_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3555_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_continuity_transition_plans(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            horizon_id INTEGER NOT NULL,
+            plan_name TEXT NOT NULL,
+            transition_owner TEXT NOT NULL,
+            transition_scope TEXT NOT NULL DEFAULT '',
+            dependency_summary TEXT NOT NULL DEFAULT '',
+            target_date TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            readiness_evidence TEXT NOT NULL DEFAULT '',
+            completion_evidence TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT '',
+            UNIQUE(username,horizon_id)
+        )""")
+        con.commit()
+    finally: con.close()
+try:_v3555_init()
+except Exception:pass
+
+def _v3555_source(u,i):
+    try:return _v3554_entry(u,int(i))
+    except:return None
+
+def _v3555_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_continuity_transition_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d["horizon"]=_v3555_source(u,d["horizon_id"])
+        if refresh and d["state"] not in ("COMPLETE","BLOCKED","STALE") and (not d["horizon"] or d["horizon"].get("state")!="RENEWAL_PATH_CONFIRMED"):
+            con.execute("UPDATE startup_continuity_transition_plans SET state='STALE',updated_at=? WHERE id=?",(_v3555_now(),int(i)));con.commit();d["state"]="STALE"
+        return d
+    finally:con.close()
+
+def _v3555_create(u,hid,name,owner,scope="",deps="",target=""):
+    s=_v3555_source(u,hid)
+    if not s or s.get("state")!="RENEWAL_PATH_CONFIRMED":return False,"confirmed_horizon_required",None
+    if not str(name or "").strip() or not str(owner or "").strip():return False,"name_and_owner_required",None
+    now=_v3555_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_continuity_transition_plans
+        (username,horizon_id,plan_name,transition_owner,transition_scope,dependency_summary,target_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)""",(u,int(hid),str(name)[:240],str(owner)[:180],str(scope or "")[:3000],str(deps or "")[:2500],str(target or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"transition_plan_already_exists",None
+    finally:con.close()
+
+def _v3555_action(u,i,action,evidence="",note=""):
+    d=_v3555_entry(u,i);a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3555_now()
+    if not d:return False,"transition_plan_not_found",None
+    if a=="READY" and d["state"]=="DRAFT" and ev:new="TRANSITION_READY"
+    elif a=="START" and d["state"]=="TRANSITION_READY" and ev:new="IN_PROGRESS"
+    elif a=="COMPLETE" and d["state"]=="IN_PROGRESS" and ev:new="COMPLETE"
+    elif a=="BLOCK" and d["state"] in ("DRAFT","TRANSITION_READY","IN_PROGRESS") and ev:new="BLOCKED"
+    else:return False,"invalid_transition_or_evidence_required",None
+    con=sqlite3.connect(DB)
+    try:
+        done=now if new=="COMPLETE" else ""
+        con.execute("""UPDATE startup_continuity_transition_plans SET state=?,readiness_evidence=CASE WHEN ? IN ('TRANSITION_READY','IN_PROGRESS') THEN ? ELSE readiness_evidence END,
+        completion_evidence=CASE WHEN ? IN ('COMPLETE','BLOCKED') THEN ? ELSE completion_evidence END,note=?,completed_at=?,updated_at=? WHERE username=? AND id=?""",
+        (new,new,ev[:5000],new,ev[:5000],str(note or "")[:1800],done,now,u,int(i)))
+        con.commit();return True,"",_v3555_entry(u,i,False)
+    finally:con.close()
+
+def _v3555_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        ids=[r["id"] for r in con.execute("SELECT id FROM startup_continuity_transition_plans WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+        used={r["horizon_id"] for r in con.execute("SELECT horizon_id FROM startup_continuity_transition_plans WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    eligible=[]
+    try:
+        for x in _v3554_snapshot(u).get("items",[]):
+            if x.get("state")=="RENEWAL_PATH_CONFIRMED" and x.get("id") not in used:eligible.append(x)
+    except:pass
+    return {"success":True,"version":V3555_VERSION,"items":[x for x in (_v3555_entry(u,i) for i in ids) if x],"eligible_horizons":eligible}
+
+@app.route("/api/hunter-continuity-transition-plans",methods=["GET","POST"])
+def v3555_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3555_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3555_create(u,p.get("horizon_id"),p.get("plan_name"),p.get("transition_owner"),p.get("transition_scope"),p.get("dependency_summary"),p.get("target_date"))
+    return jsonify({"success":ok,"error":e,"plan_id":i}),(200 if ok else 400)
+
+@app.route("/api/hunter-continuity-transition-plans/<int:i>/action",methods=["POST"])
+def v3555_action_api(i):
+    u=session.get("authenticated_username");p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,d=_v3555_action(u,i,p.get("action"),p.get("evidence"),p.get("note"))
+    return jsonify({"success":ok,"error":e,"plan":d}),(200 if ok else 400)
+
+@app.route("/hunter-continuity-transition-plans")
+def v3555_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3555_snapshot(u);esc=html.escape
+    opts="".join(f"<option value='{x['id']}'>Horizon #{x['id']} · {esc(x.get('horizon_name') or '')}</option>" for x in d["eligible_horizons"])
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['plan_name'])}</h2><p>Owner: {esc(x['transition_owner'])} · Target: {esc(x.get('target_date') or '-')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.55 Continuity Transition</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:#fff;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.55 · CONTINUITY TRANSITION PLAN</small><h1>Turn continuity intent into an owned transition plan.</h1><a href='/hunter-executive-renewal-horizons'>← Renewal Horizon</a></div><div class='card'><form action='/api/hunter-continuity-transition-plans' onsubmit='return s(this,event)'><select name='horizon_id' required><option value=''>Confirmed horizon</option>{}</select><input name='plan_name' placeholder='Transition plan name' required><input name='transition_owner' placeholder='Transition owner' required><textarea name='transition_scope' placeholder='Transition scope'></textarea><textarea name='dependency_summary' placeholder='Dependencies'></textarea><input name='target_date' placeholder='Target date'><button>CREATE TRANSITION PLAN</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No transition plans yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
