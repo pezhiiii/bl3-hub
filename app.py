@@ -89096,6 +89096,106 @@ def v3567_page():
         cards.append(f"<div class='card'><b>Pack #{x['id']} · {'VERIFIED' if v.get('valid') else 'MISMATCH'}</b><h2>{esc(x.get('pack_name') or '')}</h2><p>State: {esc(x.get('state') or '')}</p><p>SHA-256: {esc((x.get('evidence_sha256') or '')[:24])}</p><a href='/api/hunter-external-assurance-packs/{x['id']}/verify'>VERIFY JSON</a></div>")
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.67 Assurance Verification</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.67 · EXTERNAL ASSURANCE VERIFICATION PORTAL</small><h1>Verify sealed assurance packs against their SHA-256 payload digest.</h1><a href='/hunter-external-assurance-packs'>← External Assurance Packs</a></div>{}</div>""".format("".join(cards) or '<div class="card">No assurance packs available.</div>')
 
+
+# ===== V35.68 EXTERNAL REVIEW REQUEST + REVIEWER HANDOFF GATE =====
+V3568_VERSION="V35.68"
+V3568_STATES={"DRAFT","READY_TO_SEND","SENT","ACKNOWLEDGED","CLOSED","STALE"}
+
+def _v3568_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3568_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_review_requests(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            pack_id INTEGER NOT NULL,
+            reviewer_label TEXT NOT NULL,
+            organization_label TEXT NOT NULL DEFAULT '',
+            review_scope TEXT NOT NULL DEFAULT '',
+            due_at TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            handoff_evidence TEXT NOT NULL DEFAULT '',
+            acknowledgement_evidence TEXT NOT NULL DEFAULT '',
+            closure_note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username,pack_id,reviewer_label)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3568_init()
+except Exception:pass
+
+def _v3568_pack(u,i):
+    try:return _v3566_entry(u,int(i))
+    except Exception:return None
+
+def _v3568_entry(u,i):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_review_requests WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d["pack"]=_v3568_pack(u,d["pack_id"])
+        if d["state"] not in ("CLOSED","STALE") and (not d["pack"] or d["pack"].get("state")!="SEALED"):
+            con.execute("UPDATE startup_external_review_requests SET state='STALE',updated_at=? WHERE id=?",(_v3568_now(),int(i)));con.commit();d["state"]="STALE"
+        return d
+    finally:con.close()
+
+def _v3568_create(u,pid,reviewer,org="",scope="",due=""):
+    p=_v3568_pack(u,pid)
+    if not p or p.get("state")!="SEALED":return False,"sealed_pack_required",None
+    if not str(reviewer or "").strip():return False,"reviewer_required",None
+    now=_v3568_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_external_review_requests
+        (username,pack_id,reviewer_label,organization_label,review_scope,due_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(pid),str(reviewer)[:240],str(org or "")[:240],str(scope or "")[:3500],str(due or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"review_request_already_exists",None
+    finally:con.close()
+
+def _v3568_action(u,i,action,evidence="",note=""):
+    d=_v3568_entry(u,i);a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3568_now()
+    if not d:return False,"request_not_found",None
+    if a=="READY_TO_SEND" and d["state"]=="DRAFT":new="READY_TO_SEND"
+    elif a=="SENT" and d["state"]=="READY_TO_SEND" and ev:new="SENT"
+    elif a=="ACKNOWLEDGED" and d["state"]=="SENT" and ev:new="ACKNOWLEDGED"
+    elif a=="CLOSED" and d["state"] in ("ACKNOWLEDGED","SENT") and ev:new="CLOSED"
+    else:return False,"invalid_transition_or_evidence_required",None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_external_review_requests SET state=?,
+        handoff_evidence=CASE WHEN ?='SENT' THEN ? ELSE handoff_evidence END,
+        acknowledgement_evidence=CASE WHEN ?='ACKNOWLEDGED' THEN ? ELSE acknowledgement_evidence END,
+        closure_note=CASE WHEN ?='CLOSED' THEN ? ELSE closure_note END,
+        updated_at=? WHERE username=? AND id=?""",
+        (new,new,ev[:5000],new,ev[:5000],new,str(note or ev)[:2500],now,u,int(i)))
+        con.commit();return True,"",_v3568_entry(u,i)
+    finally:con.close()
+
+def _v3568_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_external_review_requests WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3568_VERSION,"items":[x for x in (_v3568_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-external-review-requests",methods=["GET","POST"])
+def v3568_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3568_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3568_create(u,p.get("pack_id"),p.get("reviewer_label"),p.get("organization_label"),p.get("review_scope"),p.get("due_at"))
+    return jsonify({"success":ok,"error":e,"request_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-external-review-requests")
+def v3568_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3568_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['reviewer_label'])}</h2><p>{esc(x.get('organization_label') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.68 External Review Requests</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.68 · EXTERNAL REVIEW REQUEST</small><h1>Hand sealed assurance evidence to a named reviewer with explicit status.</h1><a href='/hunter-assurance-verification'>← Verification Portal</a></div>{}</div>""".format(cards or '<div class="card">No external review requests yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
