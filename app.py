@@ -89352,6 +89352,108 @@ def v3570_page():
     cards="".join(f"<div class='card'><b>Pack #{x['pack_id']} · {esc(x['status'])}</b><h2>{esc(x.get('pack_name') or '')}</h2><p>Reviews: {x['review_requests']} · Findings: {x['findings']} · Open: {x['open_findings']}</p><p>SHA-256: {esc((x.get('sha256') or '')[:24])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.70 Assurance Registry</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.70 · ASSURANCE REGISTRY</small><h1>One registry for sealed, reviewed and verified assurance packs.</h1><a href='/hunter-external-assurance-packs'>← Assurance Packs</a></div>{}</div>""".format(cards or '<div class="card">No registry entries yet.</div>')
 
+
+# ===== V35.71 PUBLIC TRUST PROFILE + VERIFIED CLAIMS GATE =====
+V3571_VERSION="V35.71"
+V3571_STATES={"DRAFT","READY","PUBLISHED","STALE"}
+
+def _v3571_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3571_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_public_trust_profiles(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            profile_name TEXT NOT NULL,
+            public_slug TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            registry_snapshot_json TEXT NOT NULL DEFAULT '{}',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            published_at TEXT DEFAULT '',
+            UNIQUE(username,public_slug)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3571_init()
+except Exception:pass
+
+def _v3571_build_snapshot(u):
+    reg=_v3570_registry(u)
+    safe=[]
+    for x in reg.get("items",[]):
+        safe.append({
+            "pack_id":x.get("pack_id"),
+            "pack_name":x.get("pack_name"),
+            "status":x.get("status"),
+            "sha256":x.get("sha256"),
+            "review_requests":x.get("review_requests"),
+            "findings":x.get("findings"),
+            "open_findings":x.get("open_findings"),
+        })
+    return {"generated_at":_v3571_now(),"registry_items":safe}
+
+def _v3571_create(u,name,slug,summary=""):
+    if not str(name or "").strip() or not str(slug or "").strip():
+        return False,"name_and_slug_required",None
+    slug="".join(c for c in str(slug).lower() if c.isalnum() or c in "-_")[:120]
+    snap=_v3571_build_snapshot(u)
+    raw=json.dumps(snap,sort_keys=True,separators=(",",":"))
+    digest=hashlib.sha256(raw.encode()).hexdigest()
+    now=_v3571_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_public_trust_profiles
+        (username,profile_name,public_slug,summary,state,registry_snapshot_json,evidence_sha256,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)""",(u,str(name)[:240],slug,str(summary or "")[:3000],"READY",raw,digest,now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"slug_already_exists",None
+    finally:con.close()
+
+def _v3571_publish(u,i):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"profile_not_found",None
+        if r["state"] not in ("READY","STALE"):return False,"profile_not_publishable",None
+        snap=_v3571_build_snapshot(u);raw=json.dumps(snap,sort_keys=True,separators=(",",":"))
+        digest=hashlib.sha256(raw.encode()).hexdigest();now=_v3571_now()
+        con.execute("""UPDATE startup_public_trust_profiles SET state='PUBLISHED',registry_snapshot_json=?,evidence_sha256=?,published_at=?,updated_at=? WHERE username=? AND id=?""",
+                    (raw,digest,now,now,u,int(i)))
+        con.commit()
+        r=con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(r)
+    finally:con.close()
+
+def _v3571_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3571_VERSION,"items":items}
+
+@app.route("/api/hunter-public-trust-profiles",methods=["GET","POST"])
+def v3571_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3571_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3571_create(u,p.get("profile_name"),p.get("public_slug"),p.get("summary"))
+    return jsonify({"success":ok,"error":e,"profile_id":i}),(200 if ok else 400)
+
+@app.route("/trust/<slug>")
+def v3571_public(slug):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_public_trust_profiles WHERE public_slug=? AND state='PUBLISHED' ORDER BY id DESC LIMIT 1",(slug,)).fetchone()
+        if not r:return "Not found",404
+        d=dict(r);snap=json.loads(d["registry_snapshot_json"]);esc=html.escape
+        cards="".join(f"<div class='card'><b>{esc(str(x.get('status') or ''))}</b><h2>{esc(str(x.get('pack_name') or ''))}</h2><p>SHA-256 {esc(str(x.get('sha256') or '')[:24])}</p></div>" for x in snap.get("registry_items",[]))
+        return """<!doctype html><meta charset='utf-8'><title>BL3 Trust Profile</title><style>body{background:#071017;color:#fff;font-family:Arial}.w{max-width:1000px;margin:auto;padding:28px}.card{background:#0b151d;border:1px solid #35525e;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 VERIFIED TRUST PROFILE</small><h1>{}</h1><p>{}</p><p>Digest: {}</p></div>{}</div>""".format(esc(d["profile_name"]),esc(d["summary"]),esc(d["evidence_sha256"]),cards or "<div class='card'>No verified claims.</div>")
+    finally:con.close()
+
 if __name__ == "__main__":
 
     init_db()
