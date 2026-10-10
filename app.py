@@ -88531,6 +88531,135 @@ def v3561_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['portfolio_name'])}</h2><p>Passed {x['passed']} / Required {x['required_passes']} · Failed {x['failed']}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.61 Resilience Portfolio</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.61 · MULTI-SCENARIO RESILIENCE PORTFOLIO</small><h1>Prove resilience across more than one scenario.</h1><a href='/hunter-continuity-resilience-exercises'>← Resilience Exercises</a></div>{}</div>""".format(cards or '<div class="card">No resilience portfolios yet.</div>')
 
+
+# ===== V35.62 BOARD RESILIENCE SCORECARD + EXECUTIVE SIGN-OFF GATE =====
+V3562_VERSION="V35.62"
+V3562_STATES={"DRAFT","REVIEW_READY","BOARD_REVIEW","SIGNED_OFF","REMEDIATION_REQUIRED"}
+
+def _v3562_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3562_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_board_resilience_scorecards(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            portfolio_id INTEGER NOT NULL,
+            scorecard_name TEXT NOT NULL,
+            executive_owner TEXT NOT NULL,
+            score INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            review_evidence TEXT NOT NULL DEFAULT '',
+            signoff_evidence TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            signed_off_at TEXT DEFAULT '',
+            UNIQUE(username,portfolio_id)
+        )""")
+        con.commit()
+    finally:
+        con.close()
+try:
+    _v3562_init()
+except Exception:
+    pass
+
+def _v3562_source(u,i):
+    try:
+        return _v3561_entry(u,int(i))
+    except Exception:
+        return None
+
+def _v3562_calc(p):
+    if not p: return 0
+    passed=int(p.get("passed") or 0); failed=int(p.get("failed") or 0); req=max(1,int(p.get("required_passes") or 1))
+    base=min(100,int((passed/req)*100))
+    if failed: base=max(0,base-min(60,failed*20))
+    return base
+
+def _v3562_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_board_resilience_scorecards WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r: return None
+        d=dict(r); d["portfolio"]=_v3562_source(u,d["portfolio_id"])
+        score=_v3562_calc(d["portfolio"])
+        if refresh and score!=int(d["score"] or 0):
+            con.execute("UPDATE startup_board_resilience_scorecards SET score=?,updated_at=? WHERE id=?",(score,_v3562_now(),int(i))); con.commit(); d["score"]=score
+        return d
+    finally:
+        con.close()
+
+def _v3562_create(u,pid,name,owner):
+    p=_v3562_source(u,pid)
+    if not p: return False,"portfolio_required",None
+    if not str(name or "").strip() or not str(owner or "").strip(): return False,"name_and_owner_required",None
+    now=_v3562_now(); score=_v3562_calc(p)
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_board_resilience_scorecards
+        (username,portfolio_id,scorecard_name,executive_owner,score,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,int(pid),str(name)[:240],str(owner)[:180],score,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:
+        return False,"scorecard_already_exists",None
+    finally:
+        con.close()
+
+def _v3562_action(u,i,action,evidence="",note=""):
+    d=_v3562_entry(u,i); a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3562_now()
+    if not d or not ev: return False,"scorecard_and_evidence_required",None
+    if a=="REVIEW_READY" and d["state"]=="DRAFT": new="REVIEW_READY"
+    elif a=="BOARD_REVIEW" and d["state"]=="REVIEW_READY": new="BOARD_REVIEW"
+    elif a=="SIGN_OFF" and d["state"]=="BOARD_REVIEW" and int(d["score"] or 0)>=80: new="SIGNED_OFF"
+    elif a=="REMEDIATION_REQUIRED" and d["state"] in ("REVIEW_READY","BOARD_REVIEW"): new="REMEDIATION_REQUIRED"
+    else: return False,"invalid_transition_or_score_below_threshold",None
+    digest=hashlib.sha256(json.dumps({"scorecard_id":int(i),"state":new,"score":int(d["score"] or 0),"evidence":ev,"note":str(note or ""),"utc":now},sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest()
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_board_resilience_scorecards SET state=?,
+        review_evidence=CASE WHEN ? IN ('REVIEW_READY','BOARD_REVIEW','REMEDIATION_REQUIRED') THEN ? ELSE review_evidence END,
+        signoff_evidence=CASE WHEN ?='SIGNED_OFF' THEN ? ELSE signoff_evidence END,
+        evidence_sha256=?,note=?,signed_off_at=CASE WHEN ?='SIGNED_OFF' THEN ? ELSE signed_off_at END,updated_at=?
+        WHERE username=? AND id=?""",
+        (new,new,ev[:5000],new,ev[:5000],digest,str(note or "")[:1800],new,now,now,u,int(i)))
+        con.commit(); return True,"",_v3562_entry(u,i,False)
+    finally:
+        con.close()
+
+def _v3562_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: ids=[r["id"] for r in con.execute("SELECT id FROM startup_board_resilience_scorecards WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3562_VERSION,"items":[x for x in (_v3562_entry(u,i) for i in ids) if x],"signoff_threshold":80}
+
+@app.route("/api/hunter-board-resilience-scorecards",methods=["GET","POST"])
+def v3562_api():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3562_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3562_create(u,p.get("portfolio_id"),p.get("scorecard_name"),p.get("executive_owner"))
+    return jsonify({"success":ok,"error":e,"scorecard_id":i}),(200 if ok else 400)
+
+@app.route("/api/hunter-board-resilience-scorecards/<int:i>/action",methods=["POST"])
+def v3562_action_api(i):
+    u=session.get("authenticated_username"); p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    ok,e,d=_v3562_action(u,i,p.get("action"),p.get("evidence"),p.get("note"))
+    return jsonify({"success":ok,"error":e,"scorecard":d}),(200 if ok else 400)
+
+@app.route("/hunter-board-resilience-scorecards")
+def v3562_page():
+    u=session.get("authenticated_username")
+    if not u: return redirect("/")
+    d=_v3562_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['scorecard_name'])}</h2><p>Score: {int(x['score'])}/100 · Owner: {esc(x['executive_owner'])}</p><p>SHA-256: {esc((x.get('evidence_sha256') or '')[:16])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.62 Board Resilience Scorecard</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.62 · BOARD RESILIENCE SCORECARD</small><h1>Aggregate tested resilience into an executive sign-off artifact.</h1><a href='/hunter-resilience-portfolios'>← Resilience Portfolio</a></div>{}</div>""".format(cards or '<div class="card">No board scorecards yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
