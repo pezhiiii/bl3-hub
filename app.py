@@ -86186,6 +86186,125 @@ except Exception:
     pass
 
 
+
+# ===== V35.39 VALUE ADOPTION + USAGE EVIDENCE GATE =====
+# First value is a moment; adoption proves the value is recurring in real use.
+V3539_VERSION="V35.39"
+V3539_STATES={"DRAFT","ACTIVE","ADOPTED","AT_RISK","STALE"}
+
+def _v3539_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3539_digest(p): return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3539_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_value_adoption_reviews(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,checkpoint_id INTEGER NOT NULL,adoption_title TEXT NOT NULL,usage_signal TEXT NOT NULL,adoption_window_days INTEGER NOT NULL DEFAULT 30,state TEXT NOT NULL DEFAULT 'DRAFT',activation_evidence TEXT NOT NULL DEFAULT '',outcome_evidence TEXT NOT NULL DEFAULT '',outcome_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT DEFAULT '',UNIQUE(username,checkpoint_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_value_adoption_events(id INTEGER PRIMARY KEY AUTOINCREMENT,review_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_v3539_user_state ON startup_value_adoption_reviews(username,state,id DESC)")
+        con.commit()
+    finally: con.close()
+try: _v3539_init()
+except Exception: pass
+
+def _v3539_source(u,cid):
+    try: return _v3538_entry(u,int(cid))
+    except Exception: return None
+
+def _v3539_event(con,rid,typ,detail=''):
+    at=_v3539_now(); d=_v3539_digest({'review_id':int(rid),'event_type':typ,'detail':detail,'created_at':at})
+    con.execute("INSERT INTO startup_value_adoption_events(review_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(rid),typ[:80],str(detail)[:1800],d,at)); return d
+
+def _v3539_entry(u,rid,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_value_adoption_reviews WHERE username=? AND id=?",(u,int(rid))).fetchone()
+        if not r:return None
+        d=dict(r); src=_v3539_source(u,d['checkpoint_id']); d['checkpoint']=src
+        if refresh and d['state'] not in ('ADOPTED','AT_RISK','STALE') and (not src or src.get('checkpoint_state')!='FIRST_VALUE_REACHED'):
+            con.execute("UPDATE startup_value_adoption_reviews SET state='STALE',updated_at=? WHERE id=?",(_v3539_now(),int(rid))); _v3539_event(con,rid,'source_stale','First-value source is no longer valid.'); con.commit(); d['state']='STALE'
+        d['events']=[dict(x) for x in con.execute("SELECT * FROM startup_value_adoption_events WHERE review_id=? ORDER BY id DESC LIMIT 20",(int(rid),)).fetchall()]
+        return d
+    finally: con.close()
+
+def _v3539_create(u,checkpoint_id,title,usage_signal,window_days=30):
+    src=_v3539_source(u,checkpoint_id)
+    if not src or src.get('checkpoint_state')!='FIRST_VALUE_REACHED': return False,'first_value_reached_required',None
+    if not str(title or '').strip() or not str(usage_signal or '').strip(): return False,'title_and_usage_signal_required',None
+    try: wd=max(1,min(int(window_days or 30),365))
+    except: wd=30
+    now=_v3539_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_value_adoption_reviews(username,checkpoint_id,adoption_title,usage_signal,adoption_window_days,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(checkpoint_id),str(title)[:180],str(usage_signal)[:1800],wd,now,now)); rid=cur.lastrowid; _v3539_event(con,rid,'adoption_review_created',f'checkpoint #{int(checkpoint_id)}'); con.commit(); return True,'',rid
+    except sqlite3.IntegrityError:return False,'review_already_exists',None
+    finally: con.close()
+
+def _v3539_action(u,rid,action,evidence,note=''):
+    d=_v3539_entry(u,rid)
+    if not d:return False,'review_not_found',None
+    action=str(action or '').upper(); evidence=str(evidence or '').strip(); note=str(note or '').strip(); now=_v3539_now()
+    if action=='ACTIVATE' and d['state']=='DRAFT': new='ACTIVE'
+    elif action in ('ADOPTED','AT_RISK') and d['state']=='ACTIVE':
+        if not evidence:return False,'outcome_evidence_required',None
+        new=action
+    else:return False,'invalid_transition',None
+    if not evidence:return False,'evidence_required',None
+    con=sqlite3.connect(DB)
+    try:
+        fields="state=?,updated_at=?,activation_evidence=?" if new=='ACTIVE' else "state=?,updated_at=?,outcome_evidence=?,outcome_note=?,completed_at=?"
+        vals=(new,now,evidence[:3000],u,int(rid)) if new=='ACTIVE' else (new,now,evidence[:4000],note[:1800],now,u,int(rid))
+        con.execute(f"UPDATE startup_value_adoption_reviews SET {fields} WHERE username=? AND id=?",vals); _v3539_event(con,rid,'adoption_'+new.lower(),evidence[:1200]); con.commit(); return True,'',_v3539_entry(u,rid,False)
+    finally: con.close()
+
+def _v3539_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        ids=[x['id'] for x in con.execute("SELECT id FROM startup_value_adoption_reviews WHERE username=? ORDER BY id DESC",(u,)).fetchall()]; used={x['checkpoint_id'] for x in con.execute("SELECT checkpoint_id FROM startup_value_adoption_reviews WHERE username=?",(u,)).fetchall()}
+    finally: con.close()
+    items=[_v3539_entry(u,i) for i in ids]; eligible=[]
+    try:
+        for x in _v3538_snapshot(u).get('items',[]):
+            if x.get('checkpoint_state')=='FIRST_VALUE_REACHED' and x.get('id') not in used: eligible.append(x)
+    except: pass
+    counts={s:0 for s in V3539_STATES}
+    for x in items:
+        if x: counts[x['state']]=counts.get(x['state'],0)+1
+    return {'success':True,'version':V3539_VERSION,'counts':counts,'items':[x for x in items if x],'eligible_checkpoints':eligible,'policy':'Adoption requires explicit recurring-usage evidence; BL3 does not infer sustained customer value automatically.'}
+
+@app.route('/api/hunter-value-adoption',methods=['GET','POST'])
+def v3539_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3539_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,rid=_v3539_create(u,p.get('checkpoint_id'),p.get('adoption_title'),p.get('usage_signal'),p.get('adoption_window_days') or 30); return jsonify({'success':ok,'error':e,'review_id':rid}),(200 if ok else 400)
+
+@app.route('/api/hunter-value-adoption/<int:rid>/action',methods=['POST'])
+def v3539_action_api(rid):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3539_action(u,rid,p.get('action'),p.get('evidence'),p.get('note') or ''); return jsonify({'success':ok,'error':e,'review':d}),(200 if ok else 400)
+
+@app.route('/hunter-value-adoption')
+def v3539_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3539_snapshot(u); esc=html.escape; c=d['counts']; opts=''.join(f"<option value='{int(x['id'])}'>First Value #{int(x['id'])} · {esc(x.get('checkpoint_title') or '')}</option>" for x in d['eligible_checkpoints']); cards=[]
+    for x in d['items']:
+        rid=int(x['id']); st=x['state']; act=''
+        if st=='DRAFT': act=f"<form action='/api/hunter-value-adoption/{rid}/action' onsubmit='return v3539submit(this,event)'><input type='hidden' name='action' value='ACTIVATE'><textarea name='evidence' placeholder='Activation evidence' required></textarea><button>ACTIVATE</button></form>"
+        elif st=='ACTIVE': act=f"<form action='/api/hunter-value-adoption/{rid}/action' onsubmit='return v3539submit(this,event)'><select name='action'><option>ADOPTED</option><option>AT_RISK</option></select><textarea name='evidence' placeholder='Recurring usage / adoption evidence' required></textarea><textarea name='note' placeholder='Outcome note'></textarea><button>RECORD OUTCOME</button></form>"
+        cards.append(f"<article class='card'><b>#{rid} · {esc(st)}</b><h2>{esc(x['adoption_title'])}</h2><p>{esc(x['usage_signal'])}</p>{act}</article>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.39 Adoption</title><style>body{background:#06080b;color:#eef8fb;font-family:Arial;margin:0}.w{max-width:1200px;margin:auto;padding:28px}.card,.hero{border:1px solid #354d58;background:#0a1016;border-radius:18px;padding:18px;margin-top:14px}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='hero'><small>BL3 V35.39 · VALUE ADOPTION + USAGE EVIDENCE</small><h1>First value must become recurring value.</h1><p>DRAFT {} · ACTIVE {} · ADOPTED {} · AT RISK {}</p><a href='/hunter-first-value-checkpoints'>← First Value</a></div><div class='card'><h2>Create adoption review</h2><form action='/api/hunter-value-adoption' onsubmit='return v3539submit(this,event)'><select name='checkpoint_id' required><option value=''>First-value checkpoint</option>{}</select><input name='adoption_title' placeholder='Adoption review title' required><textarea name='usage_signal' placeholder='Recurring usage signal to observe' required></textarea><input name='adoption_window_days' type='number' value='30' min='1' max='365'><button>CREATE</button></form></div>{}</div><script>async function v3539submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(c.get('DRAFT',0),c.get('ACTIVE',0),c.get('ADOPTED',0),c.get('AT_RISK',0),opts,''.join(cards) or '<div class="card">No adoption reviews yet.</div>')
+
+try:
+    _v3539_prev=app.view_functions.get('v3538_page')
+    if _v3539_prev:
+        def _v3539_wrap(*a,**k):
+            r=_v3539_prev(*a,**k)
+            if isinstance(r,str) and '/hunter-value-adoption' not in r:r=r.replace("<a href='/api/hunter-first-value-checkpoints'>JSON</a>","<a href='/api/hunter-first-value-checkpoints'>JSON</a> · <a href='/hunter-value-adoption'>📈 ADOPTION</a>",1)
+            return r
+        app.view_functions['v3538_page']=_v3539_wrap
+except Exception: pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -86316,6 +86435,7 @@ if __name__ == "__main__":
     print("📑 Decision Package + Approval Evidence Gate enabled")
     print("🚀 Execution Handoff + Kickoff Readiness Gate enabled")
     print("🎯 First Value Checkpoint + Launch-to-Value Gate enabled")
+    print("📈 Value Adoption + Usage Evidence Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
