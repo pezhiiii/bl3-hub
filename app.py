@@ -86910,6 +86910,104 @@ try:
         app.view_functions['v3544_page']=_v3545_wrap
 except Exception:pass
 
+
+# ===== V35.46 ACCOUNT GROWTH + STRATEGIC REVIEW GATE =====
+V3546_VERSION="V35.46"; V3546_STATES={"DRAFT","HEALTHY_GROWTH","WATCH","STRATEGIC_REVIEW_READY","STALE"}
+def _v3546_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3546_digest(p):return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3546_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_account_growth_reviews(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,execution_id INTEGER NOT NULL,account_label TEXT NOT NULL,growth_goal TEXT NOT NULL,review_window TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',growth_evidence TEXT NOT NULL DEFAULT '',strategic_evidence TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT DEFAULT '',UNIQUE(username,execution_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_account_growth_events(id INTEGER PRIMARY KEY AUTOINCREMENT,growth_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""");con.commit()
+    finally:con.close()
+try:_v3546_init()
+except Exception:pass
+
+def _v3546_source(u,i):
+    try:return _v3544_entry(u,int(i))
+    except:return None
+
+def _v3546_event(con,i,t,d=''):
+    at=_v3546_now();h=_v3546_digest({'growth_id':int(i),'event_type':t,'detail':str(d),'created_at':at});con.execute("INSERT INTO startup_account_growth_events(growth_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),str(t)[:80],str(d)[:1800],h,at));return h
+
+def _v3546_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_account_growth_reviews WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);src=_v3546_source(u,d['execution_id']);d['execution']=src
+        if refresh and d['state'] not in ('STRATEGIC_REVIEW_READY','STALE') and (not src or src.get('state')!='ACTIVE'):
+            con.execute("UPDATE startup_account_growth_reviews SET state='STALE',updated_at=? WHERE id=?",(_v3546_now(),int(i)));_v3546_event(con,i,'source_stale','Active renewal source no longer valid.');con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3546_create(u,execution_id,label,goal,window=''):
+    src=_v3546_source(u,execution_id)
+    if not src or src.get('state')!='ACTIVE':return False,'active_renewal_required',None
+    if not str(label or '').strip() or not str(goal or '').strip():return False,'account_label_and_growth_goal_required',None
+    now=_v3546_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_account_growth_reviews(username,execution_id,account_label,growth_goal,review_window,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(execution_id),str(label)[:220],str(goal)[:3000],str(window or '')[:160],now,now));i=cur.lastrowid;_v3546_event(con,i,'growth_review_created',f'execution #{int(execution_id)}');con.commit();return True,'',i
+    except sqlite3.IntegrityError:return False,'growth_review_already_exists',None
+    finally:con.close()
+
+def _v3546_action(u,i,action,evidence,note=''):
+    d=_v3546_entry(u,i)
+    if not d:return False,'growth_review_not_found',None
+    a=str(action or '').upper();ev=str(evidence or '').strip();note=str(note or '').strip();now=_v3546_now()
+    if not ev:return False,'evidence_required',None
+    if a in ('HEALTHY_GROWTH','WATCH') and d['state'] in ('DRAFT','HEALTHY_GROWTH','WATCH'):new=a;field='growth_evidence';done=''
+    elif a=='STRATEGIC_REVIEW_READY' and d['state']=='HEALTHY_GROWTH':new=a;field='strategic_evidence';done=',completed_at=?'
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        vals=(new,ev[:4000],note[:1800],now,now,u,int(i)) if done else (new,ev[:4000],note[:1800],now,u,int(i));con.execute(f"UPDATE startup_account_growth_reviews SET state=?,{field}=?,note=?,updated_at=?{done} WHERE username=? AND id=?",vals);_v3546_event(con,i,'state_'+new.lower(),ev[:1200]);con.commit();return True,'',_v3546_entry(u,i,False)
+    finally:con.close()
+
+def _v3546_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_account_growth_reviews WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['execution_id'] for r in con.execute("SELECT execution_id FROM startup_account_growth_reviews WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3546_entry(u,i) for i in ids];elig=[]
+    try:
+        for x in _v3544_snapshot(u).get('items',[]):
+            if x.get('state')=='ACTIVE' and x.get('id') not in used:elig.append(x)
+    except:pass
+    return {'success':True,'version':V3546_VERSION,'items':[x for x in items if x],'active_renewals':elig,'policy':'Strategic growth readiness requires explicit evidence; active renewal alone is not proof of growth.'}
+@app.route('/api/hunter-account-growth',methods=['GET','POST'])
+def v3546_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3546_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3546_create(u,p.get('execution_id'),p.get('account_label'),p.get('growth_goal'),p.get('review_window'));return jsonify({'success':ok,'error':e,'growth_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-account-growth/<int:i>/action',methods=['POST'])
+def v3546_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,d=_v3546_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or '');return jsonify({'success':ok,'error':e,'growth':d}),(200 if ok else 400)
+@app.route('/hunter-account-growth')
+def v3546_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3546_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Renewal #{x['id']} · {esc(x.get('renewal_period') or '')}</option>" for x in d['active_renewals']);cards=[]
+    for x in d['items']:
+        i=x['id'];st=x['state'];act=''
+        if st in ('DRAFT','HEALTHY_GROWTH','WATCH'):
+            choices="<option>HEALTHY_GROWTH</option><option>WATCH</option>"+("<option>STRATEGIC_REVIEW_READY</option>" if st=='HEALTHY_GROWTH' else '')
+            act=f"<form action='/api/hunter-account-growth/{i}/action' onsubmit='return v3546submit(this,event)'><select name='action'>{choices}</select><textarea name='evidence' placeholder='Growth/strategic evidence' required></textarea><textarea name='note' placeholder='Note'></textarea><button>RECORD REVIEW</button></form>"
+        cards.append(f"<div class='card'><b>#{i} · {esc(st)}</b><h2>{esc(x['account_label'])}</h2><p>{esc(x['growth_goal'])}</p>{act}</div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.46 Account Growth</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:#fff;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.46 · ACCOUNT GROWTH + STRATEGIC REVIEW</small><h1>Track growth after renewal, not just retention.</h1><a href='/hunter-renewal-executions'>← Renewal Execution</a></div><div class='card'><form action='/api/hunter-account-growth' onsubmit='return v3546submit(this,event)'><select name='execution_id' required><option value=''>Active renewal</option>{}</select><input name='account_label' placeholder='Account label' required><textarea name='growth_goal' placeholder='Growth goal' required></textarea><input name='review_window' placeholder='Review window'><button>CREATE GROWTH REVIEW</button></form></div>{}</div><script>async function v3546submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No growth reviews yet.</div>')
+try:
+    _p=app.view_functions.get('v3545_page')
+    if _p:
+        def _v3546_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-account-growth' not in r:r=r.replace("← Renewal Execution</a>","← Renewal Execution</a> · <a href='/hunter-account-growth'>📈 ACCOUNT GROWTH</a>",1)
+            return r
+        app.view_functions['v3545_page']=_v3546_wrap
+except Exception:pass
+
 if __name__ == "__main__":
 
     init_db()
@@ -87047,6 +87145,7 @@ if __name__ == "__main__":
     print("📑 Renewal Decision + Executive Approval Gate enabled")
     print("✍️ Renewal Execution + Contract Activation Gate enabled")
     print("➕ Expansion Contract + Scope Amendment Gate enabled")
+    print("📈 Account Growth + Strategic Review Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
