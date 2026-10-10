@@ -87448,6 +87448,111 @@ try:
 except Exception:pass
 
 
+
+# ===== V35.51 PARTNERSHIP ACTIVATION + OPERATING MODEL GATE =====
+V3551_VERSION="V35.51"
+V3551_STATES={"DRAFT","ACTIVATION_READY","ACTIVE","BLOCKED","STALE"}
+def _v3551_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3551_digest(p): return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3551_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_partnership_activations(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,plan_id INTEGER NOT NULL,activation_name TEXT NOT NULL,operating_owner TEXT NOT NULL,counterpart TEXT NOT NULL DEFAULT '',operating_model TEXT NOT NULL DEFAULT '',shared_objectives TEXT NOT NULL DEFAULT '',dependencies TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',activation_evidence TEXT NOT NULL DEFAULT '',blocker_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,activated_at TEXT DEFAULT '',UNIQUE(username,plan_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_partnership_activation_checks(id INTEGER PRIMARY KEY AUTOINCREMENT,activation_id INTEGER NOT NULL,check_key TEXT NOT NULL,check_label TEXT NOT NULL,evidence TEXT NOT NULL DEFAULT '',completed_at TEXT DEFAULT '',UNIQUE(activation_id,check_key))""")
+        con.commit()
+    finally: con.close()
+try:_v3551_init()
+except Exception: pass
+
+def _v3551_source(u,i):
+    try:return _v3550_entry(u,int(i))
+    except:return None
+
+def _v3551_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_partnership_activations WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d['plan']=_v3551_source(u,d['plan_id']); d['checks']=[dict(x) for x in con.execute("SELECT * FROM startup_partnership_activation_checks WHERE activation_id=? ORDER BY id",(int(i),)).fetchall()]
+        if refresh and d['state'] not in ('ACTIVE','BLOCKED','STALE') and (not d['plan'] or d['plan'].get('state')!='COMMITTED'):
+            con.execute("UPDATE startup_partnership_activations SET state='STALE',updated_at=? WHERE id=?",(_v3551_now(),int(i))); con.commit(); d['state']='STALE'
+        return d
+    finally: con.close()
+
+def _v3551_create(u,plan_id,name,owner,counterpart='',operating_model='',objectives='',dependencies=''):
+    src=_v3551_source(u,plan_id)
+    if not src or src.get('state')!='COMMITTED':return False,'committed_plan_required',None
+    if not str(name or '').strip() or not str(owner or '').strip():return False,'name_and_owner_required',None
+    now=_v3551_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_partnership_activations(username,plan_id,activation_name,operating_owner,counterpart,operating_model,shared_objectives,dependencies,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(u,int(plan_id),str(name)[:240],str(owner)[:180],str(counterpart or '')[:180],str(operating_model or '')[:3000],str(objectives or '')[:3000],str(dependencies or '')[:2000],now,now))
+        aid=cur.lastrowid
+        for k,l in [('owner','Operating owner confirmed'),('governance','Governance cadence confirmed'),('access','Required access/dependencies ready'),('objectives','Shared objectives acknowledged')]:
+            con.execute("INSERT OR IGNORE INTO startup_partnership_activation_checks(activation_id,check_key,check_label) VALUES(?,?,?)",(aid,k,l))
+        con.commit(); return True,'',aid
+    except sqlite3.IntegrityError:return False,'activation_already_exists',None
+    finally:con.close()
+
+def _v3551_check(u,i,key,evidence):
+    d=_v3551_entry(u,i)
+    if not d or d['state'] in ('ACTIVE','STALE'):return False,'activation_not_editable',None
+    ev=str(evidence or '').strip()
+    if not ev:return False,'evidence_required',None
+    con=sqlite3.connect(DB)
+    try:
+        row=con.execute("SELECT id FROM startup_partnership_activation_checks WHERE activation_id=? AND check_key=?",(int(i),str(key))).fetchone()
+        if not row:return False,'unknown_check',None
+        con.execute("UPDATE startup_partnership_activation_checks SET evidence=?,completed_at=? WHERE id=?",(ev[:3000],_v3551_now(),row[0])); con.commit(); return True,'',_v3551_entry(u,i,False)
+    finally:con.close()
+
+def _v3551_action(u,i,action,evidence='',note=''):
+    d=_v3551_entry(u,i)
+    if not d:return False,'activation_not_found',None
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); note=str(note or '').strip(); now=_v3551_now()
+    complete=bool(d['checks']) and all(str(x.get('evidence') or '').strip() for x in d['checks'])
+    if a=='READY' and d['state']=='DRAFT' and complete:new='ACTIVATION_READY'
+    elif a=='ACTIVATE' and d['state']=='ACTIVATION_READY' and ev:new='ACTIVE'
+    elif a=='BLOCK' and d['state'] in ('DRAFT','ACTIVATION_READY') and note:new='BLOCKED'
+    else:return False,'invalid_transition_or_missing_evidence',None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE startup_partnership_activations SET state=?,activation_evidence=?,blocker_note=?,updated_at=?,activated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,now if new=='ACTIVE' else '',u,int(i))); con.commit(); return True,'',_v3551_entry(u,i,False)
+    finally:con.close()
+
+def _v3551_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: ids=[r['id'] for r in con.execute("SELECT id FROM startup_partnership_activations WHERE username=? ORDER BY id DESC",(u,)).fetchall()]; used={r['plan_id'] for r in con.execute("SELECT plan_id FROM startup_partnership_activations WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3551_entry(u,i) for i in ids]; eligible=[]
+    try:
+        for x in _v3550_snapshot(u).get('items',[]):
+            if x.get('state')=='COMMITTED' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3551_VERSION,'items':[x for x in items if x],'eligible_plans':eligible,'policy':'Activation requires explicit readiness evidence and never implies external agreement.'}
+
+@app.route('/api/hunter-partnership-activations',methods=['GET','POST'])
+def v3551_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3551_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,i=_v3551_create(u,p.get('plan_id'),p.get('activation_name'),p.get('operating_owner'),p.get('counterpart'),p.get('operating_model'),p.get('shared_objectives'),p.get('dependencies')); return jsonify({'success':ok,'error':e,'activation_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-partnership-activations/<int:i>/check',methods=['POST'])
+def v3551_check_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3551_check(u,i,p.get('check_key'),p.get('evidence')); return jsonify({'success':ok,'error':e,'activation':d}),(200 if ok else 400)
+@app.route('/api/hunter-partnership-activations/<int:i>/action',methods=['POST'])
+def v3551_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3551_action(u,i,p.get('action'),p.get('evidence'),p.get('note')); return jsonify({'success':ok,'error':e,'activation':d}),(200 if ok else 400)
+@app.route('/hunter-partnership-activations')
+def v3551_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3551_snapshot(u); esc=html.escape; opts=''.join(f"<option value='{x['id']}'>Plan #{x['id']} · {esc(x.get('plan_name') or '')}</option>" for x in d['eligible_plans']); cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['activation_name'])}</h2><p>Owner: {esc(x['operating_owner'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.51 Partnership Activation</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.51 · PARTNERSHIP ACTIVATION</small><h1>Turn long-term commitment into an operating partnership.</h1><a href='/hunter-multi-year-plans'>← Multi-Year Plans</a></div><div class='card'><form action='/api/hunter-partnership-activations' onsubmit='return s(this,event)'><select name='plan_id' required><option value=''>Committed plan</option>{}</select><input name='activation_name' placeholder='Activation name' required><input name='operating_owner' placeholder='Operating owner' required><input name='counterpart' placeholder='Counterpart'><textarea name='operating_model' placeholder='Operating model'></textarea><textarea name='shared_objectives' placeholder='Shared objectives'></textarea><textarea name='dependencies' placeholder='Dependencies'></textarea><button>CREATE ACTIVATION</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No activations yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
@@ -87590,6 +87695,7 @@ if __name__ == "__main__":
     print("🗺️ Portfolio Expansion Roadmap Gate enabled")
     print("📊 Executive QBR Evidence + Commitment Gate enabled")
     print("🌐 Multi-Year Partnership Plan + Commitment Gate enabled")
+    print("🤝 Partnership Activation + Operating Model Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
