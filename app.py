@@ -87008,6 +87008,115 @@ try:
         app.view_functions['v3545_page']=_v3546_wrap
 except Exception:pass
 
+
+# ===== V35.47 STRATEGIC REVIEW DECISION + PRIORITY GATE =====
+V3547_VERSION="V35.47"
+V3547_STATES={"DRAFT","REVIEW_READY","DECISION_PENDING","PRIORITIZED","DEFERRED","STALE"}
+def _v3547_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3547_digest(p): return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3547_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_strategic_review_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,growth_review_id INTEGER NOT NULL,priority_theme TEXT NOT NULL,decision_owner TEXT NOT NULL,decision_deadline TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',review_evidence TEXT NOT NULL DEFAULT '',decision_evidence TEXT NOT NULL DEFAULT '',decision_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,decided_at TEXT DEFAULT '',UNIQUE(username,growth_review_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_strategic_review_events(id INTEGER PRIMARY KEY AUTOINCREMENT,decision_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""")
+        con.commit()
+    finally: con.close()
+try:_v3547_init()
+except Exception:pass
+
+def _v3547_source(u,i):
+    try:return _v3546_entry(u,int(i))
+    except:return None
+
+def _v3547_event(con,i,t,d=''):
+    at=_v3547_now(); h=_v3547_digest({'decision_id':int(i),'event_type':t,'detail':str(d),'created_at':at})
+    con.execute("INSERT INTO startup_strategic_review_events(decision_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),str(t)[:80],str(d)[:1800],h,at)); return h
+
+def _v3547_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_strategic_review_decisions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); src=_v3547_source(u,d['growth_review_id']); d['growth_review']=src
+        if refresh and d['state'] not in ('PRIORITIZED','DEFERRED','STALE') and (not src or src.get('state')!='STRATEGIC_REVIEW_READY'):
+            con.execute("UPDATE startup_strategic_review_decisions SET state='STALE',updated_at=? WHERE id=?",(_v3547_now(),int(i))); _v3547_event(con,i,'source_stale','Growth review is no longer strategic-review ready.'); con.commit(); d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3547_create(u,gid,theme,owner,deadline=''):
+    src=_v3547_source(u,gid)
+    if not src or src.get('state')!='STRATEGIC_REVIEW_READY':return False,'strategic_review_ready_required',None
+    if not str(theme or '').strip() or not str(owner or '').strip():return False,'theme_and_owner_required',None
+    now=_v3547_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_strategic_review_decisions(username,growth_review_id,priority_theme,decision_owner,decision_deadline,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(gid),str(theme)[:1200],str(owner)[:180],str(deadline or '')[:120],now,now)); i=cur.lastrowid; _v3547_event(con,i,'strategic_decision_created',f'growth review #{int(gid)}'); con.commit(); return True,'',i
+    except sqlite3.IntegrityError:return False,'decision_already_exists',None
+    finally:con.close()
+
+def _v3547_action(u,i,action,evidence,note=''):
+    d=_v3547_entry(u,i)
+    if not d:return False,'decision_not_found',None
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); note=str(note or '').strip(); now=_v3547_now()
+    if not ev:return False,'evidence_required',None
+    if a=='REVIEW_READY' and d['state']=='DRAFT':new='REVIEW_READY'
+    elif a=='SUBMIT' and d['state']=='REVIEW_READY':new='DECISION_PENDING'
+    elif a in ('PRIORITIZED','DEFERRED') and d['state']=='DECISION_PENDING':new=a
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        if new in ('PRIORITIZED','DEFERRED'):
+            con.execute("UPDATE startup_strategic_review_decisions SET state=?,decision_evidence=?,decision_note=?,decided_at=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,now,u,int(i)))
+        else:
+            con.execute("UPDATE startup_strategic_review_decisions SET state=?,review_evidence=?,decision_note=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,u,int(i)))
+        _v3547_event(con,i,'state_'+new.lower(),ev[:1200]); con.commit(); return True,'',_v3547_entry(u,i,False)
+    finally:con.close()
+
+def _v3547_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: ids=[r['id'] for r in con.execute("SELECT id FROM startup_strategic_review_decisions WHERE username=? ORDER BY id DESC",(u,)).fetchall()]; used={r['growth_review_id'] for r in con.execute("SELECT growth_review_id FROM startup_strategic_review_decisions WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3547_entry(u,i) for i in ids]; eligible=[]
+    try:
+        for x in _v3546_snapshot(u).get('items',[]):
+            if x.get('state')=='STRATEGIC_REVIEW_READY' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3547_VERSION,'items':[x for x in items if x],'eligible_growth_reviews':eligible}
+@app.route('/api/hunter-strategic-review-decisions',methods=['GET','POST'])
+def v3547_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3547_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,i=_v3547_create(u,p.get('growth_review_id'),p.get('priority_theme'),p.get('decision_owner'),p.get('decision_deadline')); return jsonify({'success':ok,'error':e,'decision_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-strategic-review-decisions/<int:i>/action',methods=['POST'])
+def v3547_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3547_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or ''); return jsonify({'success':ok,'error':e,'decision':d}),(200 if ok else 400)
+@app.route('/hunter-strategic-review-decisions')
+def v3547_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3547_snapshot(u); esc=html.escape; opts=''.join(f"<option value='{x['id']}'>Growth review #{x['id']}</option>" for x in d['eligible_growth_reviews']); cards=[]
+    for x in d['items']:
+        i=x['id']; st=x['state']; form=''
+        if st in ('DRAFT','REVIEW_READY','DECISION_PENDING'):
+            if st=='DRAFT':ctl="<input type='hidden' name='action' value='REVIEW_READY'>"
+            elif st=='REVIEW_READY':ctl="<input type='hidden' name='action' value='SUBMIT'>"
+            else:ctl="<select name='action'><option>PRIORITIZED</option><option>DEFERRED</option></select>"
+            form=f"<form action='/api/hunter-strategic-review-decisions/{i}/action' onsubmit='return v3547submit(this,event)'>{ctl}<textarea name='evidence' placeholder='Review / decision evidence' required></textarea><textarea name='note' placeholder='Note'></textarea><button>RECORD</button></form>"
+        cards.append(f"<div class='card'><b>#{i} · {esc(st)}</b><h2>{esc(x['priority_theme'])}</h2><p>Owner: {esc(x['decision_owner'])}</p>{form}</div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.47 Strategic Review</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.47 · STRATEGIC REVIEW DECISION</small><h1>Turn growth evidence into an explicit priority.</h1><a href='/hunter-account-growth'>← Account Growth</a></div><div class='card'><form action='/api/hunter-strategic-review-decisions' onsubmit='return v3547submit(this,event)'><select name='growth_review_id' required><option value=''>Strategic-review-ready growth review</option>{}</select><textarea name='priority_theme' placeholder='Priority theme' required></textarea><input name='decision_owner' placeholder='Decision owner' required><input name='decision_deadline' placeholder='Decision deadline'><button>CREATE STRATEGIC DECISION</button></form></div>{}</div><script>async function v3547submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No strategic decisions yet.</div>')
+try:
+    _p=app.view_functions.get('v3546_page')
+    if _p:
+        def _v3547_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-strategic-review-decisions' not in r:r=r.replace("← Expansion Contract</a>","← Expansion Contract</a> · <a href='/hunter-strategic-review-decisions'>🧭 STRATEGIC DECISION</a>",1)
+            return r
+        app.view_functions['v3546_page']=_v3547_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -87146,6 +87255,7 @@ if __name__ == "__main__":
     print("✍️ Renewal Execution + Contract Activation Gate enabled")
     print("➕ Expansion Contract + Scope Amendment Gate enabled")
     print("📈 Account Growth + Strategic Review Gate enabled")
+    print("🧭 Strategic Review Decision + Priority Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
