@@ -87240,6 +87240,100 @@ try:
 except Exception:pass
 
 
+
+# ===== V35.49 EXECUTIVE QBR EVIDENCE + COMMITMENT GATE =====
+V3549_VERSION="V35.49"
+V3549_STATES={"DRAFT","REVIEW_READY","COMMITMENT_PENDING","COMMITTED","NEEDS_ACTION","STALE"}
+def _v3549_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3549_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_qbrs(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,roadmap_id INTEGER NOT NULL,period_label TEXT NOT NULL,executive_owner TEXT NOT NULL,health_summary TEXT NOT NULL DEFAULT '',value_summary TEXT NOT NULL DEFAULT '',risk_summary TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',review_evidence TEXT NOT NULL DEFAULT '',commitment_evidence TEXT NOT NULL DEFAULT '',commitment_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,committed_at TEXT DEFAULT '',UNIQUE(username,roadmap_id,period_label))"""); con.commit()
+    finally:con.close()
+try:_v3549_init()
+except Exception:pass
+
+def _v3549_source(u,i):
+    try:return _v3548_entry(u,int(i))
+    except:return None
+
+def _v3549_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_executive_qbrs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d['roadmap']=_v3549_source(u,d['roadmap_id'])
+        if refresh and d['state'] not in ('COMMITTED','NEEDS_ACTION','STALE') and (not d['roadmap'] or d['roadmap'].get('state') not in ('ACTIVE','COMPLETE')):
+            con.execute("UPDATE startup_executive_qbrs SET state='STALE',updated_at=? WHERE id=?",(_v3549_now(),int(i))); con.commit(); d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3549_create(u,rid,period,owner,health='',value='',risk=''):
+    src=_v3549_source(u,rid)
+    if not src or src.get('state') not in ('ACTIVE','COMPLETE'):return False,'active_or_complete_roadmap_required',None
+    if not str(period or '').strip() or not str(owner or '').strip():return False,'period_and_owner_required',None
+    now=_v3549_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_executive_qbrs(username,roadmap_id,period_label,executive_owner,health_summary,value_summary,risk_summary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",(u,int(rid),str(period)[:120],str(owner)[:180],str(health or '')[:2000],str(value or '')[:2000],str(risk or '')[:2000],now,now)); con.commit(); return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'qbr_already_exists',None
+    finally:con.close()
+
+def _v3549_action(u,i,action,evidence,note=''):
+    d=_v3549_entry(u,i)
+    if not d:return False,'qbr_not_found',None
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); note=str(note or '').strip(); now=_v3549_now()
+    if not ev:return False,'evidence_required',None
+    if a=='REVIEW_READY' and d['state']=='DRAFT':new='REVIEW_READY'
+    elif a=='SUBMIT' and d['state']=='REVIEW_READY':new='COMMITMENT_PENDING'
+    elif a in ('COMMITTED','NEEDS_ACTION') and d['state']=='COMMITMENT_PENDING':new=a
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        if new in ('COMMITTED','NEEDS_ACTION'):
+            con.execute("UPDATE startup_executive_qbrs SET state=?,commitment_evidence=?,commitment_note=?,committed_at=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,now,u,int(i)))
+        else:
+            con.execute("UPDATE startup_executive_qbrs SET state=?,review_evidence=?,commitment_note=?,updated_at=? WHERE username=? AND id=?",(new,ev[:4000],note[:1800],now,u,int(i)))
+        con.commit(); return True,'',_v3549_entry(u,i,False)
+    finally:con.close()
+
+def _v3549_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_executive_qbrs WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    items=[_v3549_entry(u,i) for i in ids]; eligible=[]
+    try:
+        for x in _v3548_snapshot(u).get('items',[]):
+            if x.get('state') in ('ACTIVE','COMPLETE'):eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3549_VERSION,'items':[x for x in items if x],'eligible_roadmaps':eligible}
+@app.route('/api/hunter-executive-qbrs',methods=['GET','POST'])
+def v3549_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3549_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,i=_v3549_create(u,p.get('roadmap_id'),p.get('period_label'),p.get('executive_owner'),p.get('health_summary'),p.get('value_summary'),p.get('risk_summary')); return jsonify({'success':ok,'error':e,'qbr_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-executive-qbrs/<int:i>/action',methods=['POST'])
+def v3549_action_api(i):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {}); ok,e,d=_v3549_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or ''); return jsonify({'success':ok,'error':e,'qbr':d}),(200 if ok else 400)
+@app.route('/hunter-executive-qbrs')
+def v3549_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3549_snapshot(u); esc=html.escape; opts=''.join(f"<option value='{x['id']}'>Roadmap #{x['id']} · {esc(x.get('roadmap_name') or '')}</option>" for x in d['eligible_roadmaps']); cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['period_label'])}</h2><p>{esc(x['value_summary'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.49 Executive QBR</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.49 · EXECUTIVE QBR</small><h1>Review value, risk and executive commitments.</h1><a href='/hunter-portfolio-roadmaps'>← Portfolio Roadmap</a></div><div class='card'><form action='/api/hunter-executive-qbrs' onsubmit='return v3549submit(this,event)'><select name='roadmap_id' required><option value=''>Active roadmap</option>{}</select><input name='period_label' placeholder='QBR period' required><input name='executive_owner' placeholder='Executive owner' required><textarea name='health_summary' placeholder='Health summary'></textarea><textarea name='value_summary' placeholder='Value summary'></textarea><textarea name='risk_summary' placeholder='Risk summary'></textarea><button>CREATE QBR</button></form></div>{}</div><script>async function v3549submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No executive QBRs yet.</div>')
+try:
+    _p=app.view_functions.get('v3548_page')
+    if _p:
+        def _v3549_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-executive-qbrs' not in r:r=r.replace("← Strategic Decision</a>","← Strategic Decision</a> · <a href='/hunter-executive-qbrs'>📊 EXECUTIVE QBR</a>",1)
+            return r
+        app.view_functions['v3548_page']=_v3549_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -87380,6 +87474,7 @@ if __name__ == "__main__":
     print("📈 Account Growth + Strategic Review Gate enabled")
     print("🧭 Strategic Review Decision + Priority Gate enabled")
     print("🗺️ Portfolio Expansion Roadmap Gate enabled")
+    print("📊 Executive QBR Evidence + Commitment Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
