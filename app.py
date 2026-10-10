@@ -89676,6 +89676,122 @@ def v3574_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['attestation_name'])}</h2><p>Executive: {esc(x['executive_name'])}</p><p>Seal: {esc((x.get('attestation_sha256') or '')[:24])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.74 Executive Attestation</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.74 · EXECUTIVE ATTESTATION</small><h1>Seal a published trust profile with explicit executive attestation.</h1></div>{}</div>""".format(cards or '<div class="card">No attestations yet.</div>')
 
+
+# ===== V35.75 ATTESTATION RENEWAL + REVOCATION WATCH GATE =====
+V3575_VERSION="V35.75"
+V3575_STATES={"CURRENT","DUE","RENEWED","REVOKED","STALE"}
+
+def _v3575_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3575_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_attestation_lifecycle(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            attestation_id INTEGER NOT NULL,
+            review_interval_days INTEGER NOT NULL DEFAULT 180,
+            due_at TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'CURRENT',
+            renewal_evidence TEXT NOT NULL DEFAULT '',
+            revocation_evidence TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            renewed_at TEXT DEFAULT '',
+            revoked_at TEXT DEFAULT '',
+            UNIQUE(username,attestation_id)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3575_init()
+except Exception:pass
+
+def _v3575_attestation(u,i):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_executive_attestations WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3575_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_attestation_lifecycle WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d["attestation"]=_v3575_attestation(u,d["attestation_id"])
+        if refresh and d["state"] not in ("RENEWED","REVOKED","STALE"):
+            a=d["attestation"]
+            if not a or a.get("state")!="ATTESTED":
+                new="STALE"
+            else:
+                try:
+                    due=datetime.fromisoformat(str(d["due_at"]).replace("Z","+00:00"))
+                    now=datetime.fromisoformat(_v3575_now().replace("Z","+00:00"))
+                    new="DUE" if due<=now else d["state"]
+                except Exception:
+                    new=d["state"]
+            if new!=d["state"]:
+                con.execute("UPDATE startup_attestation_lifecycle SET state=?,updated_at=? WHERE id=?",(new,_v3575_now(),int(i)));con.commit();d["state"]=new
+        return d
+    finally:con.close()
+
+def _v3575_create(u,aid,days=180):
+    a=_v3575_attestation(u,aid)
+    if not a or a.get("state")!="ATTESTED":return False,"attested_record_required",None
+    days=max(1,min(int(days or 180),3650))
+    now=datetime.utcnow();due=(now+timedelta(days=days)).isoformat(timespec="seconds")+"Z";now_iso=now.isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_attestation_lifecycle
+        (username,attestation_id,review_interval_days,due_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)""",(u,int(aid),days,due,now_iso,now_iso))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"lifecycle_already_exists",None
+    finally:con.close()
+
+def _v3575_action(u,i,action,evidence="",note=""):
+    d=_v3575_entry(u,i);a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3575_now()
+    if not d or not ev:return False,"record_and_evidence_required",None
+    if a=="RENEW" and d["state"] in ("CURRENT","DUE"):new="RENEWED"
+    elif a=="REVOKE" and d["state"] in ("CURRENT","DUE","RENEWED"):new="REVOKED"
+    else:return False,"invalid_transition",None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""UPDATE startup_attestation_lifecycle SET state=?,
+        renewal_evidence=CASE WHEN ?='RENEWED' THEN ? ELSE renewal_evidence END,
+        revocation_evidence=CASE WHEN ?='REVOKED' THEN ? ELSE revocation_evidence END,
+        note=?,renewed_at=CASE WHEN ?='RENEWED' THEN ? ELSE renewed_at END,
+        revoked_at=CASE WHEN ?='REVOKED' THEN ? ELSE revoked_at END,updated_at=?
+        WHERE username=? AND id=?""",
+        (new,new,ev[:5000],new,ev[:5000],str(note or "")[:1800],new,now,new,now,now,u,int(i)))
+        con.commit();return True,"",_v3575_entry(u,i,False)
+    finally:con.close()
+
+def _v3575_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_attestation_lifecycle WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3575_VERSION,"items":[x for x in (_v3575_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-attestation-lifecycle",methods=["GET","POST"])
+def v3575_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3575_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3575_create(u,p.get("attestation_id"),p.get("review_interval_days") or 180)
+    return jsonify({"success":ok,"error":e,"lifecycle_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-attestation-lifecycle")
+def v3575_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3575_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Due: {esc(x.get('due_at') or '-')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.75 Attestation Lifecycle</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.75 · ATTESTATION LIFECYCLE</small><h1>Renew or revoke executive attestations explicitly.</h1><a href='/hunter-executive-attestations'>← Executive Attestations</a></div>{}</div>""".format(cards or '<div class="card">No attestation lifecycle records yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
