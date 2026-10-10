@@ -88096,6 +88096,81 @@ def v3557_page():
     d=_v3557_snapshot(u);esc=html.escape;cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['scenario_name'])}</h2><p>Owner: {esc(x['exercise_owner'])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.57 Continuity Resilience Exercises</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.57 · RESILIENCE EXERCISE</small><h1>Prove succession works under a real scenario.</h1><a href='/hunter-succession-readiness'>← Succession Readiness</a></div>{}</div>""".format(cards or '<div class="card">No resilience exercises yet.</div>')
 
+
+# ===== V35.58 EXECUTIVE ASSURANCE + CONTINUITY CERTIFICATION GATE =====
+V3558_VERSION="V35.58"
+V3558_STATES={"DRAFT","ASSURANCE_READY","CERTIFIED","REVIEW_REQUIRED","STALE"}
+def _v3558_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3558_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_continuity_assurance(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,exercise_id INTEGER NOT NULL,assurance_name TEXT NOT NULL,executive_owner TEXT NOT NULL,assurance_scope TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',review_evidence TEXT NOT NULL DEFAULT '',certification_evidence TEXT NOT NULL DEFAULT '',evidence_sha256 TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,certified_at TEXT DEFAULT '',UNIQUE(username,exercise_id))""");con.commit()
+    finally:con.close()
+try:_v3558_init()
+except Exception:pass
+
+def _v3558_source(u,i):
+    try:return _v3557_entry(u,int(i))
+    except:return None
+
+def _v3558_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_executive_continuity_assurance WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d['exercise']=_v3558_source(u,d['exercise_id'])
+        if refresh and d['state'] not in ('CERTIFIED','REVIEW_REQUIRED','STALE') and (not d['exercise'] or d['exercise'].get('state')!='PASSED'):
+            con.execute("UPDATE startup_executive_continuity_assurance SET state='STALE',updated_at=? WHERE id=?",(_v3558_now(),int(i)));con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3558_create(u,eid,name,owner,scope=''):
+    s=_v3558_source(u,eid)
+    if not s or s.get('state')!='PASSED':return False,'passed_exercise_required',None
+    if not str(name or '').strip() or not str(owner or '').strip():return False,'name_and_owner_required',None
+    now=_v3558_now();con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_executive_continuity_assurance(username,exercise_id,assurance_name,executive_owner,assurance_scope,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(eid),str(name)[:240],str(owner)[:180],str(scope or '')[:3000],now,now));con.commit();return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'assurance_already_exists',None
+    finally:con.close()
+
+def _v3558_action(u,i,action,evidence='',note=''):
+    d=_v3558_entry(u,i);a=str(action or '').upper();ev=str(evidence or '').strip();now=_v3558_now()
+    if not d or not ev:return False,'assurance_and_evidence_required',None
+    if a=='READY' and d['state']=='DRAFT':new='ASSURANCE_READY'
+    elif a=='CERTIFY' and d['state']=='ASSURANCE_READY':new='CERTIFIED'
+    elif a=='REVIEW_REQUIRED' and d['state'] in ('DRAFT','ASSURANCE_READY','CERTIFIED'):new='REVIEW_REQUIRED'
+    else:return False,'invalid_transition',None
+    digest=hashlib.sha256(json.dumps({'assurance_id':int(i),'action':a,'evidence':ev,'note':str(note or ''),'utc':now},sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
+    con=sqlite3.connect(DB)
+    try:con.execute("UPDATE startup_executive_continuity_assurance SET state=?,review_evidence=CASE WHEN ? IN ('ASSURANCE_READY','REVIEW_REQUIRED') THEN ? ELSE review_evidence END,certification_evidence=CASE WHEN ?='CERTIFIED' THEN ? ELSE certification_evidence END,evidence_sha256=?,note=?,certified_at=CASE WHEN ?='CERTIFIED' THEN ? ELSE certified_at END,updated_at=? WHERE username=? AND id=?",(new,new,ev[:5000],new,ev[:5000],digest,str(note or '')[:1800],new,now,now,u,int(i)));con.commit();return True,'',_v3558_entry(u,i,False)
+    finally:con.close()
+
+def _v3558_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_executive_continuity_assurance WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {'success':True,'version':V3558_VERSION,'items':[x for x in (_v3558_entry(u,i) for i in ids) if x],'policy':'Continuity certification is based only on explicit passed exercise evidence and executive review.'}
+
+@app.route('/api/hunter-executive-continuity-assurance',methods=['GET','POST'])
+def v3558_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3558_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3558_create(u,p.get('exercise_id'),p.get('assurance_name'),p.get('executive_owner'),p.get('assurance_scope'));return jsonify({'success':ok,'error':e,'assurance_id':i}),(200 if ok else 400)
+
+@app.route('/api/hunter-executive-continuity-assurance/<int:i>/action',methods=['POST'])
+def v3558_action_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3558_action(u,i,p.get('action'),p.get('evidence'),p.get('note'));return jsonify({'success':ok,'error':e,'assurance':d}),(200 if ok else 400)
+
+@app.route('/hunter-executive-continuity-assurance')
+def v3558_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3558_snapshot(u);esc=html.escape;cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['assurance_name'])}</h2><p>Executive owner: {esc(x['executive_owner'])}</p><p>SHA-256: {esc((x.get('evidence_sha256') or '')[:16])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.58 Executive Continuity Assurance</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.58 · EXECUTIVE CONTINUITY ASSURANCE</small><h1>Seal tested continuity evidence into executive assurance.</h1><a href='/hunter-continuity-resilience-exercises'>← Resilience Exercises</a></div>{}</div>""".format(cards or '<div class="card">No continuity assurance records yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
