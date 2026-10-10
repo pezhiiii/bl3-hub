@@ -87746,6 +87746,90 @@ def v3553_page():
     d=_v3553_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Cadence #{x['id']} · {esc(x.get('cadence_name') or '')}</option>" for x in d['eligible_cadences']);cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['ledger_name'])}</h2><p>Owner: {esc(x['value_owner'])} · Benefits: {len(x['items'])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.53 Value Realization</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.53 · PORTFOLIO VALUE REALIZATION</small><h1>Track realized value as evidence-backed benefits.</h1><a href='/hunter-governance-cadences'>← Governance Cadence</a></div><div class='card'><form action='/api/hunter-value-realization-ledgers' onsubmit='return s(this,event)'><select name='cadence_id' required><option value=''>Active cadence</option>{}</select><input name='ledger_name' placeholder='Ledger name' required><input name='value_owner' placeholder='Value owner' required><input name='measurement_window' placeholder='Measurement window'><button>CREATE LEDGER</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No value ledgers yet.</div>')
 
+
+# ===== V35.54 EXECUTIVE RENEWAL HORIZON + CONTINUITY GATE =====
+V3554_VERSION="V35.54"
+V3554_STATES={"DRAFT","HORIZON_READY","CONTINUITY_REVIEW","RENEWAL_PATH_CONFIRMED","REPLAN_REQUIRED","STALE"}
+def _v3554_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3554_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_renewal_horizons(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,ledger_id INTEGER NOT NULL,horizon_name TEXT NOT NULL,review_months INTEGER NOT NULL DEFAULT 12,executive_owner TEXT NOT NULL,continuity_objectives TEXT NOT NULL DEFAULT '',renewal_options TEXT NOT NULL DEFAULT '',risk_summary TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',review_evidence TEXT NOT NULL DEFAULT '',decision_evidence TEXT NOT NULL DEFAULT '',decision_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,decided_at TEXT DEFAULT '',UNIQUE(username,ledger_id))""")
+        con.commit()
+    finally:con.close()
+try:_v3554_init()
+except Exception:pass
+
+def _v3554_source(u,i):
+    try:return _v3553_entry(u,int(i))
+    except:return None
+
+def _v3554_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_executive_renewal_horizons WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d['ledger']=_v3554_source(u,d['ledger_id'])
+        if refresh and d['state'] not in ('RENEWAL_PATH_CONFIRMED','REPLAN_REQUIRED','STALE') and (not d['ledger'] or d['ledger'].get('state')!='VALUE_CONFIRMED'):
+            con.execute("UPDATE startup_executive_renewal_horizons SET state='STALE',updated_at=? WHERE id=?",(_v3554_now(),int(i)));con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3554_create(u,lid,name,months,owner,objectives='',options='',risks=''):
+    src=_v3554_source(u,lid)
+    if not src or src.get('state')!='VALUE_CONFIRMED':return False,'confirmed_value_required',None
+    if not str(name or '').strip() or not str(owner or '').strip():return False,'name_and_owner_required',None
+    try:months=max(1,min(int(months or 12),60))
+    except:months=12
+    now=_v3554_now();con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_executive_renewal_horizons(username,ledger_id,horizon_name,review_months,executive_owner,continuity_objectives,renewal_options,risk_summary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(u,int(lid),str(name)[:240],months,str(owner)[:180],str(objectives or '')[:3000],str(options or '')[:2500],str(risks or '')[:2500],now,now));con.commit();return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'horizon_already_exists',None
+    finally:con.close()
+
+def _v3554_action(u,i,action,evidence,note=''):
+    d=_v3554_entry(u,i);a=str(action or '').upper();ev=str(evidence or '').strip();note=str(note or '').strip();now=_v3554_now()
+    if not d or not ev:return False,'horizon_and_evidence_required',None
+    if a=='READY' and d['state']=='DRAFT':new='HORIZON_READY'
+    elif a=='REVIEW' and d['state']=='HORIZON_READY':new='CONTINUITY_REVIEW'
+    elif a in ('RENEWAL_PATH_CONFIRMED','REPLAN_REQUIRED') and d['state']=='CONTINUITY_REVIEW':new=a
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        if new in ('RENEWAL_PATH_CONFIRMED','REPLAN_REQUIRED'):
+            con.execute("UPDATE startup_executive_renewal_horizons SET state=?,decision_evidence=?,decision_note=?,decided_at=?,updated_at=? WHERE username=? AND id=?",(new,ev[:5000],note[:1800],now,now,u,int(i)))
+        else:
+            con.execute("UPDATE startup_executive_renewal_horizons SET state=?,review_evidence=?,decision_note=?,updated_at=? WHERE username=? AND id=?",(new,ev[:5000],note[:1800],now,u,int(i)))
+        con.commit();return True,'',_v3554_entry(u,i,False)
+    finally:con.close()
+
+def _v3554_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_executive_renewal_horizons WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['ledger_id'] for r in con.execute("SELECT ledger_id FROM startup_executive_renewal_horizons WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3554_entry(u,i) for i in ids];eligible=[]
+    try:
+        for x in _v3553_snapshot(u).get('items',[]):
+            if x.get('state')=='VALUE_CONFIRMED' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3554_VERSION,'items':[x for x in items if x],'eligible_ledgers':eligible,'policy':'Renewal continuity is an explicit executive decision based on observed value evidence.'}
+@app.route('/api/hunter-executive-renewal-horizons',methods=['GET','POST'])
+def v3554_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3554_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3554_create(u,p.get('ledger_id'),p.get('horizon_name'),p.get('review_months'),p.get('executive_owner'),p.get('continuity_objectives'),p.get('renewal_options'),p.get('risk_summary'));return jsonify({'success':ok,'error':e,'horizon_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-executive-renewal-horizons/<int:i>/action',methods=['POST'])
+def v3554_action_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3554_action(u,i,p.get('action'),p.get('evidence'),p.get('note'));return jsonify({'success':ok,'error':e,'horizon':d}),(200 if ok else 400)
+@app.route('/hunter-executive-renewal-horizons')
+def v3554_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3554_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Ledger #{x['id']} · {esc(x.get('ledger_name') or '')}</option>" for x in d['eligible_ledgers']);cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['horizon_name'])}</h2><p>{x['review_months']} months · Executive owner: {esc(x['executive_owner'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.54 Executive Renewal Horizon</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.54 · EXECUTIVE RENEWAL HORIZON</small><h1>Turn proven value into an explicit continuity decision.</h1><a href='/hunter-value-realization'>← Value Realization</a></div><div class='card'><form action='/api/hunter-executive-renewal-horizons' onsubmit='return s(this,event)'><select name='ledger_id' required><option value=''>Confirmed value ledger</option>{}</select><input name='horizon_name' placeholder='Horizon name' required><input name='review_months' type='number' min='1' max='60' value='12'><input name='executive_owner' placeholder='Executive owner' required><textarea name='continuity_objectives' placeholder='Continuity objectives'></textarea><textarea name='renewal_options' placeholder='Renewal options'></textarea><textarea name='risk_summary' placeholder='Risk summary'></textarea><button>CREATE HORIZON</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No renewal horizons yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
@@ -87891,6 +87975,7 @@ if __name__ == "__main__":
     print("🤝 Partnership Activation + Operating Model Gate enabled")
     print("🧭 Governance Cadence + Decision Log Gate enabled")
     print("📈 Portfolio Value Realization + Benefit Ledger Gate enabled")
+    print("♻️ Executive Renewal Horizon + Continuity Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
