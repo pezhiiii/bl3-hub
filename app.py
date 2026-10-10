@@ -88959,6 +88959,143 @@ def v3565_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['band'])}</b><h2>{esc(x['benchmark_name'])}</h2><p>Score: {x['score']}/100 · SHA-256 {esc(x['evidence_sha256'][:16])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.65 Enterprise Benchmark</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.65 · ENTERPRISE RESILIENCE BENCHMARK</small><h1>Current resilience: {}/100 · {}</h1></div>{}</div>""".format(c["score"],esc(c["band"]),cards or '<div class="card">No benchmark snapshots yet.</div>')
 
+
+# ===== V35.66 EXTERNAL ASSURANCE PACK + SANITIZED EXPORT GATE =====
+V3566_VERSION="V35.66"
+V3566_STATES={"DRAFT","SEALED","STALE"}
+
+def _v3566_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3566_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_assurance_packs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,benchmark_id INTEGER NOT NULL,
+            pack_name TEXT NOT NULL,recipient_label TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',
+            payload_json TEXT NOT NULL DEFAULT '{}',evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,updated_at TEXT NOT NULL,sealed_at TEXT DEFAULT '',
+            UNIQUE(username,benchmark_id,pack_name)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3566_init()
+except Exception:pass
+
+def _v3566_benchmark(u,i):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_enterprise_resilience_benchmarks WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3566_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_assurance_packs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d["benchmark"]=_v3566_benchmark(u,d["benchmark_id"])
+        if refresh and d["state"]=="SEALED" and not d["benchmark"]:
+            con.execute("UPDATE startup_external_assurance_packs SET state='STALE',updated_at=? WHERE id=?",(_v3566_now(),int(i))); con.commit(); d["state"]="STALE"
+        return d
+    finally:con.close()
+
+def _v3566_create(u,bid,name,recipient=""):
+    b=_v3566_benchmark(u,bid)
+    if not b:return False,"benchmark_required",None
+    if not str(name or "").strip():return False,"pack_name_required",None
+    now=_v3566_now()
+    payload={
+        "version":V3566_VERSION,
+        "benchmark":{"score":b["score"],"band":b["band"],"scorecard_count":b["scorecard_count"],"monitor_count":b["monitor_count"],"drift_count":b["drift_count"],"incident_count":b["incident_count"]},
+        "policy":"Sanitized external assurance pack. No sessions, secrets, wallet data, raw request bodies, database paths or hidden visitor identifiers are included.",
+        "generated_at":now
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+    digest=hashlib.sha256(raw.encode()).hexdigest()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_external_assurance_packs
+        (username,benchmark_id,pack_name,recipient_label,state,payload_json,evidence_sha256,created_at,updated_at,sealed_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)""",(u,int(bid),str(name)[:240],str(recipient or "")[:240],"SEALED",raw,digest,now,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"pack_already_exists",None
+    finally:con.close()
+
+def _v3566_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_external_assurance_packs WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3566_VERSION,"items":[x for x in (_v3566_entry(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-external-assurance-packs",methods=["GET","POST"])
+def v3566_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3566_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3566_create(u,p.get("benchmark_id"),p.get("pack_name"),p.get("recipient_label"))
+    return jsonify({"success":ok,"error":e,"pack_id":i}),(200 if ok else 400)
+
+@app.route("/api/hunter-external-assurance-packs/<int:i>/export")
+def v3566_export(i):
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    d=_v3566_entry(u,i)
+    if not d:return jsonify({"success":False,"error":"pack_not_found"}),404
+    return jsonify({"success":True,"version":V3566_VERSION,"pack_name":d["pack_name"],"state":d["state"],"evidence_sha256":d["evidence_sha256"],"payload":json.loads(d["payload_json"])})
+
+@app.route("/hunter-external-assurance-packs")
+def v3566_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3566_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['pack_name'])}</h2><p>Recipient: {esc(x.get('recipient_label') or '-')} · SHA-256 {esc(x['evidence_sha256'][:16])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.66 External Assurance Packs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.66 · EXTERNAL ASSURANCE PACK</small><h1>Export a sanitized, sealed resilience proof package.</h1><a href='/hunter-enterprise-resilience-benchmarks'>← Enterprise Benchmark</a></div>{}</div>""".format(cards or '<div class="card">No assurance packs yet.</div>')
+
+
+# ===== V35.67 EXTERNAL ASSURANCE VERIFICATION PORTAL GATE =====
+V3567_VERSION="V35.67"
+
+def _v3567_pack(u,i):
+    try:return _v3566_entry(u,int(i))
+    except Exception:return None
+
+def _v3567_verify_payload(pack):
+    if not pack:return {"valid":False,"error":"pack_not_found"}
+    try:
+        payload=json.loads(pack.get("payload_json") or "{}")
+        raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+        digest=hashlib.sha256(raw.encode()).hexdigest()
+        return {
+            "valid": digest == (pack.get("evidence_sha256") or ""),
+            "computed_sha256": digest,
+            "stored_sha256": pack.get("evidence_sha256") or "",
+            "state": pack.get("state"),
+            "pack_name": pack.get("pack_name"),
+            "payload": payload
+        }
+    except Exception:
+        return {"valid":False,"error":"verification_failed"}
+
+@app.route("/api/hunter-external-assurance-packs/<int:i>/verify")
+def v3567_verify_api(i):
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    d=_v3567_verify_payload(_v3567_pack(u,i))
+    return jsonify({"success":True,"version":V3567_VERSION,**d})
+
+@app.route("/hunter-assurance-verification")
+def v3567_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    try:d=_v3566_snapshot(u)
+    except Exception:d={"items":[]}
+    esc=html.escape
+    cards=[]
+    for x in d.get("items",[]):
+        v=_v3567_verify_payload(x)
+        cards.append(f"<div class='card'><b>Pack #{x['id']} · {'VERIFIED' if v.get('valid') else 'MISMATCH'}</b><h2>{esc(x.get('pack_name') or '')}</h2><p>State: {esc(x.get('state') or '')}</p><p>SHA-256: {esc((x.get('evidence_sha256') or '')[:24])}</p><a href='/api/hunter-external-assurance-packs/{x['id']}/verify'>VERIFY JSON</a></div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.67 Assurance Verification</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.67 · EXTERNAL ASSURANCE VERIFICATION PORTAL</small><h1>Verify sealed assurance packs against their SHA-256 payload digest.</h1><a href='/hunter-external-assurance-packs'>← External Assurance Packs</a></div>{}</div>""".format("".join(cards) or '<div class="card">No assurance packs available.</div>')
+
 if __name__ == "__main__":
 
     init_db()
