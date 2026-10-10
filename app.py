@@ -89934,6 +89934,51 @@ def v3577_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['exception_name'])}</h2><p>Owner: {esc(x['owner'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.77 Trust Exceptions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.77 · EXCEPTION + WAIVER REGISTRY</small><h1>Track explicit trust exceptions instead of hiding them.</h1></div>{}</div>""".format(cards or '<div class="card">No exceptions yet.</div>')
 
+
+# ===== V35.78 AUDIT-READY TRUST BUNDLE + MANIFEST GATE =====
+V3578_VERSION="V35.78"
+
+def _v3578_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3578_bundle(u,profile_id):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        p=con.execute("SELECT * FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(profile_id))).fetchone()
+        if not p:return None
+        p=dict(p)
+        atts=[dict(r) for r in con.execute("SELECT * FROM startup_executive_attestations WHERE username=? AND profile_id=? ORDER BY id",(u,int(profile_id))).fetchall()]
+        maps=[dict(r) for r in con.execute("SELECT * FROM startup_compliance_mappings WHERE username=? AND profile_id=? ORDER BY id",(u,int(profile_id))).fetchall()]
+        exc=[dict(r) for r in con.execute("SELECT * FROM startup_trust_exceptions WHERE username=? AND profile_id=? ORDER BY id",(u,int(profile_id))).fetchall()]
+    finally:con.close()
+    safe_profile={"profile_name":p["profile_name"],"public_slug":p["public_slug"],"summary":p["summary"],"state":p["state"],"evidence_sha256":p["evidence_sha256"],"published_at":p["published_at"]}
+    safe_atts=[{"id":a["id"],"name":a["attestation_name"],"executive":a["executive_name"],"state":a["state"],"attestation_sha256":a["attestation_sha256"]} for a in atts]
+    safe_maps=[{"framework":m["framework_name"],"control_id":m["control_id"],"control_title":m["control_title"],"state":m["state"]} for m in maps]
+    safe_exc=[{"name":e["exception_name"],"state":e["state"],"expires_at":e["expires_at"]} for e in exc]
+    manifest={"version":V3578_VERSION,"generated_at":_v3578_now(),"profile":safe_profile,"attestations":safe_atts,"compliance_mappings":safe_maps,"exceptions":safe_exc}
+    raw=json.dumps(manifest,sort_keys=True,separators=(",",":"))
+    manifest["bundle_sha256"]=hashlib.sha256(raw.encode()).hexdigest()
+    manifest["policy"]="Audit bundle excludes sessions, secrets, wallet data, raw request bodies and private database paths."
+    return manifest
+
+@app.route("/api/hunter-audit-trust-bundle/<int:profile_id>")
+def v3578_api(profile_id):
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    d=_v3578_bundle(u,profile_id)
+    if not d:return jsonify({"success":False,"error":"profile_not_found"}),404
+    return jsonify({"success":True,"bundle":d})
+
+@app.route("/hunter-audit-trust-bundles")
+def v3578_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:profiles=[dict(r) for r in con.execute("SELECT id,profile_name,state FROM startup_public_trust_profiles WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    esc=html.escape
+    cards="".join(f"<div class='card'><b>Profile #{p['id']} · {esc(p['state'])}</b><h2>{esc(p['profile_name'])}</h2><a href='/api/hunter-audit-trust-bundle/{p['id']}'>EXPORT BUNDLE JSON</a></div>" for p in profiles)
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.78 Audit Trust Bundles</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.78 · AUDIT-READY TRUST BUNDLE</small><h1>Export a sanitized manifest of trust, controls, attestations and exceptions.</h1></div>{}</div>""".format(cards or '<div class="card">No trust profiles yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
