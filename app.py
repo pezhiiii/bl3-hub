@@ -86305,6 +86305,108 @@ try:
 except Exception: pass
 
 
+
+# ===== V35.40 EXPANSION READINESS + STAKEHOLDER VALIDATION GATE =====
+V3540_VERSION="V35.40"; V3540_STATES={"DRAFT","VALIDATION_READY","APPROVED","HOLD","STALE"}
+def _v3540_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3540_digest(p): return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3540_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_expansion_readiness(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,adoption_review_id INTEGER NOT NULL,expansion_title TEXT NOT NULL,expansion_scope TEXT NOT NULL,expansion_hypothesis TEXT NOT NULL,stakeholder TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',validation_evidence TEXT NOT NULL DEFAULT '',decision_evidence TEXT NOT NULL DEFAULT '',decision_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,decided_at TEXT DEFAULT '',UNIQUE(username,adoption_review_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_expansion_readiness_events(id INTEGER PRIMARY KEY AUTOINCREMENT,expansion_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""")
+        con.commit()
+    finally:con.close()
+try:_v3540_init()
+except Exception:pass
+
+def _v3540_source(u,i):
+    try:return _v3539_entry(u,int(i))
+    except:return None
+
+def _v3540_event(con,i,t,d=''):
+    at=_v3540_now(); h=_v3540_digest({'expansion_id':int(i),'event_type':t,'detail':d,'created_at':at}); con.execute("INSERT INTO startup_expansion_readiness_events(expansion_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),t[:80],str(d)[:1800],h,at));return h
+
+def _v3540_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_expansion_readiness WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);src=_v3540_source(u,d['adoption_review_id']);d['adoption_review']=src
+        if refresh and d['state'] not in ('APPROVED','HOLD','STALE') and (not src or src.get('state')!='ADOPTED'):
+            con.execute("UPDATE startup_expansion_readiness SET state='STALE',updated_at=? WHERE id=?",(_v3540_now(),int(i)));_v3540_event(con,i,'source_stale','Adoption source no longer ADOPTED.');con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3540_create(u,source_id,title,scope,hypothesis,stakeholder=''):
+    src=_v3540_source(u,source_id)
+    if not src or src.get('state')!='ADOPTED':return False,'adopted_review_required',None
+    if any(not str(v or '').strip() for v in (title,scope,hypothesis)):return False,'title_scope_hypothesis_required',None
+    now=_v3540_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_expansion_readiness(username,adoption_review_id,expansion_title,expansion_scope,expansion_hypothesis,stakeholder,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(u,int(source_id),str(title)[:180],str(scope)[:2200],str(hypothesis)[:2200],str(stakeholder)[:180],now,now));i=cur.lastrowid;_v3540_event(con,i,'expansion_created',f'adoption #{int(source_id)}');con.commit();return True,'',i
+    except sqlite3.IntegrityError:return False,'expansion_already_exists',None
+    finally:con.close()
+
+def _v3540_action(u,i,action,evidence,note=''):
+    d=_v3540_entry(u,i)
+    if not d:return False,'expansion_not_found',None
+    a=str(action or '').upper();ev=str(evidence or '').strip();note=str(note or '').strip();now=_v3540_now()
+    if not ev:return False,'evidence_required',None
+    if a=='VALIDATE' and d['state']=='DRAFT':new='VALIDATION_READY'; field='validation_evidence'
+    elif a in ('APPROVED','HOLD') and d['state']=='VALIDATION_READY':new=a;field='decision_evidence'
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        extra=',decision_note=?,decided_at=?' if new in ('APPROVED','HOLD') else ''
+        vals=(new,ev[:4000],now,note[:1800],now,u,int(i)) if extra else (new,ev[:4000],now,u,int(i))
+        con.execute(f"UPDATE startup_expansion_readiness SET state=?,{field}=?,updated_at=?{extra} WHERE username=? AND id=?",vals);_v3540_event(con,i,'expansion_'+new.lower(),ev[:1200]);con.commit();return True,'',_v3540_entry(u,i,False)
+    finally:con.close()
+
+def _v3540_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_expansion_readiness WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['adoption_review_id'] for r in con.execute("SELECT adoption_review_id FROM startup_expansion_readiness WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3540_entry(u,i) for i in ids];eligible=[]
+    try:
+        for x in _v3539_snapshot(u).get('items',[]):
+            if x.get('state')=='ADOPTED' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3540_VERSION,'items':[x for x in items if x],'eligible_adoption_reviews':eligible,'policy':'Expansion approval requires explicit stakeholder validation evidence; BL3 does not infer customer approval.'}
+
+@app.route('/api/hunter-expansion-readiness',methods=['GET','POST'])
+def v3540_api():
+    u=session.get('authenticated_username');
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3540_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3540_create(u,p.get('adoption_review_id'),p.get('expansion_title'),p.get('expansion_scope'),p.get('expansion_hypothesis'),p.get('stakeholder') or '');return jsonify({'success':ok,'error':e,'expansion_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-expansion-readiness/<int:i>/action',methods=['POST'])
+def v3540_action_api(i):
+    u=session.get('authenticated_username');
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,d=_v3540_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or '');return jsonify({'success':ok,'error':e,'expansion':d}),(200 if ok else 400)
+@app.route('/hunter-expansion-readiness')
+def v3540_page():
+    u=session.get('authenticated_username');
+    if not u:return redirect('/')
+    d=_v3540_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Adoption #{x['id']} · {esc(x.get('adoption_title') or '')}</option>" for x in d['eligible_adoption_reviews']);cards=[]
+    for x in d['items']:
+        i=x['id'];st=x['state'];act=''
+        if st=='DRAFT':act=f"<form action='/api/hunter-expansion-readiness/{i}/action' onsubmit='return v3540submit(this,event)'><input type='hidden' name='action' value='VALIDATE'><textarea name='evidence' placeholder='Stakeholder validation evidence' required></textarea><button>VALIDATION READY</button></form>"
+        elif st=='VALIDATION_READY':act=f"<form action='/api/hunter-expansion-readiness/{i}/action' onsubmit='return v3540submit(this,event)'><select name='action'><option>APPROVED</option><option>HOLD</option></select><textarea name='evidence' placeholder='Explicit decision evidence' required></textarea><textarea name='note' placeholder='Decision note'></textarea><button>RECORD DECISION</button></form>"
+        cards.append(f"<article class='card'><b>#{i} · {esc(st)}</b><h2>{esc(x['expansion_title'])}</h2><p>{esc(x['expansion_scope'])}</p>{act}</article>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.40 Expansion</title><style>body{background:#06080b;color:white;font-family:Arial}.w{max-width:1200px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #354d58;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.40 · EXPANSION READINESS</small><h1>Adoption does not automatically justify expansion.</h1><a href='/hunter-value-adoption'>← Adoption</a></div><div class='card'><form action='/api/hunter-expansion-readiness' onsubmit='return v3540submit(this,event)'><select name='adoption_review_id' required><option value=''>Adopted review</option>{}</select><input name='expansion_title' placeholder='Expansion title' required><textarea name='expansion_scope' placeholder='Proposed expanded scope' required></textarea><textarea name='expansion_hypothesis' placeholder='Why expansion should create more value' required></textarea><input name='stakeholder' placeholder='Stakeholder / sponsor'><button>CREATE</button></form></div>{}</div><script>async function v3540submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No expansion reviews yet.</div>')
+try:
+    _p=app.view_functions.get('v3539_page')
+    if _p:
+        def _v3540_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-expansion-readiness' not in r:r=r.replace("← First Value</a>","← First Value</a> · <a href='/hunter-expansion-readiness'>🧭 EXPANSION</a>",1)
+            return r
+        app.view_functions['v3539_page']=_v3540_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -86435,6 +86537,7 @@ if __name__ == "__main__":
     print("📑 Decision Package + Approval Evidence Gate enabled")
     print("🚀 Execution Handoff + Kickoff Readiness Gate enabled")
     print("🎯 First Value Checkpoint + Launch-to-Value Gate enabled")
+    print("🧭 Expansion Readiness + Stakeholder Validation Gate enabled")
     print("📈 Value Adoption + Usage Evidence Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
