@@ -86507,6 +86507,105 @@ try:
 except Exception:pass
 
 
+
+# ===== V35.42 ACCOUNT HEALTH + RENEWAL READINESS GATE =====
+V3542_VERSION="V35.42";V3542_STATES={"DRAFT","HEALTHY","AT_RISK","RENEWAL_READY","STALE"}
+def _v3542_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3542_digest(p):return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3542_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_account_health_reviews(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,pilot_id INTEGER NOT NULL,account_label TEXT NOT NULL,health_signal TEXT NOT NULL,renewal_window TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',health_evidence TEXT NOT NULL DEFAULT '',renewal_evidence TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT DEFAULT '',UNIQUE(username,pilot_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_account_health_events(id INTEGER PRIMARY KEY AUTOINCREMENT,health_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""");con.commit()
+    finally:con.close()
+try:_v3542_init()
+except Exception:pass
+
+def _v3542_source(u,i):
+    try:return _v3541_entry(u,int(i))
+    except:return None
+
+def _v3542_event(con,i,t,d=''):
+    at=_v3542_now();h=_v3542_digest({'health_id':int(i),'event_type':t,'detail':d,'created_at':at});con.execute("INSERT INTO startup_account_health_events(health_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),t[:80],str(d)[:1800],h,at));return h
+
+def _v3542_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_account_health_reviews WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);src=_v3542_source(u,d['pilot_id']);d['pilot']=src
+        if refresh and d['state'] not in ('RENEWAL_READY','STALE') and (not src or src.get('state')!='SUCCESS'):
+            con.execute("UPDATE startup_account_health_reviews SET state='STALE',updated_at=? WHERE id=?",(_v3542_now(),int(i)));_v3542_event(con,i,'source_stale','Successful expansion source no longer valid.');con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3542_create(u,pilot_id,label,signal,window=''):
+    src=_v3542_source(u,pilot_id)
+    if not src or src.get('state')!='SUCCESS':return False,'successful_expansion_pilot_required',None
+    if not str(label or '').strip() or not str(signal or '').strip():return False,'account_label_and_health_signal_required',None
+    now=_v3542_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_account_health_reviews(username,pilot_id,account_label,health_signal,renewal_window,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(u,int(pilot_id),str(label)[:180],str(signal)[:2200],str(window or '')[:180],now,now));i=cur.lastrowid;_v3542_event(con,i,'health_review_created',f'pilot #{int(pilot_id)}');con.commit();return True,'',i
+    except sqlite3.IntegrityError:return False,'health_review_already_exists',None
+    finally:con.close()
+
+def _v3542_action(u,i,action,evidence,note=''):
+    d=_v3542_entry(u,i)
+    if not d:return False,'health_review_not_found',None
+    a=str(action or '').upper();ev=str(evidence or '').strip();note=str(note or '').strip();now=_v3542_now()
+    if not ev:return False,'evidence_required',None
+    if a in ('HEALTHY','AT_RISK') and d['state'] in ('DRAFT','HEALTHY','AT_RISK'):new=a;field='health_evidence';complete=''
+    elif a=='RENEWAL_READY' and d['state']=='HEALTHY':new=a;field='renewal_evidence';complete=',completed_at=?'
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        vals=(new,ev[:4000],note[:1800],now,now,u,int(i)) if complete else (new,ev[:4000],note[:1800],now,u,int(i));con.execute(f"UPDATE startup_account_health_reviews SET state=?,{field}=?,note=?,updated_at=?{complete} WHERE username=? AND id=?",vals);_v3542_event(con,i,'health_'+new.lower(),ev[:1200]);con.commit();return True,'',_v3542_entry(u,i,False)
+    finally:con.close()
+
+def _v3542_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_account_health_reviews WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['pilot_id'] for r in con.execute("SELECT pilot_id FROM startup_account_health_reviews WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3542_entry(u,i) for i in ids];elig=[]
+    try:
+        for x in _v3541_snapshot(u).get('items',[]):
+            if x.get('state')=='SUCCESS' and x.get('id') not in used:elig.append(x)
+    except:pass
+    return {'success':True,'version':V3542_VERSION,'items':[x for x in items if x],'eligible_pilots':elig,'policy':'Renewal readiness requires explicit health and renewal evidence; BL3 does not infer commercial renewal intent automatically.'}
+@app.route('/api/hunter-account-health',methods=['GET','POST'])
+def v3542_api():
+    u=session.get('authenticated_username');
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3542_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3542_create(u,p.get('pilot_id'),p.get('account_label'),p.get('health_signal'),p.get('renewal_window') or '');return jsonify({'success':ok,'error':e,'health_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-account-health/<int:i>/action',methods=['POST'])
+def v3542_action_api(i):
+    u=session.get('authenticated_username');
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,d=_v3542_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or '');return jsonify({'success':ok,'error':e,'health':d}),(200 if ok else 400)
+@app.route('/hunter-account-health')
+def v3542_page():
+    u=session.get('authenticated_username');
+    if not u:return redirect('/')
+    d=_v3542_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Expansion Pilot #{x['id']} · {esc(x.get('pilot_title') or '')}</option>" for x in d['eligible_pilots']);cards=[]
+    for x in d['items']:
+        i=x['id'];st=x['state'];act=''
+        if st in ('DRAFT','HEALTHY','AT_RISK'):
+            options="<option>HEALTHY</option><option>AT_RISK</option>"+("<option>RENEWAL_READY</option>" if st=='HEALTHY' else '')
+            act=f"<form action='/api/hunter-account-health/{i}/action' onsubmit='return v3542submit(this,event)'><select name='action'>{options}</select><textarea name='evidence' placeholder='Health / renewal evidence' required></textarea><textarea name='note' placeholder='Operator note'></textarea><button>RECORD</button></form>"
+        cards.append(f"<div class='card'><b>#{i} · {esc(st)}</b><h2>{esc(x['account_label'])}</h2><p>{esc(x['health_signal'])}</p><p>Renewal window: {esc(x['renewal_window'] or '—')}</p>{act}</div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.42 Account Health</title><style>body{background:#06080b;color:white;font-family:Arial}.w{max-width:1200px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #354d58;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.42 · ACCOUNT HEALTH + RENEWAL READINESS</small><h1>Expansion success must stay healthy before renewal.</h1><a href='/hunter-expansion-pilots'>← Expansion Pilots</a></div><div class='card'><form action='/api/hunter-account-health' onsubmit='return v3542submit(this,event)'><select name='pilot_id' required><option value=''>Successful expansion pilot</option>{}</select><input name='account_label' placeholder='Account / stakeholder label' required><textarea name='health_signal' placeholder='What signals healthy ongoing value?' required></textarea><input name='renewal_window' placeholder='Renewal / next-decision window'><button>CREATE HEALTH REVIEW</button></form></div>{}</div><script>async function v3542submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No account-health reviews yet.</div>')
+try:
+    _p=app.view_functions.get('v3541_page')
+    if _p:
+        def _v3542_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-account-health' not in r:r=r.replace("← Expansion Readiness</a>","← Expansion Readiness</a> · <a href='/hunter-account-health'>💚 ACCOUNT HEALTH</a>",1)
+            return r
+        app.view_functions['v3541_page']=_v3542_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -86637,6 +86736,7 @@ if __name__ == "__main__":
     print("📑 Decision Package + Approval Evidence Gate enabled")
     print("🚀 Execution Handoff + Kickoff Readiness Gate enabled")
     print("🎯 First Value Checkpoint + Launch-to-Value Gate enabled")
+    print("💚 Account Health + Renewal Readiness Gate enabled")
     print("🧪 Expansion Pilot + Guardrail Gate enabled")
     print("🧭 Expansion Readiness + Stakeholder Validation Gate enabled")
     print("📈 Value Adoption + Usage Evidence Gate enabled")
