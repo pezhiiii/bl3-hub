@@ -87946,6 +87946,82 @@ def v3555_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['plan_name'])}</h2><p>Owner: {esc(x['transition_owner'])} · Target: {esc(x.get('target_date') or '-')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.55 Continuity Transition</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:#fff;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.55 · CONTINUITY TRANSITION PLAN</small><h1>Turn continuity intent into an owned transition plan.</h1><a href='/hunter-executive-renewal-horizons'>← Renewal Horizon</a></div><div class='card'><form action='/api/hunter-continuity-transition-plans' onsubmit='return s(this,event)'><select name='horizon_id' required><option value=''>Confirmed horizon</option>{}</select><input name='plan_name' placeholder='Transition plan name' required><input name='transition_owner' placeholder='Transition owner' required><textarea name='transition_scope' placeholder='Transition scope'></textarea><textarea name='dependency_summary' placeholder='Dependencies'></textarea><input name='target_date' placeholder='Target date'><button>CREATE TRANSITION PLAN</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No transition plans yet.</div>')
 
+
+# ===== V35.56 SUCCESSION READINESS + ROLE COVERAGE GATE =====
+V3556_VERSION="V35.56"
+V3556_STATES={"DRAFT","COVERAGE_READY","AT_RISK","SUCCESSION_READY","STALE"}
+def _v3556_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3556_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_succession_readiness(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,transition_plan_id INTEGER NOT NULL,critical_role TEXT NOT NULL,primary_owner TEXT NOT NULL,successor_owner TEXT NOT NULL DEFAULT '',backup_owner TEXT NOT NULL DEFAULT '',knowledge_transfer TEXT NOT NULL DEFAULT '',coverage_test TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',evidence TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(username,transition_plan_id,critical_role))""")
+        con.commit()
+    finally: con.close()
+try:_v3556_init()
+except Exception:pass
+
+def _v3556_source(u,i):
+    try:return _v3555_entry(u,int(i))
+    except:return None
+
+def _v3556_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_succession_readiness WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);d['transition']=_v3556_source(u,d['transition_plan_id'])
+        if refresh and d['state'] not in ('SUCCESSION_READY','STALE') and (not d['transition'] or d['transition'].get('state') not in ('TRANSITION_READY','IN_PROGRESS','COMPLETE')):
+            con.execute("UPDATE startup_succession_readiness SET state='STALE',updated_at=? WHERE id=?",(_v3556_now(),int(i)));con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3556_create(u,pid,role,primary,successor='',backup='',kt='',test=''):
+    s=_v3556_source(u,pid)
+    if not s or s.get('state') not in ('TRANSITION_READY','IN_PROGRESS','COMPLETE'):return False,'active_transition_required',None
+    if not str(role or '').strip() or not str(primary or '').strip():return False,'role_and_primary_required',None
+    now=_v3556_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_succession_readiness(username,transition_plan_id,critical_role,primary_owner,successor_owner,backup_owner,knowledge_transfer,coverage_test,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(u,int(pid),str(role)[:220],str(primary)[:180],str(successor or '')[:180],str(backup or '')[:180],str(kt or '')[:3000],str(test or '')[:3000],now,now));con.commit();return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'role_already_exists',None
+    finally:con.close()
+
+def _v3556_action(u,i,action,evidence='',note=''):
+    d=_v3556_entry(u,i);a=str(action or '').upper();ev=str(evidence or '').strip();now=_v3556_now()
+    if not d or not ev:return False,'entry_and_evidence_required',None
+    if a=='COVERAGE_READY' and d['state']=='DRAFT' and (d.get('successor_owner') or d.get('backup_owner')):new='COVERAGE_READY'
+    elif a=='AT_RISK' and d['state'] in ('DRAFT','COVERAGE_READY'):new='AT_RISK'
+    elif a=='SUCCESSION_READY' and d['state'] in ('COVERAGE_READY','AT_RISK') and d.get('successor_owner') and d.get('knowledge_transfer') and d.get('coverage_test'):new='SUCCESSION_READY'
+    else:return False,'invalid_transition_or_successor_requirements_missing',None
+    con=sqlite3.connect(DB)
+    try:con.execute("UPDATE startup_succession_readiness SET state=?,evidence=?,note=?,updated_at=? WHERE username=? AND id=?",(new,ev[:5000],str(note or '')[:1800],now,u,int(i)));con.commit();return True,'',_v3556_entry(u,i,False)
+    finally:con.close()
+
+def _v3556_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_succession_readiness WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {'success':True,'version':V3556_VERSION,'items':[x for x in (_v3556_entry(u,i) for i in ids) if x]}
+
+@app.route('/api/hunter-succession-readiness',methods=['GET','POST'])
+def v3556_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3556_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3556_create(u,p.get('transition_plan_id'),p.get('critical_role'),p.get('primary_owner'),p.get('successor_owner'),p.get('backup_owner'),p.get('knowledge_transfer'),p.get('coverage_test'));return jsonify({'success':ok,'error':e,'readiness_id':i}),(200 if ok else 400)
+
+@app.route('/api/hunter-succession-readiness/<int:i>/action',methods=['POST'])
+def v3556_action_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3556_action(u,i,p.get('action'),p.get('evidence'),p.get('note'));return jsonify({'success':ok,'error':e,'readiness':d}),(200 if ok else 400)
+
+@app.route('/hunter-succession-readiness')
+def v3556_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3556_snapshot(u);esc=html.escape;cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['critical_role'])}</h2><p>Primary: {esc(x['primary_owner'])} · Successor: {esc(x.get('successor_owner') or '-')} · Backup: {esc(x.get('backup_owner') or '-')}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.56 Succession Readiness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.56 · SUCCESSION READINESS</small><h1>Make critical roles survivable beyond one person.</h1><a href='/hunter-continuity-transition-plans'>← Transition Plans</a></div>{}</div>""".format(cards or '<div class="card">No succession readiness records yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
