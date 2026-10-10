@@ -87553,6 +87553,93 @@ def v3551_page():
     d=_v3551_snapshot(u); esc=html.escape; opts=''.join(f"<option value='{x['id']}'>Plan #{x['id']} · {esc(x.get('plan_name') or '')}</option>" for x in d['eligible_plans']); cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['activation_name'])}</h2><p>Owner: {esc(x['operating_owner'])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.51 Partnership Activation</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.51 · PARTNERSHIP ACTIVATION</small><h1>Turn long-term commitment into an operating partnership.</h1><a href='/hunter-multi-year-plans'>← Multi-Year Plans</a></div><div class='card'><form action='/api/hunter-partnership-activations' onsubmit='return s(this,event)'><select name='plan_id' required><option value=''>Committed plan</option>{}</select><input name='activation_name' placeholder='Activation name' required><input name='operating_owner' placeholder='Operating owner' required><input name='counterpart' placeholder='Counterpart'><textarea name='operating_model' placeholder='Operating model'></textarea><textarea name='shared_objectives' placeholder='Shared objectives'></textarea><textarea name='dependencies' placeholder='Dependencies'></textarea><button>CREATE ACTIVATION</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No activations yet.</div>')
 
+
+# ===== V35.52 GOVERNANCE CADENCE + DECISION LOG GATE =====
+V3552_VERSION="V35.52"
+def _v3552_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3552_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_governance_cadences(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,activation_id INTEGER NOT NULL,cadence_name TEXT NOT NULL,meeting_frequency TEXT NOT NULL DEFAULT 'MONTHLY',chair TEXT NOT NULL,participants TEXT NOT NULL DEFAULT '',escalation_path TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'DRAFT',launch_evidence TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(username,activation_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_governance_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT,cadence_id INTEGER NOT NULL,decision_date TEXT NOT NULL,decision_text TEXT NOT NULL,decision_owner TEXT NOT NULL DEFAULT '',evidence TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL)""")
+        con.commit()
+    finally:con.close()
+try:_v3552_init()
+except Exception:pass
+
+def _v3552_source(u,i):
+    try:return _v3551_entry(u,int(i))
+    except:return None
+
+def _v3552_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_governance_cadences WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r); d['activation']=_v3552_source(u,d['activation_id']); d['decisions']=[dict(x) for x in con.execute("SELECT * FROM startup_governance_decisions WHERE cadence_id=? ORDER BY id DESC",(int(i),)).fetchall()]
+        if refresh and d['state'] not in ('ACTIVE','STALE') and (not d['activation'] or d['activation'].get('state')!='ACTIVE'):
+            con.execute("UPDATE startup_governance_cadences SET state='STALE',updated_at=? WHERE id=?",(_v3552_now(),int(i)));con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3552_create(u,aid,name,freq,chair,participants='',escalation=''):
+    src=_v3552_source(u,aid)
+    if not src or src.get('state')!='ACTIVE':return False,'active_partnership_required',None
+    if not str(name or '').strip() or not str(chair or '').strip():return False,'name_and_chair_required',None
+    now=_v3552_now(); con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_governance_cadences(username,activation_id,cadence_name,meeting_frequency,chair,participants,escalation_path,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",(u,int(aid),str(name)[:240],str(freq or 'MONTHLY')[:60],str(chair)[:180],str(participants or '')[:1800],str(escalation or '')[:2000],now,now));con.commit();return True,'',cur.lastrowid
+    except sqlite3.IntegrityError:return False,'cadence_already_exists',None
+    finally:con.close()
+
+def _v3552_activate(u,i,evidence):
+    d=_v3552_entry(u,i)
+    ev=str(evidence or '').strip()
+    if not d or d['state']!='DRAFT' or not ev:return False,'activation_evidence_required',None
+    con=sqlite3.connect(DB)
+    try:con.execute("UPDATE startup_governance_cadences SET state='ACTIVE',launch_evidence=?,updated_at=? WHERE username=? AND id=?",(ev[:4000],_v3552_now(),u,int(i)));con.commit();return True,'',_v3552_entry(u,i,False)
+    finally:con.close()
+
+def _v3552_add_decision(u,i,text,owner='',evidence=''):
+    d=_v3552_entry(u,i)
+    if not d or d['state']!='ACTIVE':return False,'active_cadence_required',None
+    if not str(text or '').strip() or not str(evidence or '').strip():return False,'decision_and_evidence_required',None
+    con=sqlite3.connect(DB)
+    try:cur=con.execute("INSERT INTO startup_governance_decisions(cadence_id,decision_date,decision_text,decision_owner,evidence,created_at) VALUES(?,?,?,?,?,?)",(int(i),_v3552_now(),str(text)[:2500],str(owner or '')[:180],str(evidence)[:4000],_v3552_now()));con.commit();return True,'',cur.lastrowid
+    finally:con.close()
+
+def _v3552_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_governance_cadences WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['activation_id'] for r in con.execute("SELECT activation_id FROM startup_governance_cadences WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3552_entry(u,i) for i in ids];eligible=[]
+    try:
+        for x in _v3551_snapshot(u).get('items',[]):
+            if x.get('state')=='ACTIVE' and x.get('id') not in used:eligible.append(x)
+    except:pass
+    return {'success':True,'version':V3552_VERSION,'items':[x for x in items if x],'eligible_activations':eligible}
+@app.route('/api/hunter-governance-cadences',methods=['GET','POST'])
+def v3552_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3552_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3552_create(u,p.get('activation_id'),p.get('cadence_name'),p.get('meeting_frequency'),p.get('chair'),p.get('participants'),p.get('escalation_path'));return jsonify({'success':ok,'error':e,'cadence_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-governance-cadences/<int:i>/activate',methods=['POST'])
+def v3552_activate_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,d=_v3552_activate(u,i,p.get('evidence'));return jsonify({'success':ok,'error':e,'cadence':d}),(200 if ok else 400)
+@app.route('/api/hunter-governance-cadences/<int:i>/decision',methods=['POST'])
+def v3552_decision_api(i):
+    u=session.get('authenticated_username');p=request.form if request.form else (request.get_json(silent=True) or {})
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    ok,e,did=_v3552_add_decision(u,i,p.get('decision_text'),p.get('decision_owner'),p.get('evidence'));return jsonify({'success':ok,'error':e,'decision_id':did}),(200 if ok else 400)
+@app.route('/hunter-governance-cadences')
+def v3552_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3552_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Activation #{x['id']} · {esc(x.get('activation_name') or '')}</option>" for x in d['eligible_activations']);cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['cadence_name'])}</h2><p>{esc(x['meeting_frequency'])} · Chair {esc(x['chair'])} · Decisions {len(x['decisions'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.52 Governance Cadence</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.52 · GOVERNANCE CADENCE</small><h1>Run the partnership with an explicit operating rhythm and decision log.</h1><a href='/hunter-partnership-activations'>← Partnership Activation</a></div><div class='card'><form action='/api/hunter-governance-cadences' onsubmit='return s(this,event)'><select name='activation_id' required><option value=''>Active partnership</option>{}</select><input name='cadence_name' placeholder='Cadence name' required><input name='meeting_frequency' value='MONTHLY'><input name='chair' placeholder='Chair' required><textarea name='participants' placeholder='Participants'></textarea><textarea name='escalation_path' placeholder='Escalation path'></textarea><button>CREATE CADENCE</button></form></div>{}</div><script>async function s(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,cards or '<div class="card">No governance cadences yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
@@ -87696,6 +87783,7 @@ if __name__ == "__main__":
     print("📊 Executive QBR Evidence + Commitment Gate enabled")
     print("🌐 Multi-Year Partnership Plan + Commitment Gate enabled")
     print("🤝 Partnership Activation + Operating Model Gate enabled")
+    print("🧭 Governance Cadence + Decision Log Gate enabled")
     print("🚀 http://127.0.0.1:5000")
     print("")
 
