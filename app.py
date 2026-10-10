@@ -86407,6 +86407,106 @@ try:
 except Exception:pass
 
 
+
+# ===== V35.41 EXPANSION PILOT + GUARDRAIL GATE =====
+V3541_VERSION="V35.41";V3541_STATES={"DRAFT","ACTIVE","SUCCESS","NEEDS_ATTENTION","STALE"}
+def _v3541_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3541_digest(p):return hashlib.sha256(json.dumps(p,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+def _v3541_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_expansion_pilots(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,expansion_id INTEGER NOT NULL,pilot_title TEXT NOT NULL,success_criterion TEXT NOT NULL,guardrails TEXT NOT NULL,pilot_days INTEGER NOT NULL DEFAULT 14,state TEXT NOT NULL DEFAULT 'DRAFT',activation_evidence TEXT NOT NULL DEFAULT '',result_evidence TEXT NOT NULL DEFAULT '',result_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT DEFAULT '',UNIQUE(username,expansion_id))""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_expansion_pilot_events(id INTEGER PRIMARY KEY AUTOINCREMENT,pilot_id INTEGER NOT NULL,event_type TEXT NOT NULL,detail TEXT NOT NULL,evidence_sha256 TEXT NOT NULL,created_at TEXT NOT NULL)""");con.commit()
+    finally:con.close()
+try:_v3541_init()
+except Exception:pass
+
+def _v3541_source(u,i):
+    try:return _v3540_entry(u,int(i))
+    except:return None
+
+def _v3541_event(con,i,t,d=''):
+    at=_v3541_now();h=_v3541_digest({'pilot_id':int(i),'event_type':t,'detail':d,'created_at':at});con.execute("INSERT INTO startup_expansion_pilot_events(pilot_id,event_type,detail,evidence_sha256,created_at) VALUES(?,?,?,?,?)",(int(i),t[:80],str(d)[:1800],h,at));return h
+
+def _v3541_entry(u,i,refresh=True):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_expansion_pilots WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r);src=_v3541_source(u,d['expansion_id']);d['expansion']=src
+        if refresh and d['state'] not in ('SUCCESS','NEEDS_ATTENTION','STALE') and (not src or src.get('state')!='APPROVED'):
+            con.execute("UPDATE startup_expansion_pilots SET state='STALE',updated_at=? WHERE id=?",(_v3541_now(),int(i)));_v3541_event(con,i,'source_stale','Expansion approval no longer valid.');con.commit();d['state']='STALE'
+        return d
+    finally:con.close()
+
+def _v3541_create(u,expansion_id,title,criterion,guardrails,pilot_days=14):
+    src=_v3541_source(u,expansion_id)
+    if not src or src.get('state')!='APPROVED':return False,'approved_expansion_required',None
+    if any(not str(v or '').strip() for v in (title,criterion,guardrails)):return False,'title_criterion_guardrails_required',None
+    try:days=max(1,min(int(pilot_days or 14),180))
+    except:days=14
+    now=_v3541_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_expansion_pilots(username,expansion_id,pilot_title,success_criterion,guardrails,pilot_days,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(u,int(expansion_id),str(title)[:180],str(criterion)[:2200],str(guardrails)[:2200],days,now,now));i=cur.lastrowid;_v3541_event(con,i,'pilot_created',f'expansion #{int(expansion_id)}');con.commit();return True,'',i
+    except sqlite3.IntegrityError:return False,'pilot_already_exists',None
+    finally:con.close()
+
+def _v3541_action(u,i,action,evidence,note=''):
+    d=_v3541_entry(u,i)
+    if not d:return False,'pilot_not_found',None
+    a=str(action or '').upper();ev=str(evidence or '').strip();note=str(note or '').strip();now=_v3541_now()
+    if not ev:return False,'evidence_required',None
+    if a=='ACTIVATE' and d['state']=='DRAFT':new='ACTIVE';field='activation_evidence';end=''
+    elif a in ('SUCCESS','NEEDS_ATTENTION') and d['state']=='ACTIVE':new=a;field='result_evidence';end=',result_note=?,completed_at=?'
+    else:return False,'invalid_transition',None
+    con=sqlite3.connect(DB)
+    try:
+        vals=(new,ev[:4000],now,note[:1800],now,u,int(i)) if end else (new,ev[:4000],now,u,int(i));con.execute(f"UPDATE startup_expansion_pilots SET state=?,{field}=?,updated_at=?{end} WHERE username=? AND id=?",vals);_v3541_event(con,i,'pilot_'+new.lower(),ev[:1200]);con.commit();return True,'',_v3541_entry(u,i,False)
+    finally:con.close()
+
+def _v3541_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute("SELECT id FROM startup_expansion_pilots WHERE username=? ORDER BY id DESC",(u,)).fetchall()];used={r['expansion_id'] for r in con.execute("SELECT expansion_id FROM startup_expansion_pilots WHERE username=?",(u,)).fetchall()}
+    finally:con.close()
+    items=[_v3541_entry(u,i) for i in ids];elig=[]
+    try:
+        for x in _v3540_snapshot(u).get('items',[]):
+            if x.get('state')=='APPROVED' and x.get('id') not in used:elig.append(x)
+    except:pass
+    return {'success':True,'version':V3541_VERSION,'items':[x for x in items if x],'eligible_expansions':elig,'policy':'Expansion success requires explicit evidence and guardrails; approval alone is not proof of successful expansion.'}
+@app.route('/api/hunter-expansion-pilots',methods=['GET','POST'])
+def v3541_api():
+    u=session.get('authenticated_username');
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3541_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,i=_v3541_create(u,p.get('expansion_id'),p.get('pilot_title'),p.get('success_criterion'),p.get('guardrails'),p.get('pilot_days') or 14);return jsonify({'success':ok,'error':e,'pilot_id':i}),(200 if ok else 400)
+@app.route('/api/hunter-expansion-pilots/<int:i>/action',methods=['POST'])
+def v3541_action_api(i):
+    u=session.get('authenticated_username');
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.form if request.form else (request.get_json(silent=True) or {});ok,e,d=_v3541_action(u,i,p.get('action'),p.get('evidence'),p.get('note') or '');return jsonify({'success':ok,'error':e,'pilot':d}),(200 if ok else 400)
+@app.route('/hunter-expansion-pilots')
+def v3541_page():
+    u=session.get('authenticated_username');
+    if not u:return redirect('/')
+    d=_v3541_snapshot(u);esc=html.escape;opts=''.join(f"<option value='{x['id']}'>Expansion #{x['id']} · {esc(x.get('expansion_title') or '')}</option>" for x in d['eligible_expansions']);cards=[]
+    for x in d['items']:
+        i=x['id'];st=x['state'];act=''
+        if st=='DRAFT':act=f"<form action='/api/hunter-expansion-pilots/{i}/action' onsubmit='return v3541submit(this,event)'><input type='hidden' name='action' value='ACTIVATE'><textarea name='evidence' placeholder='Activation evidence' required></textarea><button>ACTIVATE</button></form>"
+        elif st=='ACTIVE':act=f"<form action='/api/hunter-expansion-pilots/{i}/action' onsubmit='return v3541submit(this,event)'><select name='action'><option>SUCCESS</option><option>NEEDS_ATTENTION</option></select><textarea name='evidence' placeholder='Pilot result evidence' required></textarea><textarea name='note' placeholder='Result note'></textarea><button>RECORD RESULT</button></form>"
+        cards.append(f"<div class='card'><b>#{i} · {st}</b><h2>{esc(x['pilot_title'])}</h2><p><b>Success:</b> {esc(x['success_criterion'])}</p><p><b>Guardrails:</b> {esc(x['guardrails'])}</p>{act}</div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.41 Expansion Pilot</title><style>body{background:#06080b;color:white;font-family:Arial}.w{max-width:1200px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #354d58;border-radius:18px;padding:18px;margin:12px 0}input,textarea,select,button{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;background:#071017;color:white;border:1px solid #39505c;border-radius:10px}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.41 · EXPANSION PILOT + GUARDRAIL GATE</small><h1>Expand with bounded proof, not assumption.</h1><a href='/hunter-expansion-readiness'>← Expansion Readiness</a></div><div class='card'><form action='/api/hunter-expansion-pilots' onsubmit='return v3541submit(this,event)'><select name='expansion_id' required><option value=''>Approved expansion</option>{}</select><input name='pilot_title' placeholder='Pilot title' required><textarea name='success_criterion' placeholder='Success criterion' required></textarea><textarea name='guardrails' placeholder='Guardrails / stop conditions' required></textarea><input name='pilot_days' type='number' value='14' min='1' max='180'><button>CREATE PILOT</button></form></div>{}</div><script>async function v3541submit(f,e){e.preventDefault();let r=await fetch(f.action,{method:'POST',body:new FormData(f)}),j=await r.json();if(j.success)location.reload();else alert(j.error||'Failed');return false}</script>""".format(opts,''.join(cards) or '<div class="card">No expansion pilots yet.</div>')
+try:
+    _p=app.view_functions.get('v3540_page')
+    if _p:
+        def _v3541_wrap(*a,**k):
+            r=_p(*a,**k)
+            if isinstance(r,str) and '/hunter-expansion-pilots' not in r:r=r.replace("← Adoption</a>","← Adoption</a> · <a href='/hunter-expansion-pilots'>🧪 EXPANSION PILOT</a>",1)
+            return r
+        app.view_functions['v3540_page']=_v3541_wrap
+except Exception:pass
+
+
 if __name__ == "__main__":
 
     init_db()
@@ -86537,6 +86637,7 @@ if __name__ == "__main__":
     print("📑 Decision Package + Approval Evidence Gate enabled")
     print("🚀 Execution Handoff + Kickoff Readiness Gate enabled")
     print("🎯 First Value Checkpoint + Launch-to-Value Gate enabled")
+    print("🧪 Expansion Pilot + Guardrail Gate enabled")
     print("🧭 Expansion Readiness + Stakeholder Validation Gate enabled")
     print("📈 Value Adoption + Usage Evidence Gate enabled")
     print("🚀 http://127.0.0.1:5000")
