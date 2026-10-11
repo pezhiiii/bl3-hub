@@ -94589,6 +94589,53 @@ def v3644_api():
     ok,e,i=_v3644_create(u,p.get("qbr_id"),p.get("plan_owner"),p.get("primary_outcome"),p.get("success_metric"),p.get("baseline_value",0),p.get("target_value",0),p.get("current_value",0),p.get("target_date"),p.get("confidence",0),p.get("blockers"),p.get("next_actions"))
     return jsonify({"success":ok,"error":e,"success_plan_id":i}),(200 if ok else 400)
 
+
+# ===== V36.45 STAKEHOLDER ALIGNMENT + INFLUENCE GATE =====
+V3645_VERSION="V36.45"
+def _v3645_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3645_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_stakeholder_alignment (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, success_plan_id INTEGER NOT NULL, stakeholder_name TEXT NOT NULL, role TEXT NOT NULL DEFAULT '', influence REAL NOT NULL DEFAULT 0, sentiment REAL NOT NULL DEFAULT 0, engagement REAL NOT NULL DEFAULT 0, alignment REAL NOT NULL DEFAULT 0, relationship_status TEXT NOT NULL DEFAULT 'NEUTRAL', owner TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3645_init()
+except Exception:pass
+
+def _v3645_create(u,success_plan_id,stakeholder_name,owner,role="",influence=0,sentiment=0,engagement=0,notes=""):
+    if not str(stakeholder_name or "").strip() or not str(owner or "").strip():
+        return False,"stakeholder_and_owner_required",None
+    try:
+        inf=max(0,min(100,float(influence or 0))); sen=max(0,min(100,float(sentiment or 0))); eng=max(0,min(100,float(engagement or 0)))
+    except Exception:return False,"invalid_stakeholder_score",None
+    alignment=round((sen*0.45)+(eng*0.35)+(inf*0.20),2)
+    status="CHAMPION" if alignment>=80 and inf>=60 else ("SUPPORTIVE" if alignment>=65 else ("NEUTRAL" if alignment>=45 else ("RISK" if alignment>=25 else "BLOCKER")))
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_customer_success_plan WHERE username=? AND id=?",(u,int(success_plan_id))).fetchone():
+            return False,"success_plan_not_found",None
+        now=_v3645_now()
+        cur=con.execute("INSERT INTO startup_stakeholder_alignment (username,success_plan_id,stakeholder_name,role,influence,sentiment,engagement,alignment,relationship_status,owner,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(success_plan_id),str(stakeholder_name)[:220],str(role or "")[:180],inf,sen,eng,alignment,status,str(owner)[:180],str(notes or "")[:7000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3645_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_stakeholder_alignment WHERE username=? ORDER BY alignment DESC,id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3645_VERSION,"items":items,"champions":sum(1 for x in items if x["relationship_status"]=="CHAMPION"),"blockers":sum(1 for x in items if x["relationship_status"]=="BLOCKER"),"risks":sum(1 for x in items if x["relationship_status"]=="RISK")}
+
+@app.route("/api/hunter-stakeholder-alignment",methods=["GET","POST"])
+def v3645_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3645_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3645_create(u,p.get("success_plan_id"),p.get("stakeholder_name"),p.get("owner"),p.get("role"),p.get("influence",0),p.get("sentiment",0),p.get("engagement",0),p.get("notes"))
+    return jsonify({"success":ok,"error":e,"stakeholder_alignment_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
