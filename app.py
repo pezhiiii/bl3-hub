@@ -92471,6 +92471,67 @@ def v3609_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.09</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.09 · SUCCESS CASE STUDY</small><h1>Turn verified outcomes into proof.</h1></div>"+(cards or "<div class='card'>No case studies yet.</div>")+"</div>"
 
+
+# ===== V36.10 ACCOUNT HEALTH + RETENTION SCORE GATE =====
+V3610_VERSION="V36.10"
+
+def _v3610_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3610_health(u):
+    renewal=_v3606_readiness(u)
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        renewed=con.execute("SELECT COUNT(*) c FROM startup_renewal_decisions WHERE username=? AND state IN ('RENEWED','CLOSED')",(u,)).fetchone()["c"]
+        churned=con.execute("SELECT COUNT(*) c FROM startup_renewal_decisions WHERE username=? AND state='CHURNED'",(u,)).fetchone()["c"]
+        expansion=con.execute("SELECT COUNT(*) c FROM startup_expansion_proposals WHERE username=? AND state='APPROVED'",(u,)).fetchone()["c"]
+        published=con.execute("SELECT COUNT(*) c FROM startup_success_case_studies WHERE username=? AND state='PUBLISHED'",(u,)).fetchone()["c"]
+        blocked=con.execute("SELECT COUNT(*) c FROM startup_delivery_milestones WHERE username=? AND state='BLOCKED'",(u,)).fetchone()["c"]
+    finally:
+        con.close()
+    score=min(100,
+        int(renewal.get("score",0)*0.50)
+        + min(20,renewed*10)
+        + min(15,expansion*10)
+        + min(10,published*5)
+        - min(30,churned*15)
+        - min(20,blocked*5)
+    )
+    score=max(0,score)
+    if score>=85:status="HEALTHY_GROWTH"
+    elif score>=70:status="HEALTHY"
+    elif score>=50:status="AT_RISK"
+    else:status="CRITICAL"
+    payload={
+        "version":V3610_VERSION,
+        "score":score,
+        "status":status,
+        "renewal_readiness_score":renewal.get("score"),
+        "renewed_accounts":renewed,
+        "approved_expansions":expansion,
+        "published_case_studies":published,
+        "churned_accounts":churned,
+        "blocked_milestones":blocked,
+        "generated_at":_v3610_now()
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+    payload["health_sha256"]=hashlib.sha256(raw.encode()).hexdigest()
+    return payload
+
+@app.route("/api/hunter-account-health")
+def v3610_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"snapshot":_v3610_health(u)})
+
+@app.route("/hunter-account-health")
+def v3610_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3610_health(u); esc=html.escape
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.10</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:24px}.score{font-size:72px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.10 · ACCOUNT HEALTH</small><div class='score'>{}/100</div><h1>{}</h1><p>Renewed: {} · Expansion: {} · Case studies: {} · Churned: {} · Blocked: {}</p><p>SHA: {}</p></div></div>".format(
+        d["score"],esc(d["status"]),d["renewed_accounts"],d["approved_expansions"],d["published_case_studies"],d["churned_accounts"],d["blocked_milestones"],esc(d["health_sha256"]))
+
 if __name__ == "__main__":
 
     init_db()
