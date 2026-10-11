@@ -91417,6 +91417,71 @@ def v3597_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['decision_maker'])}</h2><p>{esc(x.get('organization_label') or '')}</p><p>{esc(x.get('next_step') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.97 External Decisions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.97 · EXTERNAL DECISION + NEXT STEP</small><h1>Track the actual decision and the next concrete action.</h1></div>{}</div>""".format(cards or '<div class="card">No external decisions yet.</div>')
 
+
+# ===== V35.98 DEAL READINESS SNAPSHOT + OUTCOME GATE =====
+V3598_VERSION="V35.98"
+
+def _v3598_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3598_snapshot(u):
+    readiness=_v3594_readiness(u)
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        shared=con.execute("SELECT COUNT(*) c FROM startup_external_presentation_packs WHERE username=? AND state='SHARED'",(u,)).fetchone()["c"]
+        open_q=con.execute("SELECT COUNT(*) c FROM startup_external_review_questions WHERE username=? AND state IN ('OPEN','FOLLOWUP')",(u,)).fetchone()["c"]
+        positive=con.execute("SELECT COUNT(*) c FROM startup_external_decisions WHERE username=? AND state IN ('POSITIVE','NEXT_STEP_SET','CLOSED')",(u,)).fetchone()["c"]
+        conditional=con.execute("SELECT COUNT(*) c FROM startup_external_decisions WHERE username=? AND state='CONDITIONAL'",(u,)).fetchone()["c"]
+        declined=con.execute("SELECT COUNT(*) c FROM startup_external_decisions WHERE username=? AND state='DECLINED'",(u,)).fetchone()["c"]
+    finally:con.close()
+
+    score=min(100,
+        int(readiness.get("score",0)*0.55)
+        + min(15,shared*8)
+        + min(20,positive*10)
+        + (10 if open_q==0 else 5 if open_q<=2 else 0)
+    )
+    if positive>0 and open_q==0 and score>=80:
+        status="DEAL_READY"
+    elif conditional>0 or score>=65:
+        status="FOLLOWUP_READY"
+    elif declined>0 and positive==0:
+        status="REWORK_REQUIRED"
+    else:
+        status="EARLY_STAGE"
+
+    payload={
+        "version":V3598_VERSION,
+        "score":score,
+        "status":status,
+        "base_readiness_status":readiness.get("status"),
+        "base_readiness_score":readiness.get("score"),
+        "shared_presentation_packs":shared,
+        "open_review_questions":open_q,
+        "positive_or_next_step_decisions":positive,
+        "conditional_decisions":conditional,
+        "declined_decisions":declined,
+        "generated_at":_v3598_now()
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+    payload["snapshot_sha256"]=hashlib.sha256(raw.encode()).hexdigest()
+    return payload
+
+@app.route("/api/hunter-deal-readiness")
+def v3598_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"snapshot":_v3598_snapshot(u)})
+
+@app.route("/hunter-deal-readiness")
+def v3598_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3598_snapshot(u);esc=html.escape
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.98 Deal Readiness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:24px}.score{font-size:72px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V35.98 · DEAL READINESS SNAPSHOT</small><div class='score'>{}/100</div><h1>{}</h1><p>Base readiness: {} · {} / 100</p><p>Shared packs: {} · Open questions: {} · Positive/next-step decisions: {} · Conditional: {} · Declined: {}</p><p>Snapshot: {}</p></div></div>""".format(
+        d["score"],esc(d["status"]),esc(str(d["base_readiness_status"])),d["base_readiness_score"],
+        d["shared_presentation_packs"],d["open_review_questions"],d["positive_or_next_step_decisions"],
+        d["conditional_decisions"],d["declined_decisions"],esc(d["snapshot_sha256"]))
+
 if __name__ == "__main__":
 
     init_db()
