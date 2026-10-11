@@ -91850,6 +91850,99 @@ def v3602_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['handoff_name'])}</h2><p>Delivery owner: {esc(x['delivery_owner'])}</p><p>{esc(x.get('blocker_note') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V36.02 Onboarding Handoffs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.02 · ONBOARDING HANDOFF</small><h1>Move accepted opportunities into delivery with explicit ownership and go-live evidence.</h1></div>{}</div>""".format(cards or '<div class="card">No handoffs yet.</div>')
 
+
+# ===== V36.03 DELIVERY MILESTONE + COMPLETION GATE =====
+V3603_VERSION="V36.03"
+V3603_STATES={"PLANNED","IN_PROGRESS","READY_FOR_REVIEW","COMPLETED","BLOCKED"}
+
+def _v3603_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3603_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_delivery_milestones(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            milestone_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            due_at TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PLANNED',
+            completion_evidence TEXT NOT NULL DEFAULT '',
+            blocker_note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3603_init()
+except Exception:pass
+
+def _v3603_create(u,hid,name,owner,description="",due_at=""):
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"name_and_owner_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        h=con.execute("SELECT * FROM startup_onboarding_handoffs WHERE username=? AND id=?",(u,int(hid))).fetchone()
+        if not h or h["state"] not in ("HANDOFF_READY","IN_ONBOARDING","LIVE"):
+            return False,"active_handoff_required",None
+        now=_v3603_now()
+        cur=con.execute("""INSERT INTO startup_delivery_milestones
+        (username,handoff_id,milestone_name,owner,description,due_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",
+        (u,int(hid),str(name)[:260],str(owner)[:180],str(description or "")[:5000],str(due_at or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3603_action(u,i,action,evidence="",blocker=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3603_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_delivery_milestones WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"milestone_not_found",None
+        cur=r["state"]
+        if a=="START" and cur=="PLANNED":new="IN_PROGRESS"
+        elif a=="READY" and cur=="IN_PROGRESS":new="READY_FOR_REVIEW"
+        elif a=="COMPLETE" and cur=="READY_FOR_REVIEW" and ev:new="COMPLETED"
+        elif a=="BLOCK" and cur in ("PLANNED","IN_PROGRESS","READY_FOR_REVIEW") and str(blocker or "").strip():new="BLOCKED"
+        elif a=="RESUME" and cur=="BLOCKED":new="IN_PROGRESS"
+        else:return False,"invalid_transition_or_required_data_missing",None
+        con.execute("""UPDATE startup_delivery_milestones SET state=?,completion_evidence=?,
+        blocker_note=CASE WHEN ?='BLOCKED' THEN ? ELSE blocker_note END,
+        completed_at=CASE WHEN ?='COMPLETED' THEN ? ELSE completed_at END,updated_at=?
+        WHERE username=? AND id=?""",
+        (new,ev[:5000],new,str(blocker or "")[:3000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_delivery_milestones WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3603_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_delivery_milestones WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3603_VERSION,"items":items}
+
+@app.route("/api/hunter-delivery-milestones",methods=["GET","POST"])
+def v3603_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3603_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3603_create(u,p.get("handoff_id"),p.get("milestone_name"),p.get("owner"),p.get("description"),p.get("due_at"))
+    return jsonify({"success":ok,"error":e,"milestone_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-delivery-milestones")
+def v3603_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3603_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['milestone_name'])}</h2><p>{esc(x['owner'])}</p><p>{esc(x.get('blocker_note') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.03 Delivery Milestones</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.03 · DELIVERY MILESTONES</small><h1>Track delivery work from plan to reviewed completion.</h1></div>{}</div>""".format(cards or '<div class="card">No milestones yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
