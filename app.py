@@ -100259,6 +100259,228 @@ def v3699_api():
         "update_grade": grade
     })
 
+
+# ===== V37.00 FOUNDER OPERATING SYSTEM =====
+V3700_VERSION = "V37.00"
+
+def _v3700_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_founder_operating_system (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            period_label TEXT NOT NULL,
+            north_star_metric TEXT NOT NULL DEFAULT '',
+            north_star_value REAL NOT NULL DEFAULT 0,
+            revenue_focus REAL NOT NULL DEFAULT 0,
+            product_focus REAL NOT NULL DEFAULT 0,
+            growth_focus REAL NOT NULL DEFAULT 0,
+            hiring_focus REAL NOT NULL DEFAULT 0,
+            fundraising_focus REAL NOT NULL DEFAULT 0,
+            customer_focus REAL NOT NULL DEFAULT 0,
+            execution_score REAL NOT NULL DEFAULT 0,
+            founder_score REAL NOT NULL DEFAULT 0,
+            operating_mode TEXT NOT NULL DEFAULT 'BUILD',
+            top_priority TEXT NOT NULL DEFAULT '',
+            blocker TEXT NOT NULL DEFAULT '',
+            next_move TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3700_init()
+except Exception:
+    pass
+
+def _v3700_mode(revenue, product, growth, hiring, fundraising, customer):
+    values = {
+        "REVENUE": float(revenue or 0),
+        "PRODUCT": float(product or 0),
+        "GROWTH": float(growth or 0),
+        "HIRING": float(hiring or 0),
+        "FUNDRAISING": float(fundraising or 0),
+        "CUSTOMER": float(customer or 0),
+    }
+    best = max(values, key=values.get)
+
+    mode_map = {
+        "REVENUE": "MONETIZE",
+        "PRODUCT": "BUILD",
+        "GROWTH": "SCALE",
+        "HIRING": "TEAM",
+        "FUNDRAISING": "RAISE",
+        "CUSTOMER": "DISCOVER",
+    }
+    return mode_map[best]
+
+def _v3700_score(revenue, product, growth, hiring, fundraising, customer, execution):
+    r = max(0.0, min(100.0, float(revenue or 0)))
+    p = max(0.0, min(100.0, float(product or 0)))
+    g = max(0.0, min(100.0, float(growth or 0)))
+    h = max(0.0, min(100.0, float(hiring or 0)))
+    f = max(0.0, min(100.0, float(fundraising or 0)))
+    c = max(0.0, min(100.0, float(customer or 0)))
+    e = max(0.0, min(100.0, float(execution or 0)))
+
+    focus_score = (
+        r * 0.18 +
+        p * 0.18 +
+        g * 0.18 +
+        h * 0.10 +
+        f * 0.10 +
+        c * 0.16
+    )
+    total = round(focus_score * 0.72 + e * 0.28, 2)
+
+    if total >= 90:
+        grade = "ELITE"
+    elif total >= 80:
+        grade = "STRONG"
+    elif total >= 70:
+        grade = "HEALTHY"
+    elif total >= 60:
+        grade = "AT_RISK"
+    else:
+        grade = "CRITICAL"
+
+    return total, grade
+
+@app.route("/api/founder-os", methods=["GET", "POST"])
+def v3700_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_founder_operating_system
+                   WHERE username=? ORDER BY id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        latest = rows[0] if rows else None
+        return jsonify({
+            "success": True,
+            "version": V3700_VERSION,
+            "latest": latest,
+            "history": rows[:50],
+            "entries": len(rows)
+        })
+
+    p = request.get_json(silent=True) or request.form
+
+    revenue = float(p.get("revenue_focus") or 0)
+    product = float(p.get("product_focus") or 0)
+    growth = float(p.get("growth_focus") or 0)
+    hiring = float(p.get("hiring_focus") or 0)
+    fundraising = float(p.get("fundraising_focus") or 0)
+    customer = float(p.get("customer_focus") or 0)
+    execution = float(p.get("execution_score") or 0)
+
+    founder_score, founder_grade = _v3700_score(
+        revenue, product, growth, hiring, fundraising, customer, execution
+    )
+    operating_mode = _v3700_mode(
+        revenue, product, growth, hiring, fundraising, customer
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_founder_operating_system
+            (username,period_label,north_star_metric,north_star_value,
+             revenue_focus,product_focus,growth_focus,hiring_focus,
+             fundraising_focus,customer_focus,execution_score,founder_score,
+             operating_mode,top_priority,blocker,next_move,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("period_label") or "Current Sprint")[:120],
+                str(p.get("north_star_metric") or "")[:220],
+                float(p.get("north_star_value") or 0),
+                revenue,
+                product,
+                growth,
+                hiring,
+                fundraising,
+                customer,
+                execution,
+                founder_score,
+                operating_mode,
+                str(p.get("top_priority") or "")[:1500],
+                str(p.get("blocker") or "")[:1500],
+                str(p.get("next_move") or "")[:1500],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3700_VERSION,
+        "entry_id": rid,
+        "founder_score": founder_score,
+        "founder_grade": founder_grade,
+        "operating_mode": operating_mode
+    })
+
+@app.route("/api/founder-os/summary", methods=["GET"])
+def v3700_summary():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            """SELECT * FROM startup_founder_operating_system
+               WHERE username=? ORDER BY id DESC LIMIT 12""",
+            (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    if not rows:
+        return jsonify({
+            "success": True,
+            "version": V3700_VERSION,
+            "message": "no_founder_os_data"
+        })
+
+    avg = round(
+        sum(float(x["founder_score"] or 0) for x in rows) / len(rows), 2
+    )
+
+    modes = {}
+    for x in rows:
+        m = str(x["operating_mode"] or "UNKNOWN")
+        modes[m] = modes.get(m, 0) + 1
+
+    dominant_mode = max(modes, key=modes.get)
+
+    return jsonify({
+        "success": True,
+        "version": V3700_VERSION,
+        "average_founder_score": avg,
+        "dominant_operating_mode": dominant_mode,
+        "latest": rows[0],
+        "sample_size": len(rows)
+    })
+
 if __name__ == "__main__":
 
     init_db()
