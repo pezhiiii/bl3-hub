@@ -99386,6 +99386,112 @@ def v3692_api():
         "expected_value": expected
     })
 
+
+# ===== V36.93 DUE DILIGENCE DATA ROOM =====
+V3693_VERSION = "V36.93"
+
+def _v3693_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_due_diligence_room (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            document_name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            readiness_score REAL NOT NULL DEFAULT 0,
+            confidentiality TEXT NOT NULL DEFAULT 'PRIVATE',
+            owner TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'MISSING',
+            blocker TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3693_init()
+except Exception:
+    pass
+
+def _v3693_band(readiness, status):
+    score = max(0.0, min(100.0, float(readiness or 0)))
+    st = str(status or "MISSING").upper()
+    if st == "MISSING":
+        return score, "BLOCKER"
+    if score >= 90:
+        return score, "READY"
+    if score >= 70:
+        return score, "NEEDS_POLISH"
+    if score >= 45:
+        return score, "INCOMPLETE"
+    return score, "BLOCKER"
+
+@app.route("/api/due-diligence-room", methods=["GET", "POST"])
+def v3693_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_due_diligence_room
+                   WHERE username=? ORDER BY readiness_score ASC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        avg = round(sum(float(x["readiness_score"] or 0) for x in rows) / max(1, len(rows)), 2)
+        return jsonify({
+            "success": True,
+            "version": V3693_VERSION,
+            "items": rows,
+            "room_readiness": avg,
+            "blockers": sum(1 for x in rows if str(x["status"]).upper() == "MISSING" or float(x["readiness_score"] or 0) < 45)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    readiness, band = _v3693_band(
+        p.get("readiness_score", 0),
+        p.get("status", "MISSING")
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_due_diligence_room
+            (username,document_name,category,readiness_score,confidentiality,
+             owner,status,blocker,updated_at)
+             VALUES(?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("document_name") or "Document")[:220],
+                str(p.get("category") or "GENERAL")[:80].upper(),
+                readiness,
+                str(p.get("confidentiality") or "PRIVATE")[:40].upper(),
+                str(p.get("owner") or "")[:160],
+                str(p.get("status") or "MISSING")[:40].upper(),
+                str(p.get("blocker") or "")[:1000],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3693_VERSION,
+        "document_id": rid,
+        "readiness_score": readiness,
+        "readiness_band": band
+    })
+
 if __name__ == "__main__":
 
     init_db()
