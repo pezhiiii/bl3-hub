@@ -93567,6 +93567,46 @@ def v3623_api():
     ok,e,i=_v3623_create(u,p.get("booking_id"),p.get("contract_reference"),p.get("effective_date"),p.get("end_date"),p.get("customer_owner"),p.get("internal_owner"),p.get("obligations"))
     return jsonify({"success":ok,"error":e,"contract_id":i}),(200 if ok else 400)
 
+
+# ===== V36.24 DELIVERY KICKOFF + READINESS GATE =====
+V3624_VERSION="V36.24"
+def _v3624_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3624_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_delivery_kickoff (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, kickoff_title TEXT NOT NULL, delivery_owner TEXT NOT NULL, customer_owner TEXT NOT NULL DEFAULT "", scope_summary TEXT NOT NULL DEFAULT "", readiness_checklist TEXT NOT NULL DEFAULT "", blockers TEXT NOT NULL DEFAULT "", kickoff_date TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "PLANNED", created_at TEXT NOT NULL, updated_at TEXT NOT NULL, launched_at TEXT DEFAULT "")')
+        con.commit()
+    finally: con.close()
+try:_v3624_init()
+except Exception:pass
+
+def _v3624_create(u,contract_id,title,delivery_owner,customer_owner="",scope="",checklist="",blockers="",kickoff_date=""):
+    if not str(title or "").strip() or not str(delivery_owner or "").strip(): return False,"title_and_delivery_owner_required",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3624_now()
+        cur=con.execute("INSERT INTO startup_delivery_kickoff (username,contract_id,kickoff_title,delivery_owner,customer_owner,scope_summary,readiness_checklist,blockers,kickoff_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(title)[:260],str(delivery_owner)[:180],str(customer_owner or "")[:180],str(scope or "")[:6000],str(checklist or "")[:6000],str(blockers or "")[:5000],str(kickoff_date or "")[:80],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3624_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_delivery_kickoff WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3624_VERSION,"items":items,"launched":sum(1 for x in items if x["state"]=="LAUNCHED"),"blocked":sum(1 for x in items if x["state"]=="BLOCKED")}
+
+@app.route("/api/hunter-delivery-kickoff",methods=["GET","POST"])
+def v3624_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3624_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3624_create(u,p.get("contract_id"),p.get("kickoff_title"),p.get("delivery_owner"),p.get("customer_owner"),p.get("scope_summary"),p.get("readiness_checklist"),p.get("blockers"),p.get("kickoff_date"))
+    return jsonify({"success":ok,"error":e,"kickoff_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
