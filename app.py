@@ -94636,6 +94636,59 @@ def v3645_api():
     ok,e,i=_v3645_create(u,p.get("success_plan_id"),p.get("stakeholder_name"),p.get("owner"),p.get("role"),p.get("influence",0),p.get("sentiment",0),p.get("engagement",0),p.get("notes"))
     return jsonify({"success":ok,"error":e,"stakeholder_alignment_id":i}),(200 if ok else 400)
 
+
+# ===== V36.46 EXECUTIVE GROWTH COMMAND CENTER =====
+V3646_VERSION="V36.46"
+def _v3646_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3646_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_growth_command_center (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, period_label TEXT NOT NULL, owner TEXT NOT NULL, operating_score REAL NOT NULL DEFAULT 0, qbr_readiness REAL NOT NULL DEFAULT 0, success_progress REAL NOT NULL DEFAULT 0, stakeholder_alignment REAL NOT NULL DEFAULT 0, nrr REAL NOT NULL DEFAULT 0, expansion_forecast REAL NOT NULL DEFAULT 0, realized_value REAL NOT NULL DEFAULT 0, growth_score REAL NOT NULL DEFAULT 0, growth_status TEXT NOT NULL DEFAULT 'WATCH', executive_summary TEXT NOT NULL DEFAULT '', priority_actions TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3646_init()
+except Exception:pass
+
+def _v3646_create(u,period_label,owner,operating_score=0,qbr_readiness=0,success_progress=0,stakeholder_alignment=0,nrr=0,expansion_forecast=0,realized_value=0,executive_summary="",priority_actions=""):
+    if not str(period_label or "").strip() or not str(owner or "").strip():return False,"period_and_owner_required",None
+    try:
+        op=max(0,min(100,float(operating_score or 0)))
+        qr=max(0,min(100,float(qbr_readiness or 0)))
+        sp=max(0,min(100,float(success_progress or 0)))
+        sa=max(0,min(100,float(stakeholder_alignment or 0)))
+        nr=max(0,float(nrr or 0))
+        ef=max(0,float(expansion_forecast or 0))
+        rv=max(0,float(realized_value or 0))
+    except Exception:return False,"invalid_growth_metric",None
+    revenue_score=min(100,nr/120*100)
+    forecast_score=min(100,ef/10000*100)
+    value_score=min(100,rv/10000*100)
+    growth=round((op*0.20)+(qr*0.15)+(sp*0.15)+(sa*0.15)+(revenue_score*0.20)+(forecast_score*0.075)+(value_score*0.075),2)
+    status="ELITE" if growth>=90 else ("ACCELERATE" if growth>=80 else ("HEALTHY" if growth>=65 else ("WATCH" if growth>=50 else "INTERVENE")))
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_growth_command_center (username,period_label,owner,operating_score,qbr_readiness,success_progress,stakeholder_alignment,nrr,expansion_forecast,realized_value,growth_score,growth_status,executive_summary,priority_actions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(period_label)[:120],str(owner)[:180],op,qr,sp,sa,nr,ef,rv,growth,status,str(executive_summary or "")[:9000],str(priority_actions or "")[:7000],_v3646_now()))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3646_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_growth_command_center WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    latest=items[0] if items else None
+    return {"success":True,"version":V3646_VERSION,"items":items,"latest_growth_score":(latest["growth_score"] if latest else None),"latest_growth_status":(latest["growth_status"] if latest else "NO_DATA")}
+
+@app.route("/api/hunter-growth-command-center",methods=["GET","POST"])
+def v3646_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3646_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3646_create(u,p.get("period_label"),p.get("owner"),p.get("operating_score",0),p.get("qbr_readiness",0),p.get("success_progress",0),p.get("stakeholder_alignment",0),p.get("nrr",0),p.get("expansion_forecast",0),p.get("realized_value",0),p.get("executive_summary"),p.get("priority_actions"))
+    return jsonify({"success":ok,"error":e,"growth_command_center_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
