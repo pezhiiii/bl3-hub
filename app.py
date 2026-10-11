@@ -94309,6 +94309,48 @@ def v3638_api():
     ok,e,i=_v3638_create(u,p.get("reporting_period"),p.get("owner"),p.get("portfolio_health",0),p.get("nrr",0),p.get("grr",0),p.get("expansion_forecast",0),p.get("critical_accounts",0),p.get("executive_summary"),p.get("key_wins"),p.get("top_risks"),p.get("next_actions"))
     return jsonify({"success":ok,"error":e,"board_pack_id":i}),(200 if ok else 400)
 
+
+# ===== V36.39 EXECUTIVE CUSTOMER REVIEW + DECISION GATE =====
+V3639_VERSION="V36.39"
+def _v3639_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3639_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_executive_customer_review (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, board_pack_id INTEGER NOT NULL, review_owner TEXT NOT NULL, review_date TEXT NOT NULL DEFAULT '', decision TEXT NOT NULL DEFAULT 'PENDING', decision_rationale TEXT NOT NULL DEFAULT '', executive_sponsor TEXT NOT NULL DEFAULT '', follow_up_owner TEXT NOT NULL DEFAULT '', follow_up_due TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'OPEN', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT DEFAULT '')")
+        con.commit()
+    finally:con.close()
+try:_v3639_init()
+except Exception:pass
+
+def _v3639_create(u,board_pack_id,review_owner,review_date="",executive_sponsor=""):
+    if not str(review_owner or "").strip():return False,"review_owner_required",None
+    con=sqlite3.connect(DB)
+    try:
+        bp=con.execute("SELECT id,state FROM startup_customer_board_pack WHERE username=? AND id=?",(u,int(board_pack_id))).fetchone()
+        if not bp:return False,"board_pack_not_found",None
+        if bp[1]!="PUBLISHED":return False,"board_pack_must_be_published",None
+        now=_v3639_now()
+        cur=con.execute("INSERT INTO startup_executive_customer_review (username,board_pack_id,review_owner,review_date,executive_sponsor,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                        (u,int(board_pack_id),str(review_owner)[:180],str(review_date or "")[:80],str(executive_sponsor or "")[:180],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3639_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_executive_customer_review WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3639_VERSION,"items":items,"open_reviews":sum(1 for x in items if x["state"]=="OPEN"),"closed_reviews":sum(1 for x in items if x["state"]=="CLOSED")}
+
+@app.route("/api/hunter-executive-customer-review",methods=["GET","POST"])
+def v3639_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3639_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3639_create(u,p.get("board_pack_id"),p.get("review_owner"),p.get("review_date"),p.get("executive_sponsor"))
+    return jsonify({"success":ok,"error":e,"executive_review_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
