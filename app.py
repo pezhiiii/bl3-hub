@@ -90629,6 +90629,92 @@ def v3587_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['roadmap_name'])}</h2><p>Target: {esc(x['target_level'])} · {x['target_score']}/100 · Items: {len(x['items'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.87 Assurance Improvement Roadmaps</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.87 · ASSURANCE IMPROVEMENT ROADMAP</small><h1>Turn maturity gaps into prioritized improvement work.</h1></div>{}</div>""".format(cards or '<div class="card">No roadmaps yet.</div>')
 
+
+# ===== V35.88 GOVERNANCE REVIEW CYCLE + DECISION LOG GATE =====
+V3588_VERSION="V35.88"
+V3588_STATES={"PLANNED","IN_REVIEW","DECIDED","FOLLOWUP_REQUIRED","CLOSED"}
+
+def _v3588_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3588_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_governance_review_cycles(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            review_name TEXT NOT NULL,
+            chair TEXT NOT NULL,
+            review_scope TEXT NOT NULL DEFAULT '',
+            maturity_score INTEGER NOT NULL DEFAULT 0,
+            maturity_level TEXT NOT NULL DEFAULT 'INITIAL',
+            state TEXT NOT NULL DEFAULT 'PLANNED',
+            decision_text TEXT NOT NULL DEFAULT '',
+            decision_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3588_init()
+except Exception:pass
+
+def _v3588_create(u,name,chair,scope=""):
+    if not str(name or "").strip() or not str(chair or "").strip():
+        return False,"name_and_chair_required",None
+    m=_v3586_score(u);now=_v3588_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_governance_review_cycles
+        (username,review_name,chair,review_scope,maturity_score,maturity_level,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,str(name)[:240],str(chair)[:180],str(scope or "")[:4000],m["score"],m["level"],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3588_action(u,i,action,decision="",evidence=""):
+    a=str(action or "").upper();dec=str(decision or "").strip();ev=str(evidence or "").strip();now=_v3588_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_governance_review_cycles WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"review_not_found",None
+        cur=r["state"]
+        if a=="START" and cur=="PLANNED":new="IN_REVIEW"
+        elif a=="DECIDE" and cur=="IN_REVIEW" and dec and ev:new="DECIDED"
+        elif a=="FOLLOWUP" and cur=="DECIDED" and ev:new="FOLLOWUP_REQUIRED"
+        elif a=="CLOSE" and cur in ("DECIDED","FOLLOWUP_REQUIRED") and ev:new="CLOSED"
+        else:return False,"invalid_transition_or_required_data_missing",None
+        con.execute("""UPDATE startup_governance_review_cycles SET state=?,
+        decision_text=CASE WHEN ?='DECIDED' THEN ? ELSE decision_text END,
+        decision_evidence=CASE WHEN ? IN ('DECIDED','FOLLOWUP_REQUIRED','CLOSED') THEN ? ELSE decision_evidence END,
+        decided_at=CASE WHEN ?='DECIDED' THEN ? ELSE decided_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,new,dec[:5000],new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_governance_review_cycles WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3588_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_governance_review_cycles WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3588_VERSION,"items":items}
+
+@app.route("/api/hunter-governance-review-cycles",methods=["GET","POST"])
+def v3588_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3588_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3588_create(u,p.get("review_name"),p.get("chair"),p.get("review_scope"))
+    return jsonify({"success":ok,"error":e,"review_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-governance-review-cycles")
+def v3588_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3588_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['review_name'])}</h2><p>Maturity: {x['maturity_score']}/100 · {esc(x['maturity_level'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.88 Governance Review Cycles</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.88 · GOVERNANCE REVIEW CYCLE</small><h1>Review maturity, capture decisions, and enforce follow-up.</h1></div>{}</div>""".format(cards or '<div class="card">No governance reviews yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
