@@ -97245,6 +97245,146 @@ def v3675_api():
     finally:
         con.close()
 
+
+# ===== V36.76 STRATEGIC GROWTH PLANNER =====
+V3676_VERSION = "V36.76"
+
+def _v3676_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_strategic_growth_planner (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            growth_name TEXT NOT NULL,
+            target_metric TEXT NOT NULL DEFAULT 'revenue',
+            current_value REAL NOT NULL DEFAULT 0,
+            target_value REAL NOT NULL DEFAULT 0,
+            horizon_days INTEGER NOT NULL DEFAULT 30,
+            execution_capacity REAL NOT NULL DEFAULT 0,
+            market_tailwind REAL NOT NULL DEFAULT 0,
+            product_readiness REAL NOT NULL DEFAULT 0,
+            growth_score REAL NOT NULL DEFAULT 0,
+            priority TEXT NOT NULL DEFAULT 'MEDIUM',
+            required_daily_delta REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3676_init()
+except Exception:
+    pass
+
+def _v3676_calc(current_value, target_value, horizon_days, capacity, tailwind, readiness):
+    current_value = float(current_value or 0)
+    target_value = float(target_value or 0)
+    horizon_days = max(1, int(horizon_days or 30))
+    capacity = max(0.0, min(100.0, float(capacity or 0)))
+    tailwind = max(0.0, min(100.0, float(tailwind or 0)))
+    readiness = max(0.0, min(100.0, float(readiness or 0)))
+
+    gap = max(0.0, target_value - current_value)
+    required_daily_delta = round(gap / horizon_days, 4)
+
+    ambition_penalty = 0.0
+    if current_value > 0 and target_value > current_value:
+        multiple = target_value / current_value
+        ambition_penalty = min(35.0, max(0.0, (multiple - 1.0) * 12.0))
+
+    score = round(
+        capacity * 0.35 +
+        tailwind * 0.30 +
+        readiness * 0.35 -
+        ambition_penalty,
+        2
+    )
+    score = max(0.0, min(100.0, score))
+
+    if score >= 80:
+        priority = "AGGRESSIVE_SCALE"
+    elif score >= 65:
+        priority = "HIGH"
+    elif score >= 45:
+        priority = "MEDIUM"
+    else:
+        priority = "VALIDATE_FIRST"
+
+    return score, priority, required_daily_delta
+
+@app.route("/api/strategic-growth-planner", methods=["GET", "POST"])
+def v3676_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_strategic_growth_planner
+                   WHERE username=? ORDER BY growth_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3676_VERSION,
+            "items": rows,
+            "active_growth_plans": len(rows),
+            "best_growth_score": max([float(x["growth_score"] or 0) for x in rows], default=0)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, priority, required_daily_delta = _v3676_calc(
+        p.get("current_value", 0),
+        p.get("target_value", 0),
+        p.get("horizon_days", 30),
+        p.get("execution_capacity", 0),
+        p.get("market_tailwind", 0),
+        p.get("product_readiness", 0)
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_strategic_growth_planner
+            (username,growth_name,target_metric,current_value,target_value,horizon_days,
+             execution_capacity,market_tailwind,product_readiness,growth_score,
+             priority,required_daily_delta,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("growth_name") or "Growth Plan")[:220],
+                str(p.get("target_metric") or "revenue")[:120],
+                float(p.get("current_value") or 0),
+                float(p.get("target_value") or 0),
+                int(p.get("horizon_days") or 30),
+                float(p.get("execution_capacity") or 0),
+                float(p.get("market_tailwind") or 0),
+                float(p.get("product_readiness") or 0),
+                score, priority, required_daily_delta, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3676_VERSION,
+        "growth_plan_id": rid,
+        "growth_score": score,
+        "priority": priority,
+        "required_daily_delta": required_daily_delta
+    })
+
 if __name__ == "__main__":
 
     init_db()
