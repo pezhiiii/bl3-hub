@@ -93825,6 +93825,54 @@ def v3628_api():
     ok,e,i=_v3628_create(u,p.get("contract_id"),p.get("risk_type"),p.get("severity"),p.get("owner"),p.get("root_cause"),p.get("intervention_plan"),p.get("due_date"))
     return jsonify({"success":ok,"error":e,"risk_id":i}),(200 if ok else 400)
 
+
+# ===== V36.29 RENEWAL READINESS + HEALTH GATE =====
+V3629_VERSION="V36.29"
+def _v3629_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3629_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_renewal_readiness (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, renewal_owner TEXT NOT NULL, renewal_date TEXT NOT NULL DEFAULT "", adoption_score REAL NOT NULL DEFAULT 0, value_score REAL NOT NULL DEFAULT 0, relationship_score REAL NOT NULL DEFAULT 0, risk_score REAL NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "REVIEW", readiness_score REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)')
+        con.commit()
+    finally:con.close()
+try:_v3629_init()
+except Exception:pass
+
+def _v3629_create(u,contract_id,owner,renewal_date="",adoption=0,value=0,relationship=0,risk=0,notes=""):
+    if not str(owner or "").strip():return False,"renewal_owner_required",None
+    try:
+        a=max(0,min(100,float(adoption)));v=max(0,min(100,float(value)));r=max(0,min(100,float(relationship)));k=max(0,min(100,float(risk)))
+    except Exception:return False,"invalid_score",None
+    readiness=round((a*0.35)+(v*0.30)+(r*0.20)+((100-k)*0.15),2)
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3629_now()
+        cur=con.execute("INSERT INTO startup_renewal_readiness (username,contract_id,renewal_owner,renewal_date,adoption_score,value_score,relationship_score,risk_score,notes,readiness_score,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(owner)[:180],str(renewal_date or "")[:80],a,v,r,k,str(notes or "")[:6000],readiness,now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3629_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_renewal_readiness WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    ready=sum(1 for x in items if x["readiness_score"]>=80)
+    watch=sum(1 for x in items if 60<=x["readiness_score"]<80)
+    risk=sum(1 for x in items if x["readiness_score"]<60)
+    return {"success":True,"version":V3629_VERSION,"items":items,"ready":ready,"watch":watch,"at_risk":risk}
+
+@app.route("/api/hunter-renewal-readiness",methods=["GET","POST"])
+def v3629_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3629_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3629_create(u,p.get("contract_id"),p.get("renewal_owner"),p.get("renewal_date"),p.get("adoption_score",0),p.get("value_score",0),p.get("relationship_score",0),p.get("risk_score",0),p.get("notes"))
+    return jsonify({"success":ok,"error":e,"renewal_readiness_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
