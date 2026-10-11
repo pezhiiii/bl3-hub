@@ -94892,6 +94892,95 @@ def v3650_api():
     ok,e,i=_v3650_create(u,p.get("period_label"),p.get("owner"),p.get("growth_score",0),p.get("weighted_expansion",0),p.get("renewal_probability",0),p.get("executive_action_score",0),p.get("realized_value",0),p.get("nrr",0),p.get("narrative"),p.get("recommended_moves"))
     return jsonify({"success":ok,"error":e,"customer_intelligence_cockpit_id":i}),(200 if ok else 400)
 
+
+# ===== V36.51 ACCOUNT 360 INTELLIGENCE GRAPH =====
+V3651_VERSION="V36.51"
+def _v3651_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3651_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_account_360 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            segment TEXT NOT NULL DEFAULT '',
+            arr REAL NOT NULL DEFAULT 0,
+            health_score REAL NOT NULL DEFAULT 0,
+            adoption_score REAL NOT NULL DEFAULT 0,
+            sentiment_score REAL NOT NULL DEFAULT 0,
+            stakeholder_score REAL NOT NULL DEFAULT 0,
+            renewal_probability REAL NOT NULL DEFAULT 0,
+            expansion_probability REAL NOT NULL DEFAULT 0,
+            realized_value REAL NOT NULL DEFAULT 0,
+            account_360_score REAL NOT NULL DEFAULT 0,
+            account_status TEXT NOT NULL DEFAULT 'WATCH',
+            strategic_summary TEXT NOT NULL DEFAULT '',
+            next_best_action TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3651_init()
+except Exception:pass
+
+def _v3651_create(u,account_name,owner,segment="",arr=0,health_score=0,adoption_score=0,sentiment_score=0,stakeholder_score=0,renewal_probability=0,expansion_probability=0,realized_value=0,strategic_summary="",next_best_action=""):
+    if not str(account_name or "").strip() or not str(owner or "").strip():
+        return False,"account_and_owner_required",None
+    try:
+        arr=max(0,float(arr or 0))
+        h=max(0,min(100,float(health_score or 0)))
+        a=max(0,min(100,float(adoption_score or 0)))
+        s=max(0,min(100,float(sentiment_score or 0)))
+        st=max(0,min(100,float(stakeholder_score or 0)))
+        r=max(0,min(100,float(renewal_probability or 0)))
+        e=max(0,min(100,float(expansion_probability or 0)))
+        rv=max(0,float(realized_value or 0))
+    except Exception:
+        return False,"invalid_account_metric",None
+    value_score=min(100,(rv/10000.0)*100.0)
+    score=round((h*0.20)+(a*0.15)+(s*0.10)+(st*0.15)+(r*0.20)+(e*0.10)+(value_score*0.10),2)
+    status="STRATEGIC" if score>=85 else ("HEALTHY" if score>=70 else ("WATCH" if score>=50 else "AT_RISK"))
+    now=_v3651_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_account_360
+        (username,account_name,owner,segment,arr,health_score,adoption_score,sentiment_score,stakeholder_score,renewal_probability,expansion_probability,realized_value,account_360_score,account_status,strategic_summary,next_best_action,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(account_name)[:220],str(owner)[:180],str(segment or "")[:120],arr,h,a,s,st,r,e,rv,score,status,str(strategic_summary or "")[:9000],str(next_best_action or "")[:5000],now,now))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3651_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_account_360 WHERE username=? ORDER BY account_360_score DESC,id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    return {
+        "success":True,
+        "version":V3651_VERSION,
+        "items":items,
+        "strategic_accounts":sum(1 for x in items if x["account_status"]=="STRATEGIC"),
+        "at_risk_accounts":sum(1 for x in items if x["account_status"]=="AT_RISK"),
+        "total_arr":round(sum(float(x["arr"] or 0) for x in items),2)
+    }
+
+@app.route("/api/hunter-account-360",methods=["GET","POST"])
+def v3651_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3651_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3651_create(u,p.get("account_name"),p.get("owner"),p.get("segment"),p.get("arr",0),p.get("health_score",0),p.get("adoption_score",0),p.get("sentiment_score",0),p.get("stakeholder_score",0),p.get("renewal_probability",0),p.get("expansion_probability",0),p.get("realized_value",0),p.get("strategic_summary"),p.get("next_best_action"))
+    return jsonify({"success":ok,"error":e,"account_360_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
