@@ -99159,6 +99159,119 @@ def v3690_api():
     })
     return jsonify(calc)
 
+
+# ===== V36.91 BOARD & GOVERNANCE CENTER =====
+V3691_VERSION = "V36.91"
+
+def _v3691_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_governance_center (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            meeting_name TEXT NOT NULL,
+            agenda_item TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            impact_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            decision_status TEXT NOT NULL DEFAULT 'OPEN',
+            owner TEXT NOT NULL DEFAULT '',
+            due_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3691_init()
+except Exception:
+    pass
+
+def _v3691_priority(impact, urgency):
+    i = max(0.0, min(100.0, float(impact or 0)))
+    u = max(0.0, min(100.0, float(urgency or 0)))
+    score = round(i * 0.62 + u * 0.38, 2)
+    if score >= 80:
+        band = "BOARD_NOW"
+    elif score >= 65:
+        band = "HIGH"
+    elif score >= 45:
+        band = "MEDIUM"
+    else:
+        band = "LOW"
+    return score, band
+
+@app.route("/api/governance-center", methods=["GET", "POST"])
+def v3691_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_governance_center
+                   WHERE username=? ORDER BY
+                   (impact_score*0.62 + urgency_score*0.38) DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3691_VERSION,
+            "items": rows,
+            "open_decisions": sum(1 for x in rows if str(x["decision_status"]).upper() == "OPEN"),
+            "board_critical": sum(
+                1 for x in rows
+                if (float(x["impact_score"] or 0) * 0.62 + float(x["urgency_score"] or 0) * 0.38) >= 80
+            )
+        })
+
+    p = request.get_json(silent=True) or request.form
+    priority, band = _v3691_priority(
+        p.get("impact_score", 0),
+        p.get("urgency_score", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_governance_center
+            (username,meeting_name,agenda_item,category,impact_score,urgency_score,
+             decision_status,owner,due_at,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("meeting_name") or "Board Meeting")[:220],
+                str(p.get("agenda_item") or "Agenda Item")[:1000],
+                str(p.get("category") or "GENERAL")[:80].upper(),
+                float(p.get("impact_score") or 0),
+                float(p.get("urgency_score") or 0),
+                str(p.get("decision_status") or "OPEN")[:50].upper(),
+                str(p.get("owner") or "")[:160],
+                str(p.get("due_at") or ""),
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3691_VERSION,
+        "governance_item_id": rid,
+        "priority_score": priority,
+        "priority_band": band
+    })
+
 if __name__ == "__main__":
 
     init_db()
