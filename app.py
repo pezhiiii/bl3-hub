@@ -99861,6 +99861,137 @@ def v3696_api():
         "verdict": verdict
     })
 
+
+# ===== V36.97 HIRING SCORECARD =====
+V3697_VERSION = "V36.97"
+
+def _v3697_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_hiring_scorecards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            candidate_name TEXT NOT NULL,
+            role_name TEXT NOT NULL,
+            skill_score REAL NOT NULL DEFAULT 0,
+            execution_score REAL NOT NULL DEFAULT 0,
+            ownership_score REAL NOT NULL DEFAULT 0,
+            culture_score REAL NOT NULL DEFAULT 0,
+            reference_score REAL NOT NULL DEFAULT 0,
+            total_score REAL NOT NULL DEFAULT 0,
+            recommendation TEXT NOT NULL DEFAULT 'HOLD',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3697_init()
+except Exception:
+    pass
+
+def _v3697_score(skill, execution, ownership, culture, reference):
+    s = max(0.0, min(100.0, float(skill or 0)))
+    e = max(0.0, min(100.0, float(execution or 0)))
+    o = max(0.0, min(100.0, float(ownership or 0)))
+    c = max(0.0, min(100.0, float(culture or 0)))
+    r = max(0.0, min(100.0, float(reference or 0)))
+
+    total = round(
+        s * 0.25 +
+        e * 0.25 +
+        o * 0.20 +
+        c * 0.15 +
+        r * 0.15,
+        2
+    )
+
+    if total >= 88:
+        rec = "STRONG_HIRE"
+    elif total >= 78:
+        rec = "HIRE"
+    elif total >= 68:
+        rec = "HOLD"
+    elif total >= 58:
+        rec = "LEAN_NO"
+    else:
+        rec = "NO_HIRE"
+
+    return total, rec
+
+@app.route("/api/hiring-scorecards", methods=["GET", "POST"])
+def v3697_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_hiring_scorecards
+                   WHERE username=? ORDER BY total_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3697_VERSION,
+            "items": rows,
+            "strong_hires": sum(1 for x in rows if str(x["recommendation"]).upper() == "STRONG_HIRE"),
+            "hires": sum(1 for x in rows if str(x["recommendation"]).upper() in ("STRONG_HIRE", "HIRE"))
+        })
+
+    p = request.get_json(silent=True) or request.form
+    total, rec = _v3697_score(
+        p.get("skill_score", 0),
+        p.get("execution_score", 0),
+        p.get("ownership_score", 0),
+        p.get("culture_score", 0),
+        p.get("reference_score", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_hiring_scorecards
+            (username,candidate_name,role_name,skill_score,execution_score,ownership_score,
+             culture_score,reference_score,total_score,recommendation,notes,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("candidate_name") or "Candidate")[:220],
+                str(p.get("role_name") or "Role")[:220],
+                float(p.get("skill_score") or 0),
+                float(p.get("execution_score") or 0),
+                float(p.get("ownership_score") or 0),
+                float(p.get("culture_score") or 0),
+                float(p.get("reference_score") or 0),
+                total,
+                rec,
+                str(p.get("notes") or "")[:1500],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3697_VERSION,
+        "scorecard_id": rid,
+        "total_score": total,
+        "recommendation": rec
+    })
+
 if __name__ == "__main__":
 
     init_db()
