@@ -90715,6 +90715,54 @@ def v3588_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['review_name'])}</h2><p>Maturity: {x['maturity_score']}/100 · {esc(x['maturity_level'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.88 Governance Review Cycles</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.88 · GOVERNANCE REVIEW CYCLE</small><h1>Review maturity, capture decisions, and enforce follow-up.</h1></div>{}</div>""".format(cards or '<div class="card">No governance reviews yet.</div>')
 
+
+# ===== V35.89 ASSURANCE KPI/KRI DASHBOARD + THRESHOLD GATE =====
+V3589_VERSION="V35.89"
+
+def _v3589_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3589_metrics(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        audits=con.execute("SELECT COUNT(*) c FROM startup_audit_sessions WHERE username=?",(u,)).fetchone()["c"]
+        findings=con.execute("SELECT COUNT(*) c FROM startup_audit_findings WHERE username=?",(u,)).fetchone()["c"]
+        open_findings=con.execute("SELECT COUNT(*) c FROM startup_audit_findings WHERE username=? AND state!='CLOSED'",(u,)).fetchone()["c"]
+        effective=con.execute("SELECT COUNT(*) c FROM startup_corrective_action_effectiveness WHERE username=? AND state='EFFECTIVE'",(u,)).fetchone()["c"]
+        ineffective=con.execute("SELECT COUNT(*) c FROM startup_corrective_action_effectiveness WHERE username=? AND state IN ('INEFFECTIVE','REOPENED')",(u,)).fetchone()["c"]
+        missed=con.execute("SELECT COUNT(*) c FROM startup_audit_renewal_calendar WHERE username=? AND state='MISSED'",(u,)).fetchone()["c"]
+        accepted=con.execute("SELECT COUNT(*) c FROM startup_audit_management_acceptance WHERE username=? AND state='ACCEPTED'",(u,)).fetchone()["c"]
+    finally:con.close()
+    maturity=_v3586_score(u)
+    closure_rate=0 if findings==0 else round(((findings-open_findings)/findings)*100,1)
+    effectiveness_rate=0 if (effective+ineffective)==0 else round((effective/(effective+ineffective))*100,1)
+    risk="HIGH" if open_findings>=5 or missed>=2 or ineffective>=2 else "MEDIUM" if open_findings>=2 or missed>=1 or ineffective>=1 else "LOW"
+    return {
+        "maturity_score":maturity["score"],
+        "maturity_level":maturity["level"],
+        "audits_total":audits,
+        "findings_total":findings,
+        "open_findings":open_findings,
+        "finding_closure_rate":closure_rate,
+        "corrective_effectiveness_rate":effectiveness_rate,
+        "missed_renewals":missed,
+        "management_acceptance":accepted,
+        "overall_risk":risk
+    }
+
+@app.route("/api/hunter-assurance-kpi-kri")
+def v3589_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"version":V3589_VERSION,"generated_at":_v3589_now(),"metrics":_v3589_metrics(u)})
+
+@app.route("/hunter-assurance-kpi-kri")
+def v3589_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    m=_v3589_metrics(u);esc=html.escape
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.89 Assurance KPI/KRI</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px}.v{font-size:34px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V35.89 · ASSURANCE KPI/KRI DASHBOARD</small><h1>Operational assurance signals in one view.</h1></div><div class='grid'><div class='card'><div class='v'>{}/100</div><p>Maturity · {}</p></div><div class='card'><div class='v'>{}%</div><p>Finding closure</p></div><div class='card'><div class='v'>{}%</div><p>Corrective effectiveness</p></div><div class='card'><div class='v'>{}</div><p>Open findings</p></div><div class='card'><div class='v'>{}</div><p>Missed renewals</p></div><div class='card'><div class='v'>{}</div><p>Overall risk</p></div></div></div>""".format(
+        m["maturity_score"],esc(m["maturity_level"]),m["finding_closure_rate"],m["corrective_effectiveness_rate"],m["open_findings"],m["missed_renewals"],esc(m["overall_risk"]))
+
 if __name__ == "__main__":
 
     init_db()
