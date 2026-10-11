@@ -92126,6 +92126,69 @@ def v3605_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['metric_name'])}</b><p>Baseline: {x.get('baseline_value')} · Current: {x.get('current_value')} · Target: {x.get('target_value')} {esc(x.get('unit') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V36.05 Success KPIs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.score{font-size:52px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.05 · SUCCESS KPI / VALUE REALIZATION</small><div class='score'>{}%</div><h1>KPI achievement</h1></div>{}</div>""".format(d["achievement_rate"],cards or '<div class="card">No KPIs yet.</div>')
 
+
+# ===== V36.06 RENEWAL / EXPANSION READINESS GATE =====
+V3606_VERSION="V36.06"
+
+def _v3606_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3606_readiness(u):
+    k=_v3605_summary(u)
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        signed=con.execute("SELECT COUNT(*) c FROM startup_uat_acceptance WHERE username=? AND state='SIGNED_OFF'",(u,)).fetchone()["c"]
+        live=con.execute("SELECT COUNT(*) c FROM startup_onboarding_handoffs WHERE username=? AND state='LIVE'",(u,)).fetchone()["c"]
+        completed=con.execute("SELECT COUNT(*) c FROM startup_delivery_milestones WHERE username=? AND state='COMPLETED'",(u,)).fetchone()["c"]
+        blocked=con.execute("SELECT COUNT(*) c FROM startup_delivery_milestones WHERE username=? AND state='BLOCKED'",(u,)).fetchone()["c"]
+    finally:con.close()
+
+    score=min(100,
+        int(k["achievement_rate"]*0.55)
+        + min(20,signed*10)
+        + min(15,live*10)
+        + min(10,completed*3)
+        - min(20,blocked*5)
+    )
+    score=max(0,score)
+    if score>=85 and k["achievement_rate"]>=80:
+        status="EXPANSION_READY"
+    elif score>=70:
+        status="RENEWAL_READY"
+    elif score>=50:
+        status="STABILIZE_FIRST"
+    else:
+        status="NOT_READY"
+
+    payload={
+        "version":V3606_VERSION,
+        "score":score,
+        "status":status,
+        "kpi_achievement_rate":k["achievement_rate"],
+        "signed_uat":signed,
+        "live_handoffs":live,
+        "completed_milestones":completed,
+        "blocked_milestones":blocked,
+        "generated_at":_v3606_now()
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+    payload["snapshot_sha256"]=hashlib.sha256(raw.encode()).hexdigest()
+    return payload
+
+@app.route("/api/hunter-renewal-expansion-readiness")
+def v3606_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"snapshot":_v3606_readiness(u)})
+
+@app.route("/hunter-renewal-expansion-readiness")
+def v3606_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3606_readiness(u);esc=html.escape
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.06 Renewal / Expansion Readiness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:24px}.score{font-size:72px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.06 · RENEWAL / EXPANSION READINESS</small><div class='score'>{}/100</div><h1>{}</h1><p>KPI achievement: {}% · Signed UAT: {} · Live handoffs: {} · Completed milestones: {} · Blocked: {}</p><p>Snapshot: {}</p></div></div>""".format(
+        d["score"],esc(d["status"]),d["kpi_achievement_rate"],d["signed_uat"],d["live_handoffs"],
+        d["completed_milestones"],d["blocked_milestones"],esc(d["snapshot_sha256"]))
+
 if __name__ == "__main__":
 
     init_db()
