@@ -95244,6 +95244,87 @@ def v3654_api():
     ok,e,i=_v3654_create(u,p.get("period_label"),p.get("owner"),p.get("starting_arr",0),p.get("renewal_arr",0),p.get("expansion_arr",0),p.get("churn_arr",0),p.get("weighted_pipeline",0),p.get("forecast_arr",0),p.get("executive_summary"),p.get("top_actions"))
     return jsonify({"success":ok,"error":e,"revenue_command_center_id":i}),(200 if ok else 400)
 
+
+# ===== V36.55 REVENUE RISK RADAR =====
+V3655_VERSION="V36.55"
+def _v3655_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3655_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_risk_radar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            arr REAL NOT NULL DEFAULT 0,
+            churn_risk REAL NOT NULL DEFAULT 0,
+            contraction_risk REAL NOT NULL DEFAULT 0,
+            collection_risk REAL NOT NULL DEFAULT 0,
+            adoption_risk REAL NOT NULL DEFAULT 0,
+            champion_risk REAL NOT NULL DEFAULT 0,
+            competitive_risk REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            risk_level TEXT NOT NULL DEFAULT 'LOW',
+            mitigation_plan TEXT NOT NULL DEFAULT '',
+            executive_owner TEXT NOT NULL DEFAULT '',
+            due_date TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3655_init()
+except Exception:pass
+
+def _v3655_create(u,account_name,owner,arr=0,churn_risk=0,contraction_risk=0,collection_risk=0,adoption_risk=0,champion_risk=0,competitive_risk=0,mitigation_plan="",executive_owner="",due_date=""):
+    if not str(account_name or "").strip() or not str(owner or "").strip():
+        return False,"account_and_owner_required",None
+    try:
+        arr=max(0,float(arr or 0))
+        vals=[max(0,min(100,float(v or 0))) for v in [churn_risk,contraction_risk,collection_risk,adoption_risk,champion_risk,competitive_risk]]
+    except Exception:
+        return False,"invalid_risk_metric",None
+    cr,cor,col,ad,ch,comp=vals
+    score=round((cr*0.25)+(cor*0.15)+(col*0.10)+(ad*0.15)+(ch*0.15)+(comp*0.20),2)
+    level="CRITICAL" if score>=80 else ("HIGH" if score>=65 else ("MEDIUM" if score>=45 else "LOW"))
+    now=_v3655_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_revenue_risk_radar
+        (username,account_name,owner,arr,churn_risk,contraction_risk,collection_risk,adoption_risk,champion_risk,competitive_risk,risk_score,risk_level,mitigation_plan,executive_owner,due_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(account_name)[:220],str(owner)[:180],arr,cr,cor,col,ad,ch,comp,score,level,str(mitigation_plan or "")[:9000],str(executive_owner or "")[:180],str(due_date or "")[:80],now,now))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3655_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_risk_radar WHERE username=? ORDER BY risk_score DESC,id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    exposed=round(sum(float(x["arr"] or 0) for x in items if x["risk_level"] in ("HIGH","CRITICAL")),2)
+    return {
+        "success":True,"version":V3655_VERSION,"items":items,
+        "critical":sum(1 for x in items if x["risk_level"]=="CRITICAL"),
+        "high":sum(1 for x in items if x["risk_level"]=="HIGH"),
+        "exposed_arr":exposed
+    }
+
+@app.route("/api/hunter-revenue-risk-radar",methods=["GET","POST"])
+def v3655_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3655_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3655_create(u,p.get("account_name"),p.get("owner"),p.get("arr",0),p.get("churn_risk",0),p.get("contraction_risk",0),p.get("collection_risk",0),p.get("adoption_risk",0),p.get("champion_risk",0),p.get("competitive_risk",0),p.get("mitigation_plan"),p.get("executive_owner"),p.get("due_date"))
+    return jsonify({"success":ok,"error":e,"revenue_risk_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
