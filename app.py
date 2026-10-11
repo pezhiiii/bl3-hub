@@ -94165,6 +94165,51 @@ def v3635_api():
     ok,e,i=_v3635_create(u,p.get("contract_id"),p.get("owner"),p.get("health_score",0),p.get("revenue_weight",0),p.get("strategic_weight",0),p.get("risk_weight",0),p.get("summary"))
     return jsonify({"success":ok,"error":e,"portfolio_health_id":i}),(200 if ok else 400)
 
+
+# ===== V36.36 NRR + GRR REVENUE ENGINE =====
+V3636_VERSION="V36.36"
+def _v3636_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3636_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_revenue_retention (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, period_label TEXT NOT NULL, opening_arr REAL NOT NULL DEFAULT 0, expansion_arr REAL NOT NULL DEFAULT 0, contraction_arr REAL NOT NULL DEFAULT 0, churn_arr REAL NOT NULL DEFAULT 0, ending_arr REAL NOT NULL DEFAULT 0, nrr REAL NOT NULL DEFAULT 0, grr REAL NOT NULL DEFAULT 0, owner TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3636_init()
+except Exception:pass
+
+def _v3636_create(u,period_label,owner,opening_arr=0,expansion_arr=0,contraction_arr=0,churn_arr=0,notes=""):
+    if not str(period_label or "").strip() or not str(owner or "").strip():return False,"period_and_owner_required",None
+    try:
+        opening=max(0,float(opening_arr or 0)); exp=max(0,float(expansion_arr or 0)); con=max(0,float(contraction_arr or 0)); churn=max(0,float(churn_arr or 0))
+    except Exception:return False,"invalid_amount",None
+    ending=max(0,opening+exp-con-churn)
+    nrr=round(((opening+exp-con-churn)/opening)*100,2) if opening>0 else 0
+    grr=round(((opening-con-churn)/opening)*100,2) if opening>0 else 0
+    conx=sqlite3.connect(DB)
+    try:
+        cur=conx.execute("INSERT INTO startup_revenue_retention (username,period_label,opening_arr,expansion_arr,contraction_arr,churn_arr,ending_arr,nrr,grr,owner,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (u,str(period_label)[:120],opening,exp,con,churn,ending,nrr,grr,str(owner)[:180],str(notes or "")[:6000],_v3636_now()))
+        conx.commit();return True,"",cur.lastrowid
+    finally:conx.close()
+
+def _v3636_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_retention WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    latest=items[0] if items else None
+    return {"success":True,"version":V3636_VERSION,"items":items,"latest_nrr":(latest["nrr"] if latest else None),"latest_grr":(latest["grr"] if latest else None),"latest_ending_arr":(latest["ending_arr"] if latest else None)}
+
+@app.route("/api/hunter-revenue-retention",methods=["GET","POST"])
+def v3636_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3636_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3636_create(u,p.get("period_label"),p.get("owner"),p.get("opening_arr",0),p.get("expansion_arr",0),p.get("contraction_arr",0),p.get("churn_arr",0),p.get("notes"))
+    return jsonify({"success":ok,"error":e,"revenue_retention_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
