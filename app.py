@@ -96385,6 +96385,133 @@ def v3668_api():
         "scenario_band": band
     })
 
+
+# ===== V36.69 AUTONOMOUS BUDGET REBALANCER =====
+V3669_VERSION = "V36.69"
+
+def _v3669_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_autonomous_budget_rebalancer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            budget_name TEXT NOT NULL,
+            current_budget REAL NOT NULL DEFAULT 0,
+            roi_score REAL NOT NULL DEFAULT 0,
+            forecast_confidence REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            utilization REAL NOT NULL DEFAULT 0,
+            recommended_budget REAL NOT NULL DEFAULT 0,
+            rebalance_percent REAL NOT NULL DEFAULT 0,
+            rebalance_action TEXT NOT NULL DEFAULT 'HOLD',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3669_init()
+except Exception:
+    pass
+
+def _v3669_calc(current_budget, roi_score, forecast_conf, risk_score, utilization):
+    budget = max(0.0, float(current_budget or 0))
+    roi = max(0.0, min(100.0, float(roi_score or 0)))
+    conf = max(0.0, min(100.0, float(forecast_conf or 0)))
+    risk = max(0.0, min(100.0, float(risk_score or 0)))
+    util = max(0.0, min(100.0, float(utilization or 0)))
+
+    quality = (
+        roi * 0.35 +
+        conf * 0.30 +
+        (100.0 - risk) * 0.20 +
+        util * 0.15
+    )
+    rebalance_percent = round((quality - 50.0) * 0.8, 2)
+    rebalance_percent = max(-40.0, min(40.0, rebalance_percent))
+    recommended = round(budget * (1 + rebalance_percent / 100.0), 2)
+
+    if rebalance_percent >= 15:
+        action = "INCREASE"
+    elif rebalance_percent <= -15:
+        action = "DECREASE"
+    else:
+        action = "HOLD"
+
+    return recommended, rebalance_percent, action
+
+@app.route("/api/autonomous-budget-rebalancer", methods=["GET", "POST"])
+def v3669_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_autonomous_budget_rebalancer
+                   WHERE username=? ORDER BY id DESC""", (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3669_VERSION,
+            "items": rows,
+            "current_budget_total": round(sum(float(x["current_budget"] or 0) for x in rows), 2),
+            "recommended_budget_total": round(sum(float(x["recommended_budget"] or 0) for x in rows), 2)
+        })
+
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    recommended, rebalance_percent, action = _v3669_calc(
+        p.get("current_budget", 0),
+        p.get("roi_score", 0),
+        p.get("forecast_confidence", 0),
+        p.get("risk_score", 0),
+        p.get("utilization", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_autonomous_budget_rebalancer
+            (username,budget_name,current_budget,roi_score,forecast_confidence,
+             risk_score,utilization,recommended_budget,rebalance_percent,
+             rebalance_action,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("budget_name") or "Revenue Budget")[:220],
+                float(p.get("current_budget") or 0),
+                float(p.get("roi_score") or 0),
+                float(p.get("forecast_confidence") or 0),
+                float(p.get("risk_score") or 0),
+                float(p.get("utilization") or 0),
+                recommended,
+                rebalance_percent,
+                action,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3669_VERSION,
+        "rebalance_id": rid,
+        "recommended_budget": recommended,
+        "rebalance_percent": rebalance_percent,
+        "rebalance_action": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
