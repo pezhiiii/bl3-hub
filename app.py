@@ -95066,6 +95066,92 @@ def v3652_api():
     ok,e,i=_v3652_create(u,p.get("account_name"),p.get("owner"),p.get("arr",0),p.get("usage_drop",0),p.get("support_risk",0),p.get("sentiment_risk",0),p.get("stakeholder_risk",0),p.get("renewal_risk",0),p.get("save_play"),p.get("executive_owner"),p.get("target_save_date"))
     return jsonify({"success":ok,"error":e,"churn_prevention_id":i}),(200 if ok else 400)
 
+
+# ===== V36.53 EXPANSION PLAYBOOK + NEXT BEST OFFER =====
+V3653_VERSION="V36.53"
+def _v3653_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3653_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_expansion_playbook (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            current_arr REAL NOT NULL DEFAULT 0,
+            whitespace_value REAL NOT NULL DEFAULT 0,
+            product_fit_score REAL NOT NULL DEFAULT 0,
+            usage_signal_score REAL NOT NULL DEFAULT 0,
+            champion_strength REAL NOT NULL DEFAULT 0,
+            budget_signal REAL NOT NULL DEFAULT 0,
+            timing_score REAL NOT NULL DEFAULT 0,
+            offer_score REAL NOT NULL DEFAULT 0,
+            next_best_offer TEXT NOT NULL DEFAULT '',
+            playbook_status TEXT NOT NULL DEFAULT 'NURTURE',
+            target_close_date TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3653_init()
+except Exception:pass
+
+def _v3653_create(u,account_name,owner,current_arr=0,whitespace_value=0,product_fit_score=0,usage_signal_score=0,champion_strength=0,budget_signal=0,timing_score=0,next_best_offer="",target_close_date=""):
+    if not str(account_name or "").strip() or not str(owner or "").strip():
+        return False,"account_and_owner_required",None
+    try:
+        ca=max(0,float(current_arr or 0))
+        w=max(0,float(whitespace_value or 0))
+        pf=max(0,min(100,float(product_fit_score or 0)))
+        us=max(0,min(100,float(usage_signal_score or 0)))
+        ch=max(0,min(100,float(champion_strength or 0)))
+        bs=max(0,min(100,float(budget_signal or 0)))
+        ts=max(0,min(100,float(timing_score or 0)))
+    except Exception:
+        return False,"invalid_expansion_playbook_metric",None
+    score=round((pf*0.25)+(us*0.20)+(ch*0.20)+(bs*0.20)+(ts*0.15),2)
+    status="EXECUTE_NOW" if score>=85 else ("ACTIVATE" if score>=70 else ("NURTURE" if score>=50 else "HOLD"))
+    now=_v3653_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_expansion_playbook
+        (username,account_name,owner,current_arr,whitespace_value,product_fit_score,usage_signal_score,champion_strength,budget_signal,timing_score,offer_score,next_best_offer,playbook_status,target_close_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(account_name)[:220],str(owner)[:180],ca,w,pf,us,ch,bs,ts,score,str(next_best_offer or "")[:7000],status,str(target_close_date or "")[:80],now,now))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3653_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_expansion_playbook WHERE username=? ORDER BY offer_score DESC,id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    active_whitespace=round(sum(float(x["whitespace_value"] or 0) for x in items if x["playbook_status"] in ("EXECUTE_NOW","ACTIVATE")),2)
+    return {
+        "success":True,
+        "version":V3653_VERSION,
+        "items":items,
+        "execute_now":sum(1 for x in items if x["playbook_status"]=="EXECUTE_NOW"),
+        "activate":sum(1 for x in items if x["playbook_status"]=="ACTIVATE"),
+        "active_whitespace_value":active_whitespace
+    }
+
+@app.route("/api/hunter-expansion-playbook",methods=["GET","POST"])
+def v3653_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3653_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3653_create(u,p.get("account_name"),p.get("owner"),p.get("current_arr",0),p.get("whitespace_value",0),p.get("product_fit_score",0),p.get("usage_signal_score",0),p.get("champion_strength",0),p.get("budget_signal",0),p.get("timing_score",0),p.get("next_best_offer"),p.get("target_close_date"))
+    return jsonify({"success":ok,"error":e,"expansion_playbook_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
