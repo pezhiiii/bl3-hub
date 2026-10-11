@@ -90169,6 +90169,42 @@ def v3581_page():
     cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['severity'])} · {esc(x['state'])}</b><p>{esc(x['finding_text'])}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.81 Audit Findings</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.81 · AUDIT FINDING REMEDIATION + RETEST</small><h1>Do not close findings until retest evidence passes.</h1></div>{}</div>""".format(cards or '<div class="card">No audit findings yet.</div>')
 
+
+# ===== V35.82 AUDIT CLOSURE CERTIFICATE + PUBLIC STATUS GATE =====
+V3582_VERSION="V35.82"
+def _v3582_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3582_certificate(u,session_id):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        s=con.execute('SELECT * FROM startup_audit_sessions WHERE username=? AND id=?',(u,int(session_id))).fetchone()
+        if not s:return None
+        s=dict(s);fs=[dict(r) for r in con.execute('SELECT * FROM startup_audit_findings WHERE username=? AND audit_session_id=? ORDER BY id',(u,int(session_id))).fetchall()]
+    finally:con.close()
+    open_findings=[f for f in fs if f['state']!='CLOSED']
+    status='CLOSED_CLEAN' if not open_findings else 'OPEN_FINDINGS'
+    payload={'version':V3582_VERSION,'audit_session_id':int(session_id),'auditor_label':s.get('auditor_label'),'organization_label':s.get('organization_label'),'scope':s.get('scope'),'sample_size':s.get('sample_size'),'status':status,'total_findings':len(fs),'open_findings':len(open_findings),'generated_at':_v3582_now()}
+    raw=json.dumps(payload,sort_keys=True,separators=(',',':'));payload['certificate_sha256']=hashlib.sha256(raw.encode()).hexdigest();return payload
+
+@app.route('/api/hunter-audit-closure-certificate/<int:session_id>')
+def v3582_api(session_id):
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    d=_v3582_certificate(u,session_id)
+    if not d:return jsonify({'success':False,'error':'audit_session_not_found'}),404
+    return jsonify({'success':True,'certificate':d})
+
+@app.route('/hunter-audit-closure-certificates')
+def v3582_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r['id'] for r in con.execute('SELECT id FROM startup_audit_sessions WHERE username=? ORDER BY id DESC',(u,)).fetchall()]
+    finally:con.close()
+    esc=html.escape;cards=[]
+    for i in ids:
+        c=_v3582_certificate(u,i);cards.append(f"<div class='card'><b>Audit #{i} · {esc(c['status'])}</b><p>Findings: {c['total_findings']} · Open: {c['open_findings']}</p><p>Certificate: {esc(c['certificate_sha256'][:24])}</p></div>")
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.82 Audit Closure Certificates</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.82 · AUDIT CLOSURE CERTIFICATE</small><h1>Summarize audit status only after finding closure evidence.</h1></div>{}</div>""".format(''.join(cards) or '<div class="card">No audit sessions yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
