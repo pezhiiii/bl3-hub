@@ -93242,6 +93242,99 @@ def v3619_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['forecast_category'])}</h2><p>Confidence {x['confidence']}%</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.19</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.19 · FORECAST GOVERNANCE</small><h1>Control confidence before revenue is committed.</h1><p>Committed reviews: {} · Avg confidence: {}</p></div>{}</div>".format(d["committed_reviews"],d["average_confidence"],cards or "<div class='card'>No forecast reviews yet.</div>")
 
+
+# ===== V36.20 EXPANSION DEAL DESK + APPROVAL GATE =====
+V3620_VERSION="V36.20"
+
+def _v3620_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3620_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_expansion_deal_desk(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            forecast_id INTEGER NOT NULL,
+            deal_owner TEXT NOT NULL,
+            commercial_terms TEXT NOT NULL DEFAULT '',
+            discount_percent REAL NOT NULL DEFAULT 0,
+            legal_notes TEXT NOT NULL DEFAULT '',
+            finance_notes TEXT NOT NULL DEFAULT '',
+            security_notes TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            approval_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            approved_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3620_init()
+except Exception:pass
+
+def _v3620_create(u,forecast_id,owner,terms="",discount=0,legal="",finance="",security=""):
+    if not str(owner or "").strip():return False,"deal_owner_required",None
+    try:disc=max(0.0,min(100.0,float(discount or 0)))
+    except Exception:return False,"invalid_discount",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        f=con.execute("SELECT id FROM startup_expansion_forecast WHERE username=? AND id=?",(u,int(forecast_id))).fetchone()
+        if not f:return False,"forecast_not_found",None
+        now=_v3620_now()
+        cur=con.execute('''INSERT INTO startup_expansion_deal_desk
+        (username,forecast_id,deal_owner,commercial_terms,discount_percent,legal_notes,finance_notes,security_notes,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(forecast_id),str(owner)[:180],str(terms or "")[:6000],disc,str(legal or "")[:4000],
+         str(finance or "")[:4000],str(security or "")[:4000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3620_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3620_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_expansion_deal_desk WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"deal_desk_not_found",None
+        cur=r["state"]
+        if a=="SUBMIT" and cur=="DRAFT":new="SUBMITTED"
+        elif a=="APPROVE" and cur=="SUBMITTED" and ev:new="APPROVED"
+        elif a=="REJECT" and cur=="SUBMITTED" and ev:new="REJECTED"
+        elif a=="REOPEN" and cur in ("APPROVED","REJECTED"):new="DRAFT"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_expansion_deal_desk SET state=?,approval_evidence=?,
+        approved_at=CASE WHEN ?='APPROVED' THEN ? ELSE approved_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_expansion_deal_desk WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3620_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_expansion_deal_desk WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    approved=sum(1 for x in items if x["state"]=="APPROVED")
+    return {"success":True,"version":V3620_VERSION,"items":items,"approved_deals":approved}
+
+@app.route("/api/hunter-expansion-deal-desk",methods=["GET","POST"])
+def v3620_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3620_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3620_create(u,p.get("forecast_id"),p.get("deal_owner"),p.get("commercial_terms"),p.get("discount_percent",0),
+                         p.get("legal_notes"),p.get("finance_notes"),p.get("security_notes"))
+    return jsonify({"success":ok,"error":e,"deal_desk_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-expansion-deal-desk")
+def v3620_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3620_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Discount {x['discount_percent']}% · Owner {esc(x['deal_owner'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.20</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.20 · EXPANSION DEAL DESK</small><h1>Route commercial, legal, finance, and security approval.</h1><p>Approved deals: {}</p></div>{}</div>".format(d["approved_deals"],cards or "<div class='card'>No deal desk reviews yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
