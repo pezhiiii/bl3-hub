@@ -94029,6 +94029,49 @@ def v3632_api():
     ok,e,i=_v3632_create(u,p.get("contract_id"),p.get("opportunity_name"),p.get("expansion_type"),p.get("owner"),p.get("estimated_value",0),p.get("currency","USD"),p.get("use_case"),p.get("customer_signal"),p.get("qualification_score",0))
     return jsonify({"success":ok,"error":e,"expansion_opportunity_id":i}),(200 if ok else 400)
 
+
+# ===== V36.33 ADVOCACY + REFERRAL GATE =====
+V3633_VERSION="V36.33"
+def _v3633_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3633_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_customer_advocacy (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, advocate_name TEXT NOT NULL, advocate_role TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL, advocacy_type TEXT NOT NULL DEFAULT 'REFERENCE', consent_evidence TEXT NOT NULL DEFAULT '', referral_target TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'CANDIDATE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, activated_at TEXT DEFAULT '')")
+        con.commit()
+    finally:con.close()
+try:_v3633_init()
+except Exception:pass
+
+def _v3633_create(u,contract_id,advocate_name,owner,advocate_role="",advocacy_type="REFERENCE",referral_target=""):
+    if not str(advocate_name or "").strip() or not str(owner or "").strip(): return False,"advocate_name_and_owner_required",None
+    at=str(advocacy_type or "REFERENCE").upper()
+    if at not in ("REFERENCE","CASE_STUDY","TESTIMONIAL","REFERRAL","COMMUNITY","EVENT"):at="REFERENCE"
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3633_now()
+        cur=con.execute("INSERT INTO startup_customer_advocacy (username,contract_id,advocate_name,advocate_role,owner,advocacy_type,referral_target,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(advocate_name)[:220],str(advocate_role or "")[:220],str(owner)[:180],at,str(referral_target or "")[:500],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3633_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_advocacy WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3633_VERSION,"items":items,"active_advocates":sum(1 for x in items if x["state"]=="ACTIVE"),"completed":sum(1 for x in items if x["state"]=="COMPLETED")}
+
+@app.route("/api/hunter-customer-advocacy",methods=["GET","POST"])
+def v3633_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3633_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3633_create(u,p.get("contract_id"),p.get("advocate_name"),p.get("owner"),p.get("advocate_role"),p.get("advocacy_type"),p.get("referral_target"))
+    return jsonify({"success":ok,"error":e,"advocacy_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
