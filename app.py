@@ -91755,6 +91755,101 @@ def v3601_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['offer_name'])}</h2><p>{esc(x['offer_type'])} · {esc(x.get('value_text') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V36.01 External Offers</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.01 · OFFER / COMMITMENT TRACKER</small><h1>Track proposals and commitments through acceptance or loss.</h1></div>{}</div>""".format(cards or '<div class="card">No offers yet.</div>')
 
+
+# ===== V36.02 ONBOARDING HANDOFF + DELIVERY READINESS GATE =====
+V3602_VERSION="V36.02"
+V3602_STATES={"PENDING","HANDOFF_READY","IN_ONBOARDING","LIVE","BLOCKED"}
+
+def _v3602_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3602_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_onboarding_handoffs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_id INTEGER NOT NULL,
+            offer_id INTEGER NOT NULL,
+            handoff_name TEXT NOT NULL,
+            delivery_owner TEXT NOT NULL,
+            counterpart_owner TEXT NOT NULL DEFAULT '',
+            scope TEXT NOT NULL DEFAULT '',
+            success_criteria TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PENDING',
+            blocker_note TEXT NOT NULL DEFAULT '',
+            onboarding_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            live_at TEXT DEFAULT '',
+            UNIQUE(username,offer_id)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3602_init()
+except Exception:pass
+
+def _v3602_create(u,offer_id,name,delivery_owner,counterpart_owner="",scope="",criteria=""):
+    if not str(name or "").strip() or not str(delivery_owner or "").strip():
+        return False,"name_and_delivery_owner_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        off=con.execute("SELECT * FROM startup_external_offers WHERE username=? AND id=?",(u,int(offer_id))).fetchone()
+        if not off or off["state"]!="ACCEPTED":return False,"accepted_offer_required",None
+        now=_v3602_now()
+        cur=con.execute("""INSERT INTO startup_onboarding_handoffs
+        (username,opportunity_id,offer_id,handoff_name,delivery_owner,counterpart_owner,scope,success_criteria,state,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?, 'HANDOFF_READY', ?,?)""",
+        (u,int(off["opportunity_id"]),int(offer_id),str(name)[:260],str(delivery_owner)[:180],str(counterpart_owner or "")[:180],
+         str(scope or "")[:5000],str(criteria or "")[:5000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"handoff_already_exists",None
+    finally:con.close()
+
+def _v3602_action(u,i,action,evidence="",blocker=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3602_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_onboarding_handoffs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"handoff_not_found",None
+        cur=r["state"]
+        if a=="START" and cur=="HANDOFF_READY":new="IN_ONBOARDING"
+        elif a=="GO_LIVE" and cur=="IN_ONBOARDING" and ev:new="LIVE"
+        elif a=="BLOCK" and cur in ("HANDOFF_READY","IN_ONBOARDING") and str(blocker or "").strip():new="BLOCKED"
+        elif a=="RESUME" and cur=="BLOCKED":new="IN_ONBOARDING"
+        else:return False,"invalid_transition_or_required_data_missing",None
+        con.execute("""UPDATE startup_onboarding_handoffs SET state=?,onboarding_evidence=?,
+        blocker_note=CASE WHEN ?='BLOCKED' THEN ? ELSE blocker_note END,
+        live_at=CASE WHEN ?='LIVE' THEN ? ELSE live_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,ev[:5000],new,str(blocker or "")[:3000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_onboarding_handoffs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3602_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_onboarding_handoffs WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3602_VERSION,"items":items}
+
+@app.route("/api/hunter-onboarding-handoffs",methods=["GET","POST"])
+def v3602_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3602_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3602_create(u,p.get("offer_id"),p.get("handoff_name"),p.get("delivery_owner"),
+                         p.get("counterpart_owner"),p.get("scope"),p.get("success_criteria"))
+    return jsonify({"success":ok,"error":e,"handoff_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-onboarding-handoffs")
+def v3602_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3602_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['handoff_name'])}</h2><p>Delivery owner: {esc(x['delivery_owner'])}</p><p>{esc(x.get('blocker_note') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.02 Onboarding Handoffs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.02 · ONBOARDING HANDOFF</small><h1>Move accepted opportunities into delivery with explicit ownership and go-live evidence.</h1></div>{}</div>""".format(cards or '<div class="card">No handoffs yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
