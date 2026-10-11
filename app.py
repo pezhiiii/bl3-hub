@@ -94118,6 +94118,53 @@ def v3634_api():
     ok,e,i=_v3634_generate(u,p.get("contract_id"),p.get("owner"),p.get("retention_score",0),p.get("expansion_score",0),p.get("advocacy_score",0),p.get("risk_score",0),p.get("executive_summary"),p.get("next_best_action"))
     return jsonify({"success":ok,"error":e,"lifecycle_intelligence_id":i}),(200 if ok else 400)
 
+
+# ===== V36.35 PORTFOLIO HEALTH + PRIORITIZATION GATE =====
+V3635_VERSION="V36.35"
+def _v3635_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3635_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_portfolio_health (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, owner TEXT NOT NULL, health_score REAL NOT NULL DEFAULT 0, revenue_weight REAL NOT NULL DEFAULT 0, strategic_weight REAL NOT NULL DEFAULT 0, risk_weight REAL NOT NULL DEFAULT 0, priority_score REAL NOT NULL DEFAULT 0, tier TEXT NOT NULL DEFAULT 'STANDARD', summary TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally: con.close()
+try:_v3635_init()
+except Exception:pass
+
+def _v3635_create(u,contract_id,owner,health_score=0,revenue_weight=0,strategic_weight=0,risk_weight=0,summary=""):
+    if not str(owner or "").strip(): return False,"owner_required",None
+    try:
+        h=max(0,min(100,float(health_score))); rw=max(0,min(100,float(revenue_weight))); sw=max(0,min(100,float(strategic_weight))); rk=max(0,min(100,float(risk_weight)))
+    except Exception:return False,"invalid_score",None
+    priority=round((rw*0.35)+(sw*0.25)+((100-h)*0.20)+(rk*0.20),2)
+    tier="CRITICAL" if priority>=80 else ("HIGH" if priority>=65 else ("MEDIUM" if priority>=45 else "STANDARD"))
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3635_now()
+        cur=con.execute("INSERT INTO startup_portfolio_health (username,contract_id,owner,health_score,revenue_weight,strategic_weight,risk_weight,priority_score,tier,summary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(owner)[:180],h,rw,sw,rk,priority,tier,str(summary or "")[:6000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3635_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_portfolio_health WHERE username=? ORDER BY priority_score DESC,id DESC",(u,)).fetchall()]
+    finally:con.close()
+    avg=round(sum(float(x["health_score"] or 0) for x in items)/len(items),2) if items else None
+    return {"success":True,"version":V3635_VERSION,"items":items,"average_health":avg,"critical_accounts":sum(1 for x in items if x["tier"]=="CRITICAL"),"high_priority":sum(1 for x in items if x["tier"]=="HIGH")}
+
+@app.route("/api/hunter-portfolio-health",methods=["GET","POST"])
+def v3635_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3635_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3635_create(u,p.get("contract_id"),p.get("owner"),p.get("health_score",0),p.get("revenue_weight",0),p.get("strategic_weight",0),p.get("risk_weight",0),p.get("summary"))
+    return jsonify({"success":ok,"error":e,"portfolio_health_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
