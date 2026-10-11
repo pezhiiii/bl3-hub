@@ -92189,6 +92189,102 @@ def v3606_page():
         d["score"],esc(d["status"]),d["kpi_achievement_rate"],d["signed_uat"],d["live_handoffs"],
         d["completed_milestones"],d["blocked_milestones"],esc(d["snapshot_sha256"]))
 
+
+# ===== V36.07 EXPANSION PROPOSAL + APPROVAL GATE =====
+V3607_VERSION="V36.07"
+
+def _v3607_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3607_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_expansion_proposals(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            proposal_name TEXT NOT NULL,
+            expansion_scope TEXT NOT NULL DEFAULT '',
+            business_case TEXT NOT NULL DEFAULT '',
+            estimated_value TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'READY',
+            decision_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3607_init()
+except Exception:pass
+
+def _v3607_create(u,hid,name,scope,business_case,value,owner):
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"name_and_owner_required",None
+    rr=_v3606_readiness(u)
+    if rr.get("status") not in ("EXPANSION_READY","RENEWAL_READY"):
+        return False,"renewal_or_expansion_readiness_required",None
+    now=_v3607_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_expansion_proposals
+        (username,handoff_id,proposal_name,expansion_scope,business_case,estimated_value,owner,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid),str(name)[:260],str(scope or "")[:5000],str(business_case or "")[:5000],
+         str(value or "")[:180],str(owner)[:180],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3607_action(u,i,action,evidence=""):
+    a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3607_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_expansion_proposals WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"proposal_not_found",None
+        cur=r["state"]
+        if a=="SEND" and cur=="READY": new="SENT"
+        elif a=="APPROVE" and cur=="SENT" and ev: new="APPROVED"
+        elif a=="REJECT" and cur=="SENT" and ev: new="REJECTED"
+        elif a=="WITHDRAW" and cur in ("READY","SENT"): new="WITHDRAWN"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_expansion_proposals SET state=?,decision_evidence=?,
+        decided_at=CASE WHEN ? IN ('APPROVED','REJECTED') THEN ? ELSE decided_at END,updated_at=?
+        WHERE username=? AND id=?''',(new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_expansion_proposals WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:
+        con.close()
+
+def _v3607_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_expansion_proposals WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    return {"success":True,"version":V3607_VERSION,"items":items}
+
+@app.route("/api/hunter-expansion-proposals",methods=["GET","POST"])
+def v3607_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3607_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3607_create(u,p.get("handoff_id"),p.get("proposal_name"),p.get("expansion_scope"),
+                         p.get("business_case"),p.get("estimated_value"),p.get("owner"))
+    return jsonify({"success":ok,"error":e,"proposal_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-expansion-proposals")
+def v3607_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3607_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['proposal_name'])}</h2></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.07</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.07 · EXPANSION PROPOSAL</small><h1>Convert proven value into expansion.</h1></div>"+(cards or "<div class='card'>No proposals yet.</div>")+"</div>"
+
 if __name__ == "__main__":
 
     init_db()
