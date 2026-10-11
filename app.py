@@ -98696,6 +98696,124 @@ def v3686_api():
         "risk_level": level
     })
 
+
+# ===== V36.87 STARTUP COMMAND CENTER =====
+V3687_VERSION = "V36.87"
+
+def _v3687_latest(con, table, field, u, default=0.0, order="id DESC"):
+    try:
+        row = con.execute(
+            f"SELECT {field} FROM {table} WHERE username=? ORDER BY {order} LIMIT 1",
+            (u,)
+        ).fetchone()
+        if not row or row[0] is None:
+            return float(default)
+        return float(row[0])
+    except Exception:
+        return float(default)
+
+@app.route("/api/startup-command-center", methods=["GET"])
+def v3687_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        investor = _v3687_latest(
+            con, "startup_pitch_deck_scorer", "total_score", u, 0.0,
+            "total_score DESC"
+        )
+        pricing = _v3687_latest(
+            con, "startup_pricing_intelligence", "pricing_score", u, 0.0,
+            "pricing_score DESC"
+        )
+        customer = _v3687_latest(
+            con, "startup_customer_signal_radar", "signal_score", u, 0.0,
+            "signal_score DESC"
+        )
+        opportunity = _v3687_latest(
+            con, "startup_market_opportunity_scanner", "opportunity_score", u, 0.0,
+            "opportunity_score DESC"
+        )
+        readiness = 0.0
+        try:
+            growth = _v3687_latest(
+                con, "startup_strategic_growth_planner", "growth_score", u, 0.0
+            )
+            runway = _v3687_latest(
+                con, "startup_runway_burn_commander", "runway_months", u, 0.0
+            )
+            runway_score = 100.0 if runway >= 18 else min(100.0, runway * (100.0 / 18.0))
+            readiness = round(
+                investor * 0.22 +
+                pricing * 0.16 +
+                customer * 0.20 +
+                opportunity * 0.18 +
+                growth * 0.14 +
+                runway_score * 0.10,
+                2
+            )
+        except Exception:
+            readiness = round(
+                investor * 0.30 +
+                pricing * 0.20 +
+                customer * 0.25 +
+                opportunity * 0.25,
+                2
+            )
+
+        high_prob_investors = 0
+        try:
+            row = con.execute(
+                """SELECT COUNT(*) FROM startup_fundraising_pipeline
+                   WHERE username=? AND probability_score>=70""",
+                (u,)
+            ).fetchone()
+            high_prob_investors = int(row[0] if row else 0)
+        except Exception:
+            pass
+
+        high_risk_docs = 0
+        try:
+            row = con.execute(
+                """SELECT COUNT(*) FROM startup_due_diligence_data_room
+                   WHERE username=? AND risk_level='HIGH'""",
+                (u,)
+            ).fetchone()
+            high_risk_docs = int(row[0] if row else 0)
+        except Exception:
+            pass
+
+        if readiness >= 85 and high_risk_docs == 0:
+            mode = "FUNDRAISE_NOW"
+        elif readiness >= 70:
+            mode = "PREP_AND_OUTREACH"
+        elif readiness >= 55:
+            mode = "BUILD_TRACTION"
+        else:
+            mode = "FOUNDATION_MODE"
+
+        return jsonify({
+            "success": True,
+            "version": V3687_VERSION,
+            "startup_command_score": readiness,
+            "operating_mode": mode,
+            "pitch_score": investor,
+            "pricing_score": pricing,
+            "customer_signal_score": customer,
+            "market_opportunity_score": opportunity,
+            "high_probability_investors": high_prob_investors,
+            "high_risk_due_diligence_docs": high_risk_docs,
+            "next_moves": [
+                "Close high-risk data room gaps." if high_risk_docs else "Keep data room investor-ready.",
+                "Prioritize warm investors with probability >= 70." if high_prob_investors else "Build a higher-quality investor pipeline.",
+                "Strengthen traction and customer proof before scaling outreach." if readiness < 75 else "Increase investor outreach velocity."
+            ]
+        })
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
