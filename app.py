@@ -94397,6 +94397,52 @@ def v3640_api():
     ok,e,i=_v3640_create(u,p.get("executive_review_id"),p.get("initiative_name"),p.get("initiative_owner"),p.get("initiative_type"),p.get("target_metric"),p.get("baseline_value",0),p.get("target_value",0),p.get("due_date"),p.get("business_case"))
     return jsonify({"success":ok,"error":e,"strategic_initiative_id":i}),(200 if ok else 400)
 
+
+# ===== V36.41 VALUE REALIZATION + PROOF GATE =====
+V3641_VERSION="V36.41"
+def _v3641_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3641_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_value_realization (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, initiative_id INTEGER NOT NULL, owner TEXT NOT NULL, realized_value REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD', metric_result REAL NOT NULL DEFAULT 0, proof_reference TEXT NOT NULL DEFAULT '', evidence_summary TEXT NOT NULL DEFAULT '', confidence REAL NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'DRAFT', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, verified_at TEXT DEFAULT '')")
+        con.commit()
+    finally:con.close()
+try:_v3641_init()
+except Exception:pass
+
+def _v3641_create(u,initiative_id,owner,realized_value=0,currency="USD",metric_result=0,proof_reference="",evidence_summary="",confidence=0):
+    if not str(owner or "").strip():return False,"owner_required",None
+    try:
+        value=max(0,float(realized_value or 0));metric=float(metric_result or 0);conf=max(0,min(100,float(confidence or 0)))
+    except Exception:return False,"invalid_value",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_strategic_initiative WHERE username=? AND id=?",(u,int(initiative_id))).fetchone():
+            return False,"initiative_not_found",None
+        now=_v3641_now()
+        cur=con.execute("INSERT INTO startup_value_realization (username,initiative_id,owner,realized_value,currency,metric_result,proof_reference,evidence_summary,confidence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(initiative_id),str(owner)[:180],value,str(currency or "USD")[:20].upper(),metric,str(proof_reference or "")[:500],str(evidence_summary or "")[:8000],conf,now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3641_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_value_realization WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    verified=[x for x in items if x["state"]=="VERIFIED"]
+    total=round(sum(float(x["realized_value"] or 0) for x in verified),2)
+    return {"success":True,"version":V3641_VERSION,"items":items,"verified_count":len(verified),"verified_realized_value":total}
+
+@app.route("/api/hunter-value-realization",methods=["GET","POST"])
+def v3641_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3641_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3641_create(u,p.get("initiative_id"),p.get("owner"),p.get("realized_value",0),p.get("currency","USD"),p.get("metric_result",0),p.get("proof_reference"),p.get("evidence_summary"),p.get("confidence",0))
+    return jsonify({"success":ok,"error":e,"value_realization_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
