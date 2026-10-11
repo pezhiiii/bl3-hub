@@ -91142,6 +91142,106 @@ def v3594_page():
         d["score"],esc(d["status"]),d["maturity_score"],esc(d["maturity_level"]),esc(d["overall_risk"]),
         d["approved_board_packs"],d["completed_due_diligence_rooms"],d["stale_or_missing_evidence"],esc(d["certificate_sha256"]))
 
+
+# ===== V35.95 EXTERNAL PRESENTATION PACK + SHARE GATE =====
+V3595_VERSION="V35.95"
+V3595_STATES={"DRAFT","READY","SHARED","REVOKED","STALE"}
+
+def _v3595_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3595_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_presentation_packs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            readiness_status TEXT NOT NULL,
+            readiness_score INTEGER NOT NULL DEFAULT 0,
+            pack_name TEXT NOT NULL,
+            audience_label TEXT NOT NULL,
+            purpose TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            access_note TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            shared_at TEXT DEFAULT '',
+            revoked_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally: con.close()
+try:_v3595_init()
+except Exception:pass
+
+def _v3595_create(u,name,audience,purpose="",summary=""):
+    if not str(name or "").strip() or not str(audience or "").strip():
+        return False,"name_and_audience_required",None
+    readiness=_v3594_readiness(u)
+    now=_v3595_now()
+    payload={
+        "readiness_status":readiness.get("status"),
+        "readiness_score":readiness.get("score"),
+        "pack_name":str(name),
+        "audience_label":str(audience),
+        "purpose":str(purpose or ""),
+        "summary":str(summary or ""),
+        "utc":now
+    }
+    digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_external_presentation_packs
+        (username,readiness_status,readiness_score,pack_name,audience_label,purpose,summary,state,evidence_sha256,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,'READY',?,?,?)""",
+        (u,readiness.get("status"),int(readiness.get("score") or 0),str(name)[:240],str(audience)[:240],str(purpose or "")[:3000],str(summary or "")[:5000],digest,now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3595_action(u,i,action,note=""):
+    a=str(action or "").upper();now=_v3595_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_presentation_packs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"pack_not_found",None
+        cur=r["state"]
+        if a=="SHARE" and cur=="READY":new="SHARED"
+        elif a=="REVOKE" and cur=="SHARED":new="REVOKED"
+        else:return False,"invalid_transition",None
+        con.execute("""UPDATE startup_external_presentation_packs SET state=?,access_note=?,
+        shared_at=CASE WHEN ?='SHARED' THEN ? ELSE shared_at END,
+        revoked_at=CASE WHEN ?='REVOKED' THEN ? ELSE revoked_at END,
+        updated_at=? WHERE username=? AND id=?""",
+        (new,str(note or "")[:2500],new,now,new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_external_presentation_packs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3595_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_external_presentation_packs WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3595_VERSION,"items":items}
+
+@app.route("/api/hunter-external-presentation-packs",methods=["GET","POST"])
+def v3595_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3595_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3595_create(u,p.get("pack_name"),p.get("audience_label"),p.get("purpose"),p.get("summary"))
+    return jsonify({"success":ok,"error":e,"pack_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-external-presentation-packs")
+def v3595_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3595_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['pack_name'])}</h2><p>{esc(x['audience_label'])} · Readiness {x['readiness_score']}/100</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.95 External Presentation Packs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.95 · EXTERNAL PRESENTATION PACK</small><h1>Package readiness evidence for a specific outside audience.</h1></div>{}</div>""".format(cards or '<div class="card">No presentation packs yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
