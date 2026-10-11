@@ -93335,6 +93335,103 @@ def v3620_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Discount {x['discount_percent']}% · Owner {esc(x['deal_owner'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.20</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.20 · EXPANSION DEAL DESK</small><h1>Route commercial, legal, finance, and security approval.</h1><p>Approved deals: {}</p></div>{}</div>".format(d["approved_deals"],cards or "<div class='card'>No deal desk reviews yet.</div>")
 
+
+# ===== V36.21 MUTUAL ACTION PLAN + CLOSE GATE =====
+V3621_VERSION="V36.21"
+
+def _v3621_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3621_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_mutual_action_plans(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            forecast_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            customer_owner TEXT NOT NULL DEFAULT '',
+            internal_owner TEXT NOT NULL,
+            target_close TEXT NOT NULL DEFAULT '',
+            milestones_json TEXT NOT NULL DEFAULT '[]',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            close_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3621_init()
+except Exception:pass
+
+def _v3621_create(u,forecast_id,title,customer_owner,internal_owner,target_close="",milestones=None):
+    if not str(title or "").strip() or not str(internal_owner or "").strip():
+        return False,"title_and_internal_owner_required",None
+    if milestones is None:milestones=[]
+    if not isinstance(milestones,list):return False,"milestones_must_be_list",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        f=con.execute("SELECT id FROM startup_expansion_forecast WHERE username=? AND id=?",(u,int(forecast_id))).fetchone()
+        if not f:return False,"forecast_not_found",None
+        now=_v3621_now()
+        cur=con.execute('''INSERT INTO startup_mutual_action_plans
+        (username,forecast_id,title,customer_owner,internal_owner,target_close,milestones_json,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)''',
+        (u,int(forecast_id),str(title)[:260],str(customer_owner or "")[:180],str(internal_owner)[:180],
+         str(target_close or "")[:80],json.dumps(milestones)[:12000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3621_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3621_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_mutual_action_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"map_not_found",None
+        cur=r["state"]
+        if a=="ACTIVATE" and cur=="DRAFT":new="ACTIVE"
+        elif a=="COMPLETE" and cur=="ACTIVE" and ev:new="COMPLETED"
+        elif a=="BLOCK" and cur=="ACTIVE":new="BLOCKED"
+        elif a=="RESUME" and cur=="BLOCKED":new="ACTIVE"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_mutual_action_plans SET state=?,close_evidence=?,
+        completed_at=CASE WHEN ?='COMPLETED' THEN ? ELSE completed_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_mutual_action_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3621_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_mutual_action_plans WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    active=sum(1 for x in items if x["state"]=="ACTIVE")
+    completed=sum(1 for x in items if x["state"]=="COMPLETED")
+    return {"success":True,"version":V3621_VERSION,"items":items,"active_maps":active,"completed_maps":completed}
+
+@app.route("/api/hunter-mutual-action-plans",methods=["GET","POST"])
+def v3621_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3621_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    miles=p.get("milestones",[])
+    if isinstance(miles,str):
+        try:miles=json.loads(miles)
+        except Exception:return jsonify({"success":False,"error":"invalid_milestones_json"}),400
+    ok,e,i=_v3621_create(u,p.get("forecast_id"),p.get("title"),p.get("customer_owner"),p.get("internal_owner"),p.get("target_close"),miles)
+    return jsonify({"success":ok,"error":e,"map_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-mutual-action-plans")
+def v3621_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3621_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2><p>{esc(x['target_close'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.21</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.21 · MUTUAL ACTION PLAN</small><h1>Make the path to close explicit for both sides.</h1><p>Active: {} · Completed: {}</p></div>{}</div>".format(d["active_maps"],d["completed_maps"],cards or "<div class='card'>No mutual action plans yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
