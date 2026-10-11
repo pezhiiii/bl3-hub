@@ -95904,6 +95904,71 @@ def v3660_api():
     return jsonify({"success":True,"version":V3660_VERSION,"control_id":rid,
                     "control_score":score,"control_status":status,"escalation_level":esc})
 
+
+# ===== V36.61 REVENUE OUTCOME ATTRIBUTION ENGINE =====
+V3661_VERSION = "V36.61"
+
+def _v3661_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_outcome_attribution (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL,
+            action_id INTEGER NOT NULL DEFAULT 0, motion_name TEXT NOT NULL DEFAULT '',
+            channel TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '',
+            influenced_revenue REAL NOT NULL DEFAULT 0, sourced_revenue REAL NOT NULL DEFAULT 0,
+            retained_revenue REAL NOT NULL DEFAULT 0, expansion_revenue REAL NOT NULL DEFAULT 0,
+            attribution_confidence REAL NOT NULL DEFAULT 0, attribution_score REAL NOT NULL DEFAULT 0,
+            attribution_status TEXT NOT NULL DEFAULT 'LOW_SIGNAL', evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL)""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3661_init()
+except Exception:pass
+
+def _v3661_calc(i,s,r,e,c):
+    vals=[max(0.0,float(x or 0)) for x in (i,s,r,e)]
+    conf=max(0.0,min(100.0,float(c or 0)))
+    total=round(sum(vals),2)
+    score=round(min(100.0,(total/100000.0)*60.0)+(conf*0.40),2)
+    status="HIGH_SIGNAL" if score>=75 else "MEDIUM_SIGNAL" if score>=45 else "LOW_SIGNAL"
+    return total,score,status
+
+@app.route("/api/revenue-outcome-attribution",methods=["GET","POST"])
+def v3661_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":
+        con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+        try:
+            rows=[dict(r) for r in con.execute(
+                "SELECT * FROM startup_revenue_outcome_attribution WHERE username=? ORDER BY attribution_score DESC,id DESC",(u,)
+            ).fetchall()]
+        finally:con.close()
+        total=round(sum(float(x["influenced_revenue"] or 0)+float(x["sourced_revenue"] or 0)+
+                        float(x["retained_revenue"] or 0)+float(x["expansion_revenue"] or 0) for x in rows),2)
+        return jsonify({"success":True,"version":V3661_VERSION,"items":rows,"total_attributed_revenue":total})
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    total,score,status=_v3661_calc(p.get("influenced_revenue",0),p.get("sourced_revenue",0),
+                                  p.get("retained_revenue",0),p.get("expansion_revenue",0),
+                                  p.get("attribution_confidence",0))
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_revenue_outcome_attribution
+        (username,action_id,motion_name,channel,owner,influenced_revenue,sourced_revenue,retained_revenue,
+         expansion_revenue,attribution_confidence,attribution_score,attribution_status,evidence,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,int(p.get("action_id") or 0),str(p.get("motion_name") or "")[:220],str(p.get("channel") or "")[:120],
+         str(p.get("owner") or "")[:180],float(p.get("influenced_revenue") or 0),float(p.get("sourced_revenue") or 0),
+         float(p.get("retained_revenue") or 0),float(p.get("expansion_revenue") or 0),
+         float(p.get("attribution_confidence") or 0),score,status,str(p.get("evidence") or "")[:8000],now))
+        con.commit();rid=cur.lastrowid
+    finally:con.close()
+    return jsonify({"success":True,"version":V3661_VERSION,"attribution_id":rid,
+                    "attributed_value":total,"attribution_score":score,"attribution_status":status})
+
 if __name__ == "__main__":
 
     init_db()
