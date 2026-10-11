@@ -94443,6 +94443,53 @@ def v3641_api():
     ok,e,i=_v3641_create(u,p.get("initiative_id"),p.get("owner"),p.get("realized_value",0),p.get("currency","USD"),p.get("metric_result",0),p.get("proof_reference"),p.get("evidence_summary"),p.get("confidence",0))
     return jsonify({"success":ok,"error":e,"value_realization_id":i}),(200 if ok else 400)
 
+
+# ===== V36.42 CUSTOMER OPERATING SYSTEM + CLOSED-LOOP GATE =====
+V3642_VERSION="V36.42"
+def _v3642_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3642_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_customer_operating_system (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, cycle_label TEXT NOT NULL, owner TEXT NOT NULL, portfolio_health REAL NOT NULL DEFAULT 0, nrr REAL NOT NULL DEFAULT 0, grr REAL NOT NULL DEFAULT 0, expansion_forecast REAL NOT NULL DEFAULT 0, realized_value REAL NOT NULL DEFAULT 0, active_initiatives INTEGER NOT NULL DEFAULT 0, critical_accounts INTEGER NOT NULL DEFAULT 0, operating_score REAL NOT NULL DEFAULT 0, executive_summary TEXT NOT NULL DEFAULT '', next_cycle_focus TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'GENERATED', created_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3642_init()
+except Exception:pass
+
+def _v3642_create(u,cycle_label,owner,portfolio_health=0,nrr=0,grr=0,expansion_forecast=0,realized_value=0,active_initiatives=0,critical_accounts=0,executive_summary="",next_cycle_focus=""):
+    if not str(cycle_label or "").strip() or not str(owner or "").strip():return False,"cycle_label_and_owner_required",None
+    try:
+        ph=max(0,min(100,float(portfolio_health or 0)));nr=max(0,float(nrr or 0));gr=max(0,float(grr or 0));ef=max(0,float(expansion_forecast or 0));rv=max(0,float(realized_value or 0));ai=max(0,int(active_initiatives or 0));ca=max(0,int(critical_accounts or 0))
+    except Exception:return False,"invalid_operating_metric",None
+    revenue_score=min(100,(min(nr,120)/120*55)+(min(gr,100)/100*45))
+    execution_score=max(0,100-(ca*8))+min(20,ai*2)
+    operating=round((ph*0.35)+(revenue_score*0.35)+(min(100,execution_score)*0.20)+(min(100,rv/1000*10)*0.10),2)
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_customer_operating_system (username,cycle_label,owner,portfolio_health,nrr,grr,expansion_forecast,realized_value,active_initiatives,critical_accounts,operating_score,executive_summary,next_cycle_focus,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(cycle_label)[:120],str(owner)[:180],ph,nr,gr,ef,rv,ai,ca,operating,str(executive_summary or "")[:9000],str(next_cycle_focus or "")[:7000],_v3642_now()))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3642_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_operating_system WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    latest=items[0] if items else None
+    score=(latest["operating_score"] if latest else None)
+    status="NO_DATA" if score is None else ("ELITE" if score>=90 else ("STRONG" if score>=80 else ("HEALTHY" if score>=65 else ("WATCH" if score>=50 else "AT_RISK"))))
+    return {"success":True,"version":V3642_VERSION,"items":items,"latest_operating_score":score,"operating_status":status}
+
+@app.route("/api/hunter-customer-operating-system",methods=["GET","POST"])
+def v3642_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3642_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3642_create(u,p.get("cycle_label"),p.get("owner"),p.get("portfolio_health",0),p.get("nrr",0),p.get("grr",0),p.get("expansion_forecast",0),p.get("realized_value",0),p.get("active_initiatives",0),p.get("critical_accounts",0),p.get("executive_summary"),p.get("next_cycle_focus"))
+    return jsonify({"success":ok,"error":e,"customer_operating_system_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
