@@ -97118,6 +97118,133 @@ def v3674_api():
         "recommended_action": action
     })
 
+
+# ===== V36.75 CEO COMMAND CENTER =====
+V3675_VERSION = "V36.75"
+
+def _v3675_scalar(con, sql, params=(), default=0.0):
+    try:
+        row = con.execute(sql, params).fetchone()
+        if not row or row[0] is None:
+            return float(default)
+        return float(row[0])
+    except Exception:
+        return float(default)
+
+@app.route("/api/ceo-command-center", methods=["GET"])
+def v3675_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        board_score = 0.0
+        try:
+            # Reconstruct a CEO-level score from the most recent intelligence layers.
+            forecast_conf = _v3675_scalar(
+                con,
+                """SELECT confidence_score FROM startup_revenue_forecast_confidence
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            )
+            scenario_score = _v3675_scalar(
+                con,
+                """SELECT scenario_score FROM startup_revenue_scenario_simulation
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            )
+            allocation_score = _v3675_scalar(
+                con,
+                """SELECT allocation_score FROM startup_autonomous_capital_allocation
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            )
+            risk_score = _v3675_scalar(
+                con,
+                """SELECT composite_risk FROM startup_revenue_risk_radar
+                   WHERE username=? ORDER BY composite_risk DESC LIMIT 1""",
+                (u,)
+            )
+            policy_score = _v3675_scalar(
+                con,
+                """SELECT policy_score FROM startup_revenue_policy_guardrails
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            )
+            decision_outcome = _v3675_scalar(
+                con,
+                """SELECT outcome_score FROM startup_executive_decision_memory
+                   WHERE username=? AND decision_status='RESOLVED'
+                   ORDER BY id DESC LIMIT 1""",
+                (u,),
+                50.0
+            )
+
+            board_score = round(
+                forecast_conf * 0.18 +
+                scenario_score * 0.18 +
+                allocation_score * 0.20 +
+                policy_score * 0.15 +
+                decision_outcome * 0.14 +
+                max(0.0, 100.0-risk_score) * 0.15,
+                2
+            )
+        except Exception:
+            pass
+
+        critical_risks = int(_v3675_scalar(
+            con,
+            """SELECT COUNT(*) FROM startup_revenue_risk_radar
+               WHERE username=? AND risk_level='CRITICAL'""",
+            (u,)
+        ))
+        approved_decisions = int(_v3675_scalar(
+            con,
+            """SELECT COUNT(*) FROM startup_executive_decision_memory
+               WHERE username=? AND approved=1""",
+            (u,)
+        ))
+        recommended_capital = _v3675_scalar(
+            con,
+            """SELECT COALESCE(SUM(recommended_capital),0)
+               FROM startup_autonomous_capital_allocation
+               WHERE username=?""",
+            (u,)
+        )
+
+        if board_score >= 85 and critical_risks == 0:
+            ceo_mode = "SCALE"
+        elif board_score >= 70 and critical_risks <= 1:
+            ceo_mode = "EXECUTE"
+        elif board_score >= 50:
+            ceo_mode = "OPTIMIZE"
+        else:
+            ceo_mode = "STABILIZE"
+
+        next_actions = []
+        if critical_risks > 0:
+            next_actions.append("Resolve critical revenue risks before aggressive expansion.")
+        if board_score < 70:
+            next_actions.append("Improve confidence, allocation quality, and policy health.")
+        if approved_decisions == 0:
+            next_actions.append("Record and approve at least one executive decision.")
+        if not next_actions:
+            next_actions.append("Proceed with controlled scaling under current guardrails.")
+
+        return jsonify({
+            "success": True,
+            "version": V3675_VERSION,
+            "ceo_command_score": board_score,
+            "ceo_mode": ceo_mode,
+            "critical_risk_count": critical_risks,
+            "approved_decision_count": approved_decisions,
+            "recommended_capital_total": round(recommended_capital, 2),
+            "next_actions": next_actions
+        })
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
