@@ -98049,6 +98049,138 @@ def v3681_api():
         "action_class": action
     })
 
+
+# ===== V36.82 RUNWAY & BURN COMMANDER =====
+V3682_VERSION = "V36.82"
+
+def _v3682_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_runway_burn_commander (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            cash_balance REAL NOT NULL DEFAULT 0,
+            monthly_revenue REAL NOT NULL DEFAULT 0,
+            monthly_costs REAL NOT NULL DEFAULT 0,
+            expected_growth_pct REAL NOT NULL DEFAULT 0,
+            emergency_reserve REAL NOT NULL DEFAULT 0,
+            net_burn REAL NOT NULL DEFAULT 0,
+            runway_months REAL NOT NULL DEFAULT 0,
+            runway_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+            action_plan TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3682_init()
+except Exception:
+    pass
+
+def _v3682_calc(cash, revenue, costs, growth, reserve):
+    cash = max(0.0, float(cash or 0))
+    revenue = max(0.0, float(revenue or 0))
+    costs = max(0.0, float(costs or 0))
+    growth = float(growth or 0)
+    reserve = max(0.0, float(reserve or 0))
+
+    available_cash = max(0.0, cash - reserve)
+    net_burn = max(0.0, costs - revenue)
+
+    if net_burn <= 0:
+        runway = 999.0
+        status = "SELF_SUSTAINING"
+        action = "Protect margins and reinvest selectively."
+    else:
+        runway = round(available_cash / net_burn, 2) if net_burn > 0 else 999.0
+
+        if runway >= 18:
+            status = "STRONG"
+            action = "Maintain discipline and fund high-confidence growth."
+        elif runway >= 12:
+            status = "HEALTHY"
+            action = "Keep burn controlled and monitor growth efficiency."
+        elif runway >= 6:
+            status = "CAUTION"
+            action = "Reduce low-ROI spend and improve revenue conversion."
+        else:
+            status = "CRITICAL"
+            action = "Cut non-essential burn and prioritize immediate cash generation."
+
+    projected_revenue = round(revenue * (1.0 + growth / 100.0), 2)
+
+    return round(net_burn, 2), runway, status, action, projected_revenue
+
+@app.route("/api/runway-burn-commander", methods=["GET", "POST"])
+def v3682_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_runway_burn_commander
+                   WHERE username=? ORDER BY id DESC LIMIT 100""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3682_VERSION,
+            "items": rows,
+            "latest": rows[0] if rows else None
+        })
+
+    p = request.get_json(silent=True) or request.form
+    net_burn, runway, status, action, projected_revenue = _v3682_calc(
+        p.get("cash_balance", 0),
+        p.get("monthly_revenue", 0),
+        p.get("monthly_costs", 0),
+        p.get("expected_growth_pct", 0),
+        p.get("emergency_reserve", 0)
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_runway_burn_commander
+            (username,cash_balance,monthly_revenue,monthly_costs,expected_growth_pct,
+             emergency_reserve,net_burn,runway_months,runway_status,action_plan,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                float(p.get("cash_balance") or 0),
+                float(p.get("monthly_revenue") or 0),
+                float(p.get("monthly_costs") or 0),
+                float(p.get("expected_growth_pct") or 0),
+                float(p.get("emergency_reserve") or 0),
+                net_burn, runway, status, action, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3682_VERSION,
+        "runway_id": rid,
+        "net_burn": net_burn,
+        "runway_months": runway,
+        "runway_status": status,
+        "projected_next_month_revenue": projected_revenue,
+        "action_plan": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
