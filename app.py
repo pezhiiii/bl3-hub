@@ -97784,6 +97784,145 @@ def v3679_api():
     finally:
         con.close()
 
+
+# ===== V36.80 PRICING INTELLIGENCE ENGINE =====
+V3680_VERSION = "V36.80"
+
+def _v3680_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_pricing_intelligence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            offer_name TEXT NOT NULL,
+            current_price REAL NOT NULL DEFAULT 0,
+            competitor_price REAL NOT NULL DEFAULT 0,
+            willingness_to_pay REAL NOT NULL DEFAULT 0,
+            gross_margin_pct REAL NOT NULL DEFAULT 0,
+            conversion_rate REAL NOT NULL DEFAULT 0,
+            churn_risk REAL NOT NULL DEFAULT 0,
+            pricing_score REAL NOT NULL DEFAULT 0,
+            suggested_price REAL NOT NULL DEFAULT 0,
+            recommendation TEXT NOT NULL DEFAULT 'HOLD',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3680_init()
+except Exception:
+    pass
+
+def _v3680_calc(current_price, competitor_price, wtp, margin, conversion, churn):
+    current_price = max(0.0, float(current_price or 0))
+    competitor_price = max(0.0, float(competitor_price or 0))
+    wtp = max(0.0, float(wtp or 0))
+    margin = max(0.0, min(100.0, float(margin or 0)))
+    conversion = max(0.0, min(100.0, float(conversion or 0)))
+    churn = max(0.0, min(100.0, float(churn or 0)))
+
+    anchor_candidates = [x for x in (current_price, competitor_price, wtp) if x > 0]
+    anchor = sum(anchor_candidates) / len(anchor_candidates) if anchor_candidates else 0.0
+
+    strength = (
+        margin * 0.35 +
+        conversion * 0.30 +
+        (100.0 - churn) * 0.20 +
+        (100.0 if wtp >= current_price and current_price > 0 else 50.0) * 0.15
+    )
+    score = round(max(0.0, min(100.0, strength)), 2)
+
+    if score >= 80:
+        factor = 1.12
+        rec = "RAISE"
+    elif score >= 62:
+        factor = 1.05
+        rec = "TEST_UP"
+    elif score >= 45:
+        factor = 1.00
+        rec = "HOLD"
+    else:
+        factor = 0.92
+        rec = "LOWER_OR_REPACKAGE"
+
+    suggested = round(anchor * factor, 2)
+    if wtp > 0:
+        suggested = min(suggested, round(wtp * 1.05, 2))
+
+    return score, suggested, rec
+
+@app.route("/api/pricing-intelligence", methods=["GET", "POST"])
+def v3680_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_pricing_intelligence
+                   WHERE username=? ORDER BY pricing_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3680_VERSION,
+            "items": rows,
+            "best_pricing_score": max([float(x["pricing_score"] or 0) for x in rows], default=0)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, suggested, rec = _v3680_calc(
+        p.get("current_price", 0),
+        p.get("competitor_price", 0),
+        p.get("willingness_to_pay", 0),
+        p.get("gross_margin_pct", 0),
+        p.get("conversion_rate", 0),
+        p.get("churn_risk", 0)
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_pricing_intelligence
+            (username,offer_name,current_price,competitor_price,willingness_to_pay,
+             gross_margin_pct,conversion_rate,churn_risk,pricing_score,
+             suggested_price,recommendation,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("offer_name") or "Offer")[:220],
+                float(p.get("current_price") or 0),
+                float(p.get("competitor_price") or 0),
+                float(p.get("willingness_to_pay") or 0),
+                float(p.get("gross_margin_pct") or 0),
+                float(p.get("conversion_rate") or 0),
+                float(p.get("churn_risk") or 0),
+                score, suggested, rec, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3680_VERSION,
+        "pricing_id": rid,
+        "pricing_score": score,
+        "suggested_price": suggested,
+        "recommendation": rec
+    })
+
 if __name__ == "__main__":
 
     init_db()
