@@ -90302,6 +90302,99 @@ def v3583_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['management_owner'])}</h2><p>Audit #{x['audit_session_id']}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.83 Management Audit Acceptance</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.83 · MANAGEMENT AUDIT ACCEPTANCE</small><h1>Require explicit management acceptance after a clean audit closure.</h1></div>{}</div>""".format(cards or '<div class="card">No management acceptances yet.</div>')
 
+
+# ===== V35.84 CORRECTIVE ACTION VERIFICATION + EFFECTIVENESS GATE =====
+V3584_VERSION="V35.84"
+V3584_STATES={"PENDING","VERIFICATION_READY","EFFECTIVE","INEFFECTIVE","REOPENED"}
+
+def _v3584_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3584_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_corrective_action_effectiveness(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            audit_finding_id INTEGER NOT NULL,
+            verifier TEXT NOT NULL,
+            test_method TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PENDING',
+            verification_evidence TEXT NOT NULL DEFAULT '',
+            effectiveness_note TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            verified_at TEXT DEFAULT '',
+            UNIQUE(username,audit_finding_id)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3584_init()
+except Exception:pass
+
+def _v3584_finding(u,i):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_audit_findings WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3584_create(u,fid,verifier,method=""):
+    f=_v3584_finding(u,fid)
+    if not f or f.get("state")!="CLOSED":return False,"closed_finding_required",None
+    if not str(verifier or "").strip():return False,"verifier_required",None
+    now=_v3584_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_corrective_action_effectiveness
+        (username,audit_finding_id,verifier,test_method,state,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,int(fid),str(verifier)[:180],str(method or "")[:3000],"VERIFICATION_READY",now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"effectiveness_check_already_exists",None
+    finally:con.close()
+
+def _v3584_action(u,i,action,evidence="",note=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3584_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_corrective_action_effectiveness WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"verification_not_found",None
+        cur=r["state"]
+        if a=="MARK_EFFECTIVE" and cur=="VERIFICATION_READY" and ev:new="EFFECTIVE"
+        elif a=="MARK_INEFFECTIVE" and cur=="VERIFICATION_READY" and ev:new="INEFFECTIVE"
+        elif a=="REOPEN" and cur=="INEFFECTIVE" and ev:new="REOPENED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        digest=hashlib.sha256(json.dumps({"verification_id":int(i),"state":new,"evidence":ev,"note":str(note or ""),"utc":now},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+        con.execute("""UPDATE startup_corrective_action_effectiveness SET state=?,verification_evidence=?,effectiveness_note=?,evidence_sha256=?,
+        verified_at=CASE WHEN ? IN ('EFFECTIVE','INEFFECTIVE') THEN ? ELSE verified_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,ev[:5000],str(note or "")[:2500],digest,new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_corrective_action_effectiveness WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3584_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_corrective_action_effectiveness WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3584_VERSION,"items":items}
+
+@app.route("/api/hunter-corrective-action-effectiveness",methods=["GET","POST"])
+def v3584_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3584_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3584_create(u,p.get("audit_finding_id"),p.get("verifier"),p.get("test_method"))
+    return jsonify({"success":ok,"error":e,"verification_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-corrective-action-effectiveness")
+def v3584_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3584_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Finding #{x['audit_finding_id']} · Verifier: {esc(x['verifier'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.84 Corrective Action Effectiveness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.84 · CORRECTIVE ACTION EFFECTIVENESS</small><h1>Verify that closed findings stay fixed after closure.</h1></div>{}</div>""".format(cards or '<div class="card">No effectiveness verifications yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
