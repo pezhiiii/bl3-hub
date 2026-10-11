@@ -92992,6 +92992,91 @@ def v3616_page():
     cards="".join(f"<div class='card'><b>{esc(x['name'])}</b><p>{esc(x['role'])} · Influence {x['influence']} · Support {x['support_level']}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.16</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.16 · STAKEHOLDER MAP</small><h1>Know the champions, detractors, and decision power.</h1><p>Champions: {} · Detractors: {}</p></div>{}</div>".format(d["champions"],d["detractors"],cards or "<div class='card'>No stakeholders yet.</div>")
 
+
+# ===== V36.17 CUSTOMER ADVOCACY + REFERENCE GATE =====
+V3617_VERSION="V36.17"
+
+def _v3617_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3617_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_customer_advocacy(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            advocate_name TEXT NOT NULL,
+            advocacy_type TEXT NOT NULL,
+            permission_scope TEXT NOT NULL DEFAULT '',
+            asset_or_event TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'NOMINATED',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            activated_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3617_init()
+except Exception:pass
+
+def _v3617_create(u,hid,name,adv_type,scope="",asset=""):
+    if not str(name or "").strip() or not str(adv_type or "").strip():
+        return False,"advocate_and_type_required",None
+    now=_v3617_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_customer_advocacy
+        (username,handoff_id,advocate_name,advocacy_type,permission_scope,asset_or_event,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)''',(u,int(hid) if hid not in (None,"") else None,str(name)[:220],str(adv_type)[:180],
+                                   str(scope or "")[:3000],str(asset or "")[:3000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3617_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3617_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_customer_advocacy WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"advocacy_not_found",None
+        cur=r["state"]
+        if a=="REQUEST" and cur=="NOMINATED":new="REQUESTED"
+        elif a=="APPROVE" and cur=="REQUESTED" and ev:new="APPROVED"
+        elif a=="ACTIVATE" and cur=="APPROVED":new="ACTIVE"
+        elif a=="CLOSE" and cur=="ACTIVE":new="CLOSED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_customer_advocacy SET state=?,evidence=?,
+        activated_at=CASE WHEN ?='ACTIVE' THEN ? ELSE activated_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_customer_advocacy WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3617_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_advocacy WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    active=sum(1 for x in items if x["state"]=="ACTIVE")
+    return {"success":True,"version":V3617_VERSION,"items":items,"active_advocates":active}
+
+@app.route("/api/hunter-customer-advocacy",methods=["GET","POST"])
+def v3617_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3617_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3617_create(u,p.get("handoff_id"),p.get("advocate_name"),p.get("advocacy_type"),p.get("permission_scope"),p.get("asset_or_event"))
+    return jsonify({"success":ok,"error":e,"advocacy_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-customer-advocacy")
+def v3617_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3617_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['advocate_name'])}</h2><p>{esc(x['advocacy_type'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.17</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.17 · CUSTOMER ADVOCACY</small><h1>Turn successful customers into references and advocates.</h1><p>Active advocates: {}</p></div>{}</div>".format(d["active_advocates"],cards or "<div class='card'>No advocates yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
