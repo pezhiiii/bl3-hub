@@ -96986,6 +96986,138 @@ def v3673_api():
         "capital_action": action
     })
 
+
+# ===== V36.74 REVENUE RISK RADAR =====
+V3674_VERSION = "V36.74"
+
+def _v3674_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_risk_radar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            risk_name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            probability REAL NOT NULL DEFAULT 0,
+            impact REAL NOT NULL DEFAULT 0,
+            detectability REAL NOT NULL DEFAULT 0,
+            velocity REAL NOT NULL DEFAULT 0,
+            mitigation_readiness REAL NOT NULL DEFAULT 0,
+            composite_risk REAL NOT NULL DEFAULT 0,
+            risk_level TEXT NOT NULL DEFAULT 'LOW',
+            recommended_action TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3674_init()
+except Exception:
+    pass
+
+def _v3674_calc(probability, impact, detectability, velocity, readiness):
+    p = max(0.0, min(100.0, float(probability or 0)))
+    i = max(0.0, min(100.0, float(impact or 0)))
+    d = max(0.0, min(100.0, float(detectability or 0)))
+    v = max(0.0, min(100.0, float(velocity or 0)))
+    r = max(0.0, min(100.0, float(readiness or 0)))
+
+    score = round(
+        p * 0.30 +
+        i * 0.30 +
+        (100.0-d) * 0.15 +
+        v * 0.15 +
+        (100.0-r) * 0.10, 2
+    )
+
+    if score >= 80:
+        level = "CRITICAL"
+        action = "Immediate executive intervention and mitigation required."
+    elif score >= 65:
+        level = "HIGH"
+        action = "Activate mitigation plan and increase monitoring cadence."
+    elif score >= 45:
+        level = "MEDIUM"
+        action = "Assign owner and implement preventive controls."
+    else:
+        level = "LOW"
+        action = "Monitor and review on normal operating cadence."
+
+    return score, level, action
+
+@app.route("/api/revenue-risk-radar", methods=["GET", "POST"])
+def v3674_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_revenue_risk_radar
+                   WHERE username=? ORDER BY composite_risk DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3674_VERSION,
+            "items": rows,
+            "critical_count": sum(1 for x in rows if x["risk_level"] == "CRITICAL"),
+            "high_count": sum(1 for x in rows if x["risk_level"] == "HIGH"),
+            "max_risk_score": max([float(x["composite_risk"] or 0) for x in rows], default=0)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, level, action = _v3674_calc(
+        p.get("probability", 0),
+        p.get("impact", 0),
+        p.get("detectability", 0),
+        p.get("velocity", 0),
+        p.get("mitigation_readiness", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_revenue_risk_radar
+            (username,risk_name,category,probability,impact,detectability,
+             velocity,mitigation_readiness,composite_risk,risk_level,
+             recommended_action,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("risk_name") or "Revenue Risk")[:220],
+                str(p.get("category") or "GENERAL")[:120],
+                float(p.get("probability") or 0),
+                float(p.get("impact") or 0),
+                float(p.get("detectability") or 0),
+                float(p.get("velocity") or 0),
+                float(p.get("mitigation_readiness") or 0),
+                score, level, action, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3674_VERSION,
+        "risk_id": rid,
+        "composite_risk": score,
+        "risk_level": level,
+        "recommended_action": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
