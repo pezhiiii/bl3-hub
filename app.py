@@ -92700,6 +92700,97 @@ def v3612_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['sentiment'])}</b><p>{esc(x['feedback'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.12</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.12 · VOICE OF CUSTOMER</small><h1>Feedback, sentiment, and follow-up.</h1><p>Average score: {} · Negative: {} · Follow-up: {}</p></div>{}</div>".format(d["average_score"],d["negative_count"],d["followup_required"],cards or "<div class='card'>No feedback yet.</div>")
 
+
+# ===== V36.13 RECOVERY PLAN + RETENTION SAVE GATE =====
+V3613_VERSION="V36.13"
+
+def _v3613_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3613_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_recovery_plans(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            title TEXT NOT NULL,
+            root_cause TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL,
+            actions TEXT NOT NULL DEFAULT '',
+            success_criteria TEXT NOT NULL DEFAULT '',
+            due_at TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            outcome_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            closed_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3613_init()
+except Exception:pass
+
+def _v3613_create(u,hid,title,root_cause,owner,actions,success_criteria,due_at=""):
+    if not str(title or "").strip() or not str(owner or "").strip():
+        return False,"title_and_owner_required",None
+    now=_v3613_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_recovery_plans
+        (username,handoff_id,title,root_cause,owner,actions,success_criteria,due_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid) if hid not in (None,"") else None,str(title)[:260],str(root_cause or "")[:5000],
+         str(owner)[:180],str(actions or "")[:8000],str(success_criteria or "")[:5000],str(due_at or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3613_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3613_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_recovery_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"recovery_plan_not_found",None
+        cur=r["state"]
+        if a=="START" and cur=="DRAFT":new="ACTIVE"
+        elif a=="REVIEW" and cur=="ACTIVE":new="REVIEW"
+        elif a=="SAVE" and cur=="REVIEW" and ev:new="SAVED"
+        elif a=="FAIL" and cur in ("ACTIVE","REVIEW") and ev:new="FAILED"
+        elif a=="CLOSE" and cur in ("SAVED","FAILED"):new="CLOSED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_recovery_plans SET state=?,outcome_evidence=?,
+        closed_at=CASE WHEN ?='CLOSED' THEN ? ELSE closed_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_recovery_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3613_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_recovery_plans WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    active=sum(1 for x in items if x["state"] in ("ACTIVE","REVIEW"))
+    saved=sum(1 for x in items if x["state"]=="SAVED")
+    return {"success":True,"version":V3613_VERSION,"items":items,"active":active,"saved":saved}
+
+@app.route("/api/hunter-recovery-plans",methods=["GET","POST"])
+def v3613_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3613_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3613_create(u,p.get("handoff_id"),p.get("title"),p.get("root_cause"),p.get("owner"),
+                         p.get("actions"),p.get("success_criteria"),p.get("due_at"))
+    return jsonify({"success":ok,"error":e,"recovery_plan_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-recovery-plans")
+def v3613_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3613_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2><p>{esc(x['owner'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.13</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.13 · RECOVERY PLAN</small><h1>Turn risk into a measurable save plan.</h1><p>Active: {} · Saved: {}</p></div>{}</div>".format(d["active"],d["saved"],cards or "<div class='card'>No recovery plans yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
