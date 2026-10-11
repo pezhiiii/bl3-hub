@@ -93607,6 +93607,52 @@ def v3624_api():
     ok,e,i=_v3624_create(u,p.get("contract_id"),p.get("kickoff_title"),p.get("delivery_owner"),p.get("customer_owner"),p.get("scope_summary"),p.get("readiness_checklist"),p.get("blockers"),p.get("kickoff_date"))
     return jsonify({"success":ok,"error":e,"kickoff_id":i}),(200 if ok else 400)
 
+
+# ===== V36.25 VALUE MILESTONE + PROOF GATE =====
+V3625_VERSION="V36.25"
+def _v3625_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3625_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_value_milestones (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, kickoff_id INTEGER NOT NULL, milestone_name TEXT NOT NULL, target_date TEXT NOT NULL DEFAULT "", owner TEXT NOT NULL, success_metric TEXT NOT NULL DEFAULT "", target_value REAL, actual_value REAL, evidence TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "PLANNED", created_at TEXT NOT NULL, updated_at TEXT NOT NULL, achieved_at TEXT DEFAULT "")')
+        con.commit()
+    finally: con.close()
+try:_v3625_init()
+except Exception:pass
+
+def _v3625_create(u,kickoff_id,name,target_date,owner,success_metric="",target_value=None):
+    if not str(name or "").strip() or not str(owner or "").strip(): return False,"milestone_name_and_owner_required",None
+    tv=None
+    if target_value not in (None,""):
+        try: tv=float(target_value)
+        except Exception:return False,"invalid_target_value",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_delivery_kickoff WHERE username=? AND id=?",(u,int(kickoff_id))).fetchone():
+            return False,"kickoff_not_found",None
+        now=_v3625_now()
+        cur=con.execute("INSERT INTO startup_value_milestones (username,kickoff_id,milestone_name,target_date,owner,success_metric,target_value,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (u,int(kickoff_id),str(name)[:260],str(target_date or "")[:80],str(owner)[:180],str(success_metric or "")[:3000],tv,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3625_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_value_milestones WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    achieved=sum(1 for x in items if x["state"]=="ACHIEVED"); missed=sum(1 for x in items if x["state"]=="MISSED")
+    rate=round(100*achieved/max(1,achieved+missed),2) if (achieved+missed) else None
+    return {"success":True,"version":V3625_VERSION,"items":items,"achieved":achieved,"missed":missed,"achievement_rate":rate}
+
+@app.route("/api/hunter-value-milestones",methods=["GET","POST"])
+def v3625_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3625_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3625_create(u,p.get("kickoff_id"),p.get("milestone_name"),p.get("target_date"),p.get("owner"),p.get("success_metric"),p.get("target_value"))
+    return jsonify({"success":ok,"error":e,"milestone_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
