@@ -90943,6 +90943,100 @@ def v3591_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['pack_name'])}</h2><p>Board owner: {esc(x['board_owner'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.91 Board Assurance Packs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.91 · BOARD ASSURANCE PACK</small><h1>Turn executive assurance into a board-reviewable package.</h1></div>{}</div>""".format(cards or '<div class="card">No board packs yet.</div>')
 
+
+# ===== V35.92 PARTNER / INVESTOR DUE DILIGENCE ROOM GATE =====
+V3592_VERSION="V35.92"
+V3592_STATES={"DRAFT","OPEN","IN_REVIEW","COMPLETE","CLOSED"}
+
+def _v3592_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3592_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_due_diligence_rooms(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            board_pack_id INTEGER NOT NULL,
+            room_name TEXT NOT NULL,
+            reviewer_label TEXT NOT NULL,
+            organization_label TEXT NOT NULL DEFAULT '',
+            purpose TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            review_note TEXT NOT NULL DEFAULT '',
+            review_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3592_init()
+except Exception:pass
+
+def _v3592_pack(u,pid):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_board_assurance_packs WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3592_create(u,pid,name,reviewer,org="",purpose=""):
+    p=_v3592_pack(u,pid)
+    if not p or p.get("state")!="APPROVED":
+        return False,"approved_board_pack_required",None
+    if not str(name or "").strip() or not str(reviewer or "").strip():
+        return False,"name_and_reviewer_required",None
+    now=_v3592_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_due_diligence_rooms
+        (username,board_pack_id,room_name,reviewer_label,organization_label,purpose,state,created_at,updated_at)
+        VALUES(?,?,?,?,?,?, 'OPEN', ?,?)""",
+        (u,int(pid),str(name)[:240],str(reviewer)[:240],str(org or "")[:240],str(purpose or "")[:3500],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3592_action(u,i,action,note="",evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3592_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_due_diligence_rooms WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"room_not_found",None
+        cur=r["state"]
+        if a=="START_REVIEW" and cur=="OPEN":new="IN_REVIEW"
+        elif a=="COMPLETE" and cur=="IN_REVIEW" and ev:new="COMPLETE"
+        elif a=="CLOSE" and cur=="COMPLETE" and ev:new="CLOSED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute("""UPDATE startup_due_diligence_rooms SET state=?,review_note=?,review_evidence=?,
+        completed_at=CASE WHEN ?='COMPLETE' THEN ? ELSE completed_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,str(note or "")[:3500],ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_due_diligence_rooms WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3592_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_due_diligence_rooms WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3592_VERSION,"items":items}
+
+@app.route("/api/hunter-due-diligence-rooms",methods=["GET","POST"])
+def v3592_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3592_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3592_create(u,p.get("board_pack_id"),p.get("room_name"),p.get("reviewer_label"),p.get("organization_label"),p.get("purpose"))
+    return jsonify({"success":ok,"error":e,"room_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-due-diligence-rooms")
+def v3592_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3592_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['room_name'])}</h2><p>{esc(x['reviewer_label'])} · {esc(x.get('organization_label') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.92 Due Diligence Rooms</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.92 · PARTNER / INVESTOR DUE DILIGENCE ROOM</small><h1>Present an approved assurance pack to external reviewers with tracked review state.</h1></div>{}</div>""".format(cards or '<div class="card">No diligence rooms yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
