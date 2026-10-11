@@ -94254,6 +94254,61 @@ def v3637_api():
     ok,e,i=_v3637_create(u,p.get("forecast_period"),p.get("owner"),p.get("committed_value",0),p.get("best_case_value",0),p.get("pipeline_value",0),p.get("confidence",0),p.get("assumptions"))
     return jsonify({"success":ok,"error":e,"expansion_forecast_id":i}),(200 if ok else 400)
 
+
+# ===== V36.38 EXECUTIVE CUSTOMER BOARD PACK =====
+V3638_VERSION="V36.38"
+def _v3638_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3638_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_customer_board_pack (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, reporting_period TEXT NOT NULL, owner TEXT NOT NULL, portfolio_health REAL NOT NULL DEFAULT 0, nrr REAL NOT NULL DEFAULT 0, grr REAL NOT NULL DEFAULT 0, expansion_forecast REAL NOT NULL DEFAULT 0, critical_accounts INTEGER NOT NULL DEFAULT 0, executive_summary TEXT NOT NULL DEFAULT '', key_wins TEXT NOT NULL DEFAULT '', top_risks TEXT NOT NULL DEFAULT '', next_actions TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'DRAFT', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, published_at TEXT DEFAULT '')")
+        con.commit()
+    finally:con.close()
+try:_v3638_init()
+except Exception:pass
+
+def _v3638_create(u,reporting_period,owner,portfolio_health=0,nrr=0,grr=0,expansion_forecast=0,critical_accounts=0,executive_summary="",key_wins="",top_risks="",next_actions=""):
+    if not str(reporting_period or "").strip() or not str(owner or "").strip():return False,"reporting_period_and_owner_required",None
+    try:
+        ph=float(portfolio_health or 0);nr=float(nrr or 0);gr=float(grr or 0);ef=float(expansion_forecast or 0);ca=int(critical_accounts or 0)
+    except Exception:return False,"invalid_board_metrics",None
+    con=sqlite3.connect(DB)
+    try:
+        now=_v3638_now()
+        cur=con.execute("INSERT INTO startup_customer_board_pack (username,reporting_period,owner,portfolio_health,nrr,grr,expansion_forecast,critical_accounts,executive_summary,key_wins,top_risks,next_actions,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(reporting_period)[:120],str(owner)[:180],ph,nr,gr,ef,ca,str(executive_summary or "")[:9000],str(key_wins or "")[:7000],str(top_risks or "")[:7000],str(next_actions or "")[:7000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3638_publish(u,i):
+    now=_v3638_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_customer_board_pack WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"board_pack_not_found",None
+        if r["state"]!="DRAFT":return False,"board_pack_already_published",None
+        if not str(r["executive_summary"] or "").strip():return False,"executive_summary_required",None
+        con.execute("UPDATE startup_customer_board_pack SET state='PUBLISHED',published_at=?,updated_at=? WHERE username=? AND id=?",(now,now,u,int(i)))
+        con.commit()
+        return True,"",dict(con.execute("SELECT * FROM startup_customer_board_pack WHERE username=? AND id=?",(u,int(i))).fetchone())
+    finally:con.close()
+
+def _v3638_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_board_pack WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3638_VERSION,"items":items,"published":sum(1 for x in items if x["state"]=="PUBLISHED")}
+
+@app.route("/api/hunter-customer-board-pack",methods=["GET","POST"])
+def v3638_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3638_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3638_create(u,p.get("reporting_period"),p.get("owner"),p.get("portfolio_health",0),p.get("nrr",0),p.get("grr",0),p.get("expansion_forecast",0),p.get("critical_accounts",0),p.get("executive_summary"),p.get("key_wins"),p.get("top_risks"),p.get("next_actions"))
+    return jsonify({"success":ok,"error":e,"board_pack_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
