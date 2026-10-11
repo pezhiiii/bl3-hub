@@ -97385,6 +97385,135 @@ def v3676_api():
         "required_daily_delta": required_daily_delta
     })
 
+
+# ===== V36.77 MARKET OPPORTUNITY SCANNER =====
+V3677_VERSION = "V36.77"
+
+def _v3677_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_market_opportunity_scanner (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_name TEXT NOT NULL,
+            market_size REAL NOT NULL DEFAULT 0,
+            growth_rate REAL NOT NULL DEFAULT 0,
+            competition_intensity REAL NOT NULL DEFAULT 0,
+            strategic_fit REAL NOT NULL DEFAULT 0,
+            monetization_potential REAL NOT NULL DEFAULT 0,
+            execution_difficulty REAL NOT NULL DEFAULT 0,
+            opportunity_score REAL NOT NULL DEFAULT 0,
+            recommendation TEXT NOT NULL DEFAULT 'WATCH',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3677_init()
+except Exception:
+    pass
+
+def _v3677_calc(market_size, growth_rate, competition, fit, monetization, difficulty):
+    market_size = max(0.0, min(100.0, float(market_size or 0)))
+    growth_rate = max(0.0, min(100.0, float(growth_rate or 0)))
+    competition = max(0.0, min(100.0, float(competition or 0)))
+    fit = max(0.0, min(100.0, float(fit or 0)))
+    monetization = max(0.0, min(100.0, float(monetization or 0)))
+    difficulty = max(0.0, min(100.0, float(difficulty or 0)))
+
+    score = round(
+        market_size * 0.20 +
+        growth_rate * 0.20 +
+        fit * 0.25 +
+        monetization * 0.20 +
+        (100.0 - competition) * 0.075 +
+        (100.0 - difficulty) * 0.075,
+        2
+    )
+
+    if score >= 82:
+        rec = "ENTER_NOW"
+    elif score >= 68:
+        rec = "PRIORITY_TEST"
+    elif score >= 52:
+        rec = "WATCHLIST"
+    else:
+        rec = "PASS"
+
+    return score, rec
+
+@app.route("/api/market-opportunity-scanner", methods=["GET", "POST"])
+def v3677_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_market_opportunity_scanner
+                   WHERE username=? ORDER BY opportunity_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3677_VERSION,
+            "items": rows,
+            "top_opportunity": rows[0] if rows else None,
+            "enter_now_count": sum(1 for x in rows if x["recommendation"] == "ENTER_NOW")
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, rec = _v3677_calc(
+        p.get("market_size", 0),
+        p.get("growth_rate", 0),
+        p.get("competition_intensity", 0),
+        p.get("strategic_fit", 0),
+        p.get("monetization_potential", 0),
+        p.get("execution_difficulty", 0)
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_market_opportunity_scanner
+            (username,opportunity_name,market_size,growth_rate,competition_intensity,
+             strategic_fit,monetization_potential,execution_difficulty,
+             opportunity_score,recommendation,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("opportunity_name") or "Market Opportunity")[:220],
+                float(p.get("market_size") or 0),
+                float(p.get("growth_rate") or 0),
+                float(p.get("competition_intensity") or 0),
+                float(p.get("strategic_fit") or 0),
+                float(p.get("monetization_potential") or 0),
+                float(p.get("execution_difficulty") or 0),
+                score, rec, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3677_VERSION,
+        "opportunity_id": rid,
+        "opportunity_score": score,
+        "recommendation": rec
+    })
+
 if __name__ == "__main__":
 
     init_db()
