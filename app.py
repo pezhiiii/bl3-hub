@@ -90047,6 +90047,55 @@ def v3579_page():
     cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['request_title'])}</h2><p>{esc(x.get('requester_label') or '')}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.79 Audit Evidence Requests</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.79 · AUDIT EVIDENCE REQUEST INBOX</small><h1>Track every evidence request through explicit fulfillment.</h1></div>{}</div>""".format(cards or '<div class="card">No evidence requests yet.</div>')
 
+
+# ===== V35.80 INDEPENDENT AUDIT SESSION + SAMPLING GATE =====
+V3580_VERSION="V35.80"
+def _v3580_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3580_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_audit_sessions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, profile_id INTEGER NOT NULL, auditor_label TEXT NOT NULL,
+            organization_label TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT '', sampling_method TEXT NOT NULL DEFAULT '',
+            sample_size INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'DRAFT', session_evidence TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT DEFAULT '')"""); con.commit()
+    finally: con.close()
+try:_v3580_init()
+except Exception: pass
+
+def _v3580_create(u,pid,auditor,org='',scope='',sampling='',size=0):
+    if not str(auditor or '').strip(): return False,'auditor_required',None
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        if not con.execute('SELECT id FROM startup_public_trust_profiles WHERE username=? AND id=?',(u,int(pid))).fetchone(): return False,'profile_not_found',None
+        now=_v3580_now(); cur=con.execute("""INSERT INTO startup_audit_sessions
+        (username,profile_id,auditor_label,organization_label,scope,sampling_method,sample_size,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (u,int(pid),str(auditor)[:240],str(org or '')[:240],str(scope or '')[:5000],str(sampling or '')[:3000],max(0,int(size or 0)),now,now)); con.commit(); return True,'',cur.lastrowid
+    finally: con.close()
+
+def _v3580_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute('SELECT * FROM startup_audit_sessions WHERE username=? ORDER BY id DESC',(u,)).fetchall()]
+    finally: con.close()
+    return {'success':True,'version':V3580_VERSION,'items':items}
+
+@app.route('/api/hunter-audit-sessions',methods=['GET','POST'])
+def v3580_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3580_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3580_create(u,p.get('profile_id'),p.get('auditor_label'),p.get('organization_label'),p.get('scope'),p.get('sampling_method'),p.get('sample_size') or 0)
+    return jsonify({'success':ok,'error':e,'session_id':i}),(200 if ok else 400)
+
+@app.route('/hunter-audit-sessions')
+def v3580_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3580_snapshot(u);esc=html.escape
+    cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['auditor_label'])}</h2><p>Sample size: {x['sample_size']}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.80 Audit Sessions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.80 · INDEPENDENT AUDIT SESSION</small><h1>Run a scoped audit with explicit sampling evidence.</h1></div>{}</div>""".format(cards or '<div class="card">No audit sessions yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
