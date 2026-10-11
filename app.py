@@ -94351,6 +94351,52 @@ def v3639_api():
     ok,e,i=_v3639_create(u,p.get("board_pack_id"),p.get("review_owner"),p.get("review_date"),p.get("executive_sponsor"))
     return jsonify({"success":ok,"error":e,"executive_review_id":i}),(200 if ok else 400)
 
+
+# ===== V36.40 STRATEGIC INITIATIVE + OWNERSHIP GATE =====
+V3640_VERSION="V36.40"
+def _v3640_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3640_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_strategic_initiative (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, executive_review_id INTEGER NOT NULL, initiative_name TEXT NOT NULL, initiative_owner TEXT NOT NULL, initiative_type TEXT NOT NULL DEFAULT 'RETENTION', target_metric TEXT NOT NULL DEFAULT '', baseline_value REAL NOT NULL DEFAULT 0, target_value REAL NOT NULL DEFAULT 0, due_date TEXT NOT NULL DEFAULT '', business_case TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PLANNED', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT DEFAULT '')")
+        con.commit()
+    finally:con.close()
+try:_v3640_init()
+except Exception:pass
+
+def _v3640_create(u,executive_review_id,initiative_name,initiative_owner,initiative_type="RETENTION",target_metric="",baseline_value=0,target_value=0,due_date="",business_case=""):
+    if not str(initiative_name or "").strip() or not str(initiative_owner or "").strip():
+        return False,"initiative_name_and_owner_required",None
+    it=str(initiative_type or "RETENTION").upper()
+    if it not in ("RETENTION","EXPANSION","ADOPTION","ADVOCACY","RISK","EFFICIENCY","EXPERIENCE"):it="RETENTION"
+    try:b=float(baseline_value or 0);t=float(target_value or 0)
+    except Exception:return False,"invalid_metric_value",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_executive_customer_review WHERE username=? AND id=?",(u,int(executive_review_id))).fetchone():
+            return False,"executive_review_not_found",None
+        now=_v3640_now()
+        cur=con.execute("INSERT INTO startup_strategic_initiative (username,executive_review_id,initiative_name,initiative_owner,initiative_type,target_metric,baseline_value,target_value,due_date,business_case,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(executive_review_id),str(initiative_name)[:260],str(initiative_owner)[:180],it,str(target_metric or "")[:220],b,t,str(due_date or "")[:80],str(business_case or "")[:8000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3640_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_strategic_initiative WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3640_VERSION,"items":items,"planned":sum(1 for x in items if x["state"]=="PLANNED"),"active":sum(1 for x in items if x["state"]=="ACTIVE"),"completed":sum(1 for x in items if x["state"]=="COMPLETED")}
+
+@app.route("/api/hunter-strategic-initiative",methods=["GET","POST"])
+def v3640_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3640_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3640_create(u,p.get("executive_review_id"),p.get("initiative_name"),p.get("initiative_owner"),p.get("initiative_type"),p.get("target_metric"),p.get("baseline_value",0),p.get("target_value",0),p.get("due_date"),p.get("business_case"))
+    return jsonify({"success":ok,"error":e,"strategic_initiative_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
