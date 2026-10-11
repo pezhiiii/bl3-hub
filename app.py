@@ -94072,6 +94072,52 @@ def v3633_api():
     ok,e,i=_v3633_create(u,p.get("contract_id"),p.get("advocate_name"),p.get("owner"),p.get("advocate_role"),p.get("advocacy_type"),p.get("referral_target"))
     return jsonify({"success":ok,"error":e,"advocacy_id":i}),(200 if ok else 400)
 
+
+# ===== V36.34 CUSTOMER LIFECYCLE INTELLIGENCE + EXECUTIVE GATE =====
+V3634_VERSION="V36.34"
+def _v3634_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3634_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_lifecycle_intelligence (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, owner TEXT NOT NULL, lifecycle_score REAL NOT NULL DEFAULT 0, retention_score REAL NOT NULL DEFAULT 0, expansion_score REAL NOT NULL DEFAULT 0, advocacy_score REAL NOT NULL DEFAULT 0, risk_score REAL NOT NULL DEFAULT 0, executive_summary TEXT NOT NULL DEFAULT '', next_best_action TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'GENERATED', created_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3634_init()
+except Exception:pass
+
+def _v3634_generate(u,contract_id,owner,retention_score=0,expansion_score=0,advocacy_score=0,risk_score=0,executive_summary="",next_best_action=""):
+    if not str(owner or "").strip():return False,"owner_required",None
+    try:
+        r=max(0,min(100,float(retention_score)));e=max(0,min(100,float(expansion_score)));a=max(0,min(100,float(advocacy_score)));k=max(0,min(100,float(risk_score)))
+    except Exception:return False,"invalid_score",None
+    lifecycle=round((r*0.35)+(e*0.25)+(a*0.20)+((100-k)*0.20),2)
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        cur=con.execute("INSERT INTO startup_lifecycle_intelligence (username,contract_id,owner,lifecycle_score,retention_score,expansion_score,advocacy_score,risk_score,executive_summary,next_best_action,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(owner)[:180],lifecycle,r,e,a,k,str(executive_summary or "")[:8000],str(next_best_action or "")[:4000],_v3634_now()))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3634_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_lifecycle_intelligence WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    avg=round(sum(float(x["lifecycle_score"] or 0) for x in items)/len(items),2) if items else None
+    status="NO_DATA" if avg is None else ("STRONG" if avg>=85 else ("HEALTHY" if avg>=70 else ("WATCH" if avg>=55 else "AT_RISK")))
+    return {"success":True,"version":V3634_VERSION,"items":items,"average_lifecycle_score":avg,"portfolio_status":status}
+
+@app.route("/api/hunter-lifecycle-intelligence",methods=["GET","POST"])
+def v3634_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3634_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3634_generate(u,p.get("contract_id"),p.get("owner"),p.get("retention_score",0),p.get("expansion_score",0),p.get("advocacy_score",0),p.get("risk_score",0),p.get("executive_summary"),p.get("next_best_action"))
+    return jsonify({"success":ok,"error":e,"lifecycle_intelligence_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
