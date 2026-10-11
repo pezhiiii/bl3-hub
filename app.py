@@ -94838,6 +94838,60 @@ def v3649_api():
     ok,e,i=_v3649_create(u,p.get("title"),p.get("owner"),p.get("account_name"),p.get("severity"),p.get("urgency",0),p.get("impact",0),p.get("confidence",0),p.get("executive_sponsor"),p.get("decision_needed"),p.get("action_plan"),p.get("due_date"))
     return jsonify({"success":ok,"error":e,"executive_action_id":i}),(200 if ok else 400)
 
+
+# ===== V36.50 CUSTOMER INTELLIGENCE COCKPIT =====
+V3650_VERSION="V36.50"
+def _v3650_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3650_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_customer_intelligence_cockpit (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, period_label TEXT NOT NULL, owner TEXT NOT NULL, growth_score REAL NOT NULL DEFAULT 0, weighted_expansion REAL NOT NULL DEFAULT 0, renewal_probability REAL NOT NULL DEFAULT 0, executive_action_score REAL NOT NULL DEFAULT 0, realized_value REAL NOT NULL DEFAULT 0, nrr REAL NOT NULL DEFAULT 0, intelligence_score REAL NOT NULL DEFAULT 0, intelligence_status TEXT NOT NULL DEFAULT 'WATCH', narrative TEXT NOT NULL DEFAULT '', recommended_moves TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+        con.commit()
+    finally: con.close()
+try:_v3650_init()
+except Exception:pass
+
+def _v3650_create(u,period_label,owner,growth_score=0,weighted_expansion=0,renewal_probability=0,executive_action_score=0,realized_value=0,nrr=0,narrative="",recommended_moves=""):
+    if not str(period_label or "").strip() or not str(owner or "").strip():
+        return False,"period_and_owner_required",None
+    try:
+        g=max(0,min(100,float(growth_score or 0)))
+        we=max(0,float(weighted_expansion or 0))
+        rp=max(0,min(100,float(renewal_probability or 0)))
+        ea=max(0,min(100,float(executive_action_score or 0)))
+        rv=max(0,float(realized_value or 0))
+        nr=max(0,float(nrr or 0))
+    except Exception:return False,"invalid_intelligence_metric",None
+    expansion_score=min(100,we/10000*100)
+    value_score=min(100,rv/10000*100)
+    nrr_score=min(100,nr/120*100)
+    action_component=max(0,100-ea)
+    intel=round((g*0.25)+(expansion_score*0.15)+(rp*0.20)+(action_component*0.10)+(value_score*0.15)+(nrr_score*0.15),2)
+    status="DOMINANT" if intel>=90 else ("STRONG" if intel>=80 else ("HEALTHY" if intel>=65 else ("WATCH" if intel>=50 else "AT_RISK")))
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_customer_intelligence_cockpit (username,period_label,owner,growth_score,weighted_expansion,renewal_probability,executive_action_score,realized_value,nrr,intelligence_score,intelligence_status,narrative,recommended_moves,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(period_label)[:120],str(owner)[:180],g,we,rp,ea,rv,nr,intel,status,str(narrative or "")[:9000],str(recommended_moves or "")[:9000],_v3650_now()))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3650_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_intelligence_cockpit WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    latest=items[0] if items else None
+    return {"success":True,"version":V3650_VERSION,"items":items,"latest_intelligence_score":(latest["intelligence_score"] if latest else None),"latest_intelligence_status":(latest["intelligence_status"] if latest else "NO_DATA")}
+
+@app.route("/api/hunter-customer-intelligence-cockpit",methods=["GET","POST"])
+def v3650_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3650_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3650_create(u,p.get("period_label"),p.get("owner"),p.get("growth_score",0),p.get("weighted_expansion",0),p.get("renewal_probability",0),p.get("executive_action_score",0),p.get("realized_value",0),p.get("nrr",0),p.get("narrative"),p.get("recommended_moves"))
+    return jsonify({"success":ok,"error":e,"customer_intelligence_cockpit_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
