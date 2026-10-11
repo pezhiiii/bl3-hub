@@ -92921,6 +92921,77 @@ def v3615_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['account_name'])}</h2><p>{esc(x['account_owner'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.15</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.15 · STRATEGIC ACCOUNT PLAN</small><h1>Run the next 90 days with a deliberate growth plan.</h1></div>"+(cards or "<div class='card'>No account plans yet.</div>")+"</div>"
 
+
+# ===== V36.16 STAKEHOLDER MAP + INFLUENCE GATE =====
+V3616_VERSION="V36.16"
+
+def _v3616_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3616_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_account_stakeholders(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT '',
+            influence INTEGER NOT NULL DEFAULT 1,
+            support_level INTEGER NOT NULL DEFAULT 0,
+            relationship_owner TEXT NOT NULL DEFAULT '',
+            priorities TEXT NOT NULL DEFAULT '',
+            risks TEXT NOT NULL DEFAULT '',
+            last_touch TEXT NOT NULL DEFAULT '',
+            next_touch TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3616_init()
+except Exception:pass
+
+def _v3616_create(u,hid,name,role,influence,support,owner,priorities="",risks="",last_touch="",next_touch=""):
+    if not str(name or "").strip():return False,"name_required",None
+    try:inf=max(1,min(5,int(influence))); sup=max(-2,min(2,int(support)))
+    except Exception:return False,"invalid_influence_or_support",None
+    now=_v3616_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_account_stakeholders
+        (username,handoff_id,name,role,influence,support_level,relationship_owner,priorities,risks,last_touch,next_touch,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid) if hid not in (None,"") else None,str(name)[:220],str(role or "")[:220],inf,sup,str(owner or "")[:180],
+         str(priorities or "")[:4000],str(risks or "")[:4000],str(last_touch or "")[:80],str(next_touch or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3616_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_account_stakeholders WHERE username=? ORDER BY influence DESC,id DESC",(u,)).fetchall()]
+    finally:con.close()
+    champions=sum(1 for x in items if x["support_level"]>=1 and x["influence"]>=4)
+    detractors=sum(1 for x in items if x["support_level"]<0 and x["influence"]>=3)
+    return {"success":True,"version":V3616_VERSION,"items":items,"champions":champions,"detractors":detractors}
+
+@app.route("/api/hunter-stakeholders",methods=["GET","POST"])
+def v3616_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3616_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3616_create(u,p.get("handoff_id"),p.get("name"),p.get("role"),p.get("influence",1),p.get("support_level",0),
+                         p.get("relationship_owner"),p.get("priorities"),p.get("risks"),p.get("last_touch"),p.get("next_touch"))
+    return jsonify({"success":ok,"error":e,"stakeholder_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-stakeholders")
+def v3616_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3616_summary(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>{esc(x['name'])}</b><p>{esc(x['role'])} · Influence {x['influence']} · Support {x['support_level']}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.16</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.16 · STAKEHOLDER MAP</small><h1>Know the champions, detractors, and decision power.</h1><p>Champions: {} · Detractors: {}</p></div>{}</div>".format(d["champions"],d["detractors"],cards or "<div class='card'>No stakeholders yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
