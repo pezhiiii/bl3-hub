@@ -95414,6 +95414,87 @@ def v3656_api():
     ok,e,i=_v3656_create(u,p.get("scenario_name"),p.get("owner"),p.get("base_arr",0),p.get("renewal_rate",0),p.get("expansion_rate",0),p.get("churn_rate",0),p.get("pipeline_conversion",0),p.get("new_business_arr",0),p.get("assumptions"))
     return jsonify({"success":ok,"error":e,"scenario_id":i}),(200 if ok else 400)
 
+
+# ===== V36.57 EXECUTIVE REVENUE BOARDROOM =====
+V3657_VERSION="V36.57"
+def _v3657_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3657_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_revenue_boardroom (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            period_label TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            revenue_score REAL NOT NULL DEFAULT 0,
+            forecast_confidence REAL NOT NULL DEFAULT 0,
+            retention_score REAL NOT NULL DEFAULT 0,
+            expansion_score REAL NOT NULL DEFAULT 0,
+            pipeline_score REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            board_score REAL NOT NULL DEFAULT 0,
+            board_status TEXT NOT NULL DEFAULT 'WATCH',
+            key_wins TEXT NOT NULL DEFAULT '',
+            key_risks TEXT NOT NULL DEFAULT '',
+            executive_narrative TEXT NOT NULL DEFAULT '',
+            board_asks TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3657_init()
+except Exception:pass
+
+def _v3657_create(u,period_label,owner,revenue_score=0,forecast_confidence=0,retention_score=0,expansion_score=0,pipeline_score=0,risk_score=0,key_wins="",key_risks="",executive_narrative="",board_asks=""):
+    if not str(period_label or "").strip() or not str(owner or "").strip():
+        return False,"period_and_owner_required",None
+    try:
+        rs=max(0,min(100,float(revenue_score or 0)))
+        fc=max(0,min(100,float(forecast_confidence or 0)))
+        rt=max(0,min(100,float(retention_score or 0)))
+        ex=max(0,min(100,float(expansion_score or 0)))
+        ps=max(0,min(100,float(pipeline_score or 0)))
+        rk=max(0,min(100,float(risk_score or 0)))
+    except Exception:
+        return False,"invalid_boardroom_metric",None
+    score=round((rs*0.25)+(fc*0.15)+(rt*0.20)+(ex*0.15)+(ps*0.15)+((100-rk)*0.10),2)
+    status="BOARD_READY" if score>=85 else ("STRONG" if score>=75 else ("WATCH" if score>=55 else "INTERVENTION"))
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_executive_revenue_boardroom
+        (username,period_label,owner,revenue_score,forecast_confidence,retention_score,expansion_score,pipeline_score,risk_score,board_score,board_status,key_wins,key_risks,executive_narrative,board_asks,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(period_label)[:120],str(owner)[:180],rs,fc,rt,ex,ps,rk,score,status,str(key_wins or "")[:9000],str(key_risks or "")[:9000],str(executive_narrative or "")[:12000],str(board_asks or "")[:9000],_v3657_now()))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3657_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_executive_revenue_boardroom WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    latest=items[0] if items else None
+    return {
+        "success":True,"version":V3657_VERSION,"items":items,
+        "latest_board_score":(latest["board_score"] if latest else None),
+        "latest_board_status":(latest["board_status"] if latest else "NO_DATA")
+    }
+
+@app.route("/api/hunter-executive-revenue-boardroom",methods=["GET","POST"])
+def v3657_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3657_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3657_create(u,p.get("period_label"),p.get("owner"),p.get("revenue_score",0),p.get("forecast_confidence",0),p.get("retention_score",0),p.get("expansion_score",0),p.get("pipeline_score",0),p.get("risk_score",0),p.get("key_wins"),p.get("key_risks"),p.get("executive_narrative"),p.get("board_asks"))
+    return jsonify({"success":ok,"error":e,"boardroom_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
