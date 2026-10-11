@@ -99046,6 +99046,119 @@ def v3689_api():
         "verdict": verdict
     })
 
+
+# ===== V36.90 CAP TABLE SIMULATOR =====
+V3690_VERSION = "V36.90"
+
+def _v3690_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_cap_table_simulator (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            scenario_name TEXT NOT NULL,
+            pre_money_valuation REAL NOT NULL DEFAULT 0,
+            new_investment REAL NOT NULL DEFAULT 0,
+            founder_percent_before REAL NOT NULL DEFAULT 100,
+            option_pool_percent REAL NOT NULL DEFAULT 0,
+            founder_percent_after REAL NOT NULL DEFAULT 0,
+            investor_percent_after REAL NOT NULL DEFAULT 0,
+            option_pool_after REAL NOT NULL DEFAULT 0,
+            dilution_percent REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3690_init()
+except Exception:
+    pass
+
+def _v3690_calc(pre_money, investment, founder_before, option_pool):
+    pm = max(0.0, float(pre_money or 0))
+    inv = max(0.0, float(investment or 0))
+    fb = max(0.0, min(100.0, float(founder_before or 100)))
+    op = max(0.0, min(100.0, float(option_pool or 0)))
+    post = pm + inv
+    investor_pct = (inv / post * 100.0) if post > 0 else 0.0
+    remaining = max(0.0, 100.0 - investor_pct - op)
+    founder_after = min(fb, remaining)
+    dilution = max(0.0, fb - founder_after)
+    return {
+        "post_money_valuation": round(post, 2),
+        "founder_percent_after": round(founder_after, 4),
+        "investor_percent_after": round(investor_pct, 4),
+        "option_pool_after": round(op, 4),
+        "dilution_percent": round(dilution, 4)
+    }
+
+@app.route("/api/cap-table-simulator", methods=["GET", "POST"])
+def v3690_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_cap_table_simulator
+                   WHERE username=? ORDER BY id DESC LIMIT 100""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({
+            "success": True,
+            "version": V3690_VERSION,
+            "items": rows
+        })
+
+    p = request.get_json(silent=True) or request.form
+    calc = _v3690_calc(
+        p.get("pre_money_valuation", 0),
+        p.get("new_investment", 0),
+        p.get("founder_percent_before", 100),
+        p.get("option_pool_percent", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_cap_table_simulator
+            (username,scenario_name,pre_money_valuation,new_investment,founder_percent_before,
+             option_pool_percent,founder_percent_after,investor_percent_after,
+             option_pool_after,dilution_percent,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("scenario_name") or "Scenario")[:220],
+                float(p.get("pre_money_valuation") or 0),
+                float(p.get("new_investment") or 0),
+                float(p.get("founder_percent_before") or 100),
+                float(p.get("option_pool_percent") or 0),
+                calc["founder_percent_after"],
+                calc["investor_percent_after"],
+                calc["option_pool_after"],
+                calc["dilution_percent"],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    calc.update({
+        "success": True,
+        "version": V3690_VERSION,
+        "scenario_id": rid
+    })
+    return jsonify(calc)
+
 if __name__ == "__main__":
 
     init_db()
