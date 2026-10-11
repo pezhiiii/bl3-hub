@@ -94738,6 +94738,57 @@ def v3647_api():
     ok,e,i=_v3647_create(u,p.get("account_name"),p.get("opportunity_name"),p.get("owner"),p.get("signal_score",0),p.get("fit_score",0),p.get("intent_score",0),p.get("champion_score",0),p.get("pipeline_value",0),p.get("stage"),p.get("next_step"),p.get("close_date"))
     return jsonify({"success":ok,"error":e,"expansion_opportunity_id":i}),(200 if ok else 400)
 
+
+# ===== V36.48 RENEWAL FORECAST + RISK GATE =====
+V3648_VERSION="V36.48"
+def _v3648_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3648_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_renewal_forecast (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, account_name TEXT NOT NULL, owner TEXT NOT NULL, renewal_date TEXT NOT NULL DEFAULT '', arr REAL NOT NULL DEFAULT 0, health_score REAL NOT NULL DEFAULT 0, adoption_score REAL NOT NULL DEFAULT 0, stakeholder_score REAL NOT NULL DEFAULT 0, value_score REAL NOT NULL DEFAULT 0, risk_score REAL NOT NULL DEFAULT 0, renewal_probability REAL NOT NULL DEFAULT 0, forecast_category TEXT NOT NULL DEFAULT 'RISK', mitigation_plan TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally: con.close()
+try:_v3648_init()
+except Exception:pass
+
+def _v3648_create(u,account_name,owner,renewal_date="",arr=0,health_score=0,adoption_score=0,stakeholder_score=0,value_score=0,mitigation_plan=""):
+    if not str(account_name or "").strip() or not str(owner or "").strip():
+        return False,"account_and_owner_required",None
+    try:
+        arr=max(0,float(arr or 0))
+        h=max(0,min(100,float(health_score or 0)))
+        a=max(0,min(100,float(adoption_score or 0)))
+        s=max(0,min(100,float(stakeholder_score or 0)))
+        v=max(0,min(100,float(value_score or 0)))
+    except Exception:return False,"invalid_renewal_metric",None
+    renewal=round((h*0.30)+(a*0.25)+(s*0.20)+(v*0.25),2)
+    risk=round(100-renewal,2)
+    cat="COMMIT" if renewal>=85 else ("LIKELY" if renewal>=70 else ("WATCH" if renewal>=50 else "RISK"))
+    now=_v3648_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_renewal_forecast (username,account_name,owner,renewal_date,arr,health_score,adoption_score,stakeholder_score,value_score,risk_score,renewal_probability,forecast_category,mitigation_plan,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(account_name)[:220],str(owner)[:180],str(renewal_date or "")[:80],arr,h,a,s,v,risk,renewal,cat,str(mitigation_plan or "")[:7000],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3648_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_renewal_forecast WHERE username=? ORDER BY renewal_probability ASC,id DESC",(u,)).fetchall()]
+    finally: con.close()
+    at_risk_arr=round(sum(float(x["arr"] or 0) for x in items if x["forecast_category"]=="RISK"),2)
+    return {"success":True,"version":V3648_VERSION,"items":items,"at_risk_arr":at_risk_arr,"commit_count":sum(1 for x in items if x["forecast_category"]=="COMMIT")}
+
+@app.route("/api/hunter-renewal-forecast",methods=["GET","POST"])
+def v3648_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3648_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3648_create(u,p.get("account_name"),p.get("owner"),p.get("renewal_date"),p.get("arr",0),p.get("health_score",0),p.get("adoption_score",0),p.get("stakeholder_score",0),p.get("value_score",0),p.get("mitigation_plan"))
+    return jsonify({"success":ok,"error":e,"renewal_forecast_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
