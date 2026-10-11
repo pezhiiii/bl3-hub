@@ -96255,6 +96255,136 @@ def v3667_api():
         return jsonify({'success':True,'version':V3667_VERSION,'executive_autonomy_score':score,'control_mode':mode,'system_health_score':round(health,2),'forecast_confidence_score':round(forecast,2),'portfolio_priority_score':round(portfolio,2),'remediation_risk_score':round(remediation,2),'recommendations':rec})
     finally: con.close()
 
+
+# ===== V36.68 REVENUE SCENARIO SIMULATION ENGINE =====
+V3668_VERSION = "V36.68"
+
+def _v3668_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_scenario_simulation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            scenario_name TEXT NOT NULL,
+            baseline_revenue REAL NOT NULL DEFAULT 0,
+            growth_rate REAL NOT NULL DEFAULT 0,
+            churn_rate REAL NOT NULL DEFAULT 0,
+            price_change REAL NOT NULL DEFAULT 0,
+            conversion_change REAL NOT NULL DEFAULT 0,
+            cost_change REAL NOT NULL DEFAULT 0,
+            projected_revenue REAL NOT NULL DEFAULT 0,
+            projected_margin REAL NOT NULL DEFAULT 0,
+            scenario_score REAL NOT NULL DEFAULT 0,
+            scenario_band TEXT NOT NULL DEFAULT 'NEUTRAL',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3668_init()
+except Exception:
+    pass
+
+def _v3668_calc(base, growth, churn, price, conversion, cost):
+    base = max(0.0, float(base or 0))
+    growth = float(growth or 0)
+    churn = max(0.0, min(100.0, float(churn or 0)))
+    price = float(price or 0)
+    conversion = float(conversion or 0)
+    cost = float(cost or 0)
+
+    growth_factor = 1 + growth / 100.0
+    churn_factor = max(0.0, 1 - churn / 100.0)
+    price_factor = 1 + price / 100.0
+    conversion_factor = 1 + conversion / 100.0
+
+    projected = round(base * growth_factor * churn_factor * price_factor * conversion_factor, 2)
+    margin = round(projected * max(0.0, 1 - max(-90.0, min(90.0, cost)) / 100.0), 2)
+
+    delta = 0.0 if base <= 0 else ((projected - base) / base) * 100.0
+    score = round(max(0.0, min(100.0, 50.0 + delta * 0.6 - churn * 0.2)), 2)
+    band = "BULL" if score >= 75 else "POSITIVE" if score >= 60 else "NEUTRAL" if score >= 40 else "BEAR"
+    return projected, margin, score, band
+
+@app.route("/api/revenue-scenario-simulation", methods=["GET", "POST"])
+def v3668_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_revenue_scenario_simulation
+                   WHERE username=? ORDER BY id DESC""", (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3668_VERSION,
+            "items": rows,
+            "best_scenario_score": max([float(x["scenario_score"] or 0) for x in rows], default=0),
+            "avg_projected_revenue": round(
+                sum(float(x["projected_revenue"] or 0) for x in rows) / max(1, len(rows)), 2
+            )
+        })
+
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    projected, margin, score, band = _v3668_calc(
+        p.get("baseline_revenue", 0),
+        p.get("growth_rate", 0),
+        p.get("churn_rate", 0),
+        p.get("price_change", 0),
+        p.get("conversion_change", 0),
+        p.get("cost_change", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_revenue_scenario_simulation
+            (username,scenario_name,baseline_revenue,growth_rate,churn_rate,price_change,
+             conversion_change,cost_change,projected_revenue,projected_margin,
+             scenario_score,scenario_band,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("scenario_name") or "Revenue Scenario")[:220],
+                float(p.get("baseline_revenue") or 0),
+                float(p.get("growth_rate") or 0),
+                float(p.get("churn_rate") or 0),
+                float(p.get("price_change") or 0),
+                float(p.get("conversion_change") or 0),
+                float(p.get("cost_change") or 0),
+                projected,
+                margin,
+                score,
+                band,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3668_VERSION,
+        "scenario_id": rid,
+        "projected_revenue": projected,
+        "projected_margin": margin,
+        "scenario_score": score,
+        "scenario_band": band
+    })
+
 if __name__ == "__main__":
 
     init_db()
