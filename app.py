@@ -95821,6 +95821,89 @@ def v3659_api():
         "revenue_action_id": action_id
     }), (200 if ok else 400)
 
+
+# ===== V36.60 REVENUE EXECUTION CONTROL TOWER =====
+V3660_VERSION = "V36.60"
+
+def _v3660_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_execution_control (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            revenue_action_id INTEGER NOT NULL DEFAULT 0,
+            control_name TEXT NOT NULL,
+            owner TEXT NOT NULL DEFAULT '',
+            sla_hours REAL NOT NULL DEFAULT 0,
+            elapsed_hours REAL NOT NULL DEFAULT 0,
+            blocker_severity REAL NOT NULL DEFAULT 0,
+            completion_percent REAL NOT NULL DEFAULT 0,
+            control_score REAL NOT NULL DEFAULT 0,
+            control_status TEXT NOT NULL DEFAULT 'ON_TRACK',
+            escalation_level TEXT NOT NULL DEFAULT 'NONE',
+            escalation_note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3660_init()
+except Exception:
+    pass
+
+def _v3660_score(sla_hours, elapsed_hours, blocker_severity, completion_percent):
+    sla = max(1.0, float(sla_hours or 1))
+    elapsed = max(0.0, float(elapsed_hours or 0))
+    blocker = max(0.0, min(100.0, float(blocker_severity or 0)))
+    completion = max(0.0, min(100.0, float(completion_percent or 0)))
+    time_health = max(0.0, 100.0 - max(0.0, (elapsed / sla) * 100.0 - 70.0))
+    score = round((time_health * 0.35) + ((100 - blocker) * 0.30) + (completion * 0.35), 2)
+    if score >= 80: return score, "ON_TRACK", "NONE"
+    if score >= 60: return score, "WATCH", "OWNER"
+    if score >= 40: return score, "AT_RISK", "MANAGER"
+    return score, "CRITICAL", "EXECUTIVE"
+
+@app.route("/api/revenue-execution-control-tower", methods=["GET", "POST"])
+def v3660_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    if request.method == "GET":
+        con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM startup_revenue_execution_control WHERE username=? ORDER BY control_score ASC,id DESC",(u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success":True,"version":V3660_VERSION,"items":rows,
+                        "critical":sum(1 for x in rows if x["control_status"]=="CRITICAL"),
+                        "at_risk":sum(1 for x in rows if x["control_status"]=="AT_RISK"),
+                        "watch":sum(1 for x in rows if x["control_status"]=="WATCH"),
+                        "on_track":sum(1 for x in rows if x["control_status"]=="ON_TRACK")})
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    score,status,esc = _v3660_score(p.get("sla_hours",24),p.get("elapsed_hours",0),
+                                   p.get("blocker_severity",0),p.get("completion_percent",0))
+    now = datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO startup_revenue_execution_control
+        (username,revenue_action_id,control_name,owner,sla_hours,elapsed_hours,blocker_severity,
+         completion_percent,control_score,control_status,escalation_level,escalation_note,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,int(p.get("revenue_action_id") or 0),str(p.get("control_name") or "Revenue Execution Control")[:220],
+         str(p.get("owner") or "")[:180],float(p.get("sla_hours") or 24),float(p.get("elapsed_hours") or 0),
+         float(p.get("blocker_severity") or 0),float(p.get("completion_percent") or 0),score,status,esc,
+         str(p.get("escalation_note") or "")[:4000],now,now))
+        con.commit(); rid = cur.lastrowid
+    finally:
+        con.close()
+    return jsonify({"success":True,"version":V3660_VERSION,"control_id":rid,
+                    "control_score":score,"control_status":status,"escalation_level":esc})
+
 if __name__ == "__main__":
 
     init_db()
