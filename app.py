@@ -96852,6 +96852,140 @@ def v3672_api():
     finally:
         con.close()
 
+
+# ===== V36.73 AUTONOMOUS CAPITAL ALLOCATION ENGINE =====
+V3673_VERSION = "V36.73"
+
+def _v3673_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_autonomous_capital_allocation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            initiative_name TEXT NOT NULL,
+            requested_capital REAL NOT NULL DEFAULT 0,
+            expected_roi REAL NOT NULL DEFAULT 0,
+            strategic_fit REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            allocation_score REAL NOT NULL DEFAULT 0,
+            recommended_capital REAL NOT NULL DEFAULT 0,
+            capital_action TEXT NOT NULL DEFAULT 'HOLD',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3673_init()
+except Exception:
+    pass
+
+def _v3673_calc(requested, roi, strategic_fit, confidence, risk, urgency):
+    requested = max(0.0, float(requested or 0))
+    roi = max(0.0, min(100.0, float(roi or 0)))
+    fit = max(0.0, min(100.0, float(strategic_fit or 0)))
+    conf = max(0.0, min(100.0, float(confidence or 0)))
+    risk = max(0.0, min(100.0, float(risk or 0)))
+    urgency = max(0.0, min(100.0, float(urgency or 0)))
+
+    score = round(
+        roi * 0.30 +
+        fit * 0.25 +
+        conf * 0.20 +
+        (100.0-risk) * 0.15 +
+        urgency * 0.10, 2
+    )
+
+    factor = 0.0
+    action = "HOLD"
+    if score >= 85:
+        factor, action = 1.0, "FULL_ALLOCATE"
+    elif score >= 70:
+        factor, action = 0.75, "PRIORITY_ALLOCATE"
+    elif score >= 55:
+        factor, action = 0.50, "PARTIAL_ALLOCATE"
+    elif score >= 40:
+        factor, action = 0.25, "PILOT_ALLOCATE"
+    else:
+        factor, action = 0.0, "HOLD"
+
+    recommended = round(requested * factor, 2)
+    return score, recommended, action
+
+@app.route("/api/autonomous-capital-allocation", methods=["GET", "POST"])
+def v3673_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_autonomous_capital_allocation
+                   WHERE username=? ORDER BY allocation_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3673_VERSION,
+            "items": rows,
+            "requested_total": round(sum(float(x["requested_capital"] or 0) for x in rows), 2),
+            "recommended_total": round(sum(float(x["recommended_capital"] or 0) for x in rows), 2)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, recommended, action = _v3673_calc(
+        p.get("requested_capital", 0),
+        p.get("expected_roi", 0),
+        p.get("strategic_fit", 0),
+        p.get("confidence_score", 0),
+        p.get("risk_score", 0),
+        p.get("urgency_score", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_autonomous_capital_allocation
+            (username,initiative_name,requested_capital,expected_roi,strategic_fit,
+             confidence_score,risk_score,urgency_score,allocation_score,
+             recommended_capital,capital_action,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("initiative_name") or "Revenue Initiative")[:220],
+                float(p.get("requested_capital") or 0),
+                float(p.get("expected_roi") or 0),
+                float(p.get("strategic_fit") or 0),
+                float(p.get("confidence_score") or 0),
+                float(p.get("risk_score") or 0),
+                float(p.get("urgency_score") or 0),
+                score, recommended, action, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3673_VERSION,
+        "allocation_id": rid,
+        "allocation_score": score,
+        "recommended_capital": recommended,
+        "capital_action": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
