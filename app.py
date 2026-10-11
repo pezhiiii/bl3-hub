@@ -98288,6 +98288,156 @@ def v3683_api():
     finally:
         con.close()
 
+
+# ===== V36.84 FUNDRAISING PIPELINE =====
+V3684_VERSION = "V36.84"
+
+def _v3684_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_fundraising_pipeline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            investor_name TEXT NOT NULL,
+            investor_type TEXT NOT NULL DEFAULT 'VC',
+            stage TEXT NOT NULL DEFAULT 'PROSPECT',
+            check_size_min REAL NOT NULL DEFAULT 0,
+            check_size_max REAL NOT NULL DEFAULT 0,
+            strategic_fit REAL NOT NULL DEFAULT 0,
+            warm_intro_score REAL NOT NULL DEFAULT 0,
+            geography_fit REAL NOT NULL DEFAULT 0,
+            traction_fit REAL NOT NULL DEFAULT 0,
+            probability_score REAL NOT NULL DEFAULT 0,
+            next_action TEXT NOT NULL DEFAULT '',
+            last_contact_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3684_init()
+except Exception:
+    pass
+
+def _v3684_calc(strategic_fit, warm_intro, geography_fit, traction_fit, stage):
+    sf = max(0.0, min(100.0, float(strategic_fit or 0)))
+    wi = max(0.0, min(100.0, float(warm_intro or 0)))
+    gf = max(0.0, min(100.0, float(geography_fit or 0)))
+    tf = max(0.0, min(100.0, float(traction_fit or 0)))
+    stage = str(stage or "PROSPECT").upper()
+
+    stage_bonus = {
+        "PROSPECT": 0,
+        "CONTACTED": 5,
+        "REPLIED": 12,
+        "MEETING": 20,
+        "DILIGENCE": 28,
+        "TERM_SHEET": 38,
+        "CLOSED": 50
+    }.get(stage, 0)
+
+    score = min(100.0, round(
+        sf * 0.28 +
+        wi * 0.24 +
+        gf * 0.16 +
+        tf * 0.32 +
+        stage_bonus,
+        2
+    ))
+
+    if stage == "CLOSED":
+        action = "CLOSED_WON"
+    elif stage == "TERM_SHEET":
+        action = "NEGOTIATE_AND_CLOSE"
+    elif score >= 80:
+        action = "FOUNDER_FOLLOWUP_NOW"
+    elif score >= 65:
+        action = "REQUEST_INTRO_OR_MEETING"
+    elif score >= 45:
+        action = "NURTURE"
+    else:
+        action = "LOW_PRIORITY"
+
+    return score, action
+
+@app.route("/api/fundraising-pipeline", methods=["GET", "POST"])
+def v3684_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_fundraising_pipeline
+                   WHERE username=? ORDER BY probability_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3684_VERSION,
+            "items": rows,
+            "pipeline_count": len(rows),
+            "high_probability_count": sum(1 for x in rows if float(x["probability_score"] or 0) >= 70),
+            "active_meetings": sum(1 for x in rows if str(x["stage"]).upper() in ("MEETING","DILIGENCE","TERM_SHEET"))
+        })
+
+    p = request.get_json(silent=True) or request.form
+    stage = str(p.get("stage") or "PROSPECT").upper()
+    score, action = _v3684_calc(
+        p.get("strategic_fit", 0),
+        p.get("warm_intro_score", 0),
+        p.get("geography_fit", 0),
+        p.get("traction_fit", 0),
+        stage
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_fundraising_pipeline
+            (username,investor_name,investor_type,stage,check_size_min,check_size_max,
+             strategic_fit,warm_intro_score,geography_fit,traction_fit,probability_score,
+             next_action,last_contact_at,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("investor_name") or "Investor")[:220],
+                str(p.get("investor_type") or "VC")[:80],
+                stage,
+                float(p.get("check_size_min") or 0),
+                float(p.get("check_size_max") or 0),
+                float(p.get("strategic_fit") or 0),
+                float(p.get("warm_intro_score") or 0),
+                float(p.get("geography_fit") or 0),
+                float(p.get("traction_fit") or 0),
+                score,
+                action,
+                str(p.get("last_contact_at") or now),
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3684_VERSION,
+        "pipeline_id": rid,
+        "probability_score": score,
+        "next_action": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
