@@ -93873,6 +93873,68 @@ def v3629_api():
     ok,e,i=_v3629_create(u,p.get("contract_id"),p.get("renewal_owner"),p.get("renewal_date"),p.get("adoption_score",0),p.get("value_score",0),p.get("relationship_score",0),p.get("risk_score",0),p.get("notes"))
     return jsonify({"success":ok,"error":e,"renewal_readiness_id":i}),(200 if ok else 400)
 
+
+# ===== V36.30 RENEWAL DECISION + RETENTION GATE =====
+V3630_VERSION="V36.30"
+def _v3630_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3630_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_renewal_decision (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, decision_owner TEXT NOT NULL, proposed_value REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT "USD", term TEXT NOT NULL DEFAULT "", decision TEXT NOT NULL DEFAULT "PENDING", reason TEXT NOT NULL DEFAULT "", evidence TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "OPEN", created_at TEXT NOT NULL, updated_at TEXT NOT NULL, decided_at TEXT DEFAULT "")')
+        con.commit()
+    finally:con.close()
+try:_v3630_init()
+except Exception:pass
+
+def _v3630_create(u,contract_id,owner,proposed_value=0,currency="USD",term=""):
+    if not str(owner or "").strip():return False,"decision_owner_required",None
+    try:value=max(0,float(proposed_value or 0))
+    except Exception:return False,"invalid_proposed_value",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3630_now()
+        cur=con.execute("INSERT INTO startup_renewal_decision (username,contract_id,decision_owner,proposed_value,currency,term,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(owner)[:180],value,str(currency or "USD")[:20].upper(),str(term or "")[:240],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3630_decide(u,i,decision,reason="",evidence=""):
+    d=str(decision or "").upper();ev=str(evidence or "").strip();reason=str(reason or "").strip();now=_v3630_now()
+    if d not in ("RENEW","EXPAND","DOWNSELL","CHURN"):return False,"invalid_decision",None
+    if not reason or not ev:return False,"reason_and_evidence_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_renewal_decision WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"renewal_decision_not_found",None
+        if r["state"]!="OPEN":return False,"decision_already_closed",None
+        con.execute("UPDATE startup_renewal_decision SET decision=?,reason=?,evidence=?,state='CLOSED',decided_at=?,updated_at=? WHERE username=? AND id=?",
+                    (d,reason[:5000],ev[:5000],now,now,u,int(i)))
+        con.commit()
+        return True,"",dict(con.execute("SELECT * FROM startup_renewal_decision WHERE username=? AND id=?",(u,int(i))).fetchone())
+    finally:con.close()
+
+def _v3630_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_renewal_decision WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    closed=[x for x in items if x["state"]=="CLOSED"]
+    retained=sum(1 for x in closed if x["decision"] in ("RENEW","EXPAND","DOWNSELL"))
+    churn=sum(1 for x in closed if x["decision"]=="CHURN")
+    retention=round(100*retained/max(1,retained+churn),2) if closed else None
+    return {"success":True,"version":V3630_VERSION,"items":items,"retained":retained,"churned":churn,"retention_rate":retention}
+
+@app.route("/api/hunter-renewal-decision",methods=["GET","POST"])
+def v3630_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3630_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3630_create(u,p.get("contract_id"),p.get("decision_owner"),p.get("proposed_value",0),p.get("currency","USD"),p.get("term"))
+    return jsonify({"success":ok,"error":e,"renewal_decision_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
