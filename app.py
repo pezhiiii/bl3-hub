@@ -91482,6 +91482,93 @@ def v3598_page():
         d["shared_presentation_packs"],d["open_review_questions"],d["positive_or_next_step_decisions"],
         d["conditional_decisions"],d["declined_decisions"],esc(d["snapshot_sha256"]))
 
+
+# ===== V35.99 OPPORTUNITY PIPELINE + STAGE GATE =====
+V3599_VERSION="V35.99"
+V3599_STAGES={"DISCOVERY","QUALIFIED","MEETING","PROPOSAL","NEGOTIATION","WON","LOST","ON_HOLD"}
+
+def _v3599_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3599_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_opportunity_pipeline(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_name TEXT NOT NULL,
+            organization_label TEXT NOT NULL,
+            contact_label TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            estimated_value TEXT NOT NULL DEFAULT '',
+            stage TEXT NOT NULL DEFAULT 'DISCOVERY',
+            probability INTEGER NOT NULL DEFAULT 10,
+            next_action TEXT NOT NULL DEFAULT '',
+            target_date TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3599_init()
+except Exception:pass
+
+def _v3599_create(u,name,org,contact="",source="",value="",next_action="",target_date=""):
+    if not str(name or "").strip() or not str(org or "").strip():
+        return False,"name_and_organization_required",None
+    now=_v3599_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_opportunity_pipeline
+        (username,opportunity_name,organization_label,contact_label,source,estimated_value,next_action,target_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(name)[:240],str(org)[:240],str(contact or "")[:240],str(source or "")[:240],str(value or "")[:120],
+         str(next_action or "")[:2500],str(target_date or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3599_action(u,i,stage,probability=None,next_action="",note=""):
+    st=str(stage or "").upper()
+    if st not in V3599_STAGES:return False,"invalid_stage",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_opportunity_pipeline WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"opportunity_not_found",None
+        prob=int(probability if probability is not None else r["probability"])
+        prob=max(0,min(prob,100))
+        con.execute("""UPDATE startup_opportunity_pipeline SET stage=?,probability=?,
+        next_action=CASE WHEN ?!='' THEN ? ELSE next_action END,
+        note=CASE WHEN ?!='' THEN ? ELSE note END,updated_at=? WHERE username=? AND id=?""",
+        (st,prob,str(next_action or ""),str(next_action or "")[:2500],str(note or ""),str(note or "")[:3000],_v3599_now(),u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_opportunity_pipeline WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3599_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_opportunity_pipeline WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3599_VERSION,"items":items}
+
+@app.route("/api/hunter-opportunity-pipeline",methods=["GET","POST"])
+def v3599_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3599_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3599_create(u,p.get("opportunity_name"),p.get("organization_label"),p.get("contact_label"),
+                         p.get("source"),p.get("estimated_value"),p.get("next_action"),p.get("target_date"))
+    return jsonify({"success":ok,"error":e,"opportunity_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-opportunity-pipeline")
+def v3599_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3599_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['stage'])} · {x['probability']}%</b><h2>{esc(x['opportunity_name'])}</h2><p>{esc(x['organization_label'])}</p><p>{esc(x.get('next_action') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.99 Opportunity Pipeline</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.99 · OPPORTUNITY PIPELINE</small><h1>Track real external opportunities from discovery to outcome.</h1></div>{}</div>""".format(cards or '<div class="card">No opportunities yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
