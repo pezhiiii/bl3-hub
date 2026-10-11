@@ -90096,6 +90096,79 @@ def v3580_page():
     cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['auditor_label'])}</h2><p>Sample size: {x['sample_size']}</p></div>" for x in d['items'])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.80 Audit Sessions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.80 · INDEPENDENT AUDIT SESSION</small><h1>Run a scoped audit with explicit sampling evidence.</h1></div>{}</div>""".format(cards or '<div class="card">No audit sessions yet.</div>')
 
+
+# ===== V35.81 AUDIT FINDING REMEDIATION + RETEST GATE =====
+V3581_VERSION="V35.81"
+def _v3581_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3581_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_audit_findings(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, audit_session_id INTEGER NOT NULL, severity TEXT NOT NULL,
+            finding_text TEXT NOT NULL, owner TEXT NOT NULL, remediation_plan TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'OPEN',
+            remediation_evidence TEXT NOT NULL DEFAULT '', retest_evidence TEXT NOT NULL DEFAULT '', evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT DEFAULT '')"""); con.commit()
+    finally: con.close()
+try:_v3581_init()
+except Exception: pass
+
+def _v3581_create(u,sid,severity,text,owner,plan=''):
+    sev=str(severity or '').upper()
+    if sev not in ('INFO','LOW','MEDIUM','HIGH','CRITICAL'): return False,'invalid_severity',None
+    if not str(text or '').strip() or not str(owner or '').strip(): return False,'finding_and_owner_required',None
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        s=con.execute('SELECT state FROM startup_audit_sessions WHERE username=? AND id=?',(u,int(sid))).fetchone()
+        if not s:return False,'audit_session_not_found',None
+        now=_v3581_now();cur=con.execute("""INSERT INTO startup_audit_findings
+        (username,audit_session_id,severity,finding_text,owner,remediation_plan,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)""",
+        (u,int(sid),sev,str(text)[:5000],str(owner)[:180],str(plan or '')[:5000],now,now));con.commit();return True,'',cur.lastrowid
+    finally:con.close()
+
+def _v3581_action(u,i,action,evidence='',plan=''):
+    a=str(action or '').upper();ev=str(evidence or '').strip();now=_v3581_now();con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute('SELECT * FROM startup_audit_findings WHERE username=? AND id=?',(u,int(i))).fetchone()
+        if not r:return False,'finding_not_found',None
+        cur=r['state']
+        if a=='START_REMEDIATION' and cur=='OPEN':new='REMEDIATING'
+        elif a=='READY_FOR_RETEST' and cur=='REMEDIATING' and ev:new='READY_FOR_RETEST'
+        elif a=='RETEST_PASS' and cur=='READY_FOR_RETEST' and ev:new='RETEST_PASSED'
+        elif a=='RETEST_FAIL' and cur=='READY_FOR_RETEST' and ev:new='RETEST_FAILED'
+        elif a=='CLOSE' and cur=='RETEST_PASSED' and ev:new='CLOSED'
+        else:return False,'invalid_transition_or_evidence_required',None
+        digest=hashlib.sha256(json.dumps({'finding_id':int(i),'state':new,'evidence':ev,'utc':now},sort_keys=True,separators=(',',':')).encode()).hexdigest() if ev else r['evidence_sha256']
+        con.execute("""UPDATE startup_audit_findings SET state=?,remediation_plan=CASE WHEN ?!='' THEN ? ELSE remediation_plan END,
+        remediation_evidence=CASE WHEN ?='READY_FOR_RETEST' THEN ? ELSE remediation_evidence END,
+        retest_evidence=CASE WHEN ? IN ('RETEST_PASSED','RETEST_FAILED','CLOSED') THEN ? ELSE retest_evidence END,
+        evidence_sha256=?,closed_at=CASE WHEN ?='CLOSED' THEN ? ELSE closed_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,str(plan or ''),str(plan or '')[:5000],new,ev[:5000],new,ev[:5000],digest,new,now,now,u,int(i)));con.commit();
+        rr=con.execute('SELECT * FROM startup_audit_findings WHERE username=? AND id=?',(u,int(i))).fetchone();return True,'',dict(rr)
+    finally:con.close()
+
+def _v3581_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute('SELECT * FROM startup_audit_findings WHERE username=? ORDER BY id DESC',(u,)).fetchall()]
+    finally:con.close()
+    return {'success':True,'version':V3581_VERSION,'items':items}
+
+@app.route('/api/hunter-audit-findings',methods=['GET','POST'])
+def v3581_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':return jsonify(_v3581_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3581_create(u,p.get('audit_session_id'),p.get('severity'),p.get('finding_text'),p.get('owner'),p.get('remediation_plan'))
+    return jsonify({'success':ok,'error':e,'finding_id':i}),(200 if ok else 400)
+
+@app.route('/hunter-audit-findings')
+def v3581_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3581_snapshot(u);esc=html.escape
+    cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['severity'])} · {esc(x['state'])}</b><p>{esc(x['finding_text'])}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.81 Audit Findings</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.81 · AUDIT FINDING REMEDIATION + RETEST</small><h1>Do not close findings until retest evidence passes.</h1></div>{}</div>""".format(cards or '<div class="card">No audit findings yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
