@@ -92791,6 +92791,52 @@ def v3613_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2><p>{esc(x['owner'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.13</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.13 · RECOVERY PLAN</small><h1>Turn risk into a measurable save plan.</h1><p>Active: {} · Saved: {}</p></div>{}</div>".format(d["active"],d["saved"],cards or "<div class='card'>No recovery plans yet.</div>")
 
+
+# ===== V36.14 EXECUTIVE QBR + ACCOUNT REVIEW GATE =====
+V3614_VERSION="V36.14"
+
+def _v3614_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3614_snapshot(u):
+    health=_v3610_health(u)
+    risks=_v3611_snapshot(u)
+    voc=_v3612_summary(u)
+    recovery=_v3613_snapshot(u)
+    renewals=_v3608_snapshot(u)
+    expansions=_v3607_snapshot(u)
+    payload={
+        "version":V3614_VERSION,
+        "generated_at":_v3614_now(),
+        "account_health":health,
+        "open_risk_score":risks["open_risk_score"],
+        "customer_average_score":voc["average_score"],
+        "negative_feedback_count":voc["negative_count"],
+        "followup_required":voc["followup_required"],
+        "active_recovery_plans":recovery["active"],
+        "saved_recovery_plans":recovery["saved"],
+        "renewal_count":len(renewals["items"]),
+        "expansion_count":len(expansions["items"])
+    }
+    raw=json.dumps(payload,sort_keys=True,default=str,separators=(",",":"))
+    payload["qbr_sha256"]=hashlib.sha256(raw.encode()).hexdigest()
+    return payload
+
+@app.route("/api/hunter-executive-qbr")
+def v3614_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"snapshot":_v3614_snapshot(u)})
+
+@app.route("/hunter-executive-qbr")
+def v3614_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3614_snapshot(u);h=d["account_health"];esc=html.escape
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.14</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:24px;margin:12px 0}.score{font-size:68px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.14 · EXECUTIVE QBR</small><div class='score'>{}/100</div><h1>{}</h1><p>Risk score: {} · Customer avg: {} · Negative feedback: {} · Follow-ups: {}</p><p>Active recovery plans: {} · Saved: {} · Renewals: {} · Expansions: {}</p><p>QBR SHA: {}</p></div></div>".format(
+        h["score"],esc(h["status"]),d["open_risk_score"],d["customer_average_score"],d["negative_feedback_count"],
+        d["followup_required"],d["active_recovery_plans"],d["saved_recovery_plans"],d["renewal_count"],d["expansion_count"],esc(d["qbr_sha256"]))
+
 if __name__ == "__main__":
 
     init_db()
