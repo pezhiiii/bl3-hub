@@ -98438,6 +98438,141 @@ def v3684_api():
         "next_action": action
     })
 
+
+# ===== V36.85 PITCH DECK SCORER =====
+V3685_VERSION = "V36.85"
+
+def _v3685_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_pitch_deck_scorer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            deck_name TEXT NOT NULL,
+            problem_score REAL NOT NULL DEFAULT 0,
+            solution_score REAL NOT NULL DEFAULT 0,
+            market_score REAL NOT NULL DEFAULT 0,
+            traction_score REAL NOT NULL DEFAULT 0,
+            business_model_score REAL NOT NULL DEFAULT 0,
+            moat_score REAL NOT NULL DEFAULT 0,
+            team_score REAL NOT NULL DEFAULT 0,
+            ask_score REAL NOT NULL DEFAULT 0,
+            narrative_score REAL NOT NULL DEFAULT 0,
+            total_score REAL NOT NULL DEFAULT 0,
+            verdict TEXT NOT NULL DEFAULT 'REWORK',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3685_init()
+except Exception:
+    pass
+
+def _v3685_calc(p):
+    fields = [
+        "problem_score","solution_score","market_score","traction_score",
+        "business_model_score","moat_score","team_score","ask_score","narrative_score"
+    ]
+    weights = {
+        "problem_score": 0.10,
+        "solution_score": 0.11,
+        "market_score": 0.13,
+        "traction_score": 0.18,
+        "business_model_score": 0.12,
+        "moat_score": 0.10,
+        "team_score": 0.10,
+        "ask_score": 0.06,
+        "narrative_score": 0.10,
+    }
+    vals = {}
+    for f in fields:
+        vals[f] = max(0.0, min(100.0, float(p.get(f) or 0)))
+
+    total = round(sum(vals[f] * weights[f] for f in fields), 2)
+
+    if total >= 86:
+        verdict = "INVESTOR_READY"
+    elif total >= 74:
+        verdict = "STRONG_NEEDS_POLISH"
+    elif total >= 60:
+        verdict = "REWORK_KEY_SLIDES"
+    else:
+        verdict = "MAJOR_REBUILD"
+
+    weakest = sorted(vals.items(), key=lambda x: x[1])[:3]
+    return total, verdict, weakest
+
+@app.route("/api/pitch-deck-scorer", methods=["GET", "POST"])
+def v3685_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_pitch_deck_scorer
+                   WHERE username=? ORDER BY total_score DESC, id DESC LIMIT 100""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3685_VERSION,
+            "items": rows,
+            "best_deck_score": max([float(x["total_score"] or 0) for x in rows], default=0)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    total, verdict, weakest = _v3685_calc(p)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_pitch_deck_scorer
+            (username,deck_name,problem_score,solution_score,market_score,traction_score,
+             business_model_score,moat_score,team_score,ask_score,narrative_score,
+             total_score,verdict,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("deck_name") or "Pitch Deck")[:220],
+                float(p.get("problem_score") or 0),
+                float(p.get("solution_score") or 0),
+                float(p.get("market_score") or 0),
+                float(p.get("traction_score") or 0),
+                float(p.get("business_model_score") or 0),
+                float(p.get("moat_score") or 0),
+                float(p.get("team_score") or 0),
+                float(p.get("ask_score") or 0),
+                float(p.get("narrative_score") or 0),
+                total,
+                verdict,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3685_VERSION,
+        "deck_id": rid,
+        "total_score": total,
+        "verdict": verdict,
+        "weakest_sections": [{"section": k, "score": v} for k, v in weakest]
+    })
+
 if __name__ == "__main__":
 
     init_db()
