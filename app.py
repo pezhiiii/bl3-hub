@@ -95325,6 +95325,95 @@ def v3655_api():
     ok,e,i=_v3655_create(u,p.get("account_name"),p.get("owner"),p.get("arr",0),p.get("churn_risk",0),p.get("contraction_risk",0),p.get("collection_risk",0),p.get("adoption_risk",0),p.get("champion_risk",0),p.get("competitive_risk",0),p.get("mitigation_plan"),p.get("executive_owner"),p.get("due_date"))
     return jsonify({"success":ok,"error":e,"revenue_risk_id":i}),(200 if ok else 400)
 
+
+# ===== V36.56 REVENUE SCENARIO SIMULATOR =====
+V3656_VERSION="V36.56"
+def _v3656_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3656_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_scenarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            scenario_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            base_arr REAL NOT NULL DEFAULT 0,
+            renewal_rate REAL NOT NULL DEFAULT 0,
+            expansion_rate REAL NOT NULL DEFAULT 0,
+            churn_rate REAL NOT NULL DEFAULT 0,
+            pipeline_conversion REAL NOT NULL DEFAULT 0,
+            new_business_arr REAL NOT NULL DEFAULT 0,
+            projected_arr REAL NOT NULL DEFAULT 0,
+            projected_nrr REAL NOT NULL DEFAULT 0,
+            scenario_score REAL NOT NULL DEFAULT 0,
+            scenario_status TEXT NOT NULL DEFAULT 'BASE',
+            assumptions TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3656_init()
+except Exception:pass
+
+def _v3656_create(u,scenario_name,owner,base_arr=0,renewal_rate=0,expansion_rate=0,churn_rate=0,pipeline_conversion=0,new_business_arr=0,assumptions=""):
+    if not str(scenario_name or "").strip() or not str(owner or "").strip():
+        return False,"scenario_and_owner_required",None
+    try:
+        ba=max(0,float(base_arr or 0))
+        rr=max(0,min(100,float(renewal_rate or 0)))
+        er=max(0,min(300,float(expansion_rate or 0)))
+        cr=max(0,min(100,float(churn_rate or 0)))
+        pc=max(0,min(100,float(pipeline_conversion or 0)))
+        nb=max(0,float(new_business_arr or 0))
+    except Exception:
+        return False,"invalid_scenario_metric",None
+    retained=ba*(rr/100.0)
+    expansion=ba*(er/100.0)
+    lost=ba*(cr/100.0)
+    pipeline_realized=nb*(pc/100.0)
+    projected=max(0,retained+expansion-lost+pipeline_realized)
+    nrr=round(((ba-lost+expansion)/ba)*100,2) if ba>0 else 0.0
+    growth=((projected-ba)/ba)*100 if ba>0 else 0.0
+    score=round(max(0,min(100,50+(growth*0.5)+(nrr-100)*0.3)),2)
+    status="UPSIDE" if growth>=20 else ("GROWTH" if growth>=5 else ("BASE" if growth>=-5 else "DOWNSIDE"))
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_revenue_scenarios
+        (username,scenario_name,owner,base_arr,renewal_rate,expansion_rate,churn_rate,pipeline_conversion,new_business_arr,projected_arr,projected_nrr,scenario_score,scenario_status,assumptions,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(scenario_name)[:180],str(owner)[:180],ba,rr,er,cr,pc,nb,round(projected,2),nrr,score,status,str(assumptions or "")[:9000],_v3656_now()))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3656_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_scenarios WHERE username=? ORDER BY projected_arr DESC,id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    best=items[0] if items else None
+    worst=items[-1] if items else None
+    return {
+        "success":True,"version":V3656_VERSION,"items":items,
+        "best_projected_arr":(best["projected_arr"] if best else None),
+        "worst_projected_arr":(worst["projected_arr"] if worst else None),
+        "scenario_count":len(items)
+    }
+
+@app.route("/api/hunter-revenue-scenarios",methods=["GET","POST"])
+def v3656_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3656_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3656_create(u,p.get("scenario_name"),p.get("owner"),p.get("base_arr",0),p.get("renewal_rate",0),p.get("expansion_rate",0),p.get("churn_rate",0),p.get("pipeline_conversion",0),p.get("new_business_arr",0),p.get("assumptions"))
+    return jsonify({"success":ok,"error":e,"scenario_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
