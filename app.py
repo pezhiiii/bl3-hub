@@ -97657,6 +97657,133 @@ def v3678_api():
     finally:
         con.close()
 
+
+# ===== V36.79 FOUNDER WAR ROOM =====
+V3679_VERSION = "V36.79"
+
+def _v3679_scalar(con, sql, params=(), default=0.0):
+    try:
+        row = con.execute(sql, params).fetchone()
+        if not row or row[0] is None:
+            return float(default)
+        return float(row[0])
+    except Exception:
+        return float(default)
+
+@app.route("/api/founder-war-room", methods=["GET"])
+def v3679_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        ceo_score = 0.0
+        try:
+            # Pull strongest signal from the CEO command center's underlying systems.
+            growth_score = _v3679_scalar(
+                con,
+                """SELECT growth_score FROM startup_strategic_growth_planner
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            )
+            opportunity_score = _v3679_scalar(
+                con,
+                """SELECT opportunity_score FROM startup_market_opportunity_scanner
+                   WHERE username=? ORDER BY opportunity_score DESC LIMIT 1""",
+                (u,)
+            )
+            experiment_conf = _v3679_scalar(
+                con,
+                """SELECT confidence_score FROM startup_revenue_experiment_lab
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,),
+                50.0
+            )
+            allocation_score = _v3679_scalar(
+                con,
+                """SELECT allocation_score FROM startup_autonomous_capital_allocation
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            )
+            risk_score = _v3679_scalar(
+                con,
+                """SELECT composite_risk FROM startup_revenue_risk_radar
+                   WHERE username=? ORDER BY composite_risk DESC LIMIT 1""",
+                (u,)
+            )
+            decision_outcome = _v3679_scalar(
+                con,
+                """SELECT outcome_score FROM startup_executive_decision_memory
+                   WHERE username=? AND decision_status='RESOLVED'
+                   ORDER BY id DESC LIMIT 1""",
+                (u,),
+                50.0
+            )
+
+            ceo_score = round(
+                growth_score * 0.22 +
+                opportunity_score * 0.20 +
+                experiment_conf * 0.15 +
+                allocation_score * 0.18 +
+                decision_outcome * 0.10 +
+                max(0.0, 100.0-risk_score) * 0.15,
+                2
+            )
+        except Exception:
+            pass
+
+        critical_risks = int(_v3679_scalar(
+            con,
+            """SELECT COUNT(*) FROM startup_revenue_risk_radar
+               WHERE username=? AND risk_level='CRITICAL'""",
+            (u,)
+        ))
+        winning_experiments = int(_v3679_scalar(
+            con,
+            """SELECT COUNT(*) FROM startup_revenue_experiment_lab
+               WHERE username=? AND decision='SHIP_WINNER'""",
+            (u,)
+        ))
+        priority_opportunities = int(_v3679_scalar(
+            con,
+            """SELECT COUNT(*) FROM startup_market_opportunity_scanner
+               WHERE username=? AND recommendation IN ('ENTER_NOW','PRIORITY_TEST')""",
+            (u,)
+        ))
+
+        if critical_risks >= 2:
+            founder_mode = "DEFEND"
+        elif ceo_score >= 82 and priority_opportunities > 0:
+            founder_mode = "ATTACK"
+        elif ceo_score >= 65:
+            founder_mode = "FOCUS"
+        else:
+            founder_mode = "REBUILD"
+
+        war_room_orders = []
+        if critical_risks > 0:
+            war_room_orders.append("Contain critical revenue risks before scaling spend.")
+        if winning_experiments > 0:
+            war_room_orders.append("Promote winning experiments into production growth loops.")
+        if priority_opportunities > 0:
+            war_room_orders.append("Allocate resources to highest-ranked market opportunities.")
+        if not war_room_orders:
+            war_room_orders.append("Run focused validation cycles and strengthen execution confidence.")
+
+        return jsonify({
+            "success": True,
+            "version": V3679_VERSION,
+            "founder_war_score": ceo_score,
+            "founder_mode": founder_mode,
+            "critical_risk_count": critical_risks,
+            "winning_experiment_count": winning_experiments,
+            "priority_opportunity_count": priority_opportunities,
+            "war_room_orders": war_room_orders
+        })
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
