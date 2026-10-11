@@ -97514,6 +97514,149 @@ def v3677_api():
         "recommendation": rec
     })
 
+
+# ===== V36.78 REVENUE EXPERIMENT LAB =====
+V3678_VERSION = "V36.78"
+
+def _v3678_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_experiment_lab (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            experiment_name TEXT NOT NULL,
+            hypothesis TEXT NOT NULL DEFAULT '',
+            metric_name TEXT NOT NULL DEFAULT 'conversion_rate',
+            baseline_value REAL NOT NULL DEFAULT 0,
+            target_value REAL NOT NULL DEFAULT 0,
+            actual_value REAL NOT NULL DEFAULT 0,
+            sample_size INTEGER NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            uplift_pct REAL NOT NULL DEFAULT 0,
+            experiment_status TEXT NOT NULL DEFAULT 'RUNNING',
+            decision TEXT NOT NULL DEFAULT 'COLLECT_MORE_DATA',
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3678_init()
+except Exception:
+    pass
+
+def _v3678_eval(baseline, target, actual, sample_size, confidence):
+    baseline = float(baseline or 0)
+    target = float(target or 0)
+    actual = float(actual or 0)
+    sample_size = int(sample_size or 0)
+    confidence = max(0.0, min(100.0, float(confidence or 0)))
+
+    uplift = 0.0
+    if baseline != 0:
+        uplift = round(((actual - baseline) / abs(baseline)) * 100.0, 2)
+
+    if sample_size < 30 or confidence < 60:
+        decision = "COLLECT_MORE_DATA"
+    elif actual >= target and confidence >= 75:
+        decision = "SHIP_WINNER"
+    elif actual > baseline and confidence >= 70:
+        decision = "EXTEND_TEST"
+    else:
+        decision = "STOP_OR_REDESIGN"
+
+    return uplift, decision
+
+@app.route("/api/revenue-experiment-lab", methods=["GET", "POST", "PATCH"])
+def v3678_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if request.method == "GET":
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_revenue_experiment_lab
+                   WHERE username=? ORDER BY id DESC LIMIT 300""",
+                (u,)
+            ).fetchall()]
+            return jsonify({
+                "success": True,
+                "version": V3678_VERSION,
+                "items": rows,
+                "running_count": sum(1 for x in rows if x["experiment_status"] == "RUNNING"),
+                "winner_count": sum(1 for x in rows if x["decision"] == "SHIP_WINNER")
+            })
+
+        p = request.get_json(silent=True) or request.form
+
+        if request.method == "POST":
+            now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            cur = con.execute(
+                """INSERT INTO startup_revenue_experiment_lab
+                (username,experiment_name,hypothesis,metric_name,baseline_value,target_value,
+                 actual_value,sample_size,confidence_score,uplift_pct,experiment_status,
+                 decision,created_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    u,
+                    str(p.get("experiment_name") or "Revenue Experiment")[:220],
+                    str(p.get("hypothesis") or "")[:3000],
+                    str(p.get("metric_name") or "conversion_rate")[:120],
+                    float(p.get("baseline_value") or 0),
+                    float(p.get("target_value") or 0),
+                    0.0, 0, 0.0, 0.0,
+                    "RUNNING", "COLLECT_MORE_DATA", now
+                )
+            )
+            con.commit()
+            return jsonify({
+                "success": True,
+                "version": V3678_VERSION,
+                "experiment_id": cur.lastrowid
+            })
+
+        eid = int(p.get("experiment_id") or 0)
+        actual = float(p.get("actual_value") or 0)
+        sample = int(p.get("sample_size") or 0)
+        confidence = float(p.get("confidence_score") or 0)
+
+        row = con.execute(
+            """SELECT baseline_value,target_value FROM startup_revenue_experiment_lab
+               WHERE id=? AND username=?""",
+            (eid, u)
+        ).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "experiment_not_found"}), 404
+
+        uplift, decision = _v3678_eval(row["baseline_value"], row["target_value"], actual, sample, confidence)
+        status = "COMPLETED" if decision in ("SHIP_WINNER", "STOP_OR_REDESIGN") else "RUNNING"
+        completed_at = datetime.utcnow().isoformat(timespec="seconds") + "Z" if status == "COMPLETED" else None
+
+        con.execute(
+            """UPDATE startup_revenue_experiment_lab
+               SET actual_value=?, sample_size=?, confidence_score=?, uplift_pct=?,
+                   experiment_status=?, decision=?, completed_at=?
+               WHERE id=? AND username=?""",
+            (actual, sample, confidence, uplift, status, decision, completed_at, eid, u)
+        )
+        con.commit()
+
+        return jsonify({
+            "success": True,
+            "version": V3678_VERSION,
+            "experiment_id": eid,
+            "uplift_pct": uplift,
+            "decision": decision,
+            "experiment_status": status
+        })
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
