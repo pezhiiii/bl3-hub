@@ -97923,6 +97923,132 @@ def v3680_api():
         "recommendation": rec
     })
 
+
+# ===== V36.81 CUSTOMER SIGNAL RADAR =====
+V3681_VERSION = "V36.81"
+
+def _v3681_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_customer_signal_radar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            signal_name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'unknown',
+            frequency_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            revenue_impact REAL NOT NULL DEFAULT 0,
+            retention_impact REAL NOT NULL DEFAULT 0,
+            evidence_quality REAL NOT NULL DEFAULT 0,
+            signal_score REAL NOT NULL DEFAULT 0,
+            action_class TEXT NOT NULL DEFAULT 'WATCH',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3681_init()
+except Exception:
+    pass
+
+def _v3681_calc(freq, urgency, revenue, retention, evidence):
+    vals = [
+        max(0.0, min(100.0, float(freq or 0))),
+        max(0.0, min(100.0, float(urgency or 0))),
+        max(0.0, min(100.0, float(revenue or 0))),
+        max(0.0, min(100.0, float(retention or 0))),
+        max(0.0, min(100.0, float(evidence or 0))),
+    ]
+    score = round(
+        vals[0] * 0.18 +
+        vals[1] * 0.22 +
+        vals[2] * 0.24 +
+        vals[3] * 0.20 +
+        vals[4] * 0.16,
+        2
+    )
+
+    if score >= 82:
+        action = "BUILD_NOW"
+    elif score >= 68:
+        action = "PRIORITY_DISCOVERY"
+    elif score >= 50:
+        action = "VALIDATE"
+    else:
+        action = "WATCH"
+
+    return score, action
+
+@app.route("/api/customer-signal-radar", methods=["GET", "POST"])
+def v3681_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_customer_signal_radar
+                   WHERE username=? ORDER BY signal_score DESC, id DESC LIMIT 300""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3681_VERSION,
+            "items": rows,
+            "build_now_count": sum(1 for x in rows if x["action_class"] == "BUILD_NOW"),
+            "top_signal": rows[0] if rows else None
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, action = _v3681_calc(
+        p.get("frequency_score", 0),
+        p.get("urgency_score", 0),
+        p.get("revenue_impact", 0),
+        p.get("retention_impact", 0),
+        p.get("evidence_quality", 0)
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_customer_signal_radar
+            (username,signal_name,source,frequency_score,urgency_score,revenue_impact,
+             retention_impact,evidence_quality,signal_score,action_class,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("signal_name") or "Customer Signal")[:220],
+                str(p.get("source") or "unknown")[:120],
+                float(p.get("frequency_score") or 0),
+                float(p.get("urgency_score") or 0),
+                float(p.get("revenue_impact") or 0),
+                float(p.get("retention_impact") or 0),
+                float(p.get("evidence_quality") or 0),
+                score, action, now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3681_VERSION,
+        "signal_id": rid,
+        "signal_score": score,
+        "action_class": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
