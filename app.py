@@ -92837,6 +92837,90 @@ def v3614_page():
         h["score"],esc(h["status"]),d["open_risk_score"],d["customer_average_score"],d["negative_feedback_count"],
         d["followup_required"],d["active_recovery_plans"],d["saved_recovery_plans"],d["renewal_count"],d["expansion_count"],esc(d["qbr_sha256"]))
 
+
+# ===== V36.15 STRATEGIC ACCOUNT PLAN GATE =====
+V3615_VERSION="V36.15"
+
+def _v3615_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3615_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_strategic_account_plans(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            account_name TEXT NOT NULL,
+            account_owner TEXT NOT NULL,
+            strategic_goal TEXT NOT NULL DEFAULT '',
+            growth_hypothesis TEXT NOT NULL DEFAULT '',
+            blockers TEXT NOT NULL DEFAULT '',
+            next_90_days TEXT NOT NULL DEFAULT '',
+            success_metrics TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3615_init()
+except Exception:pass
+
+def _v3615_create(u,hid,account_name,owner,goal="",growth="",blockers="",next90="",metrics=""):
+    if not str(account_name or "").strip() or not str(owner or "").strip():
+        return False,"account_name_and_owner_required",None
+    now=_v3615_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_strategic_account_plans
+        (username,handoff_id,account_name,account_owner,strategic_goal,growth_hypothesis,blockers,next_90_days,success_metrics,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid) if hid not in (None,"") else None,str(account_name)[:240],str(owner)[:180],str(goal or "")[:5000],
+         str(growth or "")[:5000],str(blockers or "")[:5000],str(next90 or "")[:8000],str(metrics or "")[:4000],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3615_action(u,i,action):
+    a=str(action or "").upper(); now=_v3615_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_strategic_account_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"plan_not_found",None
+        cur=r["state"]
+        if a=="ACTIVATE" and cur=="DRAFT":new="ACTIVE"
+        elif a=="REVIEW" and cur=="ACTIVE":new="REVIEW"
+        elif a=="COMPLETE" and cur=="REVIEW":new="COMPLETED"
+        else:return False,"invalid_transition",None
+        con.execute("UPDATE startup_strategic_account_plans SET state=?,updated_at=? WHERE username=? AND id=?",(new,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_strategic_account_plans WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3615_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_strategic_account_plans WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3615_VERSION,"items":items}
+
+@app.route("/api/hunter-strategic-account-plans",methods=["GET","POST"])
+def v3615_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3615_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3615_create(u,p.get("handoff_id"),p.get("account_name"),p.get("account_owner"),p.get("strategic_goal"),
+                         p.get("growth_hypothesis"),p.get("blockers"),p.get("next_90_days"),p.get("success_metrics"))
+    return jsonify({"success":ok,"error":e,"plan_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-strategic-account-plans")
+def v3615_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3615_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['account_name'])}</h2><p>{esc(x['account_owner'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.15</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.15 · STRATEGIC ACCOUNT PLAN</small><h1>Run the next 90 days with a deliberate growth plan.</h1></div>"+(cards or "<div class='card'>No account plans yet.</div>")+"</div>"
+
 if __name__ == "__main__":
 
     init_db()
