@@ -98925,6 +98925,127 @@ def v3688_api():
         "recommended_action": action
     })
 
+
+# ===== V36.89 TERM SHEET ANALYZER =====
+V3689_VERSION = "V36.89"
+
+def _v3689_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_term_sheet_analyzer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            investor_name TEXT NOT NULL,
+            valuation REAL NOT NULL DEFAULT 0,
+            investment_amount REAL NOT NULL DEFAULT 0,
+            dilution_percent REAL NOT NULL DEFAULT 0,
+            liquidation_preference REAL NOT NULL DEFAULT 1,
+            board_control_score REAL NOT NULL DEFAULT 50,
+            founder_control_score REAL NOT NULL DEFAULT 50,
+            founder_friendliness REAL NOT NULL DEFAULT 0,
+            verdict TEXT NOT NULL DEFAULT 'REVIEW',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3689_init()
+except Exception:
+    pass
+
+def _v3689_score(dilution, liq_pref, board_control, founder_control):
+    d = max(0.0, min(100.0, float(dilution or 0)))
+    lp = max(0.0, float(liq_pref or 1))
+    bc = max(0.0, min(100.0, float(board_control or 50)))
+    fc = max(0.0, min(100.0, float(founder_control or 50)))
+
+    dilution_score = max(0.0, 100.0 - d * 2.5)
+    liq_score = 100.0 if lp <= 1 else max(0.0, 100.0 - (lp - 1.0) * 35.0)
+    control_score = fc * 0.65 + (100.0 - bc) * 0.35
+    total = round(dilution_score * 0.38 + liq_score * 0.26 + control_score * 0.36, 2)
+
+    if total >= 82:
+        verdict = "FOUNDER_FRIENDLY"
+    elif total >= 68:
+        verdict = "NEGOTIABLE"
+    elif total >= 52:
+        verdict = "CAUTION"
+    else:
+        verdict = "HIGH_RISK"
+
+    return total, verdict
+
+@app.route("/api/term-sheet-analyzer", methods=["GET", "POST"])
+def v3689_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_term_sheet_analyzer
+                   WHERE username=? ORDER BY founder_friendliness DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({
+            "success": True,
+            "version": V3689_VERSION,
+            "items": rows,
+            "best_founder_friendliness": max([float(x["founder_friendliness"] or 0) for x in rows], default=0)
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, verdict = _v3689_score(
+        p.get("dilution_percent", 0),
+        p.get("liquidation_preference", 1),
+        p.get("board_control_score", 50),
+        p.get("founder_control_score", 50)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_term_sheet_analyzer
+            (username,investor_name,valuation,investment_amount,dilution_percent,
+             liquidation_preference,board_control_score,founder_control_score,
+             founder_friendliness,verdict,notes,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("investor_name") or "Investor")[:220],
+                float(p.get("valuation") or 0),
+                float(p.get("investment_amount") or 0),
+                float(p.get("dilution_percent") or 0),
+                float(p.get("liquidation_preference") or 1),
+                float(p.get("board_control_score") or 50),
+                float(p.get("founder_control_score") or 50),
+                score,
+                verdict,
+                str(p.get("notes") or "")[:1400],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3689_VERSION,
+        "term_sheet_id": rid,
+        "founder_friendliness": score,
+        "verdict": verdict
+    })
+
 if __name__ == "__main__":
 
     init_db()
