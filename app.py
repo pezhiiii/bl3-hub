@@ -96641,6 +96641,119 @@ def v3670_api():
         "reason": reason
     })
 
+
+# ===== V36.71 EXECUTIVE BOARD INTELLIGENCE LAYER =====
+V3671_VERSION = "V36.71"
+
+def _v3671_latest(con, table, username, field):
+    try:
+        row = con.execute(
+            f"SELECT {field} FROM {table} WHERE username=? ORDER BY id DESC LIMIT 1",
+            (username,)
+        ).fetchone()
+        return float(row[0] or 0) if row else 0.0
+    except Exception:
+        return 0.0
+
+@app.route("/api/executive-board-intelligence", methods=["GET"])
+def v3671_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        exec_autonomy = 0.0
+        try:
+            row = con.execute(
+                """SELECT policy_status, policy_score
+                   FROM startup_revenue_policy_guardrails
+                   WHERE username=? ORDER BY id DESC LIMIT 1""",
+                (u,)
+            ).fetchone()
+            latest_policy_status = row[0] if row else "UNKNOWN"
+            latest_policy_score = float(row[1] or 0) if row else 0.0
+        except Exception:
+            latest_policy_status = "UNKNOWN"
+            latest_policy_score = 0.0
+
+        forecast_conf = _v3671_latest(
+            con, "startup_revenue_forecast_confidence", u, "confidence_score"
+        )
+        scenario_score = _v3671_latest(
+            con, "startup_revenue_scenario_simulation", u, "scenario_score"
+        )
+        portfolio_score = _v3671_latest(
+            con, "startup_revenue_portfolio_optimizer", u, "priority_score"
+        )
+        remediation_risk = _v3671_latest(
+            con, "startup_self_healing_revenue_ops", u, "remediation_score"
+        )
+        budget_shift = abs(_v3671_latest(
+            con, "startup_autonomous_budget_rebalancer", u, "rebalance_percent"
+        ))
+
+        try:
+            rows = con.execute(
+                """SELECT policy_score FROM startup_revenue_policy_guardrails
+                   WHERE username=?""", (u,)
+            ).fetchall()
+            policy_health = (
+                sum(float(r[0] or 0) for r in rows) / len(rows)
+                if rows else 0.0
+            )
+        except Exception:
+            policy_health = 0.0
+
+        board_score = round(
+            forecast_conf * 0.20 +
+            scenario_score * 0.20 +
+            portfolio_score * 0.20 +
+            max(0.0, 100.0 - remediation_risk) * 0.15 +
+            max(0.0, 100.0 - min(100.0, budget_shift * 2.0)) * 0.10 +
+            policy_health * 0.15,
+            2
+        )
+
+        board_status = (
+            "EXPAND" if board_score >= 85 and latest_policy_status != "BLOCK" else
+            "EXECUTE" if board_score >= 70 and latest_policy_status != "BLOCK" else
+            "OPTIMIZE" if board_score >= 50 else
+            "STABILIZE"
+        )
+
+        priorities = []
+        if forecast_conf < 65:
+            priorities.append("Improve forecast confidence.")
+        if scenario_score < 60:
+            priorities.append("Revisit scenario assumptions.")
+        if portfolio_score < 60:
+            priorities.append("Reprioritize revenue initiatives.")
+        if remediation_risk >= 60:
+            priorities.append("Resolve high-risk revenue incidents.")
+        if latest_policy_status == "BLOCK":
+            priorities.append("Clear blocked guardrail decisions before expansion.")
+        if not priorities:
+            priorities.append("System is aligned for controlled revenue expansion.")
+
+        return jsonify({
+            "success": True,
+            "version": V3671_VERSION,
+            "board_intelligence_score": board_score,
+            "board_status": board_status,
+            "forecast_confidence_score": round(forecast_conf, 2),
+            "scenario_score": round(scenario_score, 2),
+            "portfolio_priority_score": round(portfolio_score, 2),
+            "remediation_risk_score": round(remediation_risk, 2),
+            "latest_budget_shift_percent": round(budget_shift, 2),
+            "policy_health_score": round(policy_health, 2),
+            "latest_policy_status": latest_policy_status,
+            "latest_policy_score": round(latest_policy_score, 2),
+            "board_priorities": priorities
+        })
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
