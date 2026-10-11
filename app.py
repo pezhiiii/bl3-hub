@@ -90763,6 +90763,82 @@ def v3589_page():
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.89 Assurance KPI/KRI</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px}.v{font-size:34px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V35.89 · ASSURANCE KPI/KRI DASHBOARD</small><h1>Operational assurance signals in one view.</h1></div><div class='grid'><div class='card'><div class='v'>{}/100</div><p>Maturity · {}</p></div><div class='card'><div class='v'>{}%</div><p>Finding closure</p></div><div class='card'><div class='v'>{}%</div><p>Corrective effectiveness</p></div><div class='card'><div class='v'>{}</div><p>Open findings</p></div><div class='card'><div class='v'>{}</div><p>Missed renewals</p></div><div class='card'><div class='v'>{}</div><p>Overall risk</p></div></div></div>""".format(
         m["maturity_score"],esc(m["maturity_level"]),m["finding_closure_rate"],m["corrective_effectiveness_rate"],m["open_findings"],m["missed_renewals"],esc(m["overall_risk"]))
 
+
+# ===== V35.90 EXECUTIVE ASSURANCE REPORT + SEALED SNAPSHOT GATE =====
+V3590_VERSION="V35.90"
+
+def _v3590_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3590_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_assurance_reports(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            report_name TEXT NOT NULL,
+            executive_owner TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            metrics_json TEXT NOT NULL,
+            roadmap_json TEXT NOT NULL,
+            governance_json TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3590_init()
+except Exception:pass
+
+def _v3590_create(u,name,owner,summary=""):
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"name_and_owner_required",None
+    metrics=_v3589_metrics(u)
+    roads=_v3587_snapshot(u).get("items",[])
+    reviews=_v3588_snapshot(u).get("items",[])
+    payload={
+        "version":V3590_VERSION,
+        "report_name":str(name),
+        "executive_owner":str(owner),
+        "summary":str(summary or ""),
+        "metrics":metrics,
+        "roadmaps":[{"id":x["id"],"name":x["roadmap_name"],"state":x["state"],"target_level":x["target_level"],"target_score":x["target_score"]} for x in roads],
+        "governance_reviews":[{"id":x["id"],"name":x["review_name"],"state":x["state"],"maturity_score":x["maturity_score"],"maturity_level":x["maturity_level"]} for x in reviews],
+        "generated_at":_v3590_now()
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+    digest=hashlib.sha256(raw.encode()).hexdigest()
+    now=_v3590_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_executive_assurance_reports
+        (username,report_name,executive_owner,summary,metrics_json,roadmap_json,governance_json,evidence_sha256,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?)""",
+        (u,str(name)[:240],str(owner)[:180],str(summary or "")[:4000],json.dumps(metrics),json.dumps(payload["roadmaps"]),json.dumps(payload["governance_reviews"]),digest,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3590_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_executive_assurance_reports WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3590_VERSION,"items":items}
+
+@app.route("/api/hunter-executive-assurance-reports",methods=["GET","POST"])
+def v3590_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3590_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3590_create(u,p.get("report_name"),p.get("executive_owner"),p.get("summary"))
+    return jsonify({"success":ok,"error":e,"report_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-executive-assurance-reports")
+def v3590_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3590_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']}</b><h2>{esc(x['report_name'])}</h2><p>Owner: {esc(x['executive_owner'])}</p><p>SHA-256: {esc(x['evidence_sha256'][:24])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.90 Executive Assurance Reports</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.90 · EXECUTIVE ASSURANCE REPORT</small><h1>Seal maturity, KPI/KRI, roadmaps and governance decisions into one executive snapshot.</h1></div>{}</div>""".format(cards or '<div class="card">No executive assurance reports yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
