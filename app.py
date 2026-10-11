@@ -93077,6 +93077,79 @@ def v3617_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['advocate_name'])}</h2><p>{esc(x['advocacy_type'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.17</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.17 · CUSTOMER ADVOCACY</small><h1>Turn successful customers into references and advocates.</h1><p>Active advocates: {}</p></div>{}</div>".format(d["active_advocates"],cards or "<div class='card'>No advocates yet.</div>")
 
+
+# ===== V36.18 EXPANSION FORECAST + PIPELINE GATE =====
+V3618_VERSION="V36.18"
+
+def _v3618_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3618_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_expansion_forecast(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            opportunity_name TEXT NOT NULL,
+            forecast_value REAL NOT NULL DEFAULT 0,
+            probability INTEGER NOT NULL DEFAULT 0,
+            stage TEXT NOT NULL DEFAULT 'IDENTIFIED',
+            expected_close TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            next_step TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3618_init()
+except Exception:pass
+
+def _v3618_create(u,hid,name,value,probability,stage="IDENTIFIED",expected_close="",owner="",next_step=""):
+    if not str(name or "").strip():return False,"opportunity_name_required",None
+    try:val=max(0,float(value or 0));prob=max(0,min(100,int(probability or 0)))
+    except Exception:return False,"invalid_value_or_probability",None
+    st=str(stage or "IDENTIFIED").upper()
+    if st not in ("IDENTIFIED","QUALIFIED","PROPOSAL","NEGOTIATION","COMMITTED","WON","LOST"):st="IDENTIFIED"
+    now=_v3618_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_expansion_forecast
+        (username,handoff_id,opportunity_name,forecast_value,probability,stage,expected_close,owner,next_step,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid) if hid not in (None,"") else None,str(name)[:260],val,prob,st,str(expected_close or "")[:80],
+         str(owner or "")[:180],str(next_step or "")[:3000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3618_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_expansion_forecast WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    open_items=[x for x in items if x["stage"] not in ("WON","LOST")]
+    weighted=round(sum(float(x["forecast_value"])*(int(x["probability"])/100.0) for x in open_items),2)
+    committed=round(sum(float(x["forecast_value"]) for x in items if x["stage"]=="COMMITTED"),2)
+    won=round(sum(float(x["forecast_value"]) for x in items if x["stage"]=="WON"),2)
+    return {"success":True,"version":V3618_VERSION,"items":items,"weighted_pipeline":weighted,"committed_value":committed,"won_value":won}
+
+@app.route("/api/hunter-expansion-forecast",methods=["GET","POST"])
+def v3618_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3618_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3618_create(u,p.get("handoff_id"),p.get("opportunity_name"),p.get("forecast_value"),p.get("probability"),
+                         p.get("stage"),p.get("expected_close"),p.get("owner"),p.get("next_step"))
+    return jsonify({"success":ok,"error":e,"forecast_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-expansion-forecast")
+def v3618_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3618_summary(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>{esc(x['opportunity_name'])}</b><p>{esc(x['stage'])} · {x['probability']}% · {x['forecast_value']}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.18</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.big{font-size:54px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.18 · EXPANSION FORECAST</small><div class='big'>{}</div><h1>Weighted pipeline</h1><p>Committed: {} · Won: {}</p></div>{}</div>".format(d["weighted_pipeline"],d["committed_value"],d["won_value"],cards or "<div class='card'>No expansion opportunities yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
