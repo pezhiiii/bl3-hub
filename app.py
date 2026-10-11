@@ -91329,6 +91329,94 @@ def v3596_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>{esc(x['question_text'])}</p><small>{esc(x['reviewer_label'])} · {esc(x['category'])}</small></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.96 External Review Questions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.96 · EXTERNAL REVIEW QUESTIONS</small><h1>Capture reviewer questions and evidence-backed responses.</h1></div>{}</div>""".format(cards or '<div class="card">No reviewer questions yet.</div>')
 
+
+# ===== V35.97 EXTERNAL DECISION + NEXT STEP GATE =====
+V3597_VERSION="V35.97"
+V3597_STATES={"PENDING","POSITIVE","CONDITIONAL","DECLINED","NEXT_STEP_SET","CLOSED"}
+
+def _v3597_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3597_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_decisions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            presentation_pack_id INTEGER NOT NULL,
+            decision_maker TEXT NOT NULL,
+            organization_label TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PENDING',
+            decision_note TEXT NOT NULL DEFAULT '',
+            decision_evidence TEXT NOT NULL DEFAULT '',
+            next_step TEXT NOT NULL DEFAULT '',
+            target_date TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3597_init()
+except Exception:pass
+
+def _v3597_create(u,pid,decision_maker,org=""):
+    if not str(decision_maker or "").strip():return False,"decision_maker_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        p=con.execute("SELECT id FROM startup_external_presentation_packs WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        if not p:return False,"presentation_pack_not_found",None
+        now=_v3597_now()
+        cur=con.execute("""INSERT INTO startup_external_decisions
+        (username,presentation_pack_id,decision_maker,organization_label,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)""",(u,int(pid),str(decision_maker)[:240],str(org or "")[:240],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3597_action(u,i,action,note="",evidence="",next_step="",target_date=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3597_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_decisions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"decision_not_found",None
+        cur=r["state"]
+        if a in ("POSITIVE","CONDITIONAL","DECLINED") and cur=="PENDING" and ev:new=a
+        elif a=="SET_NEXT_STEP" and cur in ("POSITIVE","CONDITIONAL") and str(next_step or "").strip():new="NEXT_STEP_SET"
+        elif a=="CLOSE" and cur in ("DECLINED","NEXT_STEP_SET") and ev:new="CLOSED"
+        else:return False,"invalid_transition_or_required_data_missing",None
+        con.execute("""UPDATE startup_external_decisions SET state=?,decision_note=?,decision_evidence=?,
+        next_step=CASE WHEN ?='NEXT_STEP_SET' THEN ? ELSE next_step END,
+        target_date=CASE WHEN ?='NEXT_STEP_SET' THEN ? ELSE target_date END,
+        decided_at=CASE WHEN ? IN ('POSITIVE','CONDITIONAL','DECLINED') THEN ? ELSE decided_at END,
+        updated_at=? WHERE username=? AND id=?""",
+        (new,str(note or "")[:4000],ev[:5000],new,str(next_step or "")[:2500],new,str(target_date or "")[:80],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_external_decisions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3597_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_external_decisions WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3597_VERSION,"items":items}
+
+@app.route("/api/hunter-external-decisions",methods=["GET","POST"])
+def v3597_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3597_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3597_create(u,p.get("presentation_pack_id"),p.get("decision_maker"),p.get("organization_label"))
+    return jsonify({"success":ok,"error":e,"decision_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-external-decisions")
+def v3597_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3597_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['decision_maker'])}</h2><p>{esc(x.get('organization_label') or '')}</p><p>{esc(x.get('next_step') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.97 External Decisions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.97 · EXTERNAL DECISION + NEXT STEP</small><h1>Track the actual decision and the next concrete action.</h1></div>{}</div>""".format(cards or '<div class="card">No external decisions yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
