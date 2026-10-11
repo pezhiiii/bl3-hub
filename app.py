@@ -95152,6 +95152,98 @@ def v3653_api():
     ok,e,i=_v3653_create(u,p.get("account_name"),p.get("owner"),p.get("current_arr",0),p.get("whitespace_value",0),p.get("product_fit_score",0),p.get("usage_signal_score",0),p.get("champion_strength",0),p.get("budget_signal",0),p.get("timing_score",0),p.get("next_best_offer"),p.get("target_close_date"))
     return jsonify({"success":ok,"error":e,"expansion_playbook_id":i}),(200 if ok else 400)
 
+
+# ===== V36.54 REVENUE COMMAND CENTER =====
+V3654_VERSION="V36.54"
+def _v3654_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3654_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_command_center (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            period_label TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            starting_arr REAL NOT NULL DEFAULT 0,
+            renewal_arr REAL NOT NULL DEFAULT 0,
+            expansion_arr REAL NOT NULL DEFAULT 0,
+            churn_arr REAL NOT NULL DEFAULT 0,
+            weighted_pipeline REAL NOT NULL DEFAULT 0,
+            forecast_arr REAL NOT NULL DEFAULT 0,
+            nrr REAL NOT NULL DEFAULT 0,
+            grr REAL NOT NULL DEFAULT 0,
+            revenue_score REAL NOT NULL DEFAULT 0,
+            revenue_status TEXT NOT NULL DEFAULT 'WATCH',
+            executive_summary TEXT NOT NULL DEFAULT '',
+            top_actions TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3654_init()
+except Exception:pass
+
+def _v3654_create(u,period_label,owner,starting_arr=0,renewal_arr=0,expansion_arr=0,churn_arr=0,weighted_pipeline=0,forecast_arr=0,executive_summary="",top_actions=""):
+    if not str(period_label or "").strip() or not str(owner or "").strip():
+        return False,"period_and_owner_required",None
+    try:
+        sa=max(0,float(starting_arr or 0))
+        ra=max(0,float(renewal_arr or 0))
+        ea=max(0,float(expansion_arr or 0))
+        ca=max(0,float(churn_arr or 0))
+        wp=max(0,float(weighted_pipeline or 0))
+        fa=max(0,float(forecast_arr or 0))
+    except Exception:
+        return False,"invalid_revenue_metric",None
+    nrr=round(((sa-ca+ea)/sa)*100,2) if sa>0 else 0.0
+    grr=round(((sa-ca)/sa)*100,2) if sa>0 else 0.0
+    nrr_score=min(100,max(0,(nrr/120.0)*100.0))
+    grr_score=min(100,max(0,(grr/100.0)*100.0))
+    renewal_score=min(100,(ra/sa)*100.0) if sa>0 else 0.0
+    pipeline_score=min(100,(wp/max(sa,1))*100.0)
+    forecast_score=min(100,(fa/max(sa,1))*100.0)
+    score=round((nrr_score*0.30)+(grr_score*0.20)+(renewal_score*0.20)+(pipeline_score*0.15)+(forecast_score*0.15),2)
+    status="OUTPERFORM" if score>=90 else ("STRONG" if score>=80 else ("ON_TRACK" if score>=65 else ("WATCH" if score>=50 else "AT_RISK")))
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_revenue_command_center
+        (username,period_label,owner,starting_arr,renewal_arr,expansion_arr,churn_arr,weighted_pipeline,forecast_arr,nrr,grr,revenue_score,revenue_status,executive_summary,top_actions,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(period_label)[:120],str(owner)[:180],sa,ra,ea,ca,wp,fa,nrr,grr,score,status,str(executive_summary or "")[:9000],str(top_actions or "")[:9000],_v3654_now()))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3654_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_command_center WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    latest=items[0] if items else None
+    return {
+        "success":True,
+        "version":V3654_VERSION,
+        "items":items,
+        "latest_revenue_score":(latest["revenue_score"] if latest else None),
+        "latest_revenue_status":(latest["revenue_status"] if latest else "NO_DATA"),
+        "latest_nrr":(latest["nrr"] if latest else None),
+        "latest_grr":(latest["grr"] if latest else None)
+    }
+
+@app.route("/api/hunter-revenue-command-center",methods=["GET","POST"])
+def v3654_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3654_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3654_create(u,p.get("period_label"),p.get("owner"),p.get("starting_arr",0),p.get("renewal_arr",0),p.get("expansion_arr",0),p.get("churn_arr",0),p.get("weighted_pipeline",0),p.get("forecast_arr",0),p.get("executive_summary"),p.get("top_actions"))
+    return jsonify({"success":ok,"error":e,"revenue_command_center_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
