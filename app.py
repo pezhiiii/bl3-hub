@@ -98181,6 +98181,113 @@ def v3682_api():
         "action_plan": action
     })
 
+
+# ===== V36.83 INVESTOR READINESS CONSOLE =====
+V3683_VERSION = "V36.83"
+
+def _v3683_safe_latest(con, table, field, u, default=0.0, order="id DESC"):
+    try:
+        row = con.execute(
+            f"SELECT {field} FROM {table} WHERE username=? ORDER BY {order} LIMIT 1",
+            (u,)
+        ).fetchone()
+        if not row or row[0] is None:
+            return float(default)
+        return float(row[0])
+    except Exception:
+        return float(default)
+
+@app.route("/api/investor-readiness-console", methods=["GET"])
+def v3683_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        growth = _v3683_safe_latest(
+            con, "startup_strategic_growth_planner", "growth_score", u, 0.0
+        )
+        opportunity = _v3683_safe_latest(
+            con, "startup_market_opportunity_scanner", "opportunity_score", u, 0.0,
+            "opportunity_score DESC"
+        )
+        pricing = _v3683_safe_latest(
+            con, "startup_pricing_intelligence", "pricing_score", u, 0.0
+        )
+        customer_signal = _v3683_safe_latest(
+            con, "startup_customer_signal_radar", "signal_score", u, 0.0,
+            "signal_score DESC"
+        )
+
+        runway = _v3683_safe_latest(
+            con, "startup_runway_burn_commander", "runway_months", u, 0.0
+        )
+        runway_score = 100.0 if runway >= 18 else min(100.0, runway * (100.0/18.0))
+
+        experiments = 0.0
+        try:
+            row = con.execute(
+                """SELECT COUNT(*) FROM startup_revenue_experiment_lab
+                   WHERE username=? AND decision='SHIP_WINNER'""",
+                (u,)
+            ).fetchone()
+            experiments = min(100.0, float(row[0] if row else 0) * 20.0)
+        except Exception:
+            experiments = 0.0
+
+        score = round(
+            growth * 0.20 +
+            opportunity * 0.17 +
+            pricing * 0.16 +
+            customer_signal * 0.17 +
+            runway_score * 0.18 +
+            experiments * 0.12,
+            2
+        )
+
+        if score >= 85:
+            stage = "INVESTOR_READY"
+        elif score >= 70:
+            stage = "NEAR_READY"
+        elif score >= 52:
+            stage = "BUILD_EVIDENCE"
+        else:
+            stage = "TOO_EARLY"
+
+        gaps = []
+        if growth < 65:
+            gaps.append("Strengthen growth execution evidence.")
+        if opportunity < 65:
+            gaps.append("Validate a stronger market opportunity.")
+        if pricing < 60:
+            gaps.append("Improve pricing confidence and monetization proof.")
+        if customer_signal < 65:
+            gaps.append("Collect stronger customer demand signals.")
+        if runway_score < 60:
+            gaps.append("Improve runway and burn profile.")
+        if experiments < 40:
+            gaps.append("Produce more successful revenue experiments.")
+
+        if not gaps:
+            gaps.append("Package traction, narrative, and metrics into investor materials.")
+
+        return jsonify({
+            "success": True,
+            "version": V3683_VERSION,
+            "investor_readiness_score": score,
+            "readiness_stage": stage,
+            "growth_score": growth,
+            "opportunity_score": opportunity,
+            "pricing_score": pricing,
+            "customer_signal_score": customer_signal,
+            "runway_score": round(runway_score, 2),
+            "experiment_proof_score": experiments,
+            "priority_gaps": gaps
+        })
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
