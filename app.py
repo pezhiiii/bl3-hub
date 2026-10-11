@@ -96120,6 +96120,59 @@ def v3664_api():
     finally: con.close()
     return jsonify({'success':True,'version':V3664_VERSION,'forecast_id':rid,'forecast_value':fv,'confidence_score':conf,'confidence_band':band})
 
+
+# ===== V36.65 REVENUE PORTFOLIO OPTIMIZER =====
+V3665_VERSION = "V36.65"
+
+def _v3665_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_portfolio_optimizer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL,
+            initiative_name TEXT NOT NULL, category TEXT NOT NULL DEFAULT '',
+            expected_revenue REAL NOT NULL DEFAULT 0, cost_value REAL NOT NULL DEFAULT 0,
+            probability REAL NOT NULL DEFAULT 0, strategic_fit REAL NOT NULL DEFAULT 0,
+            execution_readiness REAL NOT NULL DEFAULT 0, time_to_value_days REAL NOT NULL DEFAULT 0,
+            roi_score REAL NOT NULL DEFAULT 0, priority_score REAL NOT NULL DEFAULT 0,
+            priority_band TEXT NOT NULL DEFAULT 'LOW', recommended_allocation REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL)""")
+        con.commit()
+    finally: con.close()
+try: _v3665_init()
+except Exception: pass
+
+def _v3665_calc(rev,cost,prob,fit,ready,ttv):
+    rev=max(0.0,float(rev or 0)); cost=max(0.0,float(cost or 0)); prob=max(0.0,min(100.0,float(prob or 0)))
+    fit=max(0.0,min(100.0,float(fit or 0))); ready=max(0.0,min(100.0,float(ready or 0))); ttv=max(1.0,float(ttv or 1))
+    roi=((rev-cost)/max(1.0,cost))*100.0 if cost>0 else min(500.0,rev/1000.0)
+    roi_score=round(max(0.0,min(100.0,50.0+roi*0.10)),2); speed=max(0.0,min(100.0,100.0-(ttv/365.0)*100.0))
+    priority=round(roi_score*0.30+prob*0.25+fit*0.20+ready*0.15+speed*0.10,2)
+    band='P0' if priority>=85 else 'P1' if priority>=70 else 'P2' if priority>=50 else 'P3'
+    return roi_score,priority,band,round((priority/100.0)*cost,2)
+
+@app.route('/api/revenue-portfolio-optimizer', methods=['GET','POST'])
+def v3665_api():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try: rows=[dict(r) for r in con.execute('SELECT * FROM startup_revenue_portfolio_optimizer WHERE username=? ORDER BY priority_score DESC,id DESC',(u,)).fetchall()]
+        finally: con.close()
+        return jsonify({'success':True,'version':V3665_VERSION,'items':rows,
+                        'recommended_total_allocation':round(sum(float(x['recommended_allocation'] or 0) for x in rows),2),
+                        'p0_count':sum(1 for x in rows if x['priority_band']=='P0'),'p1_count':sum(1 for x in rows if x['priority_band']=='P1')})
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    roi,priority,band,alloc=_v3665_calc(p.get('expected_revenue',0),p.get('cost_value',0),p.get('probability',0),p.get('strategic_fit',0),p.get('execution_readiness',0),p.get('time_to_value_days',30))
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'; con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_revenue_portfolio_optimizer
+        (username,initiative_name,category,expected_revenue,cost_value,probability,strategic_fit,execution_readiness,time_to_value_days,roi_score,priority_score,priority_band,recommended_allocation,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(p.get('initiative_name') or 'Revenue Initiative')[:220],str(p.get('category') or '')[:120],float(p.get('expected_revenue') or 0),float(p.get('cost_value') or 0),float(p.get('probability') or 0),float(p.get('strategic_fit') or 0),float(p.get('execution_readiness') or 0),float(p.get('time_to_value_days') or 30),roi,priority,band,alloc,now))
+        con.commit(); rid=cur.lastrowid
+    finally: con.close()
+    return jsonify({'success':True,'version':V3665_VERSION,'portfolio_item_id':rid,'roi_score':roi,'priority_score':priority,'priority_band':band,'recommended_allocation':alloc})
+
 if __name__ == "__main__":
 
     init_db()
