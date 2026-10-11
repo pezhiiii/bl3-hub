@@ -93150,6 +93150,98 @@ def v3618_page():
     cards="".join(f"<div class='card'><b>{esc(x['opportunity_name'])}</b><p>{esc(x['stage'])} · {x['probability']}% · {x['forecast_value']}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.18</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.big{font-size:54px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.18 · EXPANSION FORECAST</small><div class='big'>{}</div><h1>Weighted pipeline</h1><p>Committed: {} · Won: {}</p></div>{}</div>".format(d["weighted_pipeline"],d["committed_value"],d["won_value"],cards or "<div class='card'>No expansion opportunities yet.</div>")
 
+
+# ===== V36.19 FORECAST GOVERNANCE + COMMIT GATE =====
+V3619_VERSION="V36.19"
+
+def _v3619_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3619_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_forecast_governance(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            forecast_id INTEGER NOT NULL,
+            review_owner TEXT NOT NULL,
+            forecast_category TEXT NOT NULL DEFAULT 'PIPELINE',
+            confidence INTEGER NOT NULL DEFAULT 0,
+            risk_note TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'REVIEW',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            committed_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3619_init()
+except Exception:pass
+
+def _v3619_create(u,forecast_id,owner,category="PIPELINE",confidence=0,risk_note="",evidence=""):
+    if not str(owner or "").strip():return False,"review_owner_required",None
+    try:conf=max(0,min(100,int(confidence)))
+    except Exception:return False,"invalid_confidence",None
+    cat=str(category or "PIPELINE").upper()
+    if cat not in ("PIPELINE","BEST_CASE","COMMIT"):cat="PIPELINE"
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        f=con.execute("SELECT id FROM startup_expansion_forecast WHERE username=? AND id=?",(u,int(forecast_id))).fetchone()
+        if not f:return False,"forecast_not_found",None
+        now=_v3619_now()
+        cur=con.execute('''INSERT INTO startup_forecast_governance
+        (username,forecast_id,review_owner,forecast_category,confidence,risk_note,evidence,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)''',
+        (u,int(forecast_id),str(owner)[:180],cat,conf,str(risk_note or "")[:5000],str(evidence or "")[:5000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3619_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3619_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_forecast_governance WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"governance_not_found",None
+        cur=r["state"]
+        if a=="APPROVE" and cur=="REVIEW":new="APPROVED"
+        elif a=="COMMIT" and cur=="APPROVED" and ev:new="COMMITTED"
+        elif a=="REOPEN" and cur in ("APPROVED","COMMITTED"):new="REVIEW"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_forecast_governance SET state=?,evidence=?,
+        committed_at=CASE WHEN ?='COMMITTED' THEN ? ELSE committed_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_forecast_governance WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3619_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_forecast_governance WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    commits=sum(1 for x in items if x["state"]=="COMMITTED")
+    avg=round(sum(x["confidence"] for x in items)/len(items),2) if items else None
+    return {"success":True,"version":V3619_VERSION,"items":items,"committed_reviews":commits,"average_confidence":avg}
+
+@app.route("/api/hunter-forecast-governance",methods=["GET","POST"])
+def v3619_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3619_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3619_create(u,p.get("forecast_id"),p.get("review_owner"),p.get("forecast_category"),
+                         p.get("confidence",0),p.get("risk_note"),p.get("evidence"))
+    return jsonify({"success":ok,"error":e,"governance_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-forecast-governance")
+def v3619_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3619_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['forecast_category'])}</h2><p>Confidence {x['confidence']}%</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.19</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.19 · FORECAST GOVERNANCE</small><h1>Control confidence before revenue is committed.</h1><p>Committed reviews: {} · Avg confidence: {}</p></div>{}</div>".format(d["committed_reviews"],d["average_confidence"],cards or "<div class='card'>No forecast reviews yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
