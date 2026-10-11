@@ -98573,6 +98573,129 @@ def v3685_api():
         "weakest_sections": [{"section": k, "score": v} for k, v in weakest]
     })
 
+
+# ===== V36.86 DUE DILIGENCE DATA ROOM =====
+V3686_VERSION = "V36.86"
+
+def _v3686_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_due_diligence_data_room (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            category TEXT NOT NULL,
+            document_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'MISSING',
+            owner TEXT NOT NULL DEFAULT '',
+            completeness REAL NOT NULL DEFAULT 0,
+            freshness_score REAL NOT NULL DEFAULT 0,
+            risk_level TEXT NOT NULL DEFAULT 'MEDIUM',
+            notes TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3686_init()
+except Exception:
+    pass
+
+def _v3686_risk(completeness, freshness, status):
+    c = max(0.0, min(100.0, float(completeness or 0)))
+    f = max(0.0, min(100.0, float(freshness or 0)))
+    s = str(status or "MISSING").upper()
+
+    risk_score = (100.0 - c) * 0.6 + (100.0 - f) * 0.4
+    if s == "MISSING":
+        risk_score += 25
+    elif s == "OUTDATED":
+        risk_score += 12
+
+    if risk_score >= 65:
+        level = "HIGH"
+    elif risk_score >= 35:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+
+    return round(min(100.0, risk_score), 2), level
+
+@app.route("/api/due-diligence-data-room", methods=["GET", "POST"])
+def v3686_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_due_diligence_data_room
+                   WHERE username=? ORDER BY
+                   CASE risk_level WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+                   id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        avg_complete = round(
+            sum(float(x["completeness"] or 0) for x in rows) / len(rows), 2
+        ) if rows else 0.0
+
+        return jsonify({
+            "success": True,
+            "version": V3686_VERSION,
+            "items": rows,
+            "average_completeness": avg_complete,
+            "high_risk_count": sum(1 for x in rows if x["risk_level"] == "HIGH"),
+            "missing_count": sum(1 for x in rows if str(x["status"]).upper() == "MISSING")
+        })
+
+    p = request.get_json(silent=True) or request.form
+    risk_score, level = _v3686_risk(
+        p.get("completeness", 0),
+        p.get("freshness_score", 0),
+        p.get("status", "MISSING")
+    )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_due_diligence_data_room
+            (username,category,document_name,status,owner,completeness,
+             freshness_score,risk_level,notes,updated_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("category") or "General")[:120],
+                str(p.get("document_name") or "Document")[:240],
+                str(p.get("status") or "MISSING")[:60].upper(),
+                str(p.get("owner") or "")[:160],
+                float(p.get("completeness") or 0),
+                float(p.get("freshness_score") or 0),
+                level,
+                str(p.get("notes") or "")[:1200],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3686_VERSION,
+        "document_id": rid,
+        "risk_score": risk_score,
+        "risk_level": level
+    })
+
 if __name__ == "__main__":
 
     init_db()
