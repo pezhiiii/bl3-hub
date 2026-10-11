@@ -91569,6 +91569,96 @@ def v3599_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['stage'])} · {x['probability']}%</b><h2>{esc(x['opportunity_name'])}</h2><p>{esc(x['organization_label'])}</p><p>{esc(x.get('next_action') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.99 Opportunity Pipeline</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.99 · OPPORTUNITY PIPELINE</small><h1>Track real external opportunities from discovery to outcome.</h1></div>{}</div>""".format(cards or '<div class="card">No opportunities yet.</div>')
 
+
+# ===== V36.00 PITCH / MEETING ROOM + OUTCOME GATE =====
+V3600_VERSION="V36.00"
+V3600_STATES={"PLANNED","HELD","FOLLOWUP","POSITIVE","NEGATIVE","CLOSED"}
+
+def _v3600_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3600_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_pitch_meetings(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_id INTEGER NOT NULL,
+            meeting_title TEXT NOT NULL,
+            counterpart TEXT NOT NULL,
+            scheduled_at TEXT NOT NULL DEFAULT '',
+            agenda TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PLANNED',
+            outcome_note TEXT NOT NULL DEFAULT '',
+            followup_action TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            held_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3600_init()
+except Exception:pass
+
+def _v3600_create(u,oid,title,counterpart,scheduled="",agenda=""):
+    if not str(title or "").strip() or not str(counterpart or "").strip():
+        return False,"title_and_counterpart_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        o=con.execute("SELECT id FROM startup_opportunity_pipeline WHERE username=? AND id=?",(u,int(oid))).fetchone()
+        if not o:return False,"opportunity_not_found",None
+        now=_v3600_now()
+        cur=con.execute("""INSERT INTO startup_pitch_meetings
+        (username,opportunity_id,meeting_title,counterpart,scheduled_at,agenda,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(oid),str(title)[:260],str(counterpart)[:240],str(scheduled or "")[:80],str(agenda or "")[:5000],now,now))
+        con.execute("UPDATE startup_opportunity_pipeline SET stage='MEETING',updated_at=? WHERE username=? AND id=?",(now,u,int(oid)))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3600_action(u,i,action,outcome="",followup="",evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3600_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_pitch_meetings WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"meeting_not_found",None
+        cur=r["state"]
+        if a=="HELD" and cur=="PLANNED":new="HELD"
+        elif a=="FOLLOWUP" and cur=="HELD" and str(followup or "").strip():new="FOLLOWUP"
+        elif a=="POSITIVE" and cur in ("HELD","FOLLOWUP") and ev:new="POSITIVE"
+        elif a=="NEGATIVE" and cur in ("HELD","FOLLOWUP") and ev:new="NEGATIVE"
+        elif a=="CLOSE" and cur in ("POSITIVE","NEGATIVE"):new="CLOSED"
+        else:return False,"invalid_transition_or_required_data_missing",None
+        con.execute("""UPDATE startup_pitch_meetings SET state=?,outcome_note=?,followup_action=?,evidence=?,
+        held_at=CASE WHEN ?='HELD' THEN ? ELSE held_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,str(outcome or "")[:4000],str(followup or "")[:2500],ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_pitch_meetings WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3600_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_pitch_meetings WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3600_VERSION,"items":items}
+
+@app.route("/api/hunter-pitch-meetings",methods=["GET","POST"])
+def v3600_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3600_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3600_create(u,p.get("opportunity_id"),p.get("meeting_title"),p.get("counterpart"),p.get("scheduled_at"),p.get("agenda"))
+    return jsonify({"success":ok,"error":e,"meeting_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-pitch-meetings")
+def v3600_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3600_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['meeting_title'])}</h2><p>{esc(x['counterpart'])}</p><p>{esc(x.get('followup_action') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.00 Pitch Meetings</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.00 · PITCH / MEETING ROOM</small><h1>Track the meeting, outcome, evidence, and follow-up.</h1></div>{}</div>""".format(cards or '<div class="card">No meetings yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
