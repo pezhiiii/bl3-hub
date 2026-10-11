@@ -100131,6 +100131,134 @@ def v3698_api():
         "signal_band": band
     })
 
+
+# ===== V36.99 INVESTOR UPDATE COMMAND CENTER =====
+V3699_VERSION = "V36.99"
+
+def _v3699_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_investor_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            period_label TEXT NOT NULL,
+            headline TEXT NOT NULL DEFAULT '',
+            wins TEXT NOT NULL DEFAULT '',
+            metrics TEXT NOT NULL DEFAULT '',
+            challenges TEXT NOT NULL DEFAULT '',
+            asks TEXT NOT NULL DEFAULT '',
+            runway_months REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            update_grade TEXT NOT NULL DEFAULT 'DRAFT',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3699_init()
+except Exception:
+    pass
+
+def _v3699_grade(headline, wins, metrics, challenges, asks, runway_months):
+    fields = [
+        str(headline or "").strip(),
+        str(wins or "").strip(),
+        str(metrics or "").strip(),
+        str(challenges or "").strip(),
+        str(asks or "").strip()
+    ]
+    completeness = sum(1 for x in fields if x) / 5.0 * 100.0
+    runway = float(runway_months or 0)
+
+    clarity_bonus = 10.0 if all(len(x) <= 2500 for x in fields if x) else 0.0
+    runway_bonus = 10.0 if runway >= 12 else (5.0 if runway >= 6 else 0.0)
+    confidence = round(min(100.0, completeness * 0.80 + clarity_bonus + runway_bonus), 2)
+
+    if confidence >= 92:
+        grade = "INVESTOR_READY"
+    elif confidence >= 78:
+        grade = "STRONG"
+    elif confidence >= 62:
+        grade = "GOOD_DRAFT"
+    elif confidence >= 45:
+        grade = "NEEDS_WORK"
+    else:
+        grade = "DRAFT"
+
+    return confidence, grade
+
+@app.route("/api/investor-updates", methods=["GET", "POST"])
+def v3699_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_investor_updates
+                   WHERE username=? ORDER BY id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3699_VERSION,
+            "items": rows,
+            "latest": rows[0] if rows else None
+        })
+
+    p = request.get_json(silent=True) or request.form
+    confidence, grade = _v3699_grade(
+        p.get("headline", ""),
+        p.get("wins", ""),
+        p.get("metrics", ""),
+        p.get("challenges", ""),
+        p.get("asks", ""),
+        p.get("runway_months", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_investor_updates
+            (username,period_label,headline,wins,metrics,challenges,asks,
+             runway_months,confidence_score,update_grade,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("period_label") or "Current Period")[:120],
+                str(p.get("headline") or "")[:1200],
+                str(p.get("wins") or "")[:3000],
+                str(p.get("metrics") or "")[:3000],
+                str(p.get("challenges") or "")[:3000],
+                str(p.get("asks") or "")[:3000],
+                float(p.get("runway_months") or 0),
+                confidence,
+                grade,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3699_VERSION,
+        "update_id": rid,
+        "confidence_score": confidence,
+        "update_grade": grade
+    })
+
 if __name__ == "__main__":
 
     init_db()
