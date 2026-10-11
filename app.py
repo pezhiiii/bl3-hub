@@ -93935,6 +93935,53 @@ def v3630_api():
     ok,e,i=_v3630_create(u,p.get("contract_id"),p.get("decision_owner"),p.get("proposed_value",0),p.get("currency","USD"),p.get("term"))
     return jsonify({"success":ok,"error":e,"renewal_decision_id":i}),(200 if ok else 400)
 
+
+# ===== V36.31 RENEWAL EXECUTION + ACTIVATION GATE =====
+V3631_VERSION="V36.31"
+def _v3631_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3631_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_renewal_execution (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, renewal_decision_id INTEGER NOT NULL, contract_id INTEGER NOT NULL, execution_owner TEXT NOT NULL, final_value REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD', term TEXT NOT NULL DEFAULT '', booking_reference TEXT NOT NULL DEFAULT '', signature_evidence TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'DRAFT', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, executed_at TEXT DEFAULT '')")
+        con.commit()
+    finally: con.close()
+try:_v3631_init()
+except Exception:pass
+
+def _v3631_create(u,decision_id,owner,final_value=0,currency="USD",term="",booking_reference=""):
+    if not str(owner or "").strip(): return False,"execution_owner_required",None
+    try:value=max(0,float(final_value or 0))
+    except Exception:return False,"invalid_final_value",None
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        d=con.execute("SELECT * FROM startup_renewal_decision WHERE username=? AND id=?",(u,int(decision_id))).fetchone()
+        if not d:return False,"renewal_decision_not_found",None
+        if d["state"]!="CLOSED" or d["decision"] not in ("RENEW","EXPAND","DOWNSELL"):
+            return False,"renewal_not_approved_for_execution",None
+        now=_v3631_now()
+        cur=con.execute("INSERT INTO startup_renewal_execution (username,renewal_decision_id,contract_id,execution_owner,final_value,currency,term,booking_reference,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(decision_id),int(d["contract_id"]),str(owner)[:180],value,str(currency or "USD")[:20].upper(),str(term or "")[:240],str(booking_reference or "")[:240],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3631_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_renewal_execution WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    executed=[x for x in items if x["state"]=="EXECUTED"]
+    total=round(sum(float(x["final_value"] or 0) for x in executed),2)
+    return {"success":True,"version":V3631_VERSION,"items":items,"executed":len(executed),"executed_value":total}
+
+@app.route("/api/hunter-renewal-execution",methods=["GET","POST"])
+def v3631_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3631_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3631_create(u,p.get("renewal_decision_id"),p.get("execution_owner"),p.get("final_value",0),p.get("currency","USD"),p.get("term"),p.get("booking_reference"))
+    return jsonify({"success":ok,"error":e,"renewal_execution_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
