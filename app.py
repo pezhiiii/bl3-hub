@@ -92034,6 +92034,98 @@ def v3604_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['test_name'])}</h2><p>Reviewer: {esc(x['reviewer'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V36.04 UAT Acceptance</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.04 · UAT / ACCEPTANCE</small><h1>Require explicit test evidence and customer signoff.</h1></div>{}</div>""".format(cards or '<div class="card">No UAT records yet.</div>')
 
+
+# ===== V36.05 SUCCESS KPI + VALUE REALIZATION GATE =====
+V3605_VERSION="V36.05"
+
+def _v3605_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3605_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_success_kpis(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            metric_name TEXT NOT NULL,
+            baseline_value REAL,
+            target_value REAL,
+            current_value REAL,
+            unit TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL,
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3605_init()
+except Exception:pass
+
+def _v3605_create(u,hid,name,baseline,target,unit,owner):
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"metric_name_and_owner_required",None
+    try:
+        b=float(baseline) if baseline not in (None,"") else None
+        t=float(target) if target not in (None,"") else None
+    except Exception:return False,"invalid_numeric_value",None
+    now=_v3605_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_success_kpis
+        (username,handoff_id,metric_name,baseline_value,target_value,current_value,unit,owner,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (u,int(hid),str(name)[:260],b,t,b,str(unit or "")[:80],str(owner)[:180],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3605_update(u,i,current,evidence=""):
+    try:v=float(current)
+    except Exception:return False,"invalid_numeric_value",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_success_kpis WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"kpi_not_found",None
+        con.execute("UPDATE startup_success_kpis SET current_value=?,evidence=?,updated_at=? WHERE username=? AND id=?",
+                    (v,str(evidence or "")[:5000],_v3605_now(),u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_success_kpis WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3605_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_success_kpis WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    achieved=0
+    for x in items:
+        t=x.get("target_value");c=x.get("current_value");b=x.get("baseline_value")
+        if t is None or c is None:continue
+        if b is None:
+            ok=c>=t
+        else:
+            ok=(c>=t) if t>=b else (c<=t)
+        if ok:achieved+=1
+    rate=0 if not items else round((achieved/len(items))*100,1)
+    return {"success":True,"version":V3605_VERSION,"items":items,"achieved":achieved,"total":len(items),"achievement_rate":rate}
+
+@app.route("/api/hunter-success-kpis",methods=["GET","POST"])
+def v3605_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3605_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3605_create(u,p.get("handoff_id"),p.get("metric_name"),p.get("baseline_value"),
+                         p.get("target_value"),p.get("unit"),p.get("owner"))
+    return jsonify({"success":ok,"error":e,"kpi_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-success-kpis")
+def v3605_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3605_summary(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['metric_name'])}</b><p>Baseline: {x.get('baseline_value')} · Current: {x.get('current_value')} · Target: {x.get('target_value')} {esc(x.get('unit') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.05 Success KPIs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.score{font-size:52px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.05 · SUCCESS KPI / VALUE REALIZATION</small><div class='score'>{}%</div><h1>KPI achievement</h1></div>{}</div>""".format(d["achievement_rate"],cards or '<div class="card">No KPIs yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
