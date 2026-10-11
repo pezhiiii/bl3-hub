@@ -98814,6 +98814,117 @@ def v3687_api():
     finally:
         con.close()
 
+
+# ===== V36.88 INVESTOR OUTREACH AUTOMATION =====
+V3688_VERSION = "V36.88"
+
+def _v3688_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_investor_outreach (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            investor_name TEXT NOT NULL,
+            channel TEXT NOT NULL DEFAULT 'EMAIL',
+            message_angle TEXT NOT NULL DEFAULT '',
+            personalization_score REAL NOT NULL DEFAULT 0,
+            relevance_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            reply_probability REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'DRAFT',
+            next_followup_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3688_init()
+except Exception:
+    pass
+
+def _v3688_score(personalization, relevance, urgency):
+    p = max(0.0, min(100.0, float(personalization or 0)))
+    r = max(0.0, min(100.0, float(relevance or 0)))
+    u = max(0.0, min(100.0, float(urgency or 0)))
+    score = round(p * 0.38 + r * 0.44 + u * 0.18, 2)
+    if score >= 82:
+        action = "SEND_NOW"
+    elif score >= 68:
+        action = "POLISH_AND_SEND"
+    elif score >= 50:
+        action = "REPERSONALIZE"
+    else:
+        action = "REWRITE"
+    return score, action
+
+@app.route("/api/investor-outreach", methods=["GET", "POST"])
+def v3688_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_investor_outreach
+                   WHERE username=? ORDER BY reply_probability DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({
+            "success": True,
+            "version": V3688_VERSION,
+            "items": rows,
+            "send_ready": sum(1 for x in rows if float(x["reply_probability"] or 0) >= 68),
+            "draft_count": sum(1 for x in rows if str(x["status"]).upper() == "DRAFT")
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, action = _v3688_score(
+        p.get("personalization_score", 0),
+        p.get("relevance_score", 0),
+        p.get("urgency_score", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_investor_outreach
+            (username,investor_name,channel,message_angle,personalization_score,
+             relevance_score,urgency_score,reply_probability,status,next_followup_at,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("investor_name") or "Investor")[:220],
+                str(p.get("channel") or "EMAIL")[:40].upper(),
+                str(p.get("message_angle") or "")[:1000],
+                float(p.get("personalization_score") or 0),
+                float(p.get("relevance_score") or 0),
+                float(p.get("urgency_score") or 0),
+                score,
+                str(p.get("status") or "DRAFT")[:40].upper(),
+                str(p.get("next_followup_at") or ""),
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3688_VERSION,
+        "outreach_id": rid,
+        "reply_probability": score,
+        "recommended_action": action
+    })
+
 if __name__ == "__main__":
 
     init_db()
