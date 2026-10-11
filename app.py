@@ -93762,6 +93762,69 @@ def v3627_api():
     ok,e,i=_v3627_create(u,p.get("contract_id"),p.get("plan_title"),p.get("success_owner"),p.get("customer_owner"),p.get("desired_outcomes"),p.get("success_metrics"),p.get("target_date"))
     return jsonify({"success":ok,"error":e,"success_plan_id":i}),(200 if ok else 400)
 
+
+# ===== V36.28 RISK INTERVENTION + RECOVERY GATE =====
+V3628_VERSION="V36.28"
+def _v3628_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3628_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_risk_intervention (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, risk_type TEXT NOT NULL, severity TEXT NOT NULL DEFAULT "MEDIUM", owner TEXT NOT NULL, root_cause TEXT NOT NULL DEFAULT "", intervention_plan TEXT NOT NULL DEFAULT "", due_date TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "OPEN", evidence TEXT NOT NULL DEFAULT "", created_at TEXT NOT NULL, updated_at TEXT NOT NULL, resolved_at TEXT DEFAULT "")')
+        con.commit()
+    finally: con.close()
+try:_v3628_init()
+except Exception:pass
+
+def _v3628_create(u,contract_id,risk_type,severity,owner,root_cause="",intervention_plan="",due_date=""):
+    if not str(risk_type or "").strip() or not str(owner or "").strip():
+        return False,"risk_type_and_owner_required",None
+    sev=str(severity or "MEDIUM").upper()
+    if sev not in ("LOW","MEDIUM","HIGH","CRITICAL"):sev="MEDIUM"
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3628_now()
+        cur=con.execute("INSERT INTO startup_risk_intervention (username,contract_id,risk_type,severity,owner,root_cause,intervention_plan,due_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(risk_type)[:220],sev,str(owner)[:180],str(root_cause or "")[:6000],str(intervention_plan or "")[:8000],str(due_date or "")[:80],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3628_action(u,i,action,evidence=""):
+    a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3628_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_risk_intervention WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"risk_not_found",None
+        cur=r["state"]
+        if a=="START" and cur=="OPEN":new="IN_PROGRESS"
+        elif a=="RESOLVE" and cur=="IN_PROGRESS" and ev:new="RESOLVED"
+        elif a=="ESCALATE" and cur in ("OPEN","IN_PROGRESS"):new="ESCALATED"
+        elif a=="REOPEN" and cur=="RESOLVED":new="OPEN"
+        else:return False,"invalid_transition_or_evidence_required",None
+        resolved=now if new=="RESOLVED" else r["resolved_at"]
+        con.execute("UPDATE startup_risk_intervention SET state=?,evidence=?,resolved_at=?,updated_at=? WHERE username=? AND id=?",
+                    (new,ev[:5000],resolved,now,u,int(i)))
+        con.commit()
+        return True,"",dict(con.execute("SELECT * FROM startup_risk_intervention WHERE username=? AND id=?",(u,int(i))).fetchone())
+    finally:con.close()
+
+def _v3628_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_risk_intervention WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3628_VERSION,"items":items,"open_risks":sum(1 for x in items if x["state"] in ("OPEN","IN_PROGRESS","ESCALATED")),"critical":sum(1 for x in items if x["severity"]=="CRITICAL" and x["state"]!="RESOLVED")}
+
+@app.route("/api/hunter-risk-intervention",methods=["GET","POST"])
+def v3628_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3628_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3628_create(u,p.get("contract_id"),p.get("risk_type"),p.get("severity"),p.get("owner"),p.get("root_cause"),p.get("intervention_plan"),p.get("due_date"))
+    return jsonify({"success":ok,"error":e,"risk_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
