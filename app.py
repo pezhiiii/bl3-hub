@@ -96066,6 +96066,60 @@ def v3663_api():
                                "critical_execution_items":sum(1 for x in control_rows if x["control_status"]=="CRITICAL"),
                                "blocked_actions":sum(1 for x in action_rows if x["execution_state"]=="BLOCKED")}})
 
+
+# ===== V36.64 REVENUE FORECAST CONFIDENCE ENGINE =====
+V3664_VERSION = "V36.64"
+
+def _v3664_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_forecast_confidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL,
+            forecast_name TEXT NOT NULL, period_label TEXT NOT NULL DEFAULT '',
+            pipeline_value REAL NOT NULL DEFAULT 0, committed_value REAL NOT NULL DEFAULT 0,
+            weighted_value REAL NOT NULL DEFAULT 0, historical_accuracy REAL NOT NULL DEFAULT 0,
+            data_freshness REAL NOT NULL DEFAULT 0, signal_strength REAL NOT NULL DEFAULT 0,
+            risk_adjustment REAL NOT NULL DEFAULT 0, forecast_value REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0, confidence_band TEXT NOT NULL DEFAULT 'LOW',
+            created_at TEXT NOT NULL)""")
+        con.commit()
+    finally: con.close()
+try: _v3664_init()
+except Exception: pass
+
+def _v3664_calc(pipeline,committed,weighted,hist_acc,freshness,signal,risk_adj):
+    pipeline=max(0.0,float(pipeline or 0)); committed=max(0.0,float(committed or 0)); weighted=max(0.0,float(weighted or 0))
+    hist_acc=max(0.0,min(100.0,float(hist_acc or 0))); freshness=max(0.0,min(100.0,float(freshness or 0)))
+    signal=max(0.0,min(100.0,float(signal or 0))); risk_adj=max(0.0,min(100.0,float(risk_adj or 0)))
+    fv=round((committed*0.50+weighted*0.35+pipeline*0.15)*(1.0-(risk_adj/100.0)*0.35),2)
+    conf=round(hist_acc*0.40+freshness*0.25+signal*0.25+(100.0-risk_adj)*0.10,2)
+    band='VERY_HIGH' if conf>=85 else 'HIGH' if conf>=70 else 'MEDIUM' if conf>=50 else 'LOW'
+    return fv,conf,band
+
+@app.route('/api/revenue-forecast-confidence', methods=['GET','POST'])
+def v3664_api():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try: rows=[dict(r) for r in con.execute('SELECT * FROM startup_revenue_forecast_confidence WHERE username=? ORDER BY id DESC',(u,)).fetchall()]
+        finally: con.close()
+        return jsonify({'success':True,'version':V3664_VERSION,'items':rows,
+                        'total_forecast_value':round(sum(float(x['forecast_value'] or 0) for x in rows),2),
+                        'avg_confidence_score':round(sum(float(x['confidence_score'] or 0) for x in rows)/max(1,len(rows)),2)})
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    fv,conf,band=_v3664_calc(p.get('pipeline_value',0),p.get('committed_value',0),p.get('weighted_value',0),p.get('historical_accuracy',0),p.get('data_freshness',0),p.get('signal_strength',0),p.get('risk_adjustment',0))
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_revenue_forecast_confidence
+        (username,forecast_name,period_label,pipeline_value,committed_value,weighted_value,historical_accuracy,data_freshness,signal_strength,risk_adjustment,forecast_value,confidence_score,confidence_band,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(p.get('forecast_name') or 'Revenue Forecast')[:220],str(p.get('period_label') or '')[:120],float(p.get('pipeline_value') or 0),float(p.get('committed_value') or 0),float(p.get('weighted_value') or 0),float(p.get('historical_accuracy') or 0),float(p.get('data_freshness') or 0),float(p.get('signal_strength') or 0),float(p.get('risk_adjustment') or 0),fv,conf,band,now))
+        con.commit(); rid=cur.lastrowid
+    finally: con.close()
+    return jsonify({'success':True,'version':V3664_VERSION,'forecast_id':rid,'forecast_value':fv,'confidence_score':conf,'confidence_band':band})
+
 if __name__ == "__main__":
 
     init_db()
