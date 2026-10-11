@@ -94981,6 +94981,91 @@ def v3651_api():
     ok,e,i=_v3651_create(u,p.get("account_name"),p.get("owner"),p.get("segment"),p.get("arr",0),p.get("health_score",0),p.get("adoption_score",0),p.get("sentiment_score",0),p.get("stakeholder_score",0),p.get("renewal_probability",0),p.get("expansion_probability",0),p.get("realized_value",0),p.get("strategic_summary"),p.get("next_best_action"))
     return jsonify({"success":ok,"error":e,"account_360_id":i}),(200 if ok else 400)
 
+
+# ===== V36.52 CHURN PREVENTION ENGINE + SAVE PLAY =====
+V3652_VERSION="V36.52"
+def _v3652_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3652_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_churn_prevention (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            arr REAL NOT NULL DEFAULT 0,
+            usage_drop REAL NOT NULL DEFAULT 0,
+            support_risk REAL NOT NULL DEFAULT 0,
+            sentiment_risk REAL NOT NULL DEFAULT 0,
+            stakeholder_risk REAL NOT NULL DEFAULT 0,
+            renewal_risk REAL NOT NULL DEFAULT 0,
+            churn_risk_score REAL NOT NULL DEFAULT 0,
+            churn_risk_level TEXT NOT NULL DEFAULT 'LOW',
+            save_play TEXT NOT NULL DEFAULT '',
+            executive_owner TEXT NOT NULL DEFAULT '',
+            target_save_date TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3652_init()
+except Exception:pass
+
+def _v3652_create(u,account_name,owner,arr=0,usage_drop=0,support_risk=0,sentiment_risk=0,stakeholder_risk=0,renewal_risk=0,save_play="",executive_owner="",target_save_date=""):
+    if not str(account_name or "").strip() or not str(owner or "").strip():
+        return False,"account_and_owner_required",None
+    try:
+        arr=max(0,float(arr or 0))
+        ud=max(0,min(100,float(usage_drop or 0)))
+        sr=max(0,min(100,float(support_risk or 0)))
+        se=max(0,min(100,float(sentiment_risk or 0)))
+        st=max(0,min(100,float(stakeholder_risk or 0)))
+        rr=max(0,min(100,float(renewal_risk or 0)))
+    except Exception:
+        return False,"invalid_churn_metric",None
+    risk=round((ud*0.25)+(sr*0.15)+(se*0.20)+(st*0.15)+(rr*0.25),2)
+    level="CRITICAL" if risk>=80 else ("HIGH" if risk>=65 else ("MEDIUM" if risk>=45 else "LOW"))
+    now=_v3652_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_churn_prevention
+        (username,account_name,owner,arr,usage_drop,support_risk,sentiment_risk,stakeholder_risk,renewal_risk,churn_risk_score,churn_risk_level,save_play,executive_owner,target_save_date,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(account_name)[:220],str(owner)[:180],arr,ud,sr,se,st,rr,risk,level,str(save_play or "")[:9000],str(executive_owner or "")[:180],str(target_save_date or "")[:80],now,now))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3652_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_churn_prevention WHERE username=? ORDER BY churn_risk_score DESC,id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    exposed_arr=round(sum(float(x["arr"] or 0) for x in items if x["churn_risk_level"] in ("HIGH","CRITICAL")),2)
+    return {
+        "success":True,
+        "version":V3652_VERSION,
+        "items":items,
+        "critical_accounts":sum(1 for x in items if x["churn_risk_level"]=="CRITICAL"),
+        "high_risk_accounts":sum(1 for x in items if x["churn_risk_level"]=="HIGH"),
+        "exposed_arr":exposed_arr
+    }
+
+@app.route("/api/hunter-churn-prevention",methods=["GET","POST"])
+def v3652_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3652_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3652_create(u,p.get("account_name"),p.get("owner"),p.get("arr",0),p.get("usage_drop",0),p.get("support_risk",0),p.get("sentiment_risk",0),p.get("stakeholder_risk",0),p.get("renewal_risk",0),p.get("save_play"),p.get("executive_owner"),p.get("target_save_date"))
+    return jsonify({"success":ok,"error":e,"churn_prevention_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
