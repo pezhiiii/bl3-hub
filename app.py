@@ -95495,6 +95495,90 @@ def v3657_api():
     ok,e,i=_v3657_create(u,p.get("period_label"),p.get("owner"),p.get("revenue_score",0),p.get("forecast_confidence",0),p.get("retention_score",0),p.get("expansion_score",0),p.get("pipeline_score",0),p.get("risk_score",0),p.get("key_wins"),p.get("key_risks"),p.get("executive_narrative"),p.get("board_asks"))
     return jsonify({"success":ok,"error":e,"boardroom_id":i}),(200 if ok else 400)
 
+
+# ===== V36.58 AUTONOMOUS GTM ORCHESTRATOR =====
+V3658_VERSION="V36.58"
+def _v3658_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3658_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_gtm_orchestrator (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            motion_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            motion_type TEXT NOT NULL DEFAULT 'GROWTH',
+            target_segment TEXT NOT NULL DEFAULT '',
+            priority_score REAL NOT NULL DEFAULT 0,
+            revenue_impact REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            effort_score REAL NOT NULL DEFAULT 0,
+            orchestration_score REAL NOT NULL DEFAULT 0,
+            orchestration_status TEXT NOT NULL DEFAULT 'QUEUE',
+            next_action TEXT NOT NULL DEFAULT '',
+            channel_plan TEXT NOT NULL DEFAULT '',
+            success_metric TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3658_init()
+except Exception:pass
+
+def _v3658_create(u,motion_name,owner,motion_type="GROWTH",target_segment="",priority_score=0,revenue_impact=0,confidence_score=0,urgency_score=0,effort_score=0,next_action="",channel_plan="",success_metric=""):
+    if not str(motion_name or "").strip() or not str(owner or "").strip():
+        return False,"motion_and_owner_required",None
+    try:
+        ps=max(0,min(100,float(priority_score or 0)))
+        ri=max(0,float(revenue_impact or 0))
+        cs=max(0,min(100,float(confidence_score or 0)))
+        us=max(0,min(100,float(urgency_score or 0)))
+        es=max(0,min(100,float(effort_score or 0)))
+    except Exception:
+        return False,"invalid_orchestration_metric",None
+    impact_score=min(100,(ri/100000.0)*100.0)
+    score=round((ps*0.25)+(impact_score*0.25)+(cs*0.20)+(us*0.20)+((100-es)*0.10),2)
+    status="EXECUTE" if score>=85 else ("PRIORITIZE" if score>=70 else ("QUEUE" if score>=50 else "PARK"))
+    now=_v3658_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_gtm_orchestrator
+        (username,motion_name,owner,motion_type,target_segment,priority_score,revenue_impact,confidence_score,urgency_score,effort_score,orchestration_score,orchestration_status,next_action,channel_plan,success_metric,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(motion_name)[:220],str(owner)[:180],str(motion_type or "GROWTH")[:80],str(target_segment or "")[:180],ps,ri,cs,us,es,score,status,str(next_action or "")[:7000],str(channel_plan or "")[:7000],str(success_metric or "")[:3000],now,now))
+        con.commit()
+        return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3658_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_gtm_orchestrator WHERE username=? ORDER BY orchestration_score DESC,id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    executable=round(sum(float(x["revenue_impact"] or 0) for x in items if x["orchestration_status"]=="EXECUTE"),2)
+    return {
+        "success":True,"version":V3658_VERSION,"items":items,
+        "execute_now":sum(1 for x in items if x["orchestration_status"]=="EXECUTE"),
+        "prioritize":sum(1 for x in items if x["orchestration_status"]=="PRIORITIZE"),
+        "executable_revenue_impact":executable
+    }
+
+@app.route("/api/hunter-gtm-orchestrator",methods=["GET","POST"])
+def v3658_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3658_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3658_create(u,p.get("motion_name"),p.get("owner"),p.get("motion_type","GROWTH"),p.get("target_segment"),p.get("priority_score",0),p.get("revenue_impact",0),p.get("confidence_score",0),p.get("urgency_score",0),p.get("effort_score",0),p.get("next_action"),p.get("channel_plan"),p.get("success_metric"))
+    return jsonify({"success":ok,"error":e,"orchestration_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
