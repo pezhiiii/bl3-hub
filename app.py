@@ -99992,6 +99992,145 @@ def v3697_api():
         "recommendation": rec
     })
 
+
+# ===== V36.98 CUSTOMER DISCOVERY INTELLIGENCE =====
+V3698_VERSION = "V36.98"
+
+def _v3698_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_customer_discovery (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            customer_name TEXT NOT NULL,
+            segment TEXT NOT NULL DEFAULT 'GENERAL',
+            pain_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            budget_score REAL NOT NULL DEFAULT 0,
+            switching_score REAL NOT NULL DEFAULT 0,
+            interview_quality REAL NOT NULL DEFAULT 0,
+            signal_score REAL NOT NULL DEFAULT 0,
+            signal_band TEXT NOT NULL DEFAULT 'WEAK',
+            quote_summary TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3698_init()
+except Exception:
+    pass
+
+def _v3698_signal(pain, urgency, budget, switching, interview_quality):
+    p = max(0.0, min(100.0, float(pain or 0)))
+    u = max(0.0, min(100.0, float(urgency or 0)))
+    b = max(0.0, min(100.0, float(budget or 0)))
+    s = max(0.0, min(100.0, float(switching or 0)))
+    q = max(0.0, min(100.0, float(interview_quality or 0)))
+
+    score = round(
+        p * 0.28 +
+        u * 0.24 +
+        b * 0.20 +
+        s * 0.16 +
+        q * 0.12,
+        2
+    )
+
+    if score >= 85:
+        band = "VERY_STRONG"
+    elif score >= 72:
+        band = "STRONG"
+    elif score >= 58:
+        band = "MEDIUM"
+    elif score >= 42:
+        band = "WEAK"
+    else:
+        band = "VERY_WEAK"
+
+    return score, band
+
+@app.route("/api/customer-discovery", methods=["GET", "POST"])
+def v3698_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_customer_discovery
+                   WHERE username=? ORDER BY signal_score DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        avg = round(
+            sum(float(x["signal_score"] or 0) for x in rows) / max(1, len(rows)),
+            2
+        )
+
+        return jsonify({
+            "success": True,
+            "version": V3698_VERSION,
+            "items": rows,
+            "average_signal_score": avg,
+            "strong_signals": sum(
+                1 for x in rows
+                if str(x["signal_band"]).upper() in ("VERY_STRONG", "STRONG")
+            )
+        })
+
+    p = request.get_json(silent=True) or request.form
+    score, band = _v3698_signal(
+        p.get("pain_score", 0),
+        p.get("urgency_score", 0),
+        p.get("budget_score", 0),
+        p.get("switching_score", 0),
+        p.get("interview_quality", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_customer_discovery
+            (username,customer_name,segment,pain_score,urgency_score,budget_score,
+             switching_score,interview_quality,signal_score,signal_band,quote_summary,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("customer_name") or "Customer")[:220],
+                str(p.get("segment") or "GENERAL")[:120].upper(),
+                float(p.get("pain_score") or 0),
+                float(p.get("urgency_score") or 0),
+                float(p.get("budget_score") or 0),
+                float(p.get("switching_score") or 0),
+                float(p.get("interview_quality") or 0),
+                score,
+                band,
+                str(p.get("quote_summary") or "")[:1800],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3698_VERSION,
+        "discovery_id": rid,
+        "signal_score": score,
+        "signal_band": band
+    })
+
 if __name__ == "__main__":
 
     init_db()
