@@ -93701,6 +93701,67 @@ def v3626_api():
     ok,e,i=_v3626_create(u,p.get("contract_id"),p.get("metric_name"),p.get("target_value"),p.get("actual_value"),p.get("period_label"),p.get("source"),p.get("notes"))
     return jsonify({"success":ok,"error":e,"usage_id":i}),(200 if ok else 400)
 
+
+# ===== V36.27 CUSTOMER SUCCESS PLAN + OUTCOME GATE =====
+V3627_VERSION="V36.27"
+def _v3627_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3627_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_customer_success_plan (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, plan_title TEXT NOT NULL, success_owner TEXT NOT NULL, customer_owner TEXT NOT NULL DEFAULT "", desired_outcomes TEXT NOT NULL DEFAULT "", success_metrics TEXT NOT NULL DEFAULT "", target_date TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "DRAFT", evidence TEXT NOT NULL DEFAULT "", created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT DEFAULT "")')
+        con.commit()
+    finally: con.close()
+try:_v3627_init()
+except Exception:pass
+
+def _v3627_create(u,contract_id,title,success_owner,customer_owner="",desired_outcomes="",success_metrics="",target_date=""):
+    if not str(title or "").strip() or not str(success_owner or "").strip():
+        return False,"title_and_success_owner_required",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        now=_v3627_now()
+        cur=con.execute("INSERT INTO startup_customer_success_plan (username,contract_id,plan_title,success_owner,customer_owner,desired_outcomes,success_metrics,target_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(title)[:260],str(success_owner)[:180],str(customer_owner or "")[:180],str(desired_outcomes or "")[:8000],str(success_metrics or "")[:6000],str(target_date or "")[:80],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3627_action(u,i,action,evidence=""):
+    a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3627_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_customer_success_plan WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"success_plan_not_found",None
+        cur=r["state"]
+        if a=="ACTIVATE" and cur=="DRAFT":new="ACTIVE"
+        elif a=="COMPLETE" and cur=="ACTIVE" and ev:new="COMPLETED"
+        elif a=="PAUSE" and cur=="ACTIVE":new="PAUSED"
+        elif a=="RESUME" and cur=="PAUSED":new="ACTIVE"
+        else:return False,"invalid_transition_or_evidence_required",None
+        completed=now if new=="COMPLETED" else r["completed_at"]
+        con.execute("UPDATE startup_customer_success_plan SET state=?,evidence=?,completed_at=?,updated_at=? WHERE username=? AND id=?",
+                    (new,ev[:5000],completed,now,u,int(i)))
+        con.commit()
+        return True,"",dict(con.execute("SELECT * FROM startup_customer_success_plan WHERE username=? AND id=?",(u,int(i))).fetchone())
+    finally: con.close()
+
+def _v3627_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_success_plan WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3627_VERSION,"items":items,"active":sum(1 for x in items if x["state"]=="ACTIVE"),"completed":sum(1 for x in items if x["state"]=="COMPLETED")}
+
+@app.route("/api/hunter-customer-success-plan",methods=["GET","POST"])
+def v3627_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3627_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3627_create(u,p.get("contract_id"),p.get("plan_title"),p.get("success_owner"),p.get("customer_owner"),p.get("desired_outcomes"),p.get("success_metrics"),p.get("target_date"))
+    return jsonify({"success":ok,"error":e,"success_plan_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
