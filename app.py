@@ -93653,6 +93653,54 @@ def v3625_api():
     ok,e,i=_v3625_create(u,p.get("kickoff_id"),p.get("milestone_name"),p.get("target_date"),p.get("owner"),p.get("success_metric"),p.get("target_value"))
     return jsonify({"success":ok,"error":e,"milestone_id":i}),(200 if ok else 400)
 
+
+# ===== V36.26 ADOPTION + USAGE HEALTH GATE =====
+V3626_VERSION="V36.26"
+def _v3626_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3626_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_adoption_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, contract_id INTEGER NOT NULL, metric_name TEXT NOT NULL, target_value REAL NOT NULL DEFAULT 0, actual_value REAL NOT NULL DEFAULT 0, period_label TEXT NOT NULL DEFAULT "", source TEXT NOT NULL DEFAULT "", notes TEXT NOT NULL DEFAULT "", created_at TEXT NOT NULL)')
+        con.commit()
+    finally: con.close()
+try:_v3626_init()
+except Exception:pass
+
+def _v3626_create(u,contract_id,metric_name,target_value,actual_value,period_label="",source="",notes=""):
+    if not str(metric_name or "").strip(): return False,"metric_name_required",None
+    try: tv=float(target_value or 0); av=float(actual_value or 0)
+    except Exception:return False,"invalid_metric_value",None
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_contract_activation WHERE username=? AND id=?",(u,int(contract_id))).fetchone():
+            return False,"contract_not_found",None
+        cur=con.execute("INSERT INTO startup_adoption_usage (username,contract_id,metric_name,target_value,actual_value,period_label,source,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (u,int(contract_id),str(metric_name)[:220],tv,av,str(period_label or "")[:120],str(source or "")[:220],str(notes or "")[:4000],_v3626_now()))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3626_health(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_adoption_usage WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    if not items:return {"success":True,"version":V3626_VERSION,"items":[],"score":None,"status":"NO_DATA"}
+    ratios=[]
+    for x in items:
+        t=float(x["target_value"] or 0); a=float(x["actual_value"] or 0)
+        ratios.append(1.0 if t<=0 and a>0 else (0.0 if t<=0 else min(1.5,max(0.0,a/t))))
+    score=round(min(100.0,(sum(ratios)/len(ratios))*100),2)
+    status="HEALTHY" if score>=90 else ("WATCH" if score>=70 else ("AT_RISK" if score>=50 else "CRITICAL"))
+    return {"success":True,"version":V3626_VERSION,"items":items,"score":score,"status":status}
+
+@app.route("/api/hunter-adoption-usage",methods=["GET","POST"])
+def v3626_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3626_health(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3626_create(u,p.get("contract_id"),p.get("metric_name"),p.get("target_value"),p.get("actual_value"),p.get("period_label"),p.get("source"),p.get("notes"))
+    return jsonify({"success":ok,"error":e,"usage_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
