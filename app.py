@@ -90395,6 +90395,106 @@ def v3584_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>Finding #{x['audit_finding_id']} · Verifier: {esc(x['verifier'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.84 Corrective Action Effectiveness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.84 · CORRECTIVE ACTION EFFECTIVENESS</small><h1>Verify that closed findings stay fixed after closure.</h1></div>{}</div>""".format(cards or '<div class="card">No effectiveness verifications yet.</div>')
 
+
+# ===== V35.85 AUDIT RENEWAL CALENDAR + RECURRENCE GATE =====
+V3585_VERSION="V35.85"
+V3585_STATES={"SCHEDULED","DUE","STARTED","COMPLETED","MISSED"}
+
+def _v3585_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3585_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_audit_renewal_calendar(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            profile_id INTEGER NOT NULL,
+            previous_audit_session_id INTEGER,
+            renewal_name TEXT NOT NULL,
+            audit_owner TEXT NOT NULL,
+            interval_days INTEGER NOT NULL DEFAULT 365,
+            next_due_at TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'SCHEDULED',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username,profile_id,renewal_name)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3585_init()
+except Exception:pass
+
+def _v3585_create(u,pid,previous_sid,name,owner,days=365):
+    if not str(name or "").strip() or not str(owner or "").strip():return False,"name_and_owner_required",None
+    days=max(1,min(int(days or 365),3650))
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        p=con.execute("SELECT id FROM startup_public_trust_profiles WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        if not p:return False,"profile_not_found",None
+        now=datetime.utcnow();due=(now+timedelta(days=days)).isoformat(timespec="seconds")+"Z";now_iso=now.isoformat(timespec="seconds")+"Z"
+        cur=con.execute("""INSERT INTO startup_audit_renewal_calendar
+        (username,profile_id,previous_audit_session_id,renewal_name,audit_owner,interval_days,next_due_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)""",(u,int(pid),int(previous_sid) if previous_sid else None,str(name)[:240],str(owner)[:180],days,due,now_iso,now_iso))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"renewal_already_exists",None
+    finally:con.close()
+
+def _v3585_refresh(u,i):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_audit_renewal_calendar WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return None
+        d=dict(r)
+        if d["state"]=="SCHEDULED":
+            try:
+                due=datetime.fromisoformat(str(d["next_due_at"]).replace("Z","+00:00"))
+                now=datetime.fromisoformat(_v3585_now().replace("Z","+00:00"))
+                if due<=now:
+                    con.execute("UPDATE startup_audit_renewal_calendar SET state='DUE',updated_at=? WHERE username=? AND id=?",(_v3585_now(),u,int(i)))
+                    con.commit();d["state"]="DUE"
+            except Exception:pass
+        return d
+    finally:con.close()
+
+def _v3585_action(u,i,action,note=""):
+    d=_v3585_refresh(u,i);a=str(action or "").upper();now=_v3585_now()
+    if not d:return False,"renewal_not_found",None
+    cur=d["state"]
+    if a=="START" and cur in ("SCHEDULED","DUE"):new="STARTED"
+    elif a=="COMPLETE" and cur=="STARTED":new="COMPLETED"
+    elif a=="MISS" and cur=="DUE":new="MISSED"
+    else:return False,"invalid_transition",None
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("UPDATE startup_audit_renewal_calendar SET state=?,note=?,updated_at=? WHERE username=? AND id=?",
+                    (new,str(note or "")[:2500],now,u,int(i)))
+        con.commit();return True,"",_v3585_refresh(u,i)
+    finally:con.close()
+
+def _v3585_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:ids=[r["id"] for r in con.execute("SELECT id FROM startup_audit_renewal_calendar WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3585_VERSION,"items":[x for x in (_v3585_refresh(u,i) for i in ids) if x]}
+
+@app.route("/api/hunter-audit-renewal-calendar",methods=["GET","POST"])
+def v3585_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3585_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3585_create(u,p.get("profile_id"),p.get("previous_audit_session_id"),p.get("renewal_name"),p.get("audit_owner"),p.get("interval_days") or 365)
+    return jsonify({"success":ok,"error":e,"renewal_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-audit-renewal-calendar")
+def v3585_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3585_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['renewal_name'])}</h2><p>Next due: {esc(x['next_due_at'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.85 Audit Renewal Calendar</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.85 · AUDIT RENEWAL CALENDAR</small><h1>Turn one-time audits into a recurring assurance cycle.</h1></div>{}</div>""".format(cards or '<div class="card">No renewal schedules yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
