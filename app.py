@@ -94541,6 +94541,54 @@ def v3643_api():
     ok,e,i=_v3643_create(u,p.get("cycle_label"),p.get("account_name"),p.get("qbr_owner"),p.get("executive_sponsor"),p.get("meeting_date"),p.get("health_score",0),p.get("value_realized",0),p.get("expansion_signal",0),p.get("open_risks",0),p.get("agenda"))
     return jsonify({"success":ok,"error":e,"qbr_id":i}),(200 if ok else 400)
 
+
+# ===== V36.44 CUSTOMER SUCCESS PLAN + OUTCOME GATE =====
+V3644_VERSION="V36.44"
+def _v3644_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3644_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_customer_success_plan (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, qbr_id INTEGER NOT NULL, plan_owner TEXT NOT NULL, primary_outcome TEXT NOT NULL, success_metric TEXT NOT NULL DEFAULT '', baseline_value REAL NOT NULL DEFAULT 0, target_value REAL NOT NULL DEFAULT 0, current_value REAL NOT NULL DEFAULT 0, target_date TEXT NOT NULL DEFAULT '', progress REAL NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0, blockers TEXT NOT NULL DEFAULT '', next_actions TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3644_init()
+except Exception:pass
+
+def _v3644_create(u,qbr_id,plan_owner,primary_outcome,success_metric="",baseline_value=0,target_value=0,current_value=0,target_date="",confidence=0,blockers="",next_actions=""):
+    if not str(plan_owner or "").strip() or not str(primary_outcome or "").strip():
+        return False,"owner_and_outcome_required",None
+    try:
+        b=float(baseline_value or 0); t=float(target_value or 0); c=float(current_value or 0); conf=max(0,min(100,float(confidence or 0)))
+    except Exception:return False,"invalid_success_metric",None
+    denom=(t-b)
+    progress=0 if denom==0 else round(max(0,min(100,((c-b)/denom)*100)),2)
+    con=sqlite3.connect(DB)
+    try:
+        if not con.execute("SELECT id FROM startup_qbr_orchestration WHERE username=? AND id=?",(u,int(qbr_id))).fetchone():
+            return False,"qbr_not_found",None
+        now=_v3644_now()
+        cur=con.execute("INSERT INTO startup_customer_success_plan (username,qbr_id,plan_owner,primary_outcome,success_metric,baseline_value,target_value,current_value,target_date,progress,confidence,blockers,next_actions,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(qbr_id),str(plan_owner)[:180],str(primary_outcome)[:500],str(success_metric or "")[:220],b,t,c,str(target_date or "")[:80],progress,conf,str(blockers or "")[:7000],str(next_actions or "")[:7000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3644_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_success_plan WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    avg=round(sum(float(x["progress"] or 0) for x in items)/len(items),2) if items else None
+    return {"success":True,"version":V3644_VERSION,"items":items,"average_progress":avg,"at_target":sum(1 for x in items if float(x["progress"] or 0)>=100)}
+
+@app.route("/api/hunter-success-plan",methods=["GET","POST"])
+def v3644_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3644_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3644_create(u,p.get("qbr_id"),p.get("plan_owner"),p.get("primary_outcome"),p.get("success_metric"),p.get("baseline_value",0),p.get("target_value",0),p.get("current_value",0),p.get("target_date"),p.get("confidence",0),p.get("blockers"),p.get("next_actions"))
+    return jsonify({"success":ok,"error":e,"success_plan_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
