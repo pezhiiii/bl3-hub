@@ -94789,6 +94789,55 @@ def v3648_api():
     ok,e,i=_v3648_create(u,p.get("account_name"),p.get("owner"),p.get("renewal_date"),p.get("arr",0),p.get("health_score",0),p.get("adoption_score",0),p.get("stakeholder_score",0),p.get("value_score",0),p.get("mitigation_plan"))
     return jsonify({"success":ok,"error":e,"renewal_forecast_id":i}),(200 if ok else 400)
 
+
+# ===== V36.49 EXECUTIVE ACTION ROOM + ESCALATION GATE =====
+V3649_VERSION="V36.49"
+def _v3649_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3649_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_executive_action_room (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, title TEXT NOT NULL, account_name TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'MEDIUM', urgency REAL NOT NULL DEFAULT 0, impact REAL NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0, action_score REAL NOT NULL DEFAULT 0, action_status TEXT NOT NULL DEFAULT 'OPEN', executive_sponsor TEXT NOT NULL DEFAULT '', decision_needed TEXT NOT NULL DEFAULT '', action_plan TEXT NOT NULL DEFAULT '', due_date TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally: con.close()
+try:_v3649_init()
+except Exception:pass
+
+def _v3649_create(u,title,owner,account_name="",severity="MEDIUM",urgency=0,impact=0,confidence=0,executive_sponsor="",decision_needed="",action_plan="",due_date=""):
+    if not str(title or "").strip() or not str(owner or "").strip():
+        return False,"title_and_owner_required",None
+    try:
+        ur=max(0,min(100,float(urgency or 0)))
+        im=max(0,min(100,float(impact or 0)))
+        cf=max(0,min(100,float(confidence or 0)))
+    except Exception:return False,"invalid_action_metric",None
+    sev=str(severity or "MEDIUM").upper()
+    sev_weight={"LOW":10,"MEDIUM":25,"HIGH":40,"CRITICAL":60}.get(sev,25)
+    score=round(min(100,(ur*0.35)+(im*0.40)+(cf*0.15)+sev_weight),2)
+    status="EXECUTIVE_NOW" if score>=85 else ("PRIORITY" if score>=70 else ("OPEN" if score>=45 else "MONITOR"))
+    now=_v3649_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_executive_action_room (username,title,account_name,owner,severity,urgency,impact,confidence,action_score,action_status,executive_sponsor,decision_needed,action_plan,due_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(title)[:320],str(account_name or "")[:220],str(owner)[:180],sev,ur,im,cf,score,status,str(executive_sponsor or "")[:180],str(decision_needed or "")[:5000],str(action_plan or "")[:9000],str(due_date or "")[:80],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3649_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_executive_action_room WHERE username=? ORDER BY action_score DESC,id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3649_VERSION,"items":items,"executive_now":sum(1 for x in items if x["action_status"]=="EXECUTIVE_NOW"),"priority":sum(1 for x in items if x["action_status"]=="PRIORITY")}
+
+@app.route("/api/hunter-executive-action-room",methods=["GET","POST"])
+def v3649_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3649_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3649_create(u,p.get("title"),p.get("owner"),p.get("account_name"),p.get("severity"),p.get("urgency",0),p.get("impact",0),p.get("confidence",0),p.get("executive_sponsor"),p.get("decision_needed"),p.get("action_plan"),p.get("due_date"))
+    return jsonify({"success":ok,"error":e,"executive_action_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
