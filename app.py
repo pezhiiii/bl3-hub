@@ -99608,6 +99608,132 @@ def v3694_api():
         "health_band": band
     })
 
+
+# ===== V36.95 STARTUP KPI WAR ROOM =====
+V3695_VERSION = "V36.95"
+
+def _v3695_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_kpi_war_room (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            current_value REAL NOT NULL DEFAULT 0,
+            target_value REAL NOT NULL DEFAULT 0,
+            previous_value REAL NOT NULL DEFAULT 0,
+            weight REAL NOT NULL DEFAULT 1,
+            progress_score REAL NOT NULL DEFAULT 0,
+            momentum_score REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'TRACK',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3695_init()
+except Exception:
+    pass
+
+def _v3695_score(current, target, previous, weight):
+    c = float(current or 0)
+    t = float(target or 0)
+    p = float(previous or 0)
+    w = max(0.1, float(weight or 1))
+
+    progress = 100.0 if t <= 0 else max(0.0, min(140.0, (c / t) * 100.0))
+    momentum = 0.0 if p == 0 else max(-100.0, min(200.0, ((c - p) / abs(p)) * 100.0))
+    composite = round(progress * 0.72 + max(0.0, momentum) * 0.28, 2)
+
+    if composite >= 105:
+        status = "CRUSHING"
+    elif composite >= 85:
+        status = "ON_TRACK"
+    elif composite >= 65:
+        status = "WATCH"
+    else:
+        status = "OFF_TRACK"
+
+    return round(progress, 2), round(momentum, 2), status, round(composite * w, 2)
+
+@app.route("/api/kpi-war-room", methods=["GET", "POST"])
+def v3695_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_kpi_war_room
+                   WHERE username=? ORDER BY created_at DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        if rows:
+            weighted = sum(float(x["progress_score"] or 0) * float(x["weight"] or 1) for x in rows)
+            weights = sum(float(x["weight"] or 1) for x in rows)
+            health = round(weighted / max(0.1, weights), 2)
+        else:
+            health = 0.0
+
+        return jsonify({
+            "success": True,
+            "version": V3695_VERSION,
+            "items": rows,
+            "startup_health_score": health,
+            "off_track": sum(1 for x in rows if str(x["status"]).upper() == "OFF_TRACK")
+        })
+
+    p = request.get_json(silent=True) or request.form
+    progress, momentum, status, _ = _v3695_score(
+        p.get("current_value", 0),
+        p.get("target_value", 0),
+        p.get("previous_value", 0),
+        p.get("weight", 1)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_kpi_war_room
+            (username,metric_name,current_value,target_value,previous_value,weight,
+             progress_score,momentum_score,status,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("metric_name") or "Metric")[:220],
+                float(p.get("current_value") or 0),
+                float(p.get("target_value") or 0),
+                float(p.get("previous_value") or 0),
+                float(p.get("weight") or 1),
+                progress,
+                momentum,
+                status,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3695_VERSION,
+        "metric_id": rid,
+        "progress_score": progress,
+        "momentum_score": momentum,
+        "status": status
+    })
+
 if __name__ == "__main__":
 
     init_db()
