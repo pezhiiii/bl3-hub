@@ -91037,6 +91037,56 @@ def v3592_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['room_name'])}</h2><p>{esc(x['reviewer_label'])} · {esc(x.get('organization_label') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.92 Due Diligence Rooms</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.92 · PARTNER / INVESTOR DUE DILIGENCE ROOM</small><h1>Present an approved assurance pack to external reviewers with tracked review state.</h1></div>{}</div>""".format(cards or '<div class="card">No diligence rooms yet.</div>')
 
+
+# ===== V35.93 EVIDENCE FRESHNESS WATCH + STALENESS GATE =====
+V3593_VERSION="V35.93"
+V3593_STATES={"FRESH","AGING","STALE","MISSING"}
+
+def _v3593_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3593_watch(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        reports=[dict(r) for r in con.execute("SELECT id,report_name,evidence_sha256,created_at FROM startup_executive_assurance_reports WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+        packs=[dict(r) for r in con.execute("SELECT id,pack_name,evidence_sha256,created_at FROM startup_board_assurance_packs WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    now=datetime.utcnow()
+    items=[]
+    for kind,rows,name_key in (("EXECUTIVE_REPORT",reports,"report_name"),("BOARD_PACK",packs,"pack_name")):
+        for r in rows:
+            try:
+                dt=datetime.fromisoformat(str(r["created_at"]).replace("Z",""))
+                age=(now-dt).days
+            except Exception: age=99999
+            sha=str(r.get("evidence_sha256") or "")
+            if not sha:state="MISSING"
+            elif age>180:state="STALE"
+            elif age>90:state="AGING"
+            else:state="FRESH"
+            items.append({
+                "kind":kind,
+                "id":r["id"],
+                "name":r.get(name_key),
+                "age_days":age,
+                "state":state,
+                "sha256":sha
+            })
+    return {"success":True,"version":V3593_VERSION,"generated_at":_v3593_now(),"items":items}
+
+@app.route("/api/hunter-evidence-freshness")
+def v3593_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify(_v3593_watch(u))
+
+@app.route("/hunter-evidence-freshness")
+def v3593_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3593_watch(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>{esc(x['kind'])} #{x['id']} · {esc(x['state'])}</b><h2>{esc(x.get('name') or '')}</h2><p>Age: {x['age_days']} days · SHA: {esc((x.get('sha256') or '')[:24])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.93 Evidence Freshness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.93 · EVIDENCE FRESHNESS WATCH</small><h1>Detect aging or stale assurance evidence before external review.</h1></div>{}</div>""".format(cards or '<div class="card">No evidence snapshots yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
