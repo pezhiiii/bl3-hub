@@ -96754,6 +96754,104 @@ def v3671_api():
     finally:
         con.close()
 
+
+# ===== V36.72 EXECUTIVE DECISION MEMORY =====
+V3672_VERSION = "V36.72"
+
+def _v3672_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_executive_decision_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            decision_title TEXT NOT NULL,
+            decision_type TEXT NOT NULL DEFAULT 'GENERAL',
+            context_summary TEXT NOT NULL DEFAULT '',
+            expected_impact REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            approved INTEGER NOT NULL DEFAULT 0,
+            outcome_score REAL NOT NULL DEFAULT 0,
+            decision_status TEXT NOT NULL DEFAULT 'PENDING',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3672_init()
+except Exception:
+    pass
+
+@app.route("/api/executive-decision-memory", methods=["GET", "POST", "PATCH"])
+def v3672_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        if request.method == "GET":
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_executive_decision_memory
+                   WHERE username=? ORDER BY id DESC LIMIT 200""",
+                (u,)
+            ).fetchall()]
+            resolved = [x for x in rows if x["decision_status"] == "RESOLVED"]
+            avg_outcome = round(
+                sum(float(x["outcome_score"] or 0) for x in resolved) / max(1, len(resolved)), 2
+            )
+            return jsonify({
+                "success": True,
+                "version": V3672_VERSION,
+                "items": rows,
+                "resolved_count": len(resolved),
+                "avg_outcome_score": avg_outcome
+            })
+
+        p = request.get_json(silent=True) or request.form
+
+        if request.method == "POST":
+            now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            cur = con.execute(
+                """INSERT INTO startup_executive_decision_memory
+                (username,decision_title,decision_type,context_summary,expected_impact,
+                 confidence_score,risk_score,approved,outcome_score,decision_status,created_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    u,
+                    str(p.get("decision_title") or "Executive Decision")[:220],
+                    str(p.get("decision_type") or "GENERAL")[:120],
+                    str(p.get("context_summary") or "")[:3000],
+                    float(p.get("expected_impact") or 0),
+                    float(p.get("confidence_score") or 0),
+                    float(p.get("risk_score") or 0),
+                    1 if str(p.get("approved", "0")).lower() in ("1","true","yes","on") else 0,
+                    0.0,
+                    "APPROVED" if str(p.get("approved", "0")).lower() in ("1","true","yes","on") else "PENDING",
+                    now
+                )
+            )
+            con.commit()
+            return jsonify({"success": True, "version": V3672_VERSION, "decision_id": cur.lastrowid})
+
+        did = int(p.get("decision_id") or 0)
+        outcome = max(0.0, min(100.0, float(p.get("outcome_score") or 0)))
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        con.execute(
+            """UPDATE startup_executive_decision_memory
+               SET outcome_score=?, decision_status='RESOLVED', resolved_at=?
+               WHERE id=? AND username=?""",
+            (outcome, now, did, u)
+        )
+        con.commit()
+        return jsonify({"success": True, "version": V3672_VERSION, "decision_id": did, "outcome_score": outcome})
+    finally:
+        con.close()
+
 if __name__ == "__main__":
 
     init_db()
