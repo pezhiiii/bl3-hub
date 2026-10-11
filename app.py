@@ -93432,6 +93432,80 @@ def v3621_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2><p>{esc(x['target_close'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.21</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.21 · MUTUAL ACTION PLAN</small><h1>Make the path to close explicit for both sides.</h1><p>Active: {} · Completed: {}</p></div>{}</div>".format(d["active_maps"],d["completed_maps"],cards or "<div class='card'>No mutual action plans yet.</div>")
 
+
+# ===== V36.22 REVENUE REALIZATION + BOOKING GATE =====
+V3622_VERSION="V36.22"
+
+def _v3622_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3622_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_revenue_realization(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            forecast_id INTEGER NOT NULL,
+            booking_reference TEXT NOT NULL,
+            booked_value REAL NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            booking_date TEXT NOT NULL DEFAULT '',
+            contract_term TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'BOOKED',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3622_init()
+except Exception:pass
+
+def _v3622_create(u,forecast_id,booking_ref,booked_value,currency,booking_date,term,evidence):
+    if not str(booking_ref or "").strip() or not str(evidence or "").strip():
+        return False,"booking_reference_and_evidence_required",None
+    try:value=max(0,float(booked_value or 0))
+    except Exception:return False,"invalid_booked_value",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        f=con.execute("SELECT id FROM startup_expansion_forecast WHERE username=? AND id=?",(u,int(forecast_id))).fetchone()
+        if not f:return False,"forecast_not_found",None
+        now=_v3622_now()
+        cur=con.execute('''INSERT INTO startup_revenue_realization
+        (username,forecast_id,booking_reference,booked_value,currency,booking_date,contract_term,evidence,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(forecast_id),str(booking_ref)[:220],value,str(currency or "USD")[:20].upper(),
+         str(booking_date or "")[:80],str(term or "")[:240],str(evidence)[:5000],now,now))
+        con.execute("UPDATE startup_expansion_forecast SET stage='WON',forecast_value=?,probability=100,updated_at=? WHERE username=? AND id=?",
+                    (value,now,u,int(forecast_id)))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3622_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_realization WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    total=round(sum(float(x["booked_value"]) for x in items if x["state"]=="BOOKED"),2)
+    return {"success":True,"version":V3622_VERSION,"items":items,"booked_total":total,"booking_count":len(items)}
+
+@app.route("/api/hunter-revenue-realization",methods=["GET","POST"])
+def v3622_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3622_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3622_create(u,p.get("forecast_id"),p.get("booking_reference"),p.get("booked_value"),
+                         p.get("currency","USD"),p.get("booking_date"),p.get("contract_term"),p.get("evidence"))
+    return jsonify({"success":ok,"error":e,"booking_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-revenue-realization")
+def v3622_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3622_summary(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>{esc(x['booking_reference'])}</b><p>{x['booked_value']} {esc(x['currency'])} · {esc(x['booking_date'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.22</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.big{font-size:56px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.22 · REVENUE REALIZATION</small><div class='big'>{}</div><h1>Booked expansion revenue</h1><p>Bookings: {}</p></div>{}</div>".format(d["booked_total"],d["booking_count"],cards or "<div class='card'>No booked expansion revenue yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
