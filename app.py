@@ -96222,6 +96222,39 @@ def v3666_api():
         con.commit(); return jsonify({'success':True,'version':V3666_VERSION,'incident_id':cur.lastrowid,'remediation_score':score,'remediation_status':status,'auto_remediate':bool(auto)})
     finally: con.close()
 
+
+# ===== V36.67 EXECUTIVE AUTONOMOUS REVENUE CONTROL =====
+V3667_VERSION = "V36.67"
+
+def _v3667_latest(con,table,u,field):
+    try:
+        r=con.execute(f'SELECT {field} FROM {table} WHERE username=? ORDER BY id DESC LIMIT 1',(u,)).fetchone()
+        return float(r[0] or 0) if r else 0.0
+    except Exception: return 0.0
+
+@app.route('/api/executive-autonomous-revenue-control', methods=['GET'])
+def v3667_api():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    con=sqlite3.connect(DB)
+    try:
+        try:
+            a=con.execute('SELECT action_score FROM startup_revenue_action_engine WHERE username=?',(u,)).fetchall(); c=con.execute('SELECT control_score FROM startup_revenue_execution_control WHERE username=?',(u,)).fetchall(); t=con.execute('SELECT attribution_score FROM startup_revenue_outcome_attribution WHERE username=?',(u,)).fetchall(); l=con.execute('SELECT loop_status FROM startup_autonomous_revenue_loop WHERE username=?',(u,)).fetchall()
+            ah=100.0 if not a else sum(float(r[0] or 0) for r in a)/len(a); eh=100.0 if not c else sum(float(r[0] or 0) for r in c)/len(c); th=0.0 if not t else sum(float(r[0] or 0) for r in t)/len(t); lh=100.0 if not l else 100.0*sum(1 for r in l if r[0]=='ACTIVE')/len(l)
+            health=round(ah*0.30+eh*0.30+th*0.20+lh*0.20,2)
+        except Exception: health=0.0
+        forecast=_v3667_latest(con,'startup_revenue_forecast_confidence',u,'confidence_score'); portfolio=_v3667_latest(con,'startup_revenue_portfolio_optimizer',u,'priority_score'); remediation=_v3667_latest(con,'startup_self_healing_revenue_ops',u,'remediation_score')
+        score=round(health*0.40+forecast*0.25+portfolio*0.20+max(0.0,100.0-remediation)*0.15,2)
+        mode='AUTONOMOUS' if score>=85 else 'GUARDED_AUTONOMY' if score>=70 else 'HUMAN_IN_LOOP' if score>=50 else 'MANUAL_CONTROL'
+        rec=[]
+        if health<70: rec.append('Improve revenue operating system health before increasing autonomy.')
+        if forecast<65: rec.append('Increase forecast confidence with fresher and stronger signals.')
+        if portfolio<60: rec.append('Re-rank portfolio initiatives and improve execution readiness.')
+        if remediation>=60: rec.append('Resolve high-risk revenue operations incidents before autonomous expansion.')
+        if not rec: rec.append('System is ready for expanded autonomous revenue execution.')
+        return jsonify({'success':True,'version':V3667_VERSION,'executive_autonomy_score':score,'control_mode':mode,'system_health_score':round(health,2),'forecast_confidence_score':round(forecast,2),'portfolio_priority_score':round(portfolio,2),'remediation_risk_score':round(remediation,2),'recommendations':rec})
+    finally: con.close()
+
 if __name__ == "__main__":
 
     init_db()
