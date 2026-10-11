@@ -99734,6 +99734,133 @@ def v3695_api():
         "status": status
     })
 
+
+# ===== V36.96 GROWTH EXPERIMENT LAB =====
+V3696_VERSION = "V36.96"
+
+def _v3696_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_growth_experiments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            experiment_name TEXT NOT NULL,
+            channel TEXT NOT NULL DEFAULT 'OTHER',
+            hypothesis TEXT NOT NULL DEFAULT '',
+            primary_metric TEXT NOT NULL DEFAULT '',
+            baseline REAL NOT NULL DEFAULT 0,
+            target REAL NOT NULL DEFAULT 0,
+            result_value REAL NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL DEFAULT 0,
+            lift_pct REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'PLANNED',
+            verdict TEXT NOT NULL DEFAULT 'PENDING',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3696_init()
+except Exception:
+    pass
+
+def _v3696_eval(baseline, target, result_value, confidence):
+    b = float(baseline or 0)
+    t = float(target or 0)
+    r = float(result_value or 0)
+    c = max(0.0, min(100.0, float(confidence or 0)))
+
+    lift = 0.0 if b == 0 else round(((r - b) / abs(b)) * 100.0, 2)
+
+    if c < 70:
+        verdict = "INCONCLUSIVE"
+    elif t > 0 and r >= t:
+        verdict = "WINNER"
+    elif r > b:
+        verdict = "PROMISING"
+    elif r == b:
+        verdict = "FLAT"
+    else:
+        verdict = "LOSER"
+
+    return lift, verdict
+
+@app.route("/api/growth-experiments", methods=["GET", "POST"])
+def v3696_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_growth_experiments
+                   WHERE username=? ORDER BY id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3696_VERSION,
+            "items": rows,
+            "winners": sum(1 for x in rows if str(x["verdict"]).upper() == "WINNER"),
+            "promising": sum(1 for x in rows if str(x["verdict"]).upper() == "PROMISING"),
+            "avg_lift_pct": round(
+                sum(float(x["lift_pct"] or 0) for x in rows) / max(1, len(rows)), 2
+            )
+        })
+
+    p = request.get_json(silent=True) or request.form
+    lift, verdict = _v3696_eval(
+        p.get("baseline", 0),
+        p.get("target", 0),
+        p.get("result_value", 0),
+        p.get("confidence", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_growth_experiments
+            (username,experiment_name,channel,hypothesis,primary_metric,baseline,target,
+             result_value,confidence,lift_pct,status,verdict,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("experiment_name") or "Growth Experiment")[:220],
+                str(p.get("channel") or "OTHER")[:80].upper(),
+                str(p.get("hypothesis") or "")[:1500],
+                str(p.get("primary_metric") or "")[:180],
+                float(p.get("baseline") or 0),
+                float(p.get("target") or 0),
+                float(p.get("result_value") or 0),
+                float(p.get("confidence") or 0),
+                lift,
+                str(p.get("status") or "PLANNED")[:40].upper(),
+                verdict,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3696_VERSION,
+        "experiment_id": rid,
+        "lift_pct": lift,
+        "verdict": verdict
+    })
+
 if __name__ == "__main__":
 
     init_db()
