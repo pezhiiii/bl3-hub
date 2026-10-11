@@ -96036,6 +96036,36 @@ def v3662_api():
         return jsonify({"success":True,"version":V3662_VERSION,"loop_id":cur.lastrowid})
     finally:con.close()
 
+
+# ===== V36.63 REVENUE OPERATING SYSTEM HEALTH =====
+V3663_VERSION = "V36.63"
+
+@app.route("/api/revenue-operating-system-health",methods=["GET"])
+def v3663_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        action_rows=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_action_engine WHERE username=?",(u,)).fetchall()]
+        control_rows=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_execution_control WHERE username=?",(u,)).fetchall()]
+        attribution_rows=[dict(r) for r in con.execute("SELECT * FROM startup_revenue_outcome_attribution WHERE username=?",(u,)).fetchall()]
+        loop_rows=[dict(r) for r in con.execute("SELECT * FROM startup_autonomous_revenue_loop WHERE username=?",(u,)).fetchall()]
+    finally:con.close()
+    action_health=100.0 if not action_rows else round(sum(float(x["action_score"] or 0) for x in action_rows)/len(action_rows),2)
+    execution_health=100.0 if not control_rows else round(sum(float(x["control_score"] or 0) for x in control_rows)/len(control_rows),2)
+    attribution_health=0.0 if not attribution_rows else round(sum(float(x["attribution_score"] or 0) for x in attribution_rows)/len(attribution_rows),2)
+    automation_health=100.0 if not loop_rows else round(100.0*sum(1 for x in loop_rows if x["loop_status"]=="ACTIVE")/max(1,len(loop_rows)),2)
+    overall=round(action_health*0.30+execution_health*0.30+attribution_health*0.20+automation_health*0.20,2)
+    status="ELITE" if overall>=85 else "HEALTHY" if overall>=70 else "WATCH" if overall>=55 else "DEGRADED"
+    return jsonify({"success":True,"version":V3663_VERSION,"overall_health_score":overall,
+                    "overall_health_status":status,"action_health":action_health,
+                    "execution_health":execution_health,"attribution_health":attribution_health,
+                    "automation_health":automation_health,
+                    "metrics":{"revenue_actions":len(action_rows),"execution_controls":len(control_rows),
+                               "attribution_records":len(attribution_rows),"automation_loops":len(loop_rows),
+                               "critical_execution_items":sum(1 for x in control_rows if x["control_status"]=="CRITICAL"),
+                               "blocked_actions":sum(1 for x in action_rows if x["execution_state"]=="BLOCKED")}})
+
 if __name__ == "__main__":
 
     init_db()
