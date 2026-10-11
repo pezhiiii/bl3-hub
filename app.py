@@ -94210,6 +94210,50 @@ def v3636_api():
     ok,e,i=_v3636_create(u,p.get("period_label"),p.get("owner"),p.get("opening_arr",0),p.get("expansion_arr",0),p.get("contraction_arr",0),p.get("churn_arr",0),p.get("notes"))
     return jsonify({"success":ok,"error":e,"revenue_retention_id":i}),(200 if ok else 400)
 
+
+# ===== V36.37 EXPANSION FORECAST + CONFIDENCE GATE =====
+V3637_VERSION="V36.37"
+def _v3637_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3637_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_expansion_forecast (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, forecast_period TEXT NOT NULL, owner TEXT NOT NULL, committed_value REAL NOT NULL DEFAULT 0, best_case_value REAL NOT NULL DEFAULT 0, pipeline_value REAL NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0, weighted_forecast REAL NOT NULL DEFAULT 0, assumptions TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'OPEN', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally:con.close()
+try:_v3637_init()
+except Exception:pass
+
+def _v3637_create(u,forecast_period,owner,committed_value=0,best_case_value=0,pipeline_value=0,confidence=0,assumptions=""):
+    if not str(forecast_period or "").strip() or not str(owner or "").strip():return False,"forecast_period_and_owner_required",None
+    try:
+        committed=max(0,float(committed_value or 0));best=max(0,float(best_case_value or 0));pipe=max(0,float(pipeline_value or 0));conf=max(0,min(100,float(confidence or 0)))
+    except Exception:return False,"invalid_numeric_value",None
+    weighted=round(committed+(best*0.65)+(pipe*(conf/100)*0.35),2)
+    con=sqlite3.connect(DB)
+    try:
+        now=_v3637_now()
+        cur=con.execute("INSERT INTO startup_expansion_forecast (username,forecast_period,owner,committed_value,best_case_value,pipeline_value,confidence,weighted_forecast,assumptions,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(forecast_period)[:120],str(owner)[:180],committed,best,pipe,conf,weighted,str(assumptions or "")[:7000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3637_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_expansion_forecast WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    total=round(sum(float(x["weighted_forecast"] or 0) for x in items if x["state"]=="OPEN"),2)
+    return {"success":True,"version":V3637_VERSION,"items":items,"open_weighted_forecast":total}
+
+@app.route("/api/hunter-expansion-forecast",methods=["GET","POST"])
+def v3637_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3637_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3637_create(u,p.get("forecast_period"),p.get("owner"),p.get("committed_value",0),p.get("best_case_value",0),p.get("pipeline_value",0),p.get("confidence",0),p.get("assumptions"))
+    return jsonify({"success":ok,"error":e,"expansion_forecast_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
