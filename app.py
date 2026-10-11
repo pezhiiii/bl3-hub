@@ -92285,6 +92285,94 @@ def v3607_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['proposal_name'])}</h2></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.07</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.07 · EXPANSION PROPOSAL</small><h1>Convert proven value into expansion.</h1></div>"+(cards or "<div class='card'>No proposals yet.</div>")+"</div>"
 
+
+# ===== V36.08 RENEWAL DECISION + TERM GATE =====
+V3608_VERSION="V36.08"
+
+def _v3608_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3608_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_renewal_decisions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            renewal_owner TEXT NOT NULL,
+            proposed_term TEXT NOT NULL DEFAULT '',
+            proposed_value TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PENDING',
+            decision_note TEXT NOT NULL DEFAULT '',
+            decision_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3608_init()
+except Exception:pass
+
+def _v3608_create(u,hid,owner,term="",value=""):
+    if not str(owner or "").strip():return False,"renewal_owner_required",None
+    now=_v3608_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_renewal_decisions
+        (username,handoff_id,renewal_owner,proposed_term,proposed_value,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)''',(u,int(hid),str(owner)[:180],str(term or "")[:240],str(value or "")[:180],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3608_action(u,i,action,note="",evidence=""):
+    a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3608_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_renewal_decisions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"renewal_not_found",None
+        cur=r["state"]
+        if a=="RENEW" and cur=="PENDING" and ev:new="RENEWED"
+        elif a=="RENEGOTIATE" and cur=="PENDING":new="RENEGOTIATE"
+        elif a=="CHURN" and cur in ("PENDING","RENEGOTIATE") and ev:new="CHURNED"
+        elif a=="CLOSE" and cur in ("RENEWED","CHURNED") and ev:new="CLOSED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_renewal_decisions SET state=?,decision_note=?,decision_evidence=?,
+        decided_at=CASE WHEN ? IN ('RENEWED','CHURNED') THEN ? ELSE decided_at END,updated_at=?
+        WHERE username=? AND id=?''',(new,str(note or "")[:4000],ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_renewal_decisions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:
+        con.close()
+
+def _v3608_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_renewal_decisions WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    return {"success":True,"version":V3608_VERSION,"items":items}
+
+@app.route("/api/hunter-renewal-decisions",methods=["GET","POST"])
+def v3608_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3608_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3608_create(u,p.get("handoff_id"),p.get("renewal_owner"),p.get("proposed_term"),p.get("proposed_value"))
+    return jsonify({"success":ok,"error":e,"renewal_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-renewal-decisions")
+def v3608_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3608_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['renewal_owner'])}</h2></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.08</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.08 · RENEWAL DECISION</small><h1>Track renewal, renegotiation, or churn.</h1></div>"+(cards or "<div class='card'>No renewals yet.</div>")+"</div>"
+
 if __name__ == "__main__":
 
     init_db()
