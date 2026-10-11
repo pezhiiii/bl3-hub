@@ -90529,6 +90529,106 @@ def v3586_page():
     s=d["signals"]
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.86 Assurance Maturity</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.score{font-size:64px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V35.86 · ASSURANCE MATURITY SCORE</small><div class='score'>{}/100</div><h1>{}</h1><p>Completed audits: {} · Accepted: {} · Effective actions: {} · Renewals: {} · Published profiles: {}</p></div></div>""".format(d["score"],esc(d["level"]),s["completed_audits"],s["management_acceptance"],s["effective_actions"],s["renewals"],s["published_profiles"])
 
+
+# ===== V35.87 ASSURANCE IMPROVEMENT ROADMAP + PRIORITY GATE =====
+V3587_VERSION="V35.87"
+V3587_STATES={"DRAFT","PRIORITIZED","IN_PROGRESS","COMPLETED","BLOCKED"}
+
+def _v3587_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3587_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_assurance_improvement_roadmaps(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            roadmap_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            target_level TEXT NOT NULL,
+            target_score INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_assurance_improvement_items(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            roadmap_id INTEGER NOT NULL,
+            item_title TEXT NOT NULL,
+            priority TEXT NOT NULL DEFAULT 'MEDIUM',
+            owner TEXT NOT NULL,
+            due_at TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'OPEN',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3587_init()
+except Exception:pass
+
+def _v3587_create(u,name,owner,target_level,target_score):
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"name_and_owner_required",None
+    lvl=str(target_level or "").upper()
+    if lvl not in V3586_LEVELS:
+        return False,"invalid_target_level",None
+    score=max(0,min(int(target_score or 0),100))
+    now=_v3587_now();con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_assurance_improvement_roadmaps
+        (username,roadmap_name,owner,target_level,target_score,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,str(name)[:240],str(owner)[:180],lvl,score,now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3587_add_item(u,rid,title,priority,owner,due=""):
+    if not str(title or "").strip() or not str(owner or "").strip():
+        return False,"title_and_owner_required",None
+    pr=str(priority or "MEDIUM").upper()
+    if pr not in ("LOW","MEDIUM","HIGH","CRITICAL"):
+        return False,"invalid_priority",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_assurance_improvement_roadmaps WHERE username=? AND id=?",(u,int(rid))).fetchone()
+        if not r:return False,"roadmap_not_found",None
+        now=_v3587_now()
+        cur=con.execute("""INSERT INTO startup_assurance_improvement_items
+        (username,roadmap_id,item_title,priority,owner,due_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)""",(u,int(rid),str(title)[:500],pr,str(owner)[:180],str(due or "")[:80],now,now))
+        con.execute("UPDATE startup_assurance_improvement_roadmaps SET state='PRIORITIZED',updated_at=? WHERE username=? AND id=?",(now,u,int(rid)))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3587_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        roads=[dict(r) for r in con.execute("SELECT * FROM startup_assurance_improvement_roadmaps WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+        for r in roads:
+            r["items"]=[dict(x) for x in con.execute("SELECT * FROM startup_assurance_improvement_items WHERE username=? AND roadmap_id=? ORDER BY id",(u,r["id"])).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3587_VERSION,"items":roads}
+
+@app.route("/api/hunter-assurance-improvement-roadmaps",methods=["GET","POST"])
+def v3587_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3587_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3587_create(u,p.get("roadmap_name"),p.get("owner"),p.get("target_level"),p.get("target_score"))
+    return jsonify({"success":ok,"error":e,"roadmap_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-assurance-improvement-roadmaps")
+def v3587_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3587_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['roadmap_name'])}</h2><p>Target: {esc(x['target_level'])} · {x['target_score']}/100 · Items: {len(x['items'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.87 Assurance Improvement Roadmaps</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.87 · ASSURANCE IMPROVEMENT ROADMAP</small><h1>Turn maturity gaps into prioritized improvement work.</h1></div>{}</div>""".format(cards or '<div class="card">No roadmaps yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
