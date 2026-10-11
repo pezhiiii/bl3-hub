@@ -90839,6 +90839,110 @@ def v3590_page():
     cards="".join(f"<div class='card'><b>#{x['id']}</b><h2>{esc(x['report_name'])}</h2><p>Owner: {esc(x['executive_owner'])}</p><p>SHA-256: {esc(x['evidence_sha256'][:24])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.90 Executive Assurance Reports</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.90 · EXECUTIVE ASSURANCE REPORT</small><h1>Seal maturity, KPI/KRI, roadmaps and governance decisions into one executive snapshot.</h1></div>{}</div>""".format(cards or '<div class="card">No executive assurance reports yet.</div>')
 
+
+# ===== V35.91 BOARD ASSURANCE PACK + APPROVAL GATE =====
+V3591_VERSION="V35.91"
+V3591_STATES={"DRAFT","READY","APPROVED","REJECTED","STALE"}
+
+def _v3591_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3591_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_board_assurance_packs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            report_id INTEGER NOT NULL,
+            pack_name TEXT NOT NULL,
+            board_owner TEXT NOT NULL,
+            executive_summary TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            approval_evidence TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            approved_at TEXT DEFAULT '',
+            UNIQUE(username,report_id,pack_name)
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3591_init()
+except Exception:pass
+
+def _v3591_report(u,rid):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_executive_assurance_reports WHERE username=? AND id=?",(u,int(rid))).fetchone()
+        return dict(r) if r else None
+    finally:con.close()
+
+def _v3591_create(u,rid,name,owner,summary=""):
+    rep=_v3591_report(u,rid)
+    if not rep:return False,"executive_report_required",None
+    if not str(name or "").strip() or not str(owner or "").strip():
+        return False,"name_and_owner_required",None
+    now=_v3591_now()
+    raw=json.dumps({
+        "report_id":int(rid),
+        "report_sha256":rep.get("evidence_sha256"),
+        "pack_name":str(name),
+        "board_owner":str(owner),
+        "summary":str(summary or ""),
+        "utc":now
+    },sort_keys=True,separators=(",",":"))
+    digest=hashlib.sha256(raw.encode()).hexdigest()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO startup_board_assurance_packs
+        (username,report_id,pack_name,board_owner,executive_summary,state,evidence_sha256,created_at,updated_at)
+        VALUES(?,?,?,?,?,'READY',?,?,?)""",
+        (u,int(rid),str(name)[:240],str(owner)[:180],str(summary or "")[:5000],digest,now,now))
+        con.commit();return True,"",cur.lastrowid
+    except sqlite3.IntegrityError:return False,"board_pack_already_exists",None
+    finally:con.close()
+
+def _v3591_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3591_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_board_assurance_packs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"board_pack_not_found",None
+        cur=r["state"]
+        if a=="APPROVE" and cur=="READY" and ev:new="APPROVED"
+        elif a=="REJECT" and cur=="READY" and ev:new="REJECTED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute("""UPDATE startup_board_assurance_packs SET state=?,approval_evidence=?,
+        approved_at=CASE WHEN ?='APPROVED' THEN ? ELSE approved_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_board_assurance_packs WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3591_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_board_assurance_packs WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3591_VERSION,"items":items}
+
+@app.route("/api/hunter-board-assurance-packs",methods=["GET","POST"])
+def v3591_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3591_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3591_create(u,p.get("report_id"),p.get("pack_name"),p.get("board_owner"),p.get("executive_summary"))
+    return jsonify({"success":ok,"error":e,"pack_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-board-assurance-packs")
+def v3591_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3591_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['pack_name'])}</h2><p>Board owner: {esc(x['board_owner'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.91 Board Assurance Packs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.91 · BOARD ASSURANCE PACK</small><h1>Turn executive assurance into a board-reviewable package.</h1></div>{}</div>""".format(cards or '<div class="card">No board packs yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
