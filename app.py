@@ -95969,6 +95969,73 @@ def v3661_api():
     return jsonify({"success":True,"version":V3661_VERSION,"attribution_id":rid,
                     "attributed_value":total,"attribution_score":score,"attribution_status":status})
 
+
+# ===== V36.62 AUTONOMOUS REVENUE LOOP =====
+V3662_VERSION = "V36.62"
+
+def _v3662_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_autonomous_revenue_loop (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            loop_name TEXT NOT NULL,
+            trigger_type TEXT NOT NULL DEFAULT 'MANUAL',
+            trigger_threshold REAL NOT NULL DEFAULT 0,
+            action_template TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            cadence_hours REAL NOT NULL DEFAULT 24,
+            auto_execute INTEGER NOT NULL DEFAULT 0,
+            max_actions_per_cycle INTEGER NOT NULL DEFAULT 5,
+            loop_status TEXT NOT NULL DEFAULT 'ACTIVE',
+            last_run_at TEXT NOT NULL DEFAULT '',
+            run_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:con.close()
+
+try:_v3662_init()
+except Exception:pass
+
+@app.route("/api/autonomous-revenue-loop",methods=["GET","POST","PATCH"])
+def v3662_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        if request.method=="GET":
+            rows=[dict(r) for r in con.execute(
+                "SELECT * FROM startup_autonomous_revenue_loop WHERE username=? ORDER BY id DESC",(u,)
+            ).fetchall()]
+            return jsonify({"success":True,"version":V3662_VERSION,"items":rows,
+                            "active_loops":sum(1 for x in rows if x["loop_status"]=="ACTIVE"),
+                            "auto_execute_loops":sum(1 for x in rows if int(x["auto_execute"] or 0)==1)})
+        p=request.form if request.form else (request.get_json(silent=True) or {})
+        now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+        if request.method=="PATCH":
+            loop_id=int(p.get("loop_id") or 0)
+            status=str(p.get("loop_status") or "ACTIVE").upper()
+            if status not in {"ACTIVE","PAUSED","DISABLED"}:
+                return jsonify({"success":False,"error":"invalid_loop_status"}),400
+            con.execute("UPDATE startup_autonomous_revenue_loop SET loop_status=?,updated_at=? WHERE id=? AND username=?",
+                        (status,now,loop_id,u))
+            con.commit()
+            return jsonify({"success":True,"version":V3662_VERSION})
+        cur=con.execute("""INSERT INTO startup_autonomous_revenue_loop
+        (username,loop_name,trigger_type,trigger_threshold,action_template,owner,cadence_hours,auto_execute,
+         max_actions_per_cycle,loop_status,last_run_at,run_count,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(p.get("loop_name") or "Revenue Loop")[:220],str(p.get("trigger_type") or "MANUAL")[:100],
+         float(p.get("trigger_threshold") or 0),str(p.get("action_template") or "")[:12000],
+         str(p.get("owner") or "")[:180],float(p.get("cadence_hours") or 24),
+         1 if str(p.get("auto_execute") or "").lower() in {"1","true","yes","on"} else 0,
+         max(1,min(100,int(p.get("max_actions_per_cycle") or 5))),"ACTIVE","",0,now,now))
+        con.commit()
+        return jsonify({"success":True,"version":V3662_VERSION,"loop_id":cur.lastrowid})
+    finally:con.close()
+
 if __name__ == "__main__":
 
     init_db()
