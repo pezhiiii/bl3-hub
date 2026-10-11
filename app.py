@@ -92532,6 +92532,97 @@ def v3610_page():
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.10</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:24px}.score{font-size:72px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.10 · ACCOUNT HEALTH</small><div class='score'>{}/100</div><h1>{}</h1><p>Renewed: {} · Expansion: {} · Case studies: {} · Churned: {} · Blocked: {}</p><p>SHA: {}</p></div></div>".format(
         d["score"],esc(d["status"]),d["renewed_accounts"],d["approved_expansions"],d["published_case_studies"],d["churned_accounts"],d["blocked_milestones"],esc(d["health_sha256"]))
 
+
+# ===== V36.11 ACCOUNT RISK SIGNAL + ALERT GATE =====
+V3611_VERSION="V36.11"
+
+def _v3611_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3611_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_account_risk_signals(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            signal_type TEXT NOT NULL,
+            severity INTEGER NOT NULL DEFAULT 1,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'OPEN',
+            owner TEXT NOT NULL DEFAULT '',
+            resolution_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:
+        con.close()
+try:_v3611_init()
+except Exception:pass
+
+def _v3611_create(u,hid,signal_type,severity,title,description="",source="",owner=""):
+    if not str(signal_type or "").strip() or not str(title or "").strip():
+        return False,"signal_type_and_title_required",None
+    try:s=max(1,min(5,int(severity)))
+    except Exception:return False,"invalid_severity",None
+    now=_v3611_now(); con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_account_risk_signals
+        (username,handoff_id,signal_type,severity,title,description,source,owner,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid) if hid not in (None,"") else None,str(signal_type)[:120],s,str(title)[:260],
+         str(description or "")[:5000],str(source or "")[:240],str(owner or "")[:180],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3611_action(u,i,action,evidence=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3611_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_account_risk_signals WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"risk_not_found",None
+        cur=r["state"]
+        if a=="ACK" and cur=="OPEN":new="ACKNOWLEDGED"
+        elif a=="MITIGATE" and cur in ("OPEN","ACKNOWLEDGED"):new="MITIGATING"
+        elif a=="RESOLVE" and cur in ("ACKNOWLEDGED","MITIGATING") and ev:new="RESOLVED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_account_risk_signals SET state=?,resolution_evidence=?,
+        resolved_at=CASE WHEN ?='RESOLVED' THEN ? ELSE resolved_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_account_risk_signals WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3611_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_account_risk_signals WHERE username=? ORDER BY severity DESC,id DESC",(u,)).fetchall()]
+    finally:con.close()
+    open_score=sum(x["severity"] for x in items if x["state"]!="RESOLVED")
+    return {"success":True,"version":V3611_VERSION,"items":items,"open_risk_score":open_score}
+
+@app.route("/api/hunter-account-risks",methods=["GET","POST"])
+def v3611_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3611_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3611_create(u,p.get("handoff_id"),p.get("signal_type"),p.get("severity",1),p.get("title"),
+                         p.get("description"),p.get("source"),p.get("owner"))
+    return jsonify({"success":ok,"error":e,"risk_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-account-risks")
+def v3611_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3611_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · S{x['severity']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2><p>{esc(x['signal_type'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.11</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.11 · ACCOUNT RISK SIGNALS</small><h1>Detect and manage retention risk.</h1><p>Open risk score: {}</p></div>{}</div>".format(d["open_risk_score"],cards or "<div class='card'>No risks yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
