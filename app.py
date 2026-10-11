@@ -92623,6 +92623,83 @@ def v3611_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · S{x['severity']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2><p>{esc(x['signal_type'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.11</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.11 · ACCOUNT RISK SIGNALS</small><h1>Detect and manage retention risk.</h1><p>Open risk score: {}</p></div>{}</div>".format(d["open_risk_score"],cards or "<div class='card'>No risks yet.</div>")
 
+
+# ===== V36.12 VOICE OF CUSTOMER + SENTIMENT GATE =====
+V3612_VERSION="V36.12"
+
+def _v3612_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3612_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_customer_feedback(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER,
+            channel TEXT NOT NULL,
+            contact_label TEXT NOT NULL DEFAULT '',
+            score INTEGER,
+            sentiment TEXT NOT NULL DEFAULT 'NEUTRAL',
+            feedback TEXT NOT NULL,
+            themes TEXT NOT NULL DEFAULT '',
+            followup_required INTEGER NOT NULL DEFAULT 0,
+            followup_owner TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )''')
+        con.commit()
+    finally:con.close()
+try:_v3612_init()
+except Exception:pass
+
+def _v3612_create(u,hid,channel,contact,score,sentiment,feedback,themes="",followup_required=0,followup_owner=""):
+    if not str(channel or "").strip() or not str(feedback or "").strip():
+        return False,"channel_and_feedback_required",None
+    sc=None
+    if score not in (None,""):
+        try:sc=max(0,min(10,int(score)))
+        except Exception:return False,"invalid_score",None
+    sent=str(sentiment or "NEUTRAL").upper()
+    if sent not in ("POSITIVE","NEUTRAL","NEGATIVE"):sent="NEUTRAL"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('''INSERT INTO startup_customer_feedback
+        (username,handoff_id,channel,contact_label,score,sentiment,feedback,themes,followup_required,followup_owner,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid) if hid not in (None,"") else None,str(channel)[:120],str(contact or "")[:200],sc,sent,
+         str(feedback)[:8000],str(themes or "")[:1000],1 if str(followup_required).lower() in ("1","true","yes","on") else 0,
+         str(followup_owner or "")[:180],_v3612_now()))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3612_summary(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_customer_feedback WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    scored=[x["score"] for x in items if x["score"] is not None]
+    avg=round(sum(scored)/len(scored),2) if scored else None
+    neg=sum(1 for x in items if x["sentiment"]=="NEGATIVE")
+    follow=sum(1 for x in items if x["followup_required"])
+    return {"success":True,"version":V3612_VERSION,"items":items,"average_score":avg,"negative_count":neg,"followup_required":follow}
+
+@app.route("/api/hunter-customer-feedback",methods=["GET","POST"])
+def v3612_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3612_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3612_create(u,p.get("handoff_id"),p.get("channel"),p.get("contact_label"),p.get("score"),
+                         p.get("sentiment"),p.get("feedback"),p.get("themes"),p.get("followup_required"),p.get("followup_owner"))
+    return jsonify({"success":ok,"error":e,"feedback_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-customer-feedback")
+def v3612_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3612_summary(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['sentiment'])}</b><p>{esc(x['feedback'])}</p></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.12</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.12 · VOICE OF CUSTOMER</small><h1>Feedback, sentiment, and follow-up.</h1><p>Average score: {} · Negative: {} · Follow-up: {}</p></div>{}</div>".format(d["average_score"],d["negative_count"],d["followup_required"],cards or "<div class='card'>No feedback yet.</div>")
+
 if __name__ == "__main__":
 
     init_db()
