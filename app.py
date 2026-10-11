@@ -92373,6 +92373,104 @@ def v3608_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['renewal_owner'])}</h2></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.08</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.08 · RENEWAL DECISION</small><h1>Track renewal, renegotiation, or churn.</h1></div>"+(cards or "<div class='card'>No renewals yet.</div>")+"</div>"
 
+
+# ===== V36.09 SUCCESS CASE STUDY + PUBLISH GATE =====
+V3609_VERSION="V36.09"
+
+def _v3609_now():
+    return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3609_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('''CREATE TABLE IF NOT EXISTS startup_success_case_studies(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            client_label TEXT NOT NULL,
+            challenge TEXT NOT NULL DEFAULT '',
+            solution TEXT NOT NULL DEFAULT '',
+            results TEXT NOT NULL DEFAULT '',
+            metrics_json TEXT NOT NULL DEFAULT '[]',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            approval_evidence TEXT NOT NULL DEFAULT '',
+            evidence_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            published_at TEXT DEFAULT ''
+        )''')
+        con.commit()
+    finally:
+        con.close()
+
+try:_v3609_init()
+except Exception:pass
+
+def _v3609_create(u,hid,title,client,challenge="",solution="",results_text=""):
+    if not str(title or "").strip() or not str(client or "").strip():
+        return False,"title_and_client_required",None
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        kpis=[dict(r) for r in con.execute("SELECT metric_name,baseline_value,target_value,current_value,unit,evidence FROM startup_success_kpis WHERE username=? AND handoff_id=? ORDER BY id",(u,int(hid))).fetchall()]
+        now=_v3609_now()
+        raw=json.dumps({"title":title,"client":client,"kpis":kpis,"challenge":challenge,"solution":solution,"results":results_text},sort_keys=True,default=str)
+        digest=hashlib.sha256(raw.encode()).hexdigest()
+        cur=con.execute('''INSERT INTO startup_success_case_studies
+        (username,handoff_id,title,client_label,challenge,solution,results,metrics_json,evidence_sha256,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        (u,int(hid),str(title)[:260],str(client)[:240],str(challenge or "")[:5000],str(solution or "")[:5000],
+         str(results_text or "")[:5000],json.dumps(kpis),digest,now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally:
+        con.close()
+
+def _v3609_action(u,i,action,evidence=""):
+    a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3609_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_success_case_studies WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"case_study_not_found",None
+        cur=r["state"]
+        if a=="REVIEW" and cur=="DRAFT":new="REVIEW"
+        elif a=="APPROVE" and cur=="REVIEW" and ev:new="APPROVED"
+        elif a=="PUBLISH" and cur=="APPROVED":new="PUBLISHED"
+        elif a=="ARCHIVE" and cur=="PUBLISHED":new="ARCHIVED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute('''UPDATE startup_success_case_studies SET state=?,approval_evidence=?,
+        published_at=CASE WHEN ?='PUBLISHED' THEN ? ELSE published_at END,updated_at=? WHERE username=? AND id=?''',
+        (new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_success_case_studies WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:
+        con.close()
+
+def _v3609_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        items=[dict(r) for r in con.execute("SELECT * FROM startup_success_case_studies WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:
+        con.close()
+    return {"success":True,"version":V3609_VERSION,"items":items}
+
+@app.route("/api/hunter-success-case-studies",methods=["GET","POST"])
+def v3609_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3609_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3609_create(u,p.get("handoff_id"),p.get("title"),p.get("client_label"),p.get("challenge"),p.get("solution"),p.get("results"))
+    return jsonify({"success":ok,"error":e,"case_study_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-success-case-studies")
+def v3609_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3609_snapshot(u); esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['title'])}</h2></div>" for x in d["items"])
+    return "<!doctype html><meta charset='utf-8'><title>BL3 V36.09</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.09 · SUCCESS CASE STUDY</small><h1>Turn verified outcomes into proof.</h1></div>"+(cards or "<div class='card'>No case studies yet.</div>")+"</div>"
+
 if __name__ == "__main__":
 
     init_db()
