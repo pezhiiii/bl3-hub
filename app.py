@@ -90495,6 +90495,40 @@ def v3585_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['renewal_name'])}</h2><p>Next due: {esc(x['next_due_at'])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.85 Audit Renewal Calendar</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.85 · AUDIT RENEWAL CALENDAR</small><h1>Turn one-time audits into a recurring assurance cycle.</h1></div>{}</div>""".format(cards or '<div class="card">No renewal schedules yet.</div>')
 
+
+# ===== V35.86 ASSURANCE MATURITY SCORE + GOVERNANCE GATE =====
+V3586_VERSION="V35.86"
+V3586_LEVELS={"INITIAL","DEVELOPING","DEFINED","MANAGED","OPTIMIZING"}
+
+def _v3586_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3586_score(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        clean=con.execute("SELECT COUNT(*) c FROM startup_audit_sessions WHERE username=? AND state='COMPLETE'",(u,)).fetchone()["c"]
+        accepted=con.execute("SELECT COUNT(*) c FROM startup_audit_management_acceptance WHERE username=? AND state='ACCEPTED'",(u,)).fetchone()["c"]
+        effective=con.execute("SELECT COUNT(*) c FROM startup_corrective_action_effectiveness WHERE username=? AND state='EFFECTIVE'",(u,)).fetchone()["c"]
+        renewals=con.execute("SELECT COUNT(*) c FROM startup_audit_renewal_calendar WHERE username=? AND state IN ('SCHEDULED','DUE','STARTED','COMPLETED')",(u,)).fetchone()["c"]
+        profiles=con.execute("SELECT COUNT(*) c FROM startup_public_trust_profiles WHERE username=? AND state='PUBLISHED'",(u,)).fetchone()["c"]
+    finally:con.close()
+    raw=min(100,clean*15+accepted*20+effective*20+renewals*15+profiles*10)
+    level="OPTIMIZING" if raw>=85 else "MANAGED" if raw>=70 else "DEFINED" if raw>=50 else "DEVELOPING" if raw>=25 else "INITIAL"
+    return {"score":raw,"level":level,"signals":{"completed_audits":clean,"management_acceptance":accepted,"effective_actions":effective,"renewals":renewals,"published_profiles":profiles}}
+
+@app.route("/api/hunter-assurance-maturity")
+def v3586_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"version":V3586_VERSION,"generated_at":_v3586_now(),**_v3586_score(u)})
+
+@app.route("/hunter-assurance-maturity")
+def v3586_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3586_score(u);esc=html.escape
+    s=d["signals"]
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.86 Assurance Maturity</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.score{font-size:64px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V35.86 · ASSURANCE MATURITY SCORE</small><div class='score'>{}/100</div><h1>{}</h1><p>Completed audits: {} · Accepted: {} · Effective actions: {} · Renewals: {} · Published profiles: {}</p></div></div>""".format(d["score"],esc(d["level"]),s["completed_audits"],s["management_acceptance"],s["effective_actions"],s["renewals"],s["published_profiles"])
+
 if __name__ == "__main__":
 
     init_db()
