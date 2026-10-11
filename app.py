@@ -91659,6 +91659,102 @@ def v3600_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['meeting_title'])}</h2><p>{esc(x['counterpart'])}</p><p>{esc(x.get('followup_action') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V36.00 Pitch Meetings</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.00 · PITCH / MEETING ROOM</small><h1>Track the meeting, outcome, evidence, and follow-up.</h1></div>{}</div>""".format(cards or '<div class="card">No meetings yet.</div>')
 
+
+# ===== V36.01 OFFER / COMMITMENT TRACKER GATE =====
+V3601_VERSION="V36.01"
+V3601_STATES={"DRAFT","SENT","UNDER_REVIEW","ACCEPTED","DECLINED","EXPIRED"}
+
+def _v3601_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3601_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_offers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            opportunity_id INTEGER NOT NULL,
+            offer_name TEXT NOT NULL,
+            offer_type TEXT NOT NULL DEFAULT 'PARTNERSHIP',
+            value_text TEXT NOT NULL DEFAULT '',
+            terms_summary TEXT NOT NULL DEFAULT '',
+            expiry_at TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'DRAFT',
+            decision_evidence TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            accepted_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3601_init()
+except Exception:pass
+
+def _v3601_create(u,oid,name,offer_type="PARTNERSHIP",value="",terms="",expiry=""):
+    if not str(name or "").strip():return False,"offer_name_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        o=con.execute("SELECT id FROM startup_opportunity_pipeline WHERE username=? AND id=?",(u,int(oid))).fetchone()
+        if not o:return False,"opportunity_not_found",None
+        now=_v3601_now()
+        cur=con.execute("""INSERT INTO startup_external_offers
+        (username,opportunity_id,offer_name,offer_type,value_text,terms_summary,expiry_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)""",
+        (u,int(oid),str(name)[:260],str(offer_type or "PARTNERSHIP")[:120],str(value or "")[:240],str(terms or "")[:5000],str(expiry or "")[:80],now,now))
+        con.execute("UPDATE startup_opportunity_pipeline SET stage='PROPOSAL',updated_at=? WHERE username=? AND id=?",(now,u,int(oid)))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3601_action(u,i,action,evidence="",note=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();now=_v3601_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_offers WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"offer_not_found",None
+        cur=r["state"]
+        if a=="SEND" and cur=="DRAFT":new="SENT"
+        elif a=="REVIEW" and cur=="SENT":new="UNDER_REVIEW"
+        elif a=="ACCEPT" and cur in ("SENT","UNDER_REVIEW") and ev:new="ACCEPTED"
+        elif a=="DECLINE" and cur in ("SENT","UNDER_REVIEW") and ev:new="DECLINED"
+        elif a=="EXPIRE" and cur in ("SENT","UNDER_REVIEW"):new="EXPIRED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute("""UPDATE startup_external_offers SET state=?,decision_evidence=?,note=?,
+        accepted_at=CASE WHEN ?='ACCEPTED' THEN ? ELSE accepted_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,ev[:5000],str(note or "")[:3000],new,now,now,u,int(i)))
+        if new=="ACCEPTED":
+            con.execute("UPDATE startup_opportunity_pipeline SET stage='WON',probability=100,updated_at=? WHERE username=? AND id=?",(now,u,int(r["opportunity_id"])))
+        elif new in ("DECLINED","EXPIRED"):
+            con.execute("UPDATE startup_opportunity_pipeline SET stage='LOST',probability=0,updated_at=? WHERE username=? AND id=?",(now,u,int(r["opportunity_id"])))
+        else:
+            con.execute("UPDATE startup_opportunity_pipeline SET stage='NEGOTIATION',updated_at=? WHERE username=? AND id=?",(now,u,int(r["opportunity_id"])))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_external_offers WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3601_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_external_offers WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3601_VERSION,"items":items}
+
+@app.route("/api/hunter-external-offers",methods=["GET","POST"])
+def v3601_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3601_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3601_create(u,p.get("opportunity_id"),p.get("offer_name"),p.get("offer_type"),p.get("value_text"),p.get("terms_summary"),p.get("expiry_at"))
+    return jsonify({"success":ok,"error":e,"offer_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-external-offers")
+def v3601_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3601_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['offer_name'])}</h2><p>{esc(x['offer_type'])} · {esc(x.get('value_text') or '')}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.01 External Offers</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.01 · OFFER / COMMITMENT TRACKER</small><h1>Track proposals and commitments through acceptance or loss.</h1></div>{}</div>""".format(cards or '<div class="card">No offers yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
