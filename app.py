@@ -94689,6 +94689,55 @@ def v3646_api():
     ok,e,i=_v3646_create(u,p.get("period_label"),p.get("owner"),p.get("operating_score",0),p.get("qbr_readiness",0),p.get("success_progress",0),p.get("stakeholder_alignment",0),p.get("nrr",0),p.get("expansion_forecast",0),p.get("realized_value",0),p.get("executive_summary"),p.get("priority_actions"))
     return jsonify({"success":ok,"error":e,"growth_command_center_id":i}),(200 if ok else 400)
 
+
+# ===== V36.47 EXPANSION PIPELINE + OPPORTUNITY GATE =====
+V3647_VERSION="V36.47"
+def _v3647_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3647_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_expansion_pipeline (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, account_name TEXT NOT NULL, opportunity_name TEXT NOT NULL, owner TEXT NOT NULL, signal_score REAL NOT NULL DEFAULT 0, fit_score REAL NOT NULL DEFAULT 0, intent_score REAL NOT NULL DEFAULT 0, champion_score REAL NOT NULL DEFAULT 0, pipeline_value REAL NOT NULL DEFAULT 0, probability REAL NOT NULL DEFAULT 0, weighted_value REAL NOT NULL DEFAULT 0, stage TEXT NOT NULL DEFAULT 'DISCOVERY', next_step TEXT NOT NULL DEFAULT '', close_date TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally: con.close()
+try:_v3647_init()
+except Exception:pass
+
+def _v3647_create(u,account_name,opportunity_name,owner,signal_score=0,fit_score=0,intent_score=0,champion_score=0,pipeline_value=0,stage="DISCOVERY",next_step="",close_date=""):
+    if not str(account_name or "").strip() or not str(opportunity_name or "").strip() or not str(owner or "").strip():
+        return False,"account_opportunity_owner_required",None
+    try:
+        s=max(0,min(100,float(signal_score or 0)))
+        f=max(0,min(100,float(fit_score or 0)))
+        i=max(0,min(100,float(intent_score or 0)))
+        c=max(0,min(100,float(champion_score or 0)))
+        pv=max(0,float(pipeline_value or 0))
+    except Exception:return False,"invalid_expansion_metric",None
+    probability=round((s*0.30)+(f*0.25)+(i*0.25)+(c*0.20),2)
+    weighted=round(pv*(probability/100.0),2)
+    now=_v3647_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_expansion_pipeline (username,account_name,opportunity_name,owner,signal_score,fit_score,intent_score,champion_score,pipeline_value,probability,weighted_value,stage,next_step,close_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(account_name)[:220],str(opportunity_name)[:300],str(owner)[:180],s,f,i,c,pv,probability,weighted,str(stage or "DISCOVERY")[:80],str(next_step or "")[:5000],str(close_date or "")[:80],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3647_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_expansion_pipeline WHERE username=? ORDER BY weighted_value DESC,id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3647_VERSION,"items":items,"pipeline_total":round(sum(float(x["pipeline_value"] or 0) for x in items),2),"weighted_pipeline":round(sum(float(x["weighted_value"] or 0) for x in items),2)}
+
+@app.route("/api/hunter-expansion-pipeline",methods=["GET","POST"])
+def v3647_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3647_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3647_create(u,p.get("account_name"),p.get("opportunity_name"),p.get("owner"),p.get("signal_score",0),p.get("fit_score",0),p.get("intent_score",0),p.get("champion_score",0),p.get("pipeline_value",0),p.get("stage"),p.get("next_step"),p.get("close_date"))
+    return jsonify({"success":ok,"error":e,"expansion_opportunity_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
