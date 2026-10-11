@@ -91087,6 +91087,61 @@ def v3593_page():
     cards="".join(f"<div class='card'><b>{esc(x['kind'])} #{x['id']} · {esc(x['state'])}</b><h2>{esc(x.get('name') or '')}</h2><p>Age: {x['age_days']} days · SHA: {esc((x.get('sha256') or '')[:24])}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.93 Evidence Freshness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.93 · EVIDENCE FRESHNESS WATCH</small><h1>Detect aging or stale assurance evidence before external review.</h1></div>{}</div>""".format(cards or '<div class="card">No evidence snapshots yet.</div>')
 
+
+# ===== V35.94 BOARD / PARTNER READINESS CERTIFICATE GATE =====
+V3594_VERSION="V35.94"
+
+def _v3594_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3594_readiness(u):
+    maturity=_v3586_score(u)
+    metrics=_v3589_metrics(u)
+    fresh=_v3593_watch(u).get("items",[])
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        approved_packs=con.execute("SELECT COUNT(*) c FROM startup_board_assurance_packs WHERE username=? AND state='APPROVED'",(u,)).fetchone()["c"]
+        completed_rooms=con.execute("SELECT COUNT(*) c FROM startup_due_diligence_rooms WHERE username=? AND state IN ('COMPLETE','CLOSED')",(u,)).fetchone()["c"]
+    finally:con.close()
+    stale_count=sum(1 for x in fresh if x["state"] in ("STALE","MISSING"))
+    score=min(100,
+        int(maturity["score"]*0.45)
+        + min(20,approved_packs*10)
+        + min(15,completed_rooms*10)
+        + (10 if metrics["overall_risk"]=="LOW" else 5 if metrics["overall_risk"]=="MEDIUM" else 0)
+        + (10 if stale_count==0 else 0)
+    )
+    status="BOARD_READY" if score>=80 and stale_count==0 else "PARTNER_READY" if score>=65 else "NEEDS_WORK"
+    payload={
+        "version":V3594_VERSION,
+        "score":score,
+        "status":status,
+        "maturity_score":maturity["score"],
+        "maturity_level":maturity["level"],
+        "overall_risk":metrics["overall_risk"],
+        "approved_board_packs":approved_packs,
+        "completed_due_diligence_rooms":completed_rooms,
+        "stale_or_missing_evidence":stale_count,
+        "generated_at":_v3594_now()
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":"))
+    payload["certificate_sha256"]=hashlib.sha256(raw.encode()).hexdigest()
+    return payload
+
+@app.route("/api/hunter-board-partner-readiness")
+def v3594_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    return jsonify({"success":True,"certificate":_v3594_readiness(u)})
+
+@app.route("/hunter-board-partner-readiness")
+def v3594_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3594_readiness(u);esc=html.escape
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.94 Board / Partner Readiness</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:24px}.score{font-size:72px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V35.94 · BOARD / PARTNER READINESS CERTIFICATE</small><div class='score'>{}/100</div><h1>{}</h1><p>Maturity: {}/100 · {} · Risk: {}</p><p>Approved board packs: {} · Completed diligence rooms: {} · Stale/missing evidence: {}</p><p>Certificate: {}</p></div></div>""".format(
+        d["score"],esc(d["status"]),d["maturity_score"],esc(d["maturity_level"]),esc(d["overall_risk"]),
+        d["approved_board_packs"],d["completed_due_diligence_rooms"],d["stale_or_missing_evidence"],esc(d["certificate_sha256"]))
+
 if __name__ == "__main__":
 
     init_db()
