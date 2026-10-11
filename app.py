@@ -89979,6 +89979,74 @@ def v3578_page():
     cards="".join(f"<div class='card'><b>Profile #{p['id']} · {esc(p['state'])}</b><h2>{esc(p['profile_name'])}</h2><a href='/api/hunter-audit-trust-bundle/{p['id']}'>EXPORT BUNDLE JSON</a></div>" for p in profiles)
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.78 Audit Trust Bundles</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}a{color:#9affd7}</style><div class='w'><div class='card'><small>BL3 V35.78 · AUDIT-READY TRUST BUNDLE</small><h1>Export a sanitized manifest of trust, controls, attestations and exceptions.</h1></div>{}</div>""".format(cards or '<div class="card">No trust profiles yet.</div>')
 
+
+# ===== V35.79 AUDIT EVIDENCE REQUEST INBOX + FULFILLMENT GATE =====
+V3579_VERSION="V35.79"
+def _v3579_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3579_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_audit_evidence_requests(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, profile_id INTEGER NOT NULL,
+            request_title TEXT NOT NULL, request_detail TEXT NOT NULL DEFAULT '', requester_label TEXT NOT NULL DEFAULT '',
+            due_at TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'OPEN', response_note TEXT NOT NULL DEFAULT '',
+            response_evidence TEXT NOT NULL DEFAULT '', evidence_sha256 TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL, fulfilled_at TEXT DEFAULT '')"""); con.commit()
+    finally: con.close()
+try:_v3579_init()
+except Exception: pass
+
+def _v3579_create(u,pid,title,detail='',requester='',due=''):
+    if not str(title or '').strip(): return False,'title_required',None
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        if not con.execute('SELECT id FROM startup_public_trust_profiles WHERE username=? AND id=?',(u,int(pid))).fetchone(): return False,'profile_not_found',None
+        now=_v3579_now(); cur=con.execute("""INSERT INTO startup_audit_evidence_requests
+        (username,profile_id,request_title,request_detail,requester_label,due_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)""",
+        (u,int(pid),str(title)[:260],str(detail or '')[:5000],str(requester or '')[:240],str(due or '')[:80],now,now)); con.commit(); return True,'',cur.lastrowid
+    finally: con.close()
+
+def _v3579_action(u,i,action,evidence='',note=''):
+    a=str(action or '').upper(); ev=str(evidence or '').strip(); now=_v3579_now(); con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute('SELECT * FROM startup_audit_evidence_requests WHERE username=? AND id=?',(u,int(i))).fetchone()
+        if not r:return False,'request_not_found',None
+        cur=r['state']
+        if a=='START' and cur=='OPEN': new='IN_PROGRESS'
+        elif a=='FULFILL' and cur in ('OPEN','IN_PROGRESS') and ev: new='FULFILLED'
+        elif a=='REJECT' and cur in ('OPEN','IN_PROGRESS') and ev: new='REJECTED'
+        elif a=='CLOSE' and cur in ('FULFILLED','REJECTED'): new='CLOSED'
+        else:return False,'invalid_transition_or_evidence_required',None
+        digest=hashlib.sha256(json.dumps({'request_id':int(i),'state':new,'evidence':ev,'utc':now},sort_keys=True,separators=(',',':')).encode()).hexdigest() if ev else r['evidence_sha256']
+        con.execute("""UPDATE startup_audit_evidence_requests SET state=?,response_note=?,response_evidence=?,evidence_sha256=?,
+        fulfilled_at=CASE WHEN ?='FULFILLED' THEN ? ELSE fulfilled_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,str(note or '')[:3000],ev[:5000],digest,new,now,now,u,int(i))); con.commit()
+        rr=con.execute('SELECT * FROM startup_audit_evidence_requests WHERE username=? AND id=?',(u,int(i))).fetchone(); return True,'',dict(rr)
+    finally: con.close()
+
+def _v3579_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute('SELECT * FROM startup_audit_evidence_requests WHERE username=? ORDER BY id DESC',(u,)).fetchall()]
+    finally: con.close()
+    return {'success':True,'version':V3579_VERSION,'items':items}
+
+@app.route('/api/hunter-audit-evidence-requests',methods=['GET','POST'])
+def v3579_api():
+    u=session.get('authenticated_username')
+    if not u:return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET': return jsonify(_v3579_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3579_create(u,p.get('profile_id'),p.get('request_title'),p.get('request_detail'),p.get('requester_label'),p.get('due_at'))
+    return jsonify({'success':ok,'error':e,'request_id':i}),(200 if ok else 400)
+
+@app.route('/hunter-audit-evidence-requests')
+def v3579_page():
+    u=session.get('authenticated_username')
+    if not u:return redirect('/')
+    d=_v3579_snapshot(u); esc=html.escape
+    cards=''.join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['request_title'])}</h2><p>{esc(x.get('requester_label') or '')}</p></div>" for x in d['items'])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.79 Audit Evidence Requests</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.79 · AUDIT EVIDENCE REQUEST INBOX</small><h1>Track every evidence request through explicit fulfillment.</h1></div>{}</div>""".format(cards or '<div class="card">No evidence requests yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
