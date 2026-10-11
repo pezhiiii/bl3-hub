@@ -99492,6 +99492,122 @@ def v3693_api():
         "readiness_band": band
     })
 
+
+# ===== V36.94 RUNWAY & BURN COMMAND CENTER =====
+V3694_VERSION = "V36.94"
+
+def _v3694_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_runway_command_center (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            snapshot_name TEXT NOT NULL,
+            cash_balance REAL NOT NULL DEFAULT 0,
+            monthly_revenue REAL NOT NULL DEFAULT 0,
+            monthly_expenses REAL NOT NULL DEFAULT 0,
+            net_burn REAL NOT NULL DEFAULT 0,
+            runway_months REAL NOT NULL DEFAULT 0,
+            health_band TEXT NOT NULL DEFAULT 'UNKNOWN',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3694_init()
+except Exception:
+    pass
+
+def _v3694_calc(cash, revenue, expenses):
+    c = max(0.0, float(cash or 0))
+    r = max(0.0, float(revenue or 0))
+    e = max(0.0, float(expenses or 0))
+    burn = max(0.0, e - r)
+    runway = 999.0 if burn <= 0 else round(c / burn, 2)
+
+    if runway >= 24:
+        band = "STRONG"
+    elif runway >= 18:
+        band = "HEALTHY"
+    elif runway >= 12:
+        band = "WATCH"
+    elif runway >= 6:
+        band = "RISK"
+    else:
+        band = "CRITICAL"
+
+    return round(burn, 2), runway, band
+
+@app.route("/api/runway-command-center", methods=["GET", "POST"])
+def v3694_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_runway_command_center
+                   WHERE username=? ORDER BY id DESC LIMIT 100""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        latest = rows[0] if rows else None
+        return jsonify({
+            "success": True,
+            "version": V3694_VERSION,
+            "items": rows,
+            "latest": latest
+        })
+
+    p = request.get_json(silent=True) or request.form
+    burn, runway, band = _v3694_calc(
+        p.get("cash_balance", 0),
+        p.get("monthly_revenue", 0),
+        p.get("monthly_expenses", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_runway_command_center
+            (username,snapshot_name,cash_balance,monthly_revenue,monthly_expenses,
+             net_burn,runway_months,health_band,notes,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("snapshot_name") or "Runway Snapshot")[:220],
+                float(p.get("cash_balance") or 0),
+                float(p.get("monthly_revenue") or 0),
+                float(p.get("monthly_expenses") or 0),
+                burn,
+                runway,
+                band,
+                str(p.get("notes") or "")[:1200],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3694_VERSION,
+        "snapshot_id": rid,
+        "net_burn": burn,
+        "runway_months": runway,
+        "health_band": band
+    })
+
 if __name__ == "__main__":
 
     init_db()
