@@ -93506,6 +93506,67 @@ def v3622_page():
     cards="".join(f"<div class='card'><b>{esc(x['booking_reference'])}</b><p>{x['booked_value']} {esc(x['currency'])} · {esc(x['booking_date'])}</p></div>" for x in d["items"])
     return "<!doctype html><meta charset='utf-8'><title>BL3 V36.22</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}.big{font-size:56px;font-weight:800}</style><div class='w'><div class='card'><small>BL3 V36.22 · REVENUE REALIZATION</small><div class='big'>{}</div><h1>Booked expansion revenue</h1><p>Bookings: {}</p></div>{}</div>".format(d["booked_total"],d["booking_count"],cards or "<div class='card'>No booked expansion revenue yet.</div>")
 
+
+# ===== V36.23 CONTRACT ACTIVATION + OBLIGATION GATE =====
+V3623_VERSION="V36.23"
+def _v3623_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+def _v3623_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute('CREATE TABLE IF NOT EXISTS startup_contract_activation (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, booking_id INTEGER NOT NULL, contract_reference TEXT NOT NULL, effective_date TEXT NOT NULL DEFAULT "", end_date TEXT NOT NULL DEFAULT "", customer_owner TEXT NOT NULL DEFAULT "", internal_owner TEXT NOT NULL, obligations TEXT NOT NULL DEFAULT "", activation_evidence TEXT NOT NULL DEFAULT "", state TEXT NOT NULL DEFAULT "DRAFT", created_at TEXT NOT NULL, updated_at TEXT NOT NULL, activated_at TEXT DEFAULT "")')
+        con.commit()
+    finally: con.close()
+try: _v3623_init()
+except Exception: pass
+
+def _v3623_create(u,booking_id,contract_ref,effective_date="",end_date="",customer_owner="",internal_owner="",obligations=""):
+    if not str(contract_ref or "").strip() or not str(internal_owner or "").strip():
+        return False,"contract_reference_and_internal_owner_required",None
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        if not con.execute("SELECT id FROM startup_revenue_realization WHERE username=? AND id=?",(u,int(booking_id))).fetchone():
+            return False,"booking_not_found",None
+        now=_v3623_now()
+        cur=con.execute("INSERT INTO startup_contract_activation (username,booking_id,contract_reference,effective_date,end_date,customer_owner,internal_owner,obligations,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (u,int(booking_id),str(contract_ref)[:240],str(effective_date or "")[:80],str(end_date or "")[:80],str(customer_owner or "")[:180],str(internal_owner)[:180],str(obligations or "")[:8000],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3623_action(u,i,action,evidence=""):
+    a=str(action or "").upper(); ev=str(evidence or "").strip(); now=_v3623_now()
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_contract_activation WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"contract_not_found",None
+        cur=r["state"]
+        if a=="REVIEW" and cur=="DRAFT": new="REVIEW"
+        elif a=="ACTIVATE" and cur=="REVIEW" and ev: new="ACTIVE"
+        elif a=="SUSPEND" and cur=="ACTIVE" and ev: new="SUSPENDED"
+        elif a=="RESUME" and cur=="SUSPENDED": new="ACTIVE"
+        elif a=="CLOSE" and cur in ("ACTIVE","SUSPENDED") and ev: new="CLOSED"
+        else:return False,"invalid_transition_or_evidence_required",None
+        activated = now if new=="ACTIVE" and not r["activated_at"] else r["activated_at"]
+        con.execute("UPDATE startup_contract_activation SET state=?,activation_evidence=?,activated_at=?,updated_at=? WHERE username=? AND id=?",
+                    (new,ev[:5000],activated,now,u,int(i)))
+        con.commit()
+        return True,"",dict(con.execute("SELECT * FROM startup_contract_activation WHERE username=? AND id=?",(u,int(i))).fetchone())
+    finally: con.close()
+
+def _v3623_snapshot(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try: items=[dict(r) for r in con.execute("SELECT * FROM startup_contract_activation WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally: con.close()
+    return {"success":True,"version":V3623_VERSION,"items":items,"active_contracts":sum(1 for x in items if x["state"]=="ACTIVE")}
+
+@app.route("/api/hunter-contract-activation",methods=["GET","POST"])
+def v3623_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET": return jsonify(_v3623_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3623_create(u,p.get("booking_id"),p.get("contract_reference"),p.get("effective_date"),p.get("end_date"),p.get("customer_owner"),p.get("internal_owner"),p.get("obligations"))
+    return jsonify({"success":ok,"error":e,"contract_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
