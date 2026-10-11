@@ -95579,6 +95579,248 @@ def v3658_api():
     ok,e,i=_v3658_create(u,p.get("motion_name"),p.get("owner"),p.get("motion_type","GROWTH"),p.get("target_segment"),p.get("priority_score",0),p.get("revenue_impact",0),p.get("confidence_score",0),p.get("urgency_score",0),p.get("effort_score",0),p.get("next_action"),p.get("channel_plan"),p.get("success_metric"))
     return jsonify({"success":ok,"error":e,"orchestration_id":i}),(200 if ok else 400)
 
+
+# ===== V36.59 AUTONOMOUS REVENUE ACTION ENGINE =====
+V3659_VERSION = "V36.59"
+
+def _v3659_now():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+def _v3659_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_action_engine (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            action_name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            action_type TEXT NOT NULL DEFAULT 'REVENUE',
+            source_motion TEXT NOT NULL DEFAULT '',
+            target_account TEXT NOT NULL DEFAULT '',
+            target_segment TEXT NOT NULL DEFAULT '',
+            expected_revenue REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            strategic_score REAL NOT NULL DEFAULT 0,
+            effort_score REAL NOT NULL DEFAULT 0,
+            dependency_score REAL NOT NULL DEFAULT 0,
+            action_score REAL NOT NULL DEFAULT 0,
+            action_status TEXT NOT NULL DEFAULT 'BACKLOG',
+            execution_state TEXT NOT NULL DEFAULT 'NOT_STARTED',
+            next_step TEXT NOT NULL DEFAULT '',
+            execution_playbook TEXT NOT NULL DEFAULT '',
+            success_metric TEXT NOT NULL DEFAULT '',
+            due_date TEXT NOT NULL DEFAULT '',
+            completed_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3659_init()
+except Exception:
+    pass
+
+def _v3659_create(
+    u,
+    action_name,
+    owner,
+    action_type="REVENUE",
+    source_motion="",
+    target_account="",
+    target_segment="",
+    expected_revenue=0,
+    confidence_score=0,
+    urgency_score=0,
+    strategic_score=0,
+    effort_score=0,
+    dependency_score=0,
+    next_step="",
+    execution_playbook="",
+    success_metric="",
+    due_date=""
+):
+    if not str(action_name or "").strip() or not str(owner or "").strip():
+        return False, "action_and_owner_required", None
+
+    try:
+        er = max(0, float(expected_revenue or 0))
+        cs = max(0, min(100, float(confidence_score or 0)))
+        us = max(0, min(100, float(urgency_score or 0)))
+        ss = max(0, min(100, float(strategic_score or 0)))
+        es = max(0, min(100, float(effort_score or 0)))
+        ds = max(0, min(100, float(dependency_score or 0)))
+    except Exception:
+        return False, "invalid_action_metric", None
+
+    revenue_score = min(100, (er / 100000.0) * 100.0)
+    score = round(
+        (revenue_score * 0.25)
+        + (cs * 0.20)
+        + (us * 0.20)
+        + (ss * 0.20)
+        + ((100 - es) * 0.10)
+        + ((100 - ds) * 0.05),
+        2
+    )
+
+    status = (
+        "EXECUTE_NOW" if score >= 85 else
+        "NEXT_UP" if score >= 70 else
+        "READY" if score >= 55 else
+        "BACKLOG"
+    )
+
+    now = _v3659_now()
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_revenue_action_engine
+            (username, action_name, owner, action_type, source_motion, target_account,
+             target_segment, expected_revenue, confidence_score, urgency_score,
+             strategic_score, effort_score, dependency_score, action_score,
+             action_status, execution_state, next_step, execution_playbook,
+             success_metric, due_date, completed_at, created_at, updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(action_name)[:220],
+                str(owner)[:180],
+                str(action_type or "REVENUE")[:80],
+                str(source_motion or "")[:220],
+                str(target_account or "")[:220],
+                str(target_segment or "")[:180],
+                er, cs, us, ss, es, ds, score, status,
+                "NOT_STARTED",
+                str(next_step or "")[:7000],
+                str(execution_playbook or "")[:12000],
+                str(success_metric or "")[:3000],
+                str(due_date or "")[:80],
+                "",
+                now,
+                now
+            )
+        )
+        con.commit()
+        return True, "", cur.lastrowid
+    finally:
+        con.close()
+
+def _v3659_update_state(u, action_id, execution_state):
+    valid = {"NOT_STARTED", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"}
+    state = str(execution_state or "").upper().strip()
+    if state not in valid:
+        return False, "invalid_execution_state"
+
+    now = _v3659_now()
+    completed_at = now if state == "DONE" else ""
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """UPDATE startup_revenue_action_engine
+               SET execution_state=?, completed_at=?, updated_at=?
+               WHERE id=? AND username=?""",
+            (state, completed_at, now, int(action_id), u)
+        )
+        con.commit()
+        if cur.rowcount <= 0:
+            return False, "action_not_found"
+        return True, ""
+    finally:
+        con.close()
+
+def _v3659_summary(u):
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        items = [
+            dict(r) for r in con.execute(
+                """SELECT * FROM startup_revenue_action_engine
+                   WHERE username=?
+                   ORDER BY
+                     CASE action_status
+                       WHEN 'EXECUTE_NOW' THEN 1
+                       WHEN 'NEXT_UP' THEN 2
+                       WHEN 'READY' THEN 3
+                       ELSE 4
+                     END,
+                     action_score DESC,
+                     id DESC""",
+                (u,)
+            ).fetchall()
+        ]
+    finally:
+        con.close()
+
+    active = [x for x in items if x["execution_state"] not in ("DONE", "CANCELLED")]
+    execution_value = round(
+        sum(float(x["expected_revenue"] or 0) for x in active if x["action_status"] == "EXECUTE_NOW"),
+        2
+    )
+    completed_value = round(
+        sum(float(x["expected_revenue"] or 0) for x in items if x["execution_state"] == "DONE"),
+        2
+    )
+
+    return {
+        "success": True,
+        "version": V3659_VERSION,
+        "items": items,
+        "execute_now": sum(1 for x in active if x["action_status"] == "EXECUTE_NOW"),
+        "next_up": sum(1 for x in active if x["action_status"] == "NEXT_UP"),
+        "blocked": sum(1 for x in active if x["execution_state"] == "BLOCKED"),
+        "in_progress": sum(1 for x in active if x["execution_state"] == "IN_PROGRESS"),
+        "execution_revenue_value": execution_value,
+        "completed_revenue_value": completed_value
+    }
+
+@app.route("/api/hunter-revenue-action-engine", methods=["GET", "POST", "PATCH"])
+def v3659_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        return jsonify(_v3659_summary(u))
+
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+
+    if request.method == "PATCH":
+        action_id = p.get("action_id")
+        if not action_id:
+            return jsonify({"success": False, "error": "action_id_required"}), 400
+        ok, err = _v3659_update_state(u, action_id, p.get("execution_state"))
+        return jsonify({"success": ok, "error": err}), (200 if ok else 400)
+
+    ok, err, action_id = _v3659_create(
+        u,
+        p.get("action_name"),
+        p.get("owner"),
+        p.get("action_type", "REVENUE"),
+        p.get("source_motion"),
+        p.get("target_account"),
+        p.get("target_segment"),
+        p.get("expected_revenue", 0),
+        p.get("confidence_score", 0),
+        p.get("urgency_score", 0),
+        p.get("strategic_score", 0),
+        p.get("effort_score", 0),
+        p.get("dependency_score", 0),
+        p.get("next_step"),
+        p.get("execution_playbook"),
+        p.get("success_metric"),
+        p.get("due_date")
+    )
+    return jsonify({
+        "success": ok,
+        "error": err,
+        "revenue_action_id": action_id
+    }), (200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
