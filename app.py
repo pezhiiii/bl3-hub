@@ -91943,6 +91943,97 @@ def v3603_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['milestone_name'])}</h2><p>{esc(x['owner'])}</p><p>{esc(x.get('blocker_note') or '')}</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V36.03 Delivery Milestones</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.03 · DELIVERY MILESTONES</small><h1>Track delivery work from plan to reviewed completion.</h1></div>{}</div>""".format(cards or '<div class="card">No milestones yet.</div>')
 
+
+# ===== V36.04 UAT / ACCEPTANCE + SIGNOFF GATE =====
+V3604_VERSION="V36.04"
+V3604_STATES={"PENDING","IN_TEST","PASSED","FAILED","SIGNED_OFF"}
+
+def _v3604_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3604_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_uat_acceptance(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            handoff_id INTEGER NOT NULL,
+            test_name TEXT NOT NULL,
+            reviewer TEXT NOT NULL,
+            acceptance_criteria TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'PENDING',
+            test_evidence TEXT NOT NULL DEFAULT '',
+            feedback TEXT NOT NULL DEFAULT '',
+            signoff_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            signed_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3604_init()
+except Exception:pass
+
+def _v3604_create(u,hid,name,reviewer,criteria=""):
+    if not str(name or "").strip() or not str(reviewer or "").strip():
+        return False,"name_and_reviewer_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        h=con.execute("SELECT * FROM startup_onboarding_handoffs WHERE username=? AND id=?",(u,int(hid))).fetchone()
+        if not h:return False,"handoff_not_found",None
+        now=_v3604_now()
+        cur=con.execute("""INSERT INTO startup_uat_acceptance
+        (username,handoff_id,test_name,reviewer,acceptance_criteria,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",
+        (u,int(hid),str(name)[:260],str(reviewer)[:240],str(criteria or "")[:5000],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3604_action(u,i,action,evidence="",feedback="",signoff=""):
+    a=str(action or "").upper();ev=str(evidence or "").strip();so=str(signoff or "").strip();now=_v3604_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_uat_acceptance WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"uat_not_found",None
+        cur=r["state"]
+        if a=="START" and cur=="PENDING":new="IN_TEST"
+        elif a=="PASS" and cur=="IN_TEST" and ev:new="PASSED"
+        elif a=="FAIL" and cur=="IN_TEST" and ev:new="FAILED"
+        elif a=="RETEST" and cur=="FAILED":new="IN_TEST"
+        elif a=="SIGNOFF" and cur=="PASSED" and so:new="SIGNED_OFF"
+        else:return False,"invalid_transition_or_evidence_required",None
+        con.execute("""UPDATE startup_uat_acceptance SET state=?,test_evidence=?,
+        feedback=?,signoff_evidence=?,
+        signed_at=CASE WHEN ?='SIGNED_OFF' THEN ? ELSE signed_at END,updated_at=?
+        WHERE username=? AND id=?""",
+        (new,ev[:5000],str(feedback or "")[:4000],so[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_uat_acceptance WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3604_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_uat_acceptance WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3604_VERSION,"items":items}
+
+@app.route("/api/hunter-uat-acceptance",methods=["GET","POST"])
+def v3604_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3604_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3604_create(u,p.get("handoff_id"),p.get("test_name"),p.get("reviewer"),p.get("acceptance_criteria"))
+    return jsonify({"success":ok,"error":e,"uat_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-uat-acceptance")
+def v3604_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3604_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['test_name'])}</h2><p>Reviewer: {esc(x['reviewer'])}</p></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V36.04 UAT Acceptance</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V36.04 · UAT / ACCEPTANCE</small><h1>Require explicit test evidence and customer signoff.</h1></div>{}</div>""".format(cards or '<div class="card">No UAT records yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
