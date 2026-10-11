@@ -91242,6 +91242,93 @@ def v3595_page():
     cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><h2>{esc(x['pack_name'])}</h2><p>{esc(x['audience_label'])} · Readiness {x['readiness_score']}/100</p></div>" for x in d["items"])
     return """<!doctype html><meta charset='utf-8'><title>BL3 V35.95 External Presentation Packs</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.95 · EXTERNAL PRESENTATION PACK</small><h1>Package readiness evidence for a specific outside audience.</h1></div>{}</div>""".format(cards or '<div class="card">No presentation packs yet.</div>')
 
+
+# ===== V35.96 EXTERNAL REVIEW QUESTIONS + RESPONSE LOG GATE =====
+V3596_VERSION="V35.96"
+V3596_STATES={"OPEN","ANSWERED","FOLLOWUP","RESOLVED"}
+
+def _v3596_now():return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3596_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_external_review_questions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            presentation_pack_id INTEGER NOT NULL,
+            reviewer_label TEXT NOT NULL,
+            question_text TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            state TEXT NOT NULL DEFAULT 'OPEN',
+            response_text TEXT NOT NULL DEFAULT '',
+            response_evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            answered_at TEXT DEFAULT ''
+        )""")
+        con.commit()
+    finally:con.close()
+try:_v3596_init()
+except Exception:pass
+
+def _v3596_create(u,pid,reviewer,question,category="GENERAL"):
+    if not str(reviewer or "").strip() or not str(question or "").strip():
+        return False,"reviewer_and_question_required",None
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        p=con.execute("SELECT state FROM startup_external_presentation_packs WHERE username=? AND id=?",(u,int(pid))).fetchone()
+        if not p or p["state"] not in ("SHARED","READY"):return False,"presentation_pack_not_available",None
+        now=_v3596_now()
+        cur=con.execute("""INSERT INTO startup_external_review_questions
+        (username,presentation_pack_id,reviewer_label,question_text,category,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)""",(u,int(pid),str(reviewer)[:240],str(question)[:5000],str(category or "GENERAL")[:120],now,now))
+        con.commit();return True,"",cur.lastrowid
+    finally:con.close()
+
+def _v3596_action(u,i,action,response="",evidence=""):
+    a=str(action or "").upper();resp=str(response or "").strip();ev=str(evidence or "").strip();now=_v3596_now()
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:
+        r=con.execute("SELECT * FROM startup_external_review_questions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        if not r:return False,"question_not_found",None
+        cur=r["state"]
+        if a=="ANSWER" and cur=="OPEN" and resp:new="ANSWERED"
+        elif a=="FOLLOWUP" and cur=="ANSWERED":new="FOLLOWUP"
+        elif a=="RESOLVE" and cur in ("ANSWERED","FOLLOWUP") and ev:new="RESOLVED"
+        else:return False,"invalid_transition_or_required_data_missing",None
+        con.execute("""UPDATE startup_external_review_questions SET state=?,
+        response_text=CASE WHEN ?='ANSWERED' THEN ? ELSE response_text END,
+        response_evidence=CASE WHEN ?='RESOLVED' THEN ? ELSE response_evidence END,
+        answered_at=CASE WHEN ?='ANSWERED' THEN ? ELSE answered_at END,updated_at=? WHERE username=? AND id=?""",
+        (new,new,resp[:5000],new,ev[:5000],new,now,now,u,int(i)))
+        con.commit()
+        rr=con.execute("SELECT * FROM startup_external_review_questions WHERE username=? AND id=?",(u,int(i))).fetchone()
+        return True,"",dict(rr)
+    finally:con.close()
+
+def _v3596_snapshot(u):
+    con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_external_review_questions WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3596_VERSION,"items":items}
+
+@app.route("/api/hunter-external-review-questions",methods=["GET","POST"])
+def v3596_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3596_snapshot(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3596_create(u,p.get("presentation_pack_id"),p.get("reviewer_label"),p.get("question_text"),p.get("category"))
+    return jsonify({"success":ok,"error":e,"question_id":i}),(200 if ok else 400)
+
+@app.route("/hunter-external-review-questions")
+def v3596_page():
+    u=session.get("authenticated_username")
+    if not u:return redirect("/")
+    d=_v3596_snapshot(u);esc=html.escape
+    cards="".join(f"<div class='card'><b>#{x['id']} · {esc(x['state'])}</b><p>{esc(x['question_text'])}</p><small>{esc(x['reviewer_label'])} · {esc(x['category'])}</small></div>" for x in d["items"])
+    return """<!doctype html><meta charset='utf-8'><title>BL3 V35.96 External Review Questions</title><style>body{background:#06080b;color:#fff;font-family:Arial}.w{max-width:1100px;margin:auto;padding:28px}.card{background:#0a1016;border:1px solid #36505c;border-radius:18px;padding:18px;margin:12px 0}</style><div class='w'><div class='card'><small>BL3 V35.96 · EXTERNAL REVIEW QUESTIONS</small><h1>Capture reviewer questions and evidence-backed responses.</h1></div>{}</div>""".format(cards or '<div class="card">No reviewer questions yet.</div>')
+
 if __name__ == "__main__":
 
     init_db()
