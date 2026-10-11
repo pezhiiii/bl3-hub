@@ -94490,6 +94490,57 @@ def v3642_api():
     ok,e,i=_v3642_create(u,p.get("cycle_label"),p.get("owner"),p.get("portfolio_health",0),p.get("nrr",0),p.get("grr",0),p.get("expansion_forecast",0),p.get("realized_value",0),p.get("active_initiatives",0),p.get("critical_accounts",0),p.get("executive_summary"),p.get("next_cycle_focus"))
     return jsonify({"success":ok,"error":e,"customer_operating_system_id":i}),(200 if ok else 400)
 
+
+# ===== V36.43 QBR ORCHESTRATION + READINESS GATE =====
+V3643_VERSION="V36.43"
+def _v3643_now(): return datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+def _v3643_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS startup_qbr_orchestration (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, cycle_label TEXT NOT NULL, account_name TEXT NOT NULL, qbr_owner TEXT NOT NULL, executive_sponsor TEXT NOT NULL DEFAULT '', meeting_date TEXT NOT NULL DEFAULT '', health_score REAL NOT NULL DEFAULT 0, value_realized REAL NOT NULL DEFAULT 0, expansion_signal REAL NOT NULL DEFAULT 0, open_risks INTEGER NOT NULL DEFAULT 0, readiness_score REAL NOT NULL DEFAULT 0, readiness_status TEXT NOT NULL DEFAULT 'NOT_READY', agenda TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PLANNED', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        con.commit()
+    finally: con.close()
+try:_v3643_init()
+except Exception:pass
+
+def _v3643_create(u,cycle_label,account_name,qbr_owner,executive_sponsor="",meeting_date="",health_score=0,value_realized=0,expansion_signal=0,open_risks=0,agenda=""):
+    if not str(cycle_label or "").strip() or not str(account_name or "").strip() or not str(qbr_owner or "").strip():
+        return False,"cycle_account_owner_required",None
+    try:
+        hs=max(0,min(100,float(health_score or 0)))
+        vr=max(0,float(value_realized or 0))
+        es=max(0,min(100,float(expansion_signal or 0)))
+        risks=max(0,int(open_risks or 0))
+    except Exception:
+        return False,"invalid_qbr_metric",None
+    risk_component=max(0,100-(risks*12))
+    value_component=min(100,vr/1000*10)
+    readiness=round((hs*0.35)+(es*0.25)+(risk_component*0.20)+(value_component*0.20),2)
+    status="READY" if readiness>=75 else ("CONDITIONAL" if readiness>=55 else "NOT_READY")
+    now=_v3643_now()
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO startup_qbr_orchestration (username,cycle_label,account_name,qbr_owner,executive_sponsor,meeting_date,health_score,value_realized,expansion_signal,open_risks,readiness_score,readiness_status,agenda,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (u,str(cycle_label)[:120],str(account_name)[:220],str(qbr_owner)[:180],str(executive_sponsor or "")[:180],str(meeting_date or "")[:80],hs,vr,es,risks,readiness,status,str(agenda or "")[:9000],now,now))
+        con.commit(); return True,"",cur.lastrowid
+    finally: con.close()
+
+def _v3643_summary(u):
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:items=[dict(r) for r in con.execute("SELECT * FROM startup_qbr_orchestration WHERE username=? ORDER BY id DESC",(u,)).fetchall()]
+    finally:con.close()
+    return {"success":True,"version":V3643_VERSION,"items":items,"ready":sum(1 for x in items if x["readiness_status"]=="READY"),"conditional":sum(1 for x in items if x["readiness_status"]=="CONDITIONAL"),"not_ready":sum(1 for x in items if x["readiness_status"]=="NOT_READY")}
+
+@app.route("/api/hunter-qbr-orchestration",methods=["GET","POST"])
+def v3643_api():
+    u=session.get("authenticated_username")
+    if not u:return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":return jsonify(_v3643_summary(u))
+    p=request.form if request.form else (request.get_json(silent=True) or {})
+    ok,e,i=_v3643_create(u,p.get("cycle_label"),p.get("account_name"),p.get("qbr_owner"),p.get("executive_sponsor"),p.get("meeting_date"),p.get("health_score",0),p.get("value_realized",0),p.get("expansion_signal",0),p.get("open_risks",0),p.get("agenda"))
+    return jsonify({"success":ok,"error":e,"qbr_id":i}),(200 if ok else 400)
+
 if __name__ == "__main__":
 
     init_db()
