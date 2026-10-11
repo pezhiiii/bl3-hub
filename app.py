@@ -96512,6 +96512,135 @@ def v3669_api():
         "rebalance_action": action
     })
 
+
+# ===== V36.70 REVENUE POLICY GUARDRAIL ENGINE =====
+V3670_VERSION = "V36.70"
+
+def _v3670_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_revenue_policy_guardrails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            action_name TEXT NOT NULL,
+            action_type TEXT NOT NULL DEFAULT 'UNKNOWN',
+            proposed_amount REAL NOT NULL DEFAULT 0,
+            max_allowed_amount REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            policy_score REAL NOT NULL DEFAULT 0,
+            policy_status TEXT NOT NULL DEFAULT 'REVIEW',
+            reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3670_init()
+except Exception:
+    pass
+
+def _v3670_calc(proposed_amount, max_allowed_amount, risk_score, confidence_score):
+    proposed = max(0.0, float(proposed_amount or 0))
+    max_allowed = max(0.0, float(max_allowed_amount or 0))
+    risk = max(0.0, min(100.0, float(risk_score or 0)))
+    conf = max(0.0, min(100.0, float(confidence_score or 0)))
+
+    amount_compliance = 100.0 if max_allowed <= 0 else max(0.0, min(100.0, 100.0 - max(0.0, proposed-max_allowed) / max_allowed * 100.0))
+    score = round(
+        amount_compliance * 0.45 +
+        (100.0 - risk) * 0.35 +
+        conf * 0.20,
+        2
+    )
+
+    if proposed > max_allowed > 0:
+        status = "BLOCK"
+        reason = "Proposed amount exceeds configured limit."
+    elif risk >= 80:
+        status = "BLOCK"
+        reason = "Risk score exceeds autonomous execution threshold."
+    elif score >= 75 and conf >= 65:
+        status = "ALLOW"
+        reason = "Action satisfies revenue policy guardrails."
+    else:
+        status = "REVIEW"
+        reason = "Action requires human review before execution."
+
+    return score, status, reason
+
+@app.route("/api/revenue-policy-guardrails", methods=["GET", "POST"])
+def v3670_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_revenue_policy_guardrails
+                   WHERE username=? ORDER BY id DESC""", (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        return jsonify({
+            "success": True,
+            "version": V3670_VERSION,
+            "items": rows,
+            "allow_count": sum(1 for x in rows if x["policy_status"] == "ALLOW"),
+            "review_count": sum(1 for x in rows if x["policy_status"] == "REVIEW"),
+            "block_count": sum(1 for x in rows if x["policy_status"] == "BLOCK")
+        })
+
+    p = request.form if request.form else (request.get_json(silent=True) or {})
+    score, status, reason = _v3670_calc(
+        p.get("proposed_amount", 0),
+        p.get("max_allowed_amount", 0),
+        p.get("risk_score", 0),
+        p.get("confidence_score", 0)
+    )
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_revenue_policy_guardrails
+            (username,action_name,action_type,proposed_amount,max_allowed_amount,
+             risk_score,confidence_score,policy_score,policy_status,reason,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("action_name") or "Revenue Action")[:220],
+                str(p.get("action_type") or "UNKNOWN")[:120],
+                float(p.get("proposed_amount") or 0),
+                float(p.get("max_allowed_amount") or 0),
+                float(p.get("risk_score") or 0),
+                float(p.get("confidence_score") or 0),
+                score,
+                status,
+                reason,
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3670_VERSION,
+        "guardrail_id": rid,
+        "policy_score": score,
+        "policy_status": status,
+        "reason": reason
+    })
+
 if __name__ == "__main__":
 
     init_db()
