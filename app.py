@@ -96173,6 +96173,55 @@ def v3665_api():
     finally: con.close()
     return jsonify({'success':True,'version':V3665_VERSION,'portfolio_item_id':rid,'roi_score':roi,'priority_score':priority,'priority_band':band,'recommended_allocation':alloc})
 
+
+# ===== V36.66 SELF HEALING REVENUE OPERATIONS =====
+V3666_VERSION = "V36.66"
+
+def _v3666_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_self_healing_revenue_ops (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL,
+            incident_name TEXT NOT NULL, incident_type TEXT NOT NULL DEFAULT 'UNKNOWN',
+            severity REAL NOT NULL DEFAULT 0, blast_radius REAL NOT NULL DEFAULT 0,
+            revenue_exposure REAL NOT NULL DEFAULT 0, detection_confidence REAL NOT NULL DEFAULT 0,
+            remediation_action TEXT NOT NULL DEFAULT '', auto_remediate INTEGER NOT NULL DEFAULT 0,
+            remediation_score REAL NOT NULL DEFAULT 0, remediation_status TEXT NOT NULL DEFAULT 'OBSERVE',
+            created_at TEXT NOT NULL, resolved_at TEXT NOT NULL DEFAULT '')""")
+        con.commit()
+    finally: con.close()
+try: _v3666_init()
+except Exception: pass
+
+def _v3666_calc(severity,blast,exposure,confidence):
+    sev=max(0.0,min(100.0,float(severity or 0))); blast=max(0.0,min(100.0,float(blast or 0)))
+    exposure=max(0.0,float(exposure or 0)); conf=max(0.0,min(100.0,float(confidence or 0))); exp=min(100.0,exposure/1000.0)
+    score=round(sev*0.35+blast*0.25+exp*0.25+conf*0.15,2)
+    status='AUTO_HEAL' if score>=80 and conf>=70 else 'ESCALATE' if score>=60 else 'WATCH' if score>=35 else 'OBSERVE'
+    return score,status
+
+@app.route('/api/self-healing-revenue-ops', methods=['GET','POST','PATCH'])
+def v3666_api():
+    u=session.get('authenticated_username')
+    if not u: return jsonify({'success':False,'error':'auth_required'}),401
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        if request.method=='GET':
+            rows=[dict(r) for r in con.execute('SELECT * FROM startup_self_healing_revenue_ops WHERE username=? ORDER BY remediation_score DESC,id DESC',(u,)).fetchall()]
+            return jsonify({'success':True,'version':V3666_VERSION,'items':rows,'auto_heal_count':sum(1 for x in rows if x['remediation_status']=='AUTO_HEAL'),'escalate_count':sum(1 for x in rows if x['remediation_status']=='ESCALATE'),'total_revenue_exposure':round(sum(float(x['revenue_exposure'] or 0) for x in rows),2)})
+        p=request.form if request.form else (request.get_json(silent=True) or {}); now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+        if request.method=='PATCH':
+            iid=int(p.get('incident_id') or 0); resolved=1 if str(p.get('resolved') or '').lower() in {'1','true','yes','on'} else 0; resolved_at=now if resolved else ''
+            con.execute('UPDATE startup_self_healing_revenue_ops SET resolved_at=? WHERE id=? AND username=?',(resolved_at,iid,u)); con.commit()
+            return jsonify({'success':True,'version':V3666_VERSION,'resolved_at':resolved_at})
+        score,status=_v3666_calc(p.get('severity',0),p.get('blast_radius',0),p.get('revenue_exposure',0),p.get('detection_confidence',0)); auto=1 if status=='AUTO_HEAL' else 0
+        cur=con.execute("""INSERT INTO startup_self_healing_revenue_ops
+        (username,incident_name,incident_type,severity,blast_radius,revenue_exposure,detection_confidence,remediation_action,auto_remediate,remediation_score,remediation_status,created_at,resolved_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (u,str(p.get('incident_name') or 'Revenue Ops Incident')[:220],str(p.get('incident_type') or 'UNKNOWN')[:120],float(p.get('severity') or 0),float(p.get('blast_radius') or 0),float(p.get('revenue_exposure') or 0),float(p.get('detection_confidence') or 0),str(p.get('remediation_action') or '')[:8000],auto,score,status,now,''))
+        con.commit(); return jsonify({'success':True,'version':V3666_VERSION,'incident_id':cur.lastrowid,'remediation_score':score,'remediation_status':status,'auto_remediate':bool(auto)})
+    finally: con.close()
+
 if __name__ == "__main__":
 
     init_db()
