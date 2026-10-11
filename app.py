@@ -99272,6 +99272,120 @@ def v3691_api():
         "priority_band": band
     })
 
+
+# ===== V36.92 FUNDRAISING PIPELINE =====
+V3692_VERSION = "V36.92"
+
+def _v3692_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS startup_fundraising_pipeline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            investor_name TEXT NOT NULL,
+            stage TEXT NOT NULL DEFAULT 'LEAD',
+            relationship_strength REAL NOT NULL DEFAULT 0,
+            conviction_score REAL NOT NULL DEFAULT 0,
+            check_size REAL NOT NULL DEFAULT 0,
+            probability REAL NOT NULL DEFAULT 0,
+            expected_value REAL NOT NULL DEFAULT 0,
+            next_action TEXT NOT NULL DEFAULT '',
+            next_action_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3692_init()
+except Exception:
+    pass
+
+def _v3692_probability(stage, relationship, conviction):
+    stage_map = {
+        "LEAD": 12, "CONTACTED": 22, "MEETING": 38,
+        "DILIGENCE": 58, "PARTNER_MEETING": 72,
+        "TERM_SHEET": 88, "COMMITTED": 97
+    }
+    base = stage_map.get(str(stage or "LEAD").upper(), 12)
+    rel = max(0.0, min(100.0, float(relationship or 0)))
+    conv = max(0.0, min(100.0, float(conviction or 0)))
+    p = round(min(99.0, base * 0.55 + rel * 0.20 + conv * 0.25), 2)
+    return p
+
+@app.route("/api/fundraising-pipeline", methods=["GET", "POST"])
+def v3692_api():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM startup_fundraising_pipeline
+                   WHERE username=? ORDER BY expected_value DESC, probability DESC, id DESC""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({
+            "success": True,
+            "version": V3692_VERSION,
+            "items": rows,
+            "pipeline_value": round(sum(float(x["expected_value"] or 0) for x in rows), 2),
+            "weighted_probability": round(
+                sum(float(x["probability"] or 0) for x in rows) / max(1, len(rows)), 2
+            )
+        })
+
+    p = request.get_json(silent=True) or request.form
+    stage = str(p.get("stage") or "LEAD").upper()
+    prob = _v3692_probability(
+        stage,
+        p.get("relationship_strength", 0),
+        p.get("conviction_score", 0)
+    )
+    check_size = float(p.get("check_size") or 0)
+    expected = round(check_size * prob / 100.0, 2)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO startup_fundraising_pipeline
+            (username,investor_name,stage,relationship_strength,conviction_score,
+             check_size,probability,expected_value,next_action,next_action_at,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                str(p.get("investor_name") or "Investor")[:220],
+                stage[:50],
+                float(p.get("relationship_strength") or 0),
+                float(p.get("conviction_score") or 0),
+                check_size,
+                prob,
+                expected,
+                str(p.get("next_action") or "")[:1000],
+                str(p.get("next_action_at") or ""),
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3692_VERSION,
+        "pipeline_id": rid,
+        "probability": prob,
+        "expected_value": expected
+    })
+
 if __name__ == "__main__":
 
     init_db()
