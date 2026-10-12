@@ -104026,6 +104026,51 @@ def founder_command_nexus_export_v82():
 def founder_command_nexus_page_v82():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Command Nexus</title><style>:root{--hot:#baff5a;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 15% 0,#241d40,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:rgba(16,16,23,.96);border-radius:24px;padding:20px}.mode{font-size:92px;font-weight:950;line-height:.9;color:var(--hot)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:34px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V82.00</div><h1>Founder Command Nexus</h1><div id='mode' class='mode'>...</div><h2 id='next'></h2><p id='cmd' class='muted'></p><div class='links'><a href='/founder-control-tower'>Control Tower</a><a href='/founder-signal-engine'>Signal Engine</a><a href='/founder-priority-autopilot'>Autopilot</a><a href='/founder-launch-brief'>Launch Brief</a><a href='/api/founder-command-nexus/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Launch Verdict</div><div id='verdict' class='big'>-</div></div><div class='card'><div class='muted'>Signal Posture</div><div id='posture' class='big'>-</div></div><div class='card'><div class='muted'>Confidence</div><div id='conf' class='big'>-</div></div><div class='card'><div class='muted'>Launch Progress</div><div id='prog' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-command-nexus')).json();mode.textContent=d.nexus_mode;next.textContent='NEXT: '+d.next_action;cmd.textContent='Command: '+d.command;verdict.textContent=d.launch_verdict;posture.textContent=d.signal_posture;conf.textContent=d.confidence+'/100';prog.textContent=d.launch_progress+'%'}go()</script></body></html>""",mimetype='text/html')
 
+
+# ===== V83.00 FOUNDER EXECUTION RADAR =====
+V8300_VERSION = "83.00"
+
+def _v83_execution_radar_payload():
+    nexus = _v82_command_nexus_payload()
+    auto = _v80_priority_autopilot_payload()
+    brief = _v81_launch_brief_payload()
+    queue = list(auto.get("queue") or [])
+    top3 = queue[:3]
+    confidence = int(nexus.get("confidence") or 0)
+    progress = int(nexus.get("launch_progress") or 0)
+    verdict = str(nexus.get("launch_verdict") or "HOLD").upper()
+    verdict_bonus = {"GO": 20, "CONDITIONAL": 10, "HOLD": 0}.get(verdict, 0)
+    execution_score = max(0, min(100, round(confidence * .45 + progress * .35 + verdict_bonus)))
+    if execution_score >= 80:
+        state = "ACCELERATE"
+    elif execution_score >= 60:
+        state = "EXECUTE"
+    elif execution_score >= 40:
+        state = "VERIFY"
+    else:
+        state = "UNBLOCK"
+    return {
+        "version": V8300_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "execution_score": execution_score,
+        "state": state,
+        "launch_verdict": verdict,
+        "confidence": confidence,
+        "launch_progress": progress,
+        "top_actions": top3,
+        "next_action": (top3[0].get("action") if top3 else nexus.get("next_action")),
+        "summary": brief.get("executive_summary") or [],
+    }
+
+@app.route('/api/founder-execution-radar', methods=['GET'])
+def api_founder_execution_radar_v83():
+    return jsonify(_v83_execution_radar_payload())
+
+@app.route('/founder-execution-radar', methods=['GET'])
+def founder_execution_radar_v83():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Execution Radar</title><style>body{margin:0;background:radial-gradient(circle at 20% 0,#221d3e,#050507 46%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1080px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.score{font-size:88px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.muted{color:#8f91a3}.big{font-size:28px;font-weight:900}.row{padding:12px 0;border-bottom:1px solid #25252f}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V83.00</div><h1>Founder Execution Radar</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next' class='muted'></p></div><div class='grid'><div class='card'><div class='muted'>Confidence</div><div id='conf' class='big'>-</div></div><div class='card'><div class='muted'>Launch Progress</div><div id='prog' class='big'>-</div></div><div class='card'><div class='muted'>Verdict</div><div id='verdict' class='big'>-</div></div></div><div class='card' style='margin-top:14px'><h3>Top Actions</h3><div id='actions'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-execution-radar')).json();score.textContent=d.execution_score+'/100';state.textContent=d.state;next.textContent='NEXT: '+(d.next_action||'-');conf.textContent=d.confidence+'/100';prog.textContent=d.launch_progress+'%';verdict.textContent=d.launch_verdict;actions.innerHTML=(d.top_actions||[]).map((x,i)=>`<div class="row"><b>#${i+1} ${x.action||'-'}</b><div class="muted">${x.reason||''}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
+
+
 if __name__ == "__main__":
 
     init_db()
