@@ -103104,6 +103104,79 @@ def v6200_operating_brief():
         "top_priority":dict(top_priority) if top_priority else None,"top_risk":dict(top_risk) if top_risk else None
     })
 
+
+# ===== V63.00 FOUNDER NEXT MOVE QUEUE =====
+V6300_VERSION = "V63.00"
+
+def _v6300_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_next_move_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'manual',
+            source_ref TEXT NOT NULL DEFAULT '',
+            priority_score REAL NOT NULL DEFAULT 50,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_next_move_user_status ON founder_next_move_queue(username,status,priority_score DESC,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6300_init()
+
+@app.route("/api/founder-next-moves", methods=["GET","POST"])
+def v6300_next_moves():
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":
+        status=str(request.args.get("status") or "OPEN").upper()[:20]
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try:
+            rows=con.execute("SELECT * FROM founder_next_move_queue WHERE username=? AND status=? ORDER BY priority_score DESC,id DESC LIMIT 50",(u,status)).fetchall()
+        finally:
+            con.close()
+        return jsonify({"success":True,"version":V6300_VERSION,"status":status,"items":[dict(r) for r in rows]})
+    p=request.get_json(silent=True) or request.form
+    title=str(p.get("title") or "").strip()
+    if not title:
+        return jsonify({"success":False,"error":"title_required"}),400
+    score=max(0,min(100,float(p.get("priority_score") or 50)))
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("INSERT INTO founder_next_move_queue (username,title,source_kind,source_ref,priority_score,status,note,created_at,updated_at) VALUES (?,?,?,?,?,'OPEN',?,?,?)",
+            (u,title[:1200],str(p.get("source_kind") or "manual")[:40],str(p.get("source_ref") or "")[:160],score,str(p.get("note") or "")[:4000],now,now))
+        con.commit(); item_id=cur.lastrowid
+    finally:
+        con.close()
+    return jsonify({"success":True,"version":V6300_VERSION,"id":item_id,"priority_score":score})
+
+@app.route("/api/founder-next-moves/<int:item_id>/status", methods=["POST"])
+def v6300_next_move_status(item_id):
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form
+    status=str(p.get("status") or "DONE").upper()[:20]
+    if status not in ("OPEN","ACTIVE","DONE","ARCHIVED"):
+        return jsonify({"success":False,"error":"invalid_status"}),400
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("UPDATE founder_next_move_queue SET status=?,updated_at=? WHERE id=? AND username=?",(status,now,item_id,u)); con.commit()
+        if cur.rowcount<1:
+            return jsonify({"success":False,"error":"item_not_found"}),404
+    finally:
+        con.close()
+    return jsonify({"success":True,"version":V6300_VERSION,"id":item_id,"status":status})
+
 if __name__ == "__main__":
 
     init_db()
