@@ -102262,6 +102262,122 @@ def v5100_update_goal(goal_id):
 
     return jsonify({"success": True, "version": V5100_VERSION, "goal_id": goal_id, "progress_pct": pct})
 
+
+# ===== V52.00 MILESTONE CONTROL =====
+V5200_VERSION = "V52.00"
+
+def _v5200_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS milestone_control (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            milestone_group TEXT NOT NULL DEFAULT 'GENERAL',
+            due_date TEXT NOT NULL DEFAULT '',
+            weight REAL NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            completed_at TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v5200_init()
+except Exception:
+    pass
+
+@app.route("/api/milestones", methods=["GET", "POST"])
+def v5200_milestones():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM milestone_control WHERE username=? ORDER BY id DESC LIMIT 400",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V5200_VERSION, "milestones": rows})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "title_required"}), 400
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO milestone_control
+            (username,title,milestone_group,due_date,weight,status,completed_at,notes,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?)""", (
+            u, title[:700],
+            str(p.get("milestone_group") or "GENERAL")[:160],
+            str(p.get("due_date") or "")[:80],
+            max(0.01, float(p.get("weight") or 1)),
+            str(p.get("status") or "OPEN")[:80],
+            "",
+            str(p.get("notes") or "")[:4000],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        mid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5200_VERSION, "milestone_id": mid})
+
+@app.route("/api/milestones/<int:milestone_id>/complete", methods=["POST"])
+def v5200_complete_milestone(milestone_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """UPDATE milestone_control
+               SET status='DONE', completed_at=?
+               WHERE id=? AND username=?""",
+            (datetime.utcnow().isoformat(timespec="seconds") + "Z", milestone_id, u)
+        )
+        con.commit()
+        if cur.rowcount == 0:
+            return jsonify({"success": False, "error": "milestone_not_found"}), 404
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5200_VERSION, "milestone_id": milestone_id, "status": "DONE"})
+
+@app.route("/api/milestones/summary", methods=["GET"])
+def v5200_milestone_summary():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT status, weight FROM milestone_control WHERE username=?",
+            (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    total_weight = sum(float(r["weight"] or 0) for r in rows) or 1.0
+    done_weight = sum(float(r["weight"] or 0) for r in rows if r["status"] == "DONE")
+    pct = round((done_weight / total_weight) * 100.0, 2) if rows else 0.0
+
+    return jsonify({"success": True, "version": V5200_VERSION, "total": len(rows), "completion_pct": pct})
+
 if __name__ == "__main__":
 
     init_db()
