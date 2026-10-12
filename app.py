@@ -103177,6 +103177,160 @@ def v6300_next_move_status(item_id):
         con.close()
     return jsonify({"success":True,"version":V6300_VERSION,"id":item_id,"status":status})
 
+
+# ===== V64.00 FOUNDER SPRINT CONTROL =====
+V6400_VERSION = "V64.00"
+
+def _v6400_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_sprints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            sprint_key TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            target_metric TEXT NOT NULL DEFAULT '',
+            target_value REAL NOT NULL DEFAULT 0,
+            current_value REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            started_at TEXT NOT NULL,
+            ends_at TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            UNIQUE(username,sprint_key)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_sprints_user_status ON founder_sprints(username,status,ends_at)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6400_init()
+
+@app.route("/api/founder-sprints", methods=["GET","POST"])
+def v6400_sprints():
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="GET":
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try:
+            rows=con.execute("SELECT * FROM founder_sprints WHERE username=? ORDER BY id DESC LIMIT 24",(u,)).fetchall()
+        finally:
+            con.close()
+        out=[]
+        for r in rows:
+            d=dict(r); target=float(d.get("target_value") or 0); current=float(d.get("current_value") or 0)
+            d["progress_pct"]=round(min(100,(current/target*100) if target>0 else (100 if d.get("status")=="DONE" else 0)),2)
+            out.append(d)
+        return jsonify({"success":True,"version":V6400_VERSION,"sprints":out})
+    p=request.get_json(silent=True) or request.form
+    outcome=str(p.get("outcome") or "").strip()
+    if not outcome:
+        return jsonify({"success":False,"error":"outcome_required"}),400
+    now=datetime.utcnow(); days=max(1,min(30,int(float(p.get("days") or 7))))
+    sprint_key=str(p.get("sprint_key") or now.strftime("%Y-%m-%d"))[:40]
+    started=now.isoformat(timespec="seconds")+"Z"; ends=(now+timedelta(days=days)).isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""INSERT INTO founder_sprints (username,sprint_key,outcome,target_metric,target_value,current_value,status,started_at,ends_at,note,updated_at)
+          VALUES (?,?,?,?,?,0,'ACTIVE',?,?,?,?)
+          ON CONFLICT(username,sprint_key) DO UPDATE SET outcome=excluded.outcome,target_metric=excluded.target_metric,target_value=excluded.target_value,ends_at=excluded.ends_at,note=excluded.note,status='ACTIVE',updated_at=excluded.updated_at""",
+          (u,sprint_key,outcome[:1500],str(p.get("target_metric") or "")[:180],float(p.get("target_value") or 0),started,ends,str(p.get("note") or "")[:4000],started))
+        con.commit()
+    finally:
+        con.close()
+    return jsonify({"success":True,"version":V6400_VERSION,"sprint_key":sprint_key,"ends_at":ends})
+
+@app.route("/api/founder-sprints/<int:sprint_id>/progress", methods=["POST"])
+def v6400_sprint_progress(sprint_id):
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form
+    current=float(p.get("current_value") or 0); status=str(p.get("status") or "ACTIVE").upper()[:20]
+    if status not in ("ACTIVE","PAUSED","DONE","CANCELLED"):
+        return jsonify({"success":False,"error":"invalid_status"}),400
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("UPDATE founder_sprints SET current_value=?,status=?,updated_at=? WHERE id=? AND username=?",(current,status,now,sprint_id,u)); con.commit()
+        if cur.rowcount<1:
+            return jsonify({"success":False,"error":"sprint_not_found"}),404
+    finally:
+        con.close()
+    return jsonify({"success":True,"version":V6400_VERSION,"id":sprint_id,"status":status,"current_value":current})
+
+
+# ===== V65.00 FOUNDER KPI PULSE =====
+V6500_VERSION = "V65.00"
+
+def _v6500_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_kpi_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            snapshot_date TEXT NOT NULL,
+            operating_score REAL NOT NULL DEFAULT 0,
+            done_7d INTEGER NOT NULL DEFAULT 0,
+            blocked INTEGER NOT NULL DEFAULT 0,
+            today_open INTEGER NOT NULL DEFAULT 0,
+            open_decisions INTEGER NOT NULL DEFAULT 0,
+            active_goals INTEGER NOT NULL DEFAULT 0,
+            top_risk_score REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(username,snapshot_date)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_kpi_user_date ON founder_kpi_snapshots(username,snapshot_date DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6500_init()
+
+def _v6500_compute(u):
+    now=datetime.utcnow(); today=now.strftime("%Y-%m-%d"); since7=(now-timedelta(days=7)).isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        top_risk=con.execute("SELECT risk_score FROM founder_risk_radar WHERE username=? AND status NOT IN ('CLOSED','RESOLVED') ORDER BY risk_score DESC,id DESC LIMIT 1",(u,)).fetchone()
+        blocked=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='BLOCKED'",(u,))
+        done7=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='DONE' AND completed_at>=?",(u,since7))
+        todo=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND work_date=? AND status!='DONE'",(u,today))
+        decisions=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND status='OPEN'",(u,))
+        goals=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_goal_tracker WHERE username=? AND status='ACTIVE'",(u,))
+    finally:
+        con.close()
+    risk=float(top_risk["risk_score"] or 0) if top_risk else 0.0
+    momentum=min(100,done7*6); pressure=min(100,blocked*18 + todo*5 + decisions*3 + risk*0.35)
+    score=round(max(0,min(100,55 + momentum*0.45 - pressure*0.35)),2)
+    return {"snapshot_date":today,"operating_score":score,"done_7d":done7,"blocked":blocked,"today_open":todo,"open_decisions":decisions,"active_goals":goals,"top_risk_score":round(risk,2)}
+
+@app.route("/api/founder-kpi-pulse", methods=["GET","POST"])
+def v6500_kpi_pulse():
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method=="POST":
+        m=_v6500_compute(u); now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+        con=sqlite3.connect(DB)
+        try:
+            con.execute("""INSERT INTO founder_kpi_snapshots (username,snapshot_date,operating_score,done_7d,blocked,today_open,open_decisions,active_goals,top_risk_score,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(username,snapshot_date) DO UPDATE SET operating_score=excluded.operating_score,done_7d=excluded.done_7d,blocked=excluded.blocked,today_open=excluded.today_open,open_decisions=excluded.open_decisions,active_goals=excluded.active_goals,top_risk_score=excluded.top_risk_score,created_at=excluded.created_at""",
+            (u,m["snapshot_date"],m["operating_score"],m["done_7d"],m["blocked"],m["today_open"],m["open_decisions"],m["active_goals"],m["top_risk_score"],now)); con.commit()
+        finally:
+            con.close()
+        return jsonify({"success":True,"version":V6500_VERSION,"snapshot":m})
+    days=max(1,min(90,int(request.args.get("days") or 30)))
+    cutoff=(datetime.utcnow()-timedelta(days=days-1)).strftime("%Y-%m-%d")
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        rows=con.execute("SELECT * FROM founder_kpi_snapshots WHERE username=? AND snapshot_date>=? ORDER BY snapshot_date ASC",(u,cutoff)).fetchall()
+    finally:
+        con.close()
+    hist=[dict(r) for r in rows]
+    trend=round(float(hist[-1]["operating_score"] or 0)-float(hist[0]["operating_score"] or 0),2) if len(hist)>=2 else 0.0
+    return jsonify({"success":True,"version":V6500_VERSION,"days":days,"trend":trend,"history":hist})
+
 if __name__ == "__main__":
 
     init_db()
