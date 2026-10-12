@@ -103061,6 +103061,49 @@ def v6100_focus_close():
     finally: con.close()
     return jsonify({"success":True,"version":V6100_VERSION,"date":day,"completion_score":score})
 
+
+# ===== V62.00 FOUNDER OPERATING BRIEF =====
+V6200_VERSION = "V62.00"
+
+@app.route("/api/founder-operating-brief", methods=["GET"])
+def v6200_operating_brief():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    now=datetime.utcnow(); today=now.strftime("%Y-%m-%d"); since7=(now-timedelta(days=7)).isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        focus=con.execute("SELECT * FROM founder_focus_contracts WHERE username=? AND focus_date=?",(u,today)).fetchone()
+        y,w,_=now.isocalendar(); week=f"{int(y):04d}-W{int(w):02d}"
+        review=con.execute("SELECT * FROM founder_weekly_reviews WHERE username=? AND week_key=?",(u,week)).fetchone()
+        top_priority=con.execute("SELECT * FROM founder_priority_engine WHERE username=? AND status NOT IN ('DONE','ARCHIVED') ORDER BY priority_score DESC,id DESC LIMIT 1",(u,)).fetchone()
+        top_risk=con.execute("SELECT * FROM founder_risk_radar WHERE username=? AND status NOT IN ('CLOSED','RESOLVED') ORDER BY risk_score DESC,id DESC LIMIT 1",(u,)).fetchone()
+        blocked=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='BLOCKED'",(u,))
+        done7=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='DONE' AND completed_at>=?",(u,since7))
+        todo_today=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND work_date=? AND status!='DONE'",(u,today))
+        open_decisions=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND status='OPEN'",(u,))
+        active_goals=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_goal_tracker WHERE username=? AND status='ACTIVE'",(u,))
+    finally: con.close()
+
+    risk_score=float(dict(top_risk).get("risk_score") or 0) if top_risk else 0.0
+    momentum=min(100,done7*6)
+    pressure=min(100,blocked*18 + todo_today*5 + open_decisions*3 + risk_score*0.35)
+    operating_score=round(max(0,min(100,55 + momentum*0.45 - pressure*0.35)),2)
+    state="LOCKED IN" if operating_score>=80 else "ON TRACK" if operating_score>=60 else "NEEDS FOCUS" if operating_score>=40 else "AT RISK"
+    next_move="Protect today's primary outcome."
+    if blocked>0: next_move="Clear the highest-impact blocked execution item first."
+    elif top_risk and risk_score>=65: next_move="Reduce the top operational risk before adding new work."
+    elif not focus: next_move="Set today's Focus Lock before starting new work."
+    elif todo_today>0: next_move="Finish the highest-priority open execution item."
+    elif open_decisions>0: next_move="Close or review the oldest open founder decision."
+
+    return jsonify({
+        "success":True,"version":V6200_VERSION,"generated_at":now.isoformat(timespec="seconds")+"Z",
+        "state":state,"operating_score":operating_score,"next_move":next_move,
+        "signals":{"done_7d":done7,"blocked":blocked,"today_open":todo_today,"open_decisions":open_decisions,"active_goals":active_goals,"top_risk_score":round(risk_score,2)},
+        "focus":dict(focus) if focus else None,"weekly_review":dict(review) if review else None,
+        "top_priority":dict(top_priority) if top_priority else None,"top_risk":dict(top_risk) if top_risk else None
+    })
+
 if __name__ == "__main__":
 
     init_db()
