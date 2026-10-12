@@ -105007,6 +105007,34 @@ def v108_churn_risk_page():
     cards=''.join(f'<div class="card"><span>{html.escape(k)}</span><div class="big">{html.escape(str(v))}</div></div>' for k,v in metrics)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Churn Risk</title><style>body{{font-family:Inter,system-ui;background:#080509;color:#fff;margin:0}}main{{max-width:1050px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#111118;border-radius:24px;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.hot,a{{color:#ff758f}}.state{{font-size:52px;font-weight:950}}.big{{font-size:30px;font-weight:950;margin-top:8px}}p,span{{color:#9c9cad}}</style></head><body><main><div class="hero"><div class="hot">V108.00 · CHURN RISK RADAR</div><div class="state">{html.escape(s['state'])}</div><h2>Risk {s['risk_score']} / 100</h2><p>{html.escape(s['recommended_action'])}</p></div><div class="grid">{cards}</div><p><a href="/api/founder/churn-risk">JSON</a></p></main></body></html>'''
 
+
+# ===== V109.00 CHAMPION ENGINE =====
+V10900_VERSION='109.00'
+
+def _v109_champion_snapshot():
+    conn=db(); total=int(conn.execute('SELECT COUNT(*) FROM users').fetchone()[0] or 0)
+    battle=conn.execute('SELECT username,COUNT(*) n FROM (SELECT challenger username FROM creature_battles UNION ALL SELECT opponent username FROM creature_battles) GROUP BY username').fetchall()
+    proof=conn.execute('SELECT username,COUNT(*) n FROM hunter_proof_bundles GROUP BY username').fetchall(); ref=conn.execute('SELECT inviter username,COUNT(*) n FROM referrals GROUP BY inviter').fetchall(); kudos=conn.execute('SELECT author username,COUNT(*) n FROM hunter_guestbook_entries GROUP BY author').fetchall(); conn.close()
+    scores={}
+    def add(rows,w,cap):
+        for r in rows:
+            u=str(r[0] or '')
+            if u: scores[u]=scores.get(u,0)+min(cap,int(r[1] or 0)*w)
+    add(battle,3,35); add(proof,10,25); add(ref,12,25); add(kudos,3,15)
+    ranked=sorted(({'username':u,'score':min(100,s)} for u,s in scores.items()),key=lambda x:(-x['score'],x['username']))
+    champs=[x for x in ranked if x['score']>=60]; rising=[x for x in ranked if 35<=x['score']<60]; rate=(len(champs)/total*100) if total else 0
+    score=int(round(min(100,rate*2.2+min(35,len(rising)*3)))) if total else 0; state='MULTIPLYING' if score>=70 else 'EMERGING' if score>=45 else 'SEEDING' if score>=20 else 'THIN'
+    move='Create champion-only missions and recognition loops.' if champs else ('Convert rising Hunters with proof + referral milestones.' if rising else 'Increase repeat participation before building an ambassador layer.')
+    return {'version':V10900_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','engine_score':score,'state':state,'champions':len(champs),'rising':len(rising),'champion_rate_pct':round(rate,1),'top_champions':ranked[:10],'next_move':move}
+
+@app.route('/api/founder/champion-engine')
+def api_v109_champion_engine(): return jsonify(_v109_champion_snapshot())
+
+@app.route('/founder-champion-engine')
+def v109_champion_engine_page():
+    s=_v109_champion_snapshot(); rows=''.join(f'<div class="row"><b>{html.escape(x["username"])}</b><span>{x["score"]}/100</span></div>' for x in s['top_champions']) or '<p>No champion candidates yet.</p>'
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Champion Engine</title><style>body{{font-family:Inter,system-ui;background:#070706;color:#fff;margin:0}}main{{max-width:950px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:24px;padding:22px}}.hot,a{{color:#ffd66b}}.state{{font-size:50px;font-weight:950}}.stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}}.big{{font-size:30px;font-weight:950}}.row{{display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.08);padding:12px 0}}p,span{{color:#9c9cad}}</style></head><body><main><div class="hero"><div class="hot">V109.00 · CHAMPION ENGINE</div><div class="state">{html.escape(s['state'])}</div><h2>{s['engine_score']} / 100</h2><p>{html.escape(s['next_move'])}</p></div><div class="stats"><div class="card"><span>Champions</span><div class="big">{s['champions']}</div></div><div class="card"><span>Rising</span><div class="big">{s['rising']}</div></div><div class="card"><span>Champion rate</span><div class="big">{s['champion_rate_pct']}%</div></div></div><div class="card"><h3>Top candidates</h3>{rows}</div><p><a href="/api/founder/champion-engine">JSON</a></p></main></body></html>'''
+
 if __name__ == "__main__":
 
     init_db()
