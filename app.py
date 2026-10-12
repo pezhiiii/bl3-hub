@@ -101478,6 +101478,115 @@ def v4400_kpi_dashboard():
         "kpis": rows[:50]
     })
 
+
+# ===== V45.00 SCENARIO PLANNER =====
+V4500_VERSION = "V45.00"
+
+def _v4500_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS scenario_planner (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            scenario_name TEXT NOT NULL,
+            probability REAL NOT NULL DEFAULT 0,
+            revenue REAL NOT NULL DEFAULT 0,
+            cost REAL NOT NULL DEFAULT 0,
+            strategic_value REAL NOT NULL DEFAULT 0,
+            downside REAL NOT NULL DEFAULT 0,
+            expected_value REAL NOT NULL DEFAULT 0,
+            score REAL NOT NULL DEFAULT 0,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4500_init()
+except Exception:
+    pass
+
+def _v4500_calc(probability, revenue, cost, strategic_value, downside):
+    p = max(0.0, min(100.0, float(probability or 0))) / 100.0
+    rev = float(revenue or 0)
+    c = float(cost or 0)
+    strategic = max(0.0, min(100.0, float(strategic_value or 0)))
+    down = max(0.0, float(downside or 0))
+    ev = round(p * (rev - c) - ((1.0 - p) * down), 2)
+    score = round(ev + strategic, 2)
+    return ev, score
+
+@app.route("/api/scenarios", methods=["GET", "POST"])
+def v4500_scenarios():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM scenario_planner WHERE username=? ORDER BY score DESC, id DESC LIMIT 250",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4500_VERSION, "scenarios": rows})
+
+    p = request.get_json(silent=True) or request.form
+    name = str(p.get("scenario_name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "scenario_name_required"}), 400
+
+    probability = max(0.0, min(100.0, float(p.get("probability") or 0)))
+    revenue = float(p.get("revenue") or 0)
+    cost = float(p.get("cost") or 0)
+    strategic = max(0.0, min(100.0, float(p.get("strategic_value") or 0)))
+    downside = max(0.0, float(p.get("downside") or 0))
+    expected_value, score = _v4500_calc(probability, revenue, cost, strategic, downside)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO scenario_planner
+            (username,scenario_name,probability,revenue,cost,strategic_value,downside,expected_value,score,notes,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, name[:500], probability, revenue, cost, strategic, downside,
+            expected_value, score,
+            str(p.get("notes") or "")[:4000],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        sid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V4500_VERSION,
+        "scenario_id": sid,
+        "expected_value": expected_value,
+        "score": score
+    })
+
+@app.route("/api/scenarios/best", methods=["GET"])
+def v4500_best_scenario():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM scenario_planner WHERE username=? ORDER BY score DESC, id DESC LIMIT 1",
+            (u,)
+        ).fetchone()
+    finally:
+        con.close()
+    return jsonify({"success": True, "version": V4500_VERSION, "best": dict(row) if row else None})
+
 if __name__ == "__main__":
 
     init_db()
