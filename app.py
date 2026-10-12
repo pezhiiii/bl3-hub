@@ -102145,6 +102145,123 @@ def v5000_control_tower_health():
 
     return jsonify({"success": True, "version": V5000_VERSION, "modules": modules, "total_records": sum(modules.values())})
 
+
+# ===== V51.00 FOUNDER GOAL TRACKER =====
+V5100_VERSION = "V51.00"
+
+def _v5100_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_goal_tracker (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            goal_title TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            target_value REAL NOT NULL DEFAULT 0,
+            current_value REAL NOT NULL DEFAULT 0,
+            unit TEXT NOT NULL DEFAULT '',
+            deadline TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v5100_init()
+except Exception:
+    pass
+
+def _v5100_progress(current_value, target_value):
+    target = float(target_value or 0)
+    current = float(current_value or 0)
+    if target <= 0:
+        return 0.0
+    return round(max(0.0, min(100.0, (current / target) * 100.0)), 2)
+
+@app.route("/api/founder-goals", methods=["GET", "POST"])
+def v5100_founder_goals():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM founder_goal_tracker WHERE username=? ORDER BY id DESC LIMIT 300",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        for r in rows:
+            r["progress_pct"] = _v5100_progress(r.get("current_value"), r.get("target_value"))
+        return jsonify({"success": True, "version": V5100_VERSION, "goals": rows})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("goal_title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "goal_title_required"}), 400
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO founder_goal_tracker
+            (username,goal_title,category,target_value,current_value,unit,deadline,status,notes,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, title[:700],
+            str(p.get("category") or "GENERAL")[:120],
+            float(p.get("target_value") or 0),
+            float(p.get("current_value") or 0),
+            str(p.get("unit") or "")[:80],
+            str(p.get("deadline") or "")[:80],
+            str(p.get("status") or "ACTIVE")[:80],
+            str(p.get("notes") or "")[:4000],
+            now, now
+        ))
+        con.commit()
+        gid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5100_VERSION, "goal_id": gid})
+
+@app.route("/api/founder-goals/<int:goal_id>/progress", methods=["POST"])
+def v5100_update_goal(goal_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form
+    current_value = float(p.get("current_value") or 0)
+    status = str(p.get("status") or "ACTIVE")[:80]
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM founder_goal_tracker WHERE id=? AND username=?",
+            (goal_id, u)
+        ).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "goal_not_found"}), 404
+
+        con.execute(
+            "UPDATE founder_goal_tracker SET current_value=?, status=?, updated_at=? WHERE id=? AND username=?",
+            (current_value, status, datetime.utcnow().isoformat(timespec="seconds") + "Z", goal_id, u)
+        )
+        con.commit()
+        pct = _v5100_progress(current_value, row["target_value"])
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5100_VERSION, "goal_id": goal_id, "progress_pct": pct})
+
 if __name__ == "__main__":
 
     init_db()
