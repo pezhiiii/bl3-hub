@@ -104655,6 +104655,38 @@ def v96_referral_api(): return jsonify(_v96_referral_payload())
 @app.route('/founder-referral-intelligence', methods=['GET'])
 def v96_referral_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Referral Intelligence</title><style>body{margin:0;background:radial-gradient(circle at 80% 0,#213d48,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:104px;font-weight:950;color:#61f4ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:28px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V96.00</div><h1>Referral Intelligence</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-referral-intelligence')).json();score.textContent=d.referral_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.metrics).filter(([k])=>!['users'].includes(k)).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
+
+# ===== V97.00 VIRAL COEFFICIENT =====
+V9700_VERSION = "97.00"
+
+def _v97_viral_payload():
+    referral = _v96_referral_payload()
+    acquisition = _v95_acquisition_payload()
+    users = int(referral['metrics']['users'] or 0)
+    referrals = int(referral['metrics']['referrals'] or 0)
+    invites_per_user = referrals / max(1, users)
+    activation_prob = float(referral['metrics']['referred_activation_pct'] or 0) / 100.0
+    k_factor = round(invites_per_user * activation_prob, 3)
+    viral_score = max(0, min(100, round(k_factor * 100)))
+    if k_factor >= 1.0: state='SELF-PROPAGATING'
+    elif k_factor >= .5: state='STRONG'
+    elif k_factor >= .2: state='EMERGING'
+    else: state='WEAK'
+    if invites_per_user < .25: next_move='Increase invite frequency per Hunter.'
+    elif activation_prob < .35: next_move='Improve referred-user activation after the invite lands.'
+    else: next_move='Test referral surfaces that increase both invite volume and qualified activation.'
+    return {'version':V9700_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','viral_score':viral_score,'state':state,'k_factor':k_factor,'next_move':next_move,'inputs':{'invites_per_user':round(invites_per_user,3),'referred_activation_probability':round(activation_prob,3),'referral_score':referral['referral_score'],'acquisition_score':acquisition['activation_score']}}
+
+@app.route('/api/founder-viral-coefficient', methods=['GET'])
+def v97_viral_api(): return jsonify(_v97_viral_payload())
+
+@app.route('/api/founder-viral-coefficient/export', methods=['GET'])
+def v97_viral_export(): return Response(json.dumps(_v97_viral_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-viral-coefficient-v97.json'})
+
+@app.route('/founder-viral-coefficient', methods=['GET'])
+def v97_viral_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Viral Coefficient</title><style>body{margin:0;background:radial-gradient(circle at 50% 0,#452052,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1040px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:108px;font-weight:950;color:#ff7bd5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}a{color:#ff7bd5}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V97.00</div><h1>Viral Coefficient</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p><a href='/api/founder-viral-coefficient/export'>Export JSON</a></div><div class='grid' id='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-viral-coefficient')).json();score.textContent='K '+d.k_factor;state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.inputs).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
