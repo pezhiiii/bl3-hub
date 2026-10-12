@@ -102487,6 +102487,126 @@ def v5300_top_risks():
 
     return jsonify({"success": True, "version": V5300_VERSION, "top_risks": rows})
 
+
+# ===== V54.00 FOUNDER OPERATING SYSTEM =====
+V5400_VERSION = "V54.00"
+
+def _v5400_safe_one(con, sql, params):
+    try:
+        row = con.execute(sql, params).fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        return 0
+
+@app.route("/api/founder-os", methods=["GET"])
+def v5400_founder_os():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        active_goals = _v5400_safe_one(
+            con, "SELECT COUNT(*) FROM founder_goal_tracker WHERE username=? AND status='ACTIVE'", (u,)
+        )
+        open_milestones = _v5400_safe_one(
+            con, "SELECT COUNT(*) FROM milestone_control WHERE username=? AND status!='DONE'", (u,)
+        )
+        open_risks = _v5400_safe_one(
+            con, "SELECT COUNT(*) FROM founder_risk_radar WHERE username=? AND status NOT IN ('CLOSED','RESOLVED')", (u,)
+        )
+        active_priorities = _v5400_safe_one(
+            con, "SELECT COUNT(*) FROM founder_priority_engine WHERE username=? AND status NOT IN ('DONE','ARCHIVED')", (u,)
+        )
+        running_experiments = _v5400_safe_one(
+            con, "SELECT COUNT(*) FROM experiment_lab WHERE username=? AND outcome='RUNNING'", (u,)
+        )
+
+        try:
+            top_goal = con.execute(
+                """SELECT *, CASE WHEN target_value > 0
+                         THEN ROUND((current_value/target_value)*100.0,2)
+                         ELSE 0 END AS progress_pct
+                   FROM founder_goal_tracker
+                   WHERE username=? AND status='ACTIVE'
+                   ORDER BY progress_pct DESC, id DESC LIMIT 1""",
+                (u,)
+            ).fetchone()
+            top_goal = dict(top_goal) if top_goal else None
+        except Exception:
+            top_goal = None
+
+        try:
+            top_risk = con.execute(
+                """SELECT * FROM founder_risk_radar
+                   WHERE username=? AND status NOT IN ('CLOSED','RESOLVED')
+                   ORDER BY risk_score DESC, id DESC LIMIT 1""",
+                (u,)
+            ).fetchone()
+            top_risk = dict(top_risk) if top_risk else None
+        except Exception:
+            top_risk = None
+
+        try:
+            top_priority = con.execute(
+                """SELECT * FROM founder_priority_engine
+                   WHERE username=? AND status NOT IN ('DONE','ARCHIVED')
+                   ORDER BY priority_score DESC, id DESC LIMIT 1""",
+                (u,)
+            ).fetchone()
+            top_priority = dict(top_priority) if top_priority else None
+        except Exception:
+            top_priority = None
+    finally:
+        con.close()
+
+    operating_load = active_goals + open_milestones + open_risks + active_priorities + running_experiments
+    return jsonify({
+        "success": True,
+        "version": V5400_VERSION,
+        "operating_load": operating_load,
+        "modules": {
+            "active_goals": active_goals,
+            "open_milestones": open_milestones,
+            "open_risks": open_risks,
+            "active_priorities": active_priorities,
+            "running_experiments": running_experiments
+        },
+        "top_goal": top_goal,
+        "top_risk": top_risk,
+        "top_priority": top_priority
+    })
+
+@app.route("/api/founder-os/pulse", methods=["GET"])
+def v5400_founder_os_pulse():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        checks = {
+            "goals": _v5400_safe_one(con, "SELECT COUNT(*) FROM founder_goal_tracker WHERE username=?", (u,)),
+            "milestones": _v5400_safe_one(con, "SELECT COUNT(*) FROM milestone_control WHERE username=?", (u,)),
+            "risks": _v5400_safe_one(con, "SELECT COUNT(*) FROM founder_risk_radar WHERE username=?", (u,)),
+            "priorities": _v5400_safe_one(con, "SELECT COUNT(*) FROM founder_priority_engine WHERE username=?", (u,)),
+            "experiments": _v5400_safe_one(con, "SELECT COUNT(*) FROM experiment_lab WHERE username=?", (u,)),
+            "strategy": _v5400_safe_one(con, "SELECT COUNT(*) FROM strategy_map WHERE username=?", (u,))
+        }
+    finally:
+        con.close()
+
+    populated = sum(1 for v in checks.values() if v > 0)
+    pulse_score = round((populated / max(1, len(checks))) * 100.0, 2)
+
+    return jsonify({
+        "success": True,
+        "version": V5400_VERSION,
+        "pulse_score": pulse_score,
+        "module_records": checks
+    })
+
 if __name__ == "__main__":
 
     init_db()
