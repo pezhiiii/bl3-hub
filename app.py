@@ -103638,6 +103638,68 @@ def v6900_release_gate_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Release Gate</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.hero{padding:28px;border:1px solid #2a2a34;border-radius:24px;background:#101017}.verdict{font-size:64px;font-weight:950}.hot{color:#baff5a}.warn{color:#ffd66b}.bad{color:#ff6b7a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}.card{padding:16px;border:1px solid #2a2a34;border-radius:16px;background:#0c0c12}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V69.00</div><h1>Founder Release Gate</h1><div id='v' class='verdict'>...</div><div id='score'></div></div><div id='grid' class='grid'></div></div><script>async function load(){const r=await fetch('/api/founder-release-gate');const d=await r.json();const g=d.gate||{};const v=document.getElementById('v');v.textContent=g.verdict||'-';v.className='verdict '+(g.verdict==='GO'?'hot':g.verdict==='CONDITIONAL'?'warn':'bad');document.getElementById('score').textContent='Readiness '+(g.score||0)+'/100';const c=[['Max Risk',g.max_risk_score],['Blocked',g.blocked],['Open Decisions',g.open_decisions],['Next Moves',g.open_next_moves],['Operating Score',g.operating_score],['Sprint',g.sprint_progress_pct+'%']];document.getElementById('grid').innerHTML=c.map(x=>`<div class="card"><div class="muted">${x[0]}</div><h2>${x[1]}</h2></div>`).join('');}load();</script></body></html>""",mimetype='text/html')
 
 
+
+
+# ===== V70.00 FOUNDER MISSION CONTROL =====
+V7000_VERSION = "V70.00"
+
+@app.route('/api/founder-mission-control', methods=['GET'])
+def v7000_mission_control():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    now=datetime.utcnow(); today=now.strftime('%Y-%m-%d')
+    metrics=_v6500_compute(u); gate=_v6900_compute(u)
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        risks=con.execute("SELECT * FROM founder_risk_register WHERE username=? AND status IN ('OPEN','WATCH') ORDER BY (probability*impact) DESC,id DESC LIMIT 5",(u,)).fetchall()
+        decisions=con.execute("SELECT * FROM founder_decision_matrix WHERE username=? AND status='OPEN' ORDER BY id DESC LIMIT 8",(u,)).fetchall()
+        moves=con.execute("SELECT * FROM founder_next_move_queue WHERE username=? AND status IN ('OPEN','ACTIVE') ORDER BY priority_score DESC,id DESC LIMIT 5",(u,)).fetchall()
+        sprint=con.execute("SELECT * FROM founder_sprints WHERE username=? AND status='ACTIVE' ORDER BY id DESC LIMIT 1",(u,)).fetchone()
+        focus=con.execute("SELECT * FROM founder_focus_contracts WHERE username=? AND focus_date=?",(u,today)).fetchone()
+    finally:
+        con.close()
+    risk_items=[]
+    for r in risks:
+        d=dict(r); d['risk_score']=_v6700_score(d); risk_items.append(d)
+    decision_items=[]
+    for r in decisions:
+        d=dict(r); d['weighted_score']=_v6800_weighted(d); decision_items.append(d)
+    decision_items.sort(key=lambda x:(x['weighted_score'],x['id']), reverse=True)
+    sprint_data=dict(sprint) if sprint else None
+    if sprint_data:
+        target=float(sprint_data.get('target_value') or 0); current=float(sprint_data.get('current_value') or 0)
+        sprint_data['progress_pct']=round(min(100,(current/target*100) if target>0 else 0),2)
+    mission='EXECUTE'
+    directive='Protect focus and execute the top next move.'
+    if gate['verdict']=='HOLD':
+        mission='STABILIZE'; directive='Resolve blockers and reduce the highest risk before release activity.'
+    elif gate['verdict']=='CONDITIONAL':
+        mission='DE-RISK'; directive='Mitigate the top risk and close the highest-weight open decision.'
+    elif not focus:
+        mission='LOCK FOCUS'; directive='Set today’s Focus Lock before adding work.'
+    return jsonify({'success':True,'version':V7000_VERSION,'generated_at':now.isoformat(timespec='seconds')+'Z','mission':mission,'directive':directive,
+        'gate':gate,'metrics':metrics,'focus':dict(focus) if focus else None,'active_sprint':sprint_data,
+        'next_moves':[dict(r) for r in moves],'top_risks':risk_items,'open_decisions':decision_items[:5]})
+
+@app.route('/api/founder-mission-control/export', methods=['GET'])
+def v7000_mission_control_export():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    # Build a compact export directly from current state so it can be archived outside the UI.
+    metrics=_v6500_compute(u); gate=_v6900_compute(u)
+    payload={'version':V7000_VERSION,'username':u,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','gate':gate,'metrics':metrics}
+    body=json.dumps(payload,ensure_ascii=False,indent=2,sort_keys=True)
+    return Response(body,mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-mission-control.json'})
+
+@app.route('/founder-mission-control', methods=['GET'])
+def v7000_mission_control_page():
+    if not session.get('authenticated_username'):
+        return redirect('/')
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Mission Control</title><style>:root{--bg:#050507;--panel:#101017;--line:#2a2a34;--hot:#baff5a;--violet:#a17cff;--muted:#8f91a3;--warn:#ffd66b;--bad:#ff6b7a}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#201a34 0,var(--bg) 35%);color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid var(--line);background:rgba(16,16,23,.92);border-radius:22px;padding:18px}.hero{padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}.mission{font-size:54px;font-weight:950;color:var(--hot);letter-spacing:-2px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:900}.section{margin-top:20px}a.btn{display:inline-block;margin-top:12px;background:var(--hot);color:#090b06;padding:10px 14px;border-radius:12px;text-decoration:none;font-weight:900}.pill{display:inline-block;padding:6px 10px;border:1px solid var(--line);border-radius:999px;margin:4px 4px 0 0;font-size:12px}</style></head><body><div class='wrap'><div class='hero'><div class='top'><div><div class='muted'>BL3 // V70.00</div><h1>Founder Mission Control</h1><div id='mission' class='mission'>Loading...</div><p id='directive' class='muted'></p></div><div><div class='muted'>Release Gate</div><div id='gate' class='big'>-</div><div id='gateScore' class='muted'></div></div></div><a class='btn' href='/api/founder-mission-control/export'>Export Snapshot</a></div><div id='metrics' class='grid'></div><div class='section grid'><div class='card'><h2>Top Risks</h2><div id='risks'></div></div><div class='card'><h2>Next Moves</h2><div id='moves'></div></div><div class='card'><h2>Open Decisions</h2><div id='decisions'></div></div></div></div><script>function esc(x){return String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}async function load(){const r=await fetch('/api/founder-mission-control');const d=await r.json();document.getElementById('mission').textContent=d.mission||'-';document.getElementById('directive').textContent=d.directive||'';document.getElementById('gate').textContent=(d.gate||{}).verdict||'-';document.getElementById('gateScore').textContent=((d.gate||{}).score||0)+'/100';const m=d.metrics||{};const cards=[['Operating',m.operating_score],['Done 7d',m.done_7d],['Blocked',m.blocked],['Open Today',m.today_open],['Open Decisions',m.open_decisions],['Top Risk',m.top_risk_score],['Sprint',d.active_sprint?d.active_sprint.progress_pct+'%':'None'],['Focus',d.focus?'LOCKED':'Not set']];document.getElementById('metrics').innerHTML=cards.map(x=>`<div class="card"><div class="muted">${x[0]}</div><div class="big">${esc(x[1])}</div></div>`).join('');document.getElementById('risks').innerHTML=(d.top_risks||[]).map(x=>`<div class="pill">${esc(x.risk_score)} · ${esc(x.title)}</div>`).join('')||'<span class="muted">Clear</span>';document.getElementById('moves').innerHTML=(d.next_moves||[]).map(x=>`<div class="pill">${esc(x.priority_score)} · ${esc(x.title)}</div>`).join('')||'<span class="muted">None</span>';document.getElementById('decisions').innerHTML=(d.open_decisions||[]).map(x=>`<div class="pill">${esc(x.weighted_score)} · ${esc(x.option_name)}</div>`).join('')||'<span class="muted">None</span>';}load();</script></body></html>""",mimetype='text/html')
+
+
 if __name__ == "__main__":
 
     init_db()
