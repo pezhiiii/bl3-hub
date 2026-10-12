@@ -103830,6 +103830,33 @@ def founder_launch_timeline_v75(): return jsonify({'success':True, **_v75_launch
 @app.route('/founder-launch-timeline', methods=['GET'])
 def founder_launch_timeline_page_v75():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Launch Timeline</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.step{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.hero{margin-bottom:14px}.bar{height:12px;background:#24242d;border-radius:999px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,#a17cff,#baff5a)}.grid{display:grid;gap:10px}.DONE{border-color:#baff5a}.ACTIVE{border-color:#ffd66b}.state{font-weight:950}.DONE .state{color:#baff5a}.ACTIVE .state{color:#ffd66b}.PENDING .state{color:#8f91a3}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V75.00</div><h1>Founder Launch Timeline</h1><div id='pct' style='font-size:54px;font-weight:950'>...</div><div class='bar'><i id='bar'></i></div><p id='current' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-launch-timeline')).json();pct.textContent=d.progress+'%';bar.style.width=d.progress+'%';current.textContent='Current: '+(d.current_step?.title||'Launch path complete');grid.innerHTML=(d.steps||[]).map((x,i)=>`<div class="step ${x.state}"><div class="state">${i+1}. ${x.state}</div><h2>${x.title}</h2><div class="muted">${x.evidence}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+# ===== V76.00 FOUNDER DEPENDENCY MAP =====
+V7600_VERSION = "V76.00"
+
+def _v76_dependency_map_payload():
+    timeline = _v75_launch_timeline_payload()
+    readiness = _v71_readiness_payload()
+    m = readiness.get('metrics') or {}
+    nodes = [
+        {'key':'risk','label':'Risk Control','ready':float(m.get('top_risk_score') or 0) <= 12,'depends_on':[]},
+        {'key':'blockers','label':'Blocker Clearance','ready':int(m.get('blocked') or 0) == 0,'depends_on':[]},
+        {'key':'decisions','label':'Decision Closure','ready':int(m.get('open_decisions') or 0) == 0,'depends_on':['risk','blockers']},
+        {'key':'focus','label':'Focus Lock','ready':bool(m.get('focus_locked')),'depends_on':['decisions']},
+        {'key':'launch','label':'Launch Authorization','ready':readiness.get('state')=='READY','depends_on':['risk','blockers','decisions','focus']},
+    ]
+    by_key={n['key']:n for n in nodes}
+    for n in nodes:
+        n['blocked_by']=[k for k in n['depends_on'] if not by_key[k]['ready']]
+        n['state']='READY' if n['ready'] else ('BLOCKED' if n['blocked_by'] else 'OPEN')
+    bottlenecks=[n for n in nodes if n['state'] in ('BLOCKED','OPEN')]
+    return {'version':V7600_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','nodes':nodes,'bottlenecks':bottlenecks,'ready_nodes':sum(1 for n in nodes if n['ready']),'total_nodes':len(nodes),'timeline_progress':timeline.get('progress')}
+
+@app.route('/api/founder-dependency-map', methods=['GET'])
+def founder_dependency_map_v76(): return jsonify({'success':True, **_v76_dependency_map_payload()})
+
+@app.route('/founder-dependency-map', methods=['GET'])
+def founder_dependency_map_page_v76():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Dependency Map</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1080px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.card{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.READY{border-color:#baff5a}.BLOCKED{border-color:#ff6b7a}.OPEN{border-color:#ffd66b}.state{font-weight:950}.READY .state{color:#baff5a}.BLOCKED .state{color:#ff6b7a}.OPEN .state{color:#ffd66b}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='muted'>BL3 // V76.00</div><h1>Founder Dependency Map</h1><p id='sum'></p><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-dependency-map')).json();sum.textContent=`${d.ready_nodes}/${d.total_nodes} nodes ready · Timeline ${d.timeline_progress}%`;grid.innerHTML=(d.nodes||[]).map(x=>`<div class="card ${x.state}"><div class="state">${x.state}</div><h2>${x.label}</h2><div class="muted">Depends on: ${(x.depends_on||[]).join(', ')||'None'}</div><div class="muted">Blocked by: ${(x.blocked_by||[]).join(', ')||'None'}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
