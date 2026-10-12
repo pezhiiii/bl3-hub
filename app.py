@@ -101362,6 +101362,122 @@ def v4300_review_decision(decision_id):
 
     return jsonify({"success": True, "version": V4300_VERSION, "decision_id": decision_id, "result_score": score})
 
+
+# ===== V44.00 KPI COMMAND CENTER =====
+V4400_VERSION = "V44.00"
+
+def _v4400_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS kpi_command_center (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            kpi_name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            current_value REAL NOT NULL DEFAULT 0,
+            target_value REAL NOT NULL DEFAULT 0,
+            weight REAL NOT NULL DEFAULT 1,
+            progress REAL NOT NULL DEFAULT 0,
+            health TEXT NOT NULL DEFAULT 'UNKNOWN',
+            notes TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4400_init()
+except Exception:
+    pass
+
+def _v4400_metrics(current_value, target_value):
+    c = float(current_value or 0)
+    t = float(target_value or 0)
+    if t <= 0:
+        return 0.0, "UNKNOWN"
+    p = max(0.0, min(100.0, (c / t) * 100.0))
+    health = "ON_TRACK" if p >= 90 else "WATCH" if p >= 60 else "AT_RISK"
+    return round(p, 2), health
+
+@app.route("/api/kpis", methods=["GET", "POST"])
+def v4400_kpis():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM kpi_command_center WHERE username=? ORDER BY category, id DESC LIMIT 300",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4400_VERSION, "kpis": rows})
+
+    p = request.get_json(silent=True) or request.form
+    name = str(p.get("kpi_name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "kpi_name_required"}), 400
+
+    current = float(p.get("current_value") or 0)
+    target = float(p.get("target_value") or 0)
+    progress, health = _v4400_metrics(current, target)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO kpi_command_center
+            (username,kpi_name,category,current_value,target_value,weight,progress,health,notes,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?)""", (
+            u, name[:500],
+            str(p.get("category") or "GENERAL")[:120],
+            current, target,
+            max(0.0, float(p.get("weight") or 1)),
+            progress, health,
+            str(p.get("notes") or "")[:3000],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        kid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4400_VERSION, "kpi_id": kid, "progress": progress, "health": health})
+
+@app.route("/api/kpis/dashboard", methods=["GET"])
+def v4400_kpi_dashboard():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM kpi_command_center WHERE username=? ORDER BY id DESC LIMIT 500",
+            (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    if not rows:
+        return jsonify({"success": True, "version": V4400_VERSION, "score": 0, "kpis": []})
+
+    total_weight = sum(max(0.0, float(r["weight"] or 0)) for r in rows) or 1.0
+    score = sum(float(r["progress"] or 0) * max(0.0, float(r["weight"] or 0)) for r in rows) / total_weight
+
+    return jsonify({
+        "success": True,
+        "version": V4400_VERSION,
+        "score": round(score, 2),
+        "count": len(rows),
+        "at_risk": [r for r in rows if r["health"] == "AT_RISK"][:10],
+        "kpis": rows[:50]
+    })
+
 if __name__ == "__main__":
 
     init_db()
