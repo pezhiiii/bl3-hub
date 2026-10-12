@@ -104268,6 +104268,77 @@ def api_founder_roadmap_update_v87(item_id):
 def founder_roadmap_v87():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Roadmap</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.row{padding:12px 0;border-bottom:1px solid #262630}.hot{color:#baff5a}.muted{color:#8f91a3}.score{font-size:38px;font-weight:950}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V87.00</div><h1>Founder Roadmap Intelligence</h1><h2 id='top'>Loading...</h2></div><div class='grid' id='stats' style='margin-top:14px'></div><div class='card' style='margin-top:14px'><h3>Roadmap</h3><div id='rows'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-roadmap')).json();top.textContent=d.top_priority?('TOP: '+d.top_priority.title+' · '+d.top_priority.priority_score):'No roadmap items yet';stats.innerHTML=Object.entries(d.counts).map(([k,v])=>`<div class="card"><div class="muted">${k.toUpperCase()}</div><div class="score">${v}</div></div>`).join('');rows.innerHTML=(d.items||[]).map(x=>`<div class="row"><b>${x.title}</b> <span class="hot">${x.priority_score}</span><div class="muted">${x.lane} · ${x.status} · I${x.impact}/E${x.effort}/C${x.confidence}</div></div>`).join('')||'<div class="muted">Add items via /api/founder-roadmap</div>'}go()</script></body></html>""", mimetype='text/html')
 
+
+# ===== V88.00 FOUNDER EXPERIMENT LAB =====
+V8800_VERSION = "88.00"
+
+def _v88_ensure_schema():
+    conn=db(); conn.execute("""CREATE TABLE IF NOT EXISTS founder_experiments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        hypothesis TEXT NOT NULL,
+        primary_metric TEXT NOT NULL,
+        target_value REAL DEFAULT 0,
+        observed_value REAL DEFAULT 0,
+        confidence INTEGER NOT NULL DEFAULT 50,
+        status TEXT NOT NULL DEFAULT 'DRAFT',
+        decision TEXT DEFAULT '',
+        started_at TEXT DEFAULT '',
+        ended_at TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )"""); conn.execute("CREATE INDEX IF NOT EXISTS idx_founder_experiment_status ON founder_experiments(status,id DESC)"); conn.commit(); conn.close()
+_v88_ensure_schema()
+
+def _v88_experiment_payload():
+    conn=db(); conn.row_factory=sqlite3.Row; rows=[dict(r) for r in conn.execute('SELECT * FROM founder_experiments ORDER BY id DESC LIMIT 200').fetchall()]; conn.close()
+    for r in rows:
+        target=float(r.get('target_value') or 0); obs=float(r.get('observed_value') or 0)
+        r['attainment']=round((obs/target)*100,1) if target else 0
+        r['signal']='WIN' if target and obs>=target else ('LEARN' if r.get('status') in ('COMPLETE','STOPPED') else 'RUNNING')
+    counts={k:sum(1 for r in rows if r['status']==k) for k in ('DRAFT','RUNNING','COMPLETE','STOPPED')}
+    wins=sum(1 for r in rows if r['signal']=='WIN'); completed=counts['COMPLETE']+counts['STOPPED']
+    return {'version':V8800_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','counts':counts,'win_rate':round((wins/completed)*100,1) if completed else 0,'experiments':rows}
+
+@app.route('/api/founder-experiments', methods=['GET','POST'])
+def api_founder_experiments_v88():
+    if request.method=='GET': return jsonify(_v88_experiment_payload())
+    d=request.get_json(silent=True) or request.form.to_dict(); name=' '.join(str(d.get('name') or '').split())[:160]; hyp=' '.join(str(d.get('hypothesis') or '').split())[:500]; metric=' '.join(str(d.get('primary_metric') or '').split())[:120]
+    if not (name and hyp and metric): return jsonify({'ok':False,'error':'name, hypothesis and primary_metric required'}),400
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    def f(k):
+        try:return float(d.get(k) or 0)
+        except:return 0.0
+    try: conf=max(0,min(100,int(d.get('confidence',50))))
+    except: conf=50
+    status=str(d.get('status') or 'DRAFT').upper(); status=status if status in ('DRAFT','RUNNING','COMPLETE','STOPPED') else 'DRAFT'
+    conn=db(); cur=conn.execute('INSERT INTO founder_experiments(name,hypothesis,primary_metric,target_value,observed_value,confidence,status,decision,started_at,ended_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',(name,hyp,metric,f('target_value'),f('observed_value'),conf,status,str(d.get('decision') or '')[:500],str(d.get('started_at') or '')[:30],str(d.get('ended_at') or '')[:30],now,now)); conn.commit(); rid=cur.lastrowid; conn.close(); return jsonify({'ok':True,'id':rid,'lab':_v88_experiment_payload()}),201
+
+@app.route('/api/founder-experiments/<int:item_id>', methods=['POST'])
+def api_founder_experiments_update_v88(item_id):
+    d=request.get_json(silent=True) or request.form.to_dict(); sets=[]; vals=[]
+    for k in ('name','hypothesis','primary_metric','decision','started_at','ended_at'):
+        if k in d: sets.append(k+' = ?'); vals.append(str(d[k])[:500])
+    for k in ('target_value','observed_value'):
+        if k in d:
+            try:v=float(d[k])
+            except:v=0
+            sets.append(k+' = ?'); vals.append(v)
+    if 'confidence' in d:
+        try:v=max(0,min(100,int(d['confidence'])))
+        except:v=50
+        sets.append('confidence = ?'); vals.append(v)
+    if 'status' in d:
+        s=str(d['status']).upper()
+        if s in ('DRAFT','RUNNING','COMPLETE','STOPPED'): sets.append('status = ?'); vals.append(s)
+    if not sets:return jsonify({'ok':False,'error':'no fields'}),400
+    sets.append('updated_at = ?'); vals.append(datetime.utcnow().isoformat(timespec='seconds')+'Z'); vals.append(item_id)
+    conn=db(); conn.execute('UPDATE founder_experiments SET '+', '.join(sets)+' WHERE id = ?',vals); conn.commit(); conn.close(); return jsonify({'ok':True,'lab':_v88_experiment_payload()})
+
+@app.route('/founder-experiments', methods=['GET'])
+def founder_experiments_v88():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Experiment Lab</title><style>body{margin:0;background:radial-gradient(circle at 90% 0,#241e42,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2b2b35;border-radius:22px;padding:20px}.big{font-size:56px;font-weight:950;color:#baff5a}.row{padding:12px 0;border-bottom:1px solid #292933}.muted{color:#8f91a3}.win{color:#baff5a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V88.00</div><h1>Founder Experiment Lab</h1><div id='rate' class='big'>...</div><div class='muted'>completed experiment win rate</div></div><div class='card' style='margin-top:14px'><h3>Experiments</h3><div id='rows'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-experiments')).json();rate.textContent=d.win_rate+'%';rows.innerHTML=(d.experiments||[]).map(x=>`<div class="row"><b>${x.name}</b> <span class="win">${x.signal}</span><div class="muted">${x.primary_metric} · ${x.observed_value}/${x.target_value} · ${x.attainment}% · ${x.status}</div></div>`).join('')||'<div class="muted">No experiments yet.</div>'}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
