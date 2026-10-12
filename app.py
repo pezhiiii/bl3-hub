@@ -102607,6 +102607,101 @@ def v5400_founder_os_pulse():
         "module_records": checks
     })
 
+
+
+# ===== V55.00 DECISION JOURNAL =====
+V5500_VERSION = "V55.00"
+
+def _v5500_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_decision_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            context TEXT DEFAULT '',
+            options_json TEXT NOT NULL DEFAULT '[]',
+            decision TEXT DEFAULT '',
+            rationale TEXT DEFAULT '',
+            expected_outcome TEXT DEFAULT '',
+            confidence INTEGER NOT NULL DEFAULT 50,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            review_date TEXT DEFAULT '',
+            actual_outcome TEXT DEFAULT '',
+            lesson TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_decisions_user_status ON founder_decision_journal(username,status,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v5500_init()
+
+@app.route("/api/founder-decisions", methods=["GET", "POST"])
+def v5500_founder_decisions():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    if request.method == "GET":
+        status = str(request.args.get("status") or "").strip().upper()
+        con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+        try:
+            if status:
+                rows = con.execute("SELECT * FROM founder_decision_journal WHERE username=? AND status=? ORDER BY id DESC LIMIT 250", (u,status)).fetchall()
+            else:
+                rows = con.execute("SELECT * FROM founder_decision_journal WHERE username=? ORDER BY id DESC LIMIT 250", (u,)).fetchall()
+            out=[]
+            for r in rows:
+                d=dict(r)
+                try: d["options"] = json.loads(d.pop("options_json") or "[]")
+                except Exception: d["options"] = []
+                out.append(d)
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V5500_VERSION, "decisions": out})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "title_required"}), 400
+    options = p.get("options") or []
+    if isinstance(options, str):
+        try: options = json.loads(options)
+        except Exception: options = [x.strip() for x in options.split("|") if x.strip()]
+    if not isinstance(options, list): options=[]
+    confidence=max(0,min(100,int(float(p.get("confidence") or 50))))
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO founder_decision_journal
+            (username,title,context,options_json,decision,rationale,expected_outcome,confidence,status,review_date,actual_outcome,lesson,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+            u,title[:700],str(p.get("context") or "")[:6000],json.dumps(options[:20],ensure_ascii=False),
+            str(p.get("decision") or "")[:3000],str(p.get("rationale") or "")[:6000],str(p.get("expected_outcome") or "")[:4000],
+            confidence,str(p.get("status") or "OPEN")[:40].upper(),str(p.get("review_date") or "")[:40],"","",now,now))
+        con.commit(); did=cur.lastrowid
+    finally: con.close()
+    return jsonify({"success": True, "version": V5500_VERSION, "decision_id": did})
+
+@app.route("/api/founder-decisions/<int:decision_id>/review", methods=["POST"])
+def v5500_review_decision(decision_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""UPDATE founder_decision_journal SET status=?,actual_outcome=?,lesson=?,updated_at=?
+                           WHERE id=? AND username=?""",(
+            str(p.get("status") or "REVIEWED")[:40].upper(),str(p.get("actual_outcome") or "")[:5000],
+            str(p.get("lesson") or "")[:5000],now,decision_id,u))
+        con.commit()
+        if cur.rowcount < 1: return jsonify({"success":False,"error":"decision_not_found"}),404
+    finally: con.close()
+    return jsonify({"success":True,"version":V5500_VERSION,"decision_id":decision_id})
+
 if __name__ == "__main__":
 
     init_db()
