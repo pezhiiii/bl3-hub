@@ -102378,6 +102378,115 @@ def v5200_milestone_summary():
 
     return jsonify({"success": True, "version": V5200_VERSION, "total": len(rows), "completion_pct": pct})
 
+
+# ===== V53.00 FOUNDER RISK RADAR =====
+V5300_VERSION = "V53.00"
+
+def _v5300_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_risk_radar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            risk_title TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            likelihood REAL NOT NULL DEFAULT 0,
+            impact REAL NOT NULL DEFAULT 0,
+            detectability REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            mitigation TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v5300_init()
+except Exception:
+    pass
+
+def _v5300_score(likelihood, impact, detectability):
+    l = max(0.0, min(100.0, float(likelihood or 0)))
+    i = max(0.0, min(100.0, float(impact or 0)))
+    d = max(0.0, min(100.0, float(detectability or 0)))
+    # lower detectability = higher risk
+    score = (l * 0.40) + (i * 0.45) + ((100.0 - d) * 0.15)
+    return round(score, 2)
+
+@app.route("/api/founder-risks", methods=["GET", "POST"])
+def v5300_founder_risks():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM founder_risk_radar WHERE username=? ORDER BY risk_score DESC, id DESC LIMIT 400",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V5300_VERSION, "risks": rows})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("risk_title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "risk_title_required"}), 400
+
+    likelihood = float(p.get("likelihood") or 0)
+    impact = float(p.get("impact") or 0)
+    detectability = float(p.get("detectability") or 0)
+    score = _v5300_score(likelihood, impact, detectability)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO founder_risk_radar
+            (username,risk_title,category,likelihood,impact,detectability,risk_score,mitigation,owner,status,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, title[:700],
+            str(p.get("category") or "GENERAL")[:160],
+            likelihood, impact, detectability, score,
+            str(p.get("mitigation") or "")[:4000],
+            str(p.get("owner") or "")[:250],
+            str(p.get("status") or "OPEN")[:80],
+            now, now
+        ))
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5300_VERSION, "risk_id": rid, "risk_score": score})
+
+@app.route("/api/founder-risks/top", methods=["GET"])
+def v5300_top_risks():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    limit = max(1, min(25, int(request.args.get("limit", 5))))
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            """SELECT * FROM founder_risk_radar
+               WHERE username=? AND status NOT IN ('CLOSED','RESOLVED')
+               ORDER BY risk_score DESC, id DESC LIMIT ?""",
+            (u, limit)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5300_VERSION, "top_risks": rows})
+
 if __name__ == "__main__":
 
     init_db()
