@@ -104687,6 +104687,42 @@ def v97_viral_export(): return Response(json.dumps(_v97_viral_payload(),indent=2
 @app.route('/founder-viral-coefficient', methods=['GET'])
 def v97_viral_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Viral Coefficient</title><style>body{margin:0;background:radial-gradient(circle at 50% 0,#452052,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1040px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:108px;font-weight:950;color:#ff7bd5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}a{color:#ff7bd5}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V97.00</div><h1>Viral Coefficient</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p><a href='/api/founder-viral-coefficient/export'>Export JSON</a></div><div class='grid' id='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-viral-coefficient')).json();score.textContent='K '+d.k_factor;state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.inputs).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
+
+# ===== V98.00 FOUNDER GROWTH ENGINE =====
+V9800_VERSION = "98.00"
+
+def _v98_growth_engine_payload():
+    command = _v94_growth_command_payload()
+    acquisition = _v95_acquisition_payload()
+    referral = _v96_referral_payload()
+    viral = _v97_viral_payload()
+    score = max(0,min(100,round(command['growth_command_score']*.40 + acquisition['activation_score']*.25 + referral['referral_score']*.20 + viral['viral_score']*.15)))
+    components = {'growth_command':command['growth_command_score'],'acquisition':acquisition['activation_score'],'referral':referral['referral_score'],'viral':viral['viral_score']}
+    weakest = min(components.items(), key=lambda x:x[1])
+    if score >= 80 and viral['k_factor'] >= .5: mode='ACCELERATE'
+    elif acquisition['activation_score'] < 45: mode='ACTIVATE'
+    elif referral['referral_score'] < 45: mode='REFER'
+    elif viral['viral_score'] < 30: mode='LOOP'
+    else: mode='GROW'
+    commands={
+        'ACCELERATE':'Increase qualified acquisition while watching retention and community quality.',
+        'ACTIVATE':'Fix the weakest activation stage before buying or driving more top-of-funnel traffic.',
+        'REFER':'Make referral behavior visible, rewarded and repeatable for existing Hunters.',
+        'LOOP':'Connect invite → activation → proof → social status into one measurable viral loop.',
+        'GROW':'Run the highest-confidence growth experiment and compare the next engine snapshot.'
+    }
+    return {'version':V9800_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','growth_engine_score':score,'mode':mode,'command':commands[mode],'weakest_component':{'name':weakest[0],'score':weakest[1]},'components':components,'viral_k_factor':viral['k_factor'],'source':{'growth_command':command,'acquisition':acquisition,'referral':referral,'viral':viral}}
+
+@app.route('/api/founder-growth-engine', methods=['GET'])
+def v98_growth_engine_api(): return jsonify(_v98_growth_engine_payload())
+
+@app.route('/api/founder-growth-engine/export', methods=['GET'])
+def v98_growth_engine_export(): return Response(json.dumps(_v98_growth_engine_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-growth-engine-v98.json'})
+
+@app.route('/founder-growth-engine', methods=['GET'])
+def v98_growth_engine_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Growth Engine</title><style>body{margin:0;background:radial-gradient(circle at 50% -10%,#3e294f,#050507 46%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1160px;margin:auto}.hero,.card{background:linear-gradient(145deg,#14141d,#0c0c12);border:1px solid #2a2a34;border-radius:26px;padding:22px}.score{font-size:112px;font-weight:950;color:#baff5a;line-height:.9}.mode{font-size:34px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:16px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}a{color:#baff5a}.tag{display:inline-block;padding:7px 10px;border:1px solid #334;border-radius:999px;margin-top:8px}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V98.00</div><h1>Founder Growth Engine</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><p id='cmd'></p><div id='weak' class='tag'></div><p><a href='/api/founder-growth-engine/export'>Export JSON Snapshot</a></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-engine')).json();score.textContent=d.growth_engine_score+'/100';mode.textContent=d.mode;cmd.textContent=d.command;weak.textContent='Weakest: '+d.weakest_component.name+' '+d.weakest_component.score+'/100';grid.innerHTML=Object.entries(d.components).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}/100</div></div>`).join('')+`<div class='card'><div class='muted'>VIRAL K</div><div class='big'>${d.viral_k_factor}</div></div>`}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
