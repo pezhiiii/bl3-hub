@@ -101807,6 +101807,120 @@ def v4700_top_priorities():
 
     return jsonify({"success": True, "version": V4700_VERSION, "top_priorities": rows})
 
+
+# ===== V48.00 EXPERIMENT LAB =====
+V4800_VERSION = "V48.00"
+
+def _v4800_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS experiment_lab (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            experiment_name TEXT NOT NULL,
+            hypothesis TEXT NOT NULL DEFAULT '',
+            metric TEXT NOT NULL DEFAULT '',
+            baseline REAL NOT NULL DEFAULT 0,
+            target REAL NOT NULL DEFAULT 0,
+            result REAL NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL DEFAULT 0,
+            outcome TEXT NOT NULL DEFAULT 'RUNNING',
+            learning TEXT NOT NULL DEFAULT '',
+            started_at TEXT NOT NULL,
+            ended_at TEXT NOT NULL DEFAULT ''
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4800_init()
+except Exception:
+    pass
+
+@app.route("/api/experiments", methods=["GET", "POST"])
+def v4800_experiments():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM experiment_lab WHERE username=? ORDER BY id DESC LIMIT 300",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4800_VERSION, "experiments": rows})
+
+    p = request.get_json(silent=True) or request.form
+    name = str(p.get("experiment_name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "experiment_name_required"}), 400
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO experiment_lab
+            (username,experiment_name,hypothesis,metric,baseline,target,result,confidence,outcome,learning,started_at,ended_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, name[:500],
+            str(p.get("hypothesis") or "")[:4000],
+            str(p.get("metric") or "")[:500],
+            float(p.get("baseline") or 0),
+            float(p.get("target") or 0),
+            0.0,
+            max(0.0, min(100.0, float(p.get("confidence") or 0))),
+            "RUNNING",
+            "",
+            datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            ""
+        ))
+        con.commit()
+        eid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4800_VERSION, "experiment_id": eid})
+
+@app.route("/api/experiments/<int:experiment_id>/finish", methods=["POST"])
+def v4800_finish_experiment(experiment_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form
+    result = float(p.get("result") or 0)
+    learning = str(p.get("learning") or "")[:4000]
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM experiment_lab WHERE id=? AND username=?",
+            (experiment_id, u)
+        ).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "experiment_not_found"}), 404
+
+        target = float(row["target"] or 0)
+        baseline = float(row["baseline"] or 0)
+        outcome = "WIN" if result >= target else ("IMPROVED" if result > baseline else "MISS")
+
+        con.execute(
+            """UPDATE experiment_lab
+               SET result=?, outcome=?, learning=?, ended_at=?
+               WHERE id=? AND username=?""",
+            (result, outcome, learning, datetime.utcnow().isoformat(timespec="seconds") + "Z", experiment_id, u)
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4800_VERSION, "experiment_id": experiment_id, "outcome": outcome})
+
 if __name__ == "__main__":
 
     init_db()
