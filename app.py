@@ -101256,6 +101256,112 @@ def v4200_treasury_dashboard():
         "trend": rows[:12]
     })
 
+
+# ===== V43.00 FOUNDER DECISION JOURNAL =====
+V4300_VERSION = "V43.00"
+
+def _v4300_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_decision_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            context TEXT NOT NULL DEFAULT '',
+            decision TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 0,
+            expected_outcome TEXT NOT NULL DEFAULT '',
+            review_date TEXT NOT NULL DEFAULT '',
+            actual_outcome TEXT NOT NULL DEFAULT '',
+            result_score REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4300_init()
+except Exception:
+    pass
+
+@app.route("/api/founder-decisions", methods=["GET", "POST"])
+def v4300_founder_decisions():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM founder_decision_journal WHERE username=? ORDER BY id DESC LIMIT 250",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4300_VERSION, "decisions": rows})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "title_required"}), 400
+
+    confidence = max(0.0, min(100.0, float(p.get("confidence") or 0)))
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO founder_decision_journal
+            (username,title,context,decision,rationale,confidence,expected_outcome,review_date,actual_outcome,result_score,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, title[:500],
+            str(p.get("context") or "")[:4000],
+            str(p.get("decision") or "")[:4000],
+            str(p.get("rationale") or "")[:4000],
+            confidence,
+            str(p.get("expected_outcome") or "")[:3000],
+            str(p.get("review_date") or "")[:120],
+            str(p.get("actual_outcome") or "")[:3000],
+            max(0.0, min(100.0, float(p.get("result_score") or 0))),
+            str(p.get("status") or "OPEN")[:80],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        did = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4300_VERSION, "decision_id": did, "confidence": confidence})
+
+@app.route("/api/founder-decisions/<int:decision_id>/review", methods=["POST"])
+def v4300_review_decision(decision_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form
+    actual = str(p.get("actual_outcome") or "")[:3000]
+    score = max(0.0, min(100.0, float(p.get("result_score") or 0)))
+    status = str(p.get("status") or "REVIEWED")[:80]
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """UPDATE founder_decision_journal
+               SET actual_outcome=?, result_score=?, status=?
+               WHERE id=? AND username=?""",
+            (actual, score, status, decision_id, u)
+        )
+        con.commit()
+        if cur.rowcount == 0:
+            return jsonify({"success": False, "error": "decision_not_found"}), 404
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4300_VERSION, "decision_id": decision_id, "result_score": score})
+
 if __name__ == "__main__":
 
     init_db()
