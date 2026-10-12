@@ -100481,6 +100481,295 @@ def v3700_summary():
         "sample_size": len(rows)
     })
 
+
+# ===== V38.00 FOUNDER DECISION ENGINE =====
+V3800_VERSION = "V38.00"
+
+def _v3800_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_decision_engine (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            decision_title TEXT NOT NULL,
+            decision_type TEXT NOT NULL DEFAULT 'GENERAL',
+            option_a TEXT NOT NULL DEFAULT '',
+            option_b TEXT NOT NULL DEFAULT '',
+            option_c TEXT NOT NULL DEFAULT '',
+            impact_score REAL NOT NULL DEFAULT 0,
+            urgency_score REAL NOT NULL DEFAULT 0,
+            confidence_score REAL NOT NULL DEFAULT 0,
+            reversibility_score REAL NOT NULL DEFAULT 0,
+            evidence_score REAL NOT NULL DEFAULT 0,
+            strategic_fit_score REAL NOT NULL DEFAULT 0,
+            decision_score REAL NOT NULL DEFAULT 0,
+            decision_grade TEXT NOT NULL DEFAULT 'UNRATED',
+            recommendation TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            deadline TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3800_init()
+except Exception:
+    pass
+
+def _v3800_clip(value):
+    try:
+        value = float(value or 0)
+    except Exception:
+        value = 0.0
+    return max(0.0, min(100.0, value))
+
+def _v3800_grade(score):
+    if score >= 88:
+        return "DECIDE_NOW"
+    if score >= 75:
+        return "HIGH_PRIORITY"
+    if score >= 60:
+        return "VALIDATE_FIRST"
+    if score >= 45:
+        return "DEFER"
+    return "REJECT_OR_REFRAME"
+
+def _v3800_recommendation(impact, urgency, confidence, reversibility, evidence, fit):
+    score = (
+        _v3800_clip(impact) * 0.24 +
+        _v3800_clip(urgency) * 0.16 +
+        _v3800_clip(confidence) * 0.16 +
+        _v3800_clip(reversibility) * 0.10 +
+        _v3800_clip(evidence) * 0.16 +
+        _v3800_clip(fit) * 0.18
+    )
+    score = round(score, 2)
+    grade = _v3800_grade(score)
+
+    if grade == "DECIDE_NOW":
+        recommendation = "COMMIT"
+    elif grade == "HIGH_PRIORITY":
+        recommendation = "PROCEED_WITH_GUARDRAILS"
+    elif grade == "VALIDATE_FIRST":
+        recommendation = "RUN_SMALL_TEST"
+    elif grade == "DEFER":
+        recommendation = "DEFER_AND_REVIEW"
+    else:
+        recommendation = "REJECT_OR_REFRAME"
+
+    return score, grade, recommendation
+
+@app.route("/api/founder-decisions", methods=["GET", "POST"])
+def v3800_founder_decisions():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                """SELECT * FROM founder_decision_engine
+                   WHERE username=?
+                   ORDER BY id DESC
+                   LIMIT 100""",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+
+        open_items = [x for x in rows if str(x.get("status", "")).upper() == "OPEN"]
+        return jsonify({
+            "success": True,
+            "version": V3800_VERSION,
+            "latest": rows[0] if rows else None,
+            "history": rows,
+            "open_count": len(open_items),
+            "total_count": len(rows)
+        })
+
+    p = request.get_json(silent=True) or request.form
+
+    impact = _v3800_clip(p.get("impact_score"))
+    urgency = _v3800_clip(p.get("urgency_score"))
+    confidence = _v3800_clip(p.get("confidence_score"))
+    reversibility = _v3800_clip(p.get("reversibility_score"))
+    evidence = _v3800_clip(p.get("evidence_score"))
+    fit = _v3800_clip(p.get("strategic_fit_score"))
+
+    decision_score, decision_grade, recommendation = _v3800_recommendation(
+        impact, urgency, confidence, reversibility, evidence, fit
+    )
+
+    title = str(p.get("decision_title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "decision_title_required"}), 400
+
+    rationale = str(p.get("rationale") or "").strip()
+    if not rationale:
+        rationale = (
+            f"Impact {impact:.0f}, urgency {urgency:.0f}, confidence {confidence:.0f}, "
+            f"reversibility {reversibility:.0f}, evidence {evidence:.0f}, strategic fit {fit:.0f}."
+        )
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """INSERT INTO founder_decision_engine
+            (username,decision_title,decision_type,option_a,option_b,option_c,
+             impact_score,urgency_score,confidence_score,reversibility_score,
+             evidence_score,strategic_fit_score,decision_score,decision_grade,
+             recommendation,rationale,owner,deadline,status,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                u,
+                title[:500],
+                str(p.get("decision_type") or "GENERAL")[:120],
+                str(p.get("option_a") or "")[:1500],
+                str(p.get("option_b") or "")[:1500],
+                str(p.get("option_c") or "")[:1500],
+                impact,
+                urgency,
+                confidence,
+                reversibility,
+                evidence,
+                fit,
+                decision_score,
+                decision_grade,
+                recommendation,
+                rationale[:3000],
+                str(p.get("owner") or "")[:220],
+                str(p.get("deadline") or "")[:120],
+                str(p.get("status") or "OPEN")[:80],
+                now
+            )
+        )
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V3800_VERSION,
+        "decision_id": rid,
+        "decision_score": decision_score,
+        "decision_grade": decision_grade,
+        "recommendation": recommendation
+    })
+
+@app.route("/api/founder-decisions/<int:decision_id>/status", methods=["POST"])
+def v3800_update_decision_status(decision_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    p = request.get_json(silent=True) or request.form
+    status = str(p.get("status") or "").strip().upper()
+
+    allowed = {
+        "OPEN",
+        "VALIDATING",
+        "COMMITTED",
+        "DEFERRED",
+        "REJECTED",
+        "DONE"
+    }
+    if status not in allowed:
+        return jsonify({
+            "success": False,
+            "error": "invalid_status",
+            "allowed": sorted(allowed)
+        }), 400
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute(
+            """UPDATE founder_decision_engine
+               SET status=?
+               WHERE id=? AND username=?""",
+            (status, decision_id, u)
+        )
+        con.commit()
+        changed = cur.rowcount
+    finally:
+        con.close()
+
+    if not changed:
+        return jsonify({"success": False, "error": "decision_not_found"}), 404
+
+    return jsonify({
+        "success": True,
+        "version": V3800_VERSION,
+        "decision_id": decision_id,
+        "status": status
+    })
+
+@app.route("/api/founder-decisions/dashboard", methods=["GET"])
+def v3800_decision_dashboard():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            """SELECT * FROM founder_decision_engine
+               WHERE username=?
+               ORDER BY id DESC
+               LIMIT 250""",
+            (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    if not rows:
+        return jsonify({
+            "success": True,
+            "version": V3800_VERSION,
+            "message": "no_decisions"
+        })
+
+    avg_score = round(
+        sum(float(x.get("decision_score") or 0) for x in rows) / len(rows),
+        2
+    )
+
+    by_status = {}
+    by_grade = {}
+    for x in rows:
+        s = str(x.get("status") or "UNKNOWN")
+        g = str(x.get("decision_grade") or "UNRATED")
+        by_status[s] = by_status.get(s, 0) + 1
+        by_grade[g] = by_grade.get(g, 0) + 1
+
+    priority = [
+        x for x in rows
+        if str(x.get("status") or "").upper() in {"OPEN", "VALIDATING"}
+    ]
+    priority.sort(
+        key=lambda x: float(x.get("decision_score") or 0),
+        reverse=True
+    )
+
+    return jsonify({
+        "success": True,
+        "version": V3800_VERSION,
+        "average_decision_score": avg_score,
+        "by_status": by_status,
+        "by_grade": by_grade,
+        "priority_queue": priority[:10],
+        "total_decisions": len(rows)
+    })
+
 if __name__ == "__main__":
 
     init_db()
