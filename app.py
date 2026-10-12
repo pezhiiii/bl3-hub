@@ -104398,6 +104398,64 @@ def api_founder_cockpit_export_v90():
 def founder_cockpit_v90():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Cockpit</title><style>:root{--hot:#baff5a;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 10% 0,#2b2149,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1200px;margin:auto}.hero,.card{background:rgba(16,16,23,.96);border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:110px;font-weight:950;color:var(--hot);line-height:.88}.mode{font-size:38px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V90.00</div><h1>Founder Cockpit</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><h2 id='next'></h2><div class='links'><a href='/founder-os'>Founder OS</a><a href='/founder-roadmap'>Roadmap</a><a href='/founder-experiments'>Experiments</a><a href='/founder-growth-loop'>Growth Loop</a><a href='/api/founder-cockpit/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>OS SCORE</div><div id='os' class='big'>-</div></div><div class='card'><div class='muted'>GROWTH LOOP</div><div id='growth' class='big'>-</div></div><div class='card'><div class='muted'>EXPERIMENT WIN RATE</div><div id='wins' class='big'>-</div></div><div class='card'><div class='muted'>ROADMAP TOP</div><div id='road' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-cockpit')).json();score.textContent=d.cockpit_score+'/100';mode.textContent=d.mode;next.textContent='NEXT: '+d.next_move;os.textContent=(d.founder_os.overall_score||0)+'/100';growth.textContent=d.growth.loop_score+'/100';wins.textContent=d.experiments.win_rate+'%';road.textContent=(d.roadmap.top_priority||{}).title||'—'}go()</script></body></html>""",mimetype='text/html')
 
+
+
+# ===== V91.00 RETENTION RADAR =====
+V9100_VERSION = "91.00"
+
+def _v91_scalar(sql, params=()):
+    conn = db()
+    try:
+        row = conn.execute(sql, params).fetchone()
+        if row is None: return 0
+        return int(row[0] or 0)
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+def _v91_retention_payload():
+    users = _v91_scalar("SELECT COUNT(*) FROM users")
+    active_7d = _v91_scalar("""SELECT COUNT(DISTINCT username) FROM reputation_events
+                              WHERE created_at >= datetime('now','-7 day')""")
+    active_30d = _v91_scalar("""SELECT COUNT(DISTINCT username) FROM reputation_events
+                               WHERE created_at >= datetime('now','-30 day')""")
+    repeat_30d = _v91_scalar("""SELECT COUNT(*) FROM (
+        SELECT username FROM reputation_events
+        WHERE created_at >= datetime('now','-30 day')
+        GROUP BY username HAVING COUNT(*) >= 3)""")
+    battlers_30d = _v91_scalar("""SELECT COUNT(DISTINCT username) FROM (
+        SELECT challenger AS username FROM creature_battles WHERE created_at >= datetime('now','-30 day')
+        UNION SELECT opponent AS username FROM creature_battles WHERE created_at >= datetime('now','-30 day'))""")
+    retained_pct = round((repeat_30d / active_30d * 100), 1) if active_30d else 0.0
+    dau7_pct = round((active_7d / users * 100), 1) if users else 0.0
+    depth_pct = round((battlers_30d / active_30d * 100), 1) if active_30d else 0.0
+    score = max(0, min(100, round(retained_pct * .45 + dau7_pct * .30 + depth_pct * .25)))
+    state = 'STICKY' if score >= 75 else 'HEALTHY' if score >= 55 else 'FRAGILE' if score >= 35 else 'COLD'
+    if state == 'COLD': next_move = 'Create one repeatable daily loop and reactivate dormant Hunters.'
+    elif state == 'FRAGILE': next_move = 'Strengthen repeat behavior with streaks, rivalries and proof rewards.'
+    elif state == 'HEALTHY': next_move = 'Increase depth: more battles, social actions and recurring missions.'
+    else: next_move = 'Scale acquisition without weakening retention quality.'
+    return {
+        'version':V9100_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z',
+        'retention_score':score,'state':state,'next_move':next_move,
+        'metrics':{'users':users,'active_7d':active_7d,'active_30d':active_30d,'repeat_30d':repeat_30d,
+                   'battlers_30d':battlers_30d,'repeat_rate_pct':retained_pct,'active_7d_pct':dau7_pct,
+                   'battle_depth_pct':depth_pct}
+    }
+
+@app.route('/api/founder-retention-radar', methods=['GET'])
+def v91_retention_api():
+    return jsonify(_v91_retention_payload())
+
+@app.route('/api/founder-retention-radar/export', methods=['GET'])
+def v91_retention_export():
+    return Response(json.dumps(_v91_retention_payload(), indent=2, ensure_ascii=False), mimetype='application/json', headers={'Content-Disposition':'attachment; filename=bl3-retention-radar-v91.json'})
+
+@app.route('/founder-retention-radar', methods=['GET'])
+def v91_retention_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Retention Radar</title><style>body{margin:0;background:radial-gradient(circle at 20% 0,#233b37,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#baff5a;line-height:.9}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}a{color:#baff5a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V91.00</div><h1>Founder Retention Radar</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p><a href='/api/founder-retention-radar/export'>Export JSON</a></div><div class='grid' id='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-retention-radar')).json();score.textContent=d.retention_score+'/100';state.textContent=d.state;next.textContent=d.next_move;let m=d.metrics;grid.innerHTML=[['7D ACTIVE',m.active_7d],['30D ACTIVE',m.active_30d],['REPEAT 30D',m.repeat_30d],['REPEAT RATE',m.repeat_rate_pct+'%'],['BATTLE DEPTH',m.battle_depth_pct+'%'],['TOTAL HUNTERS',m.users]].map(x=>`<div class='card'><div class='muted'>${x[0]}</div><div class='big'>${x[1]}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
