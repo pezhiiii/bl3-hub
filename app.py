@@ -101137,6 +101137,125 @@ def v4100_growth_dashboard():
         "top_winners": sorted(winners, key=lambda x: float(x["lift_pct"] or 0), reverse=True)[:10]
     })
 
+
+# ===== V42.00 TREASURY RUNWAY CONTROL =====
+V4200_VERSION = "V42.00"
+
+def _v4200_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS treasury_runway_control (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            label TEXT NOT NULL,
+            cash_balance REAL NOT NULL DEFAULT 0,
+            monthly_burn REAL NOT NULL DEFAULT 0,
+            monthly_revenue REAL NOT NULL DEFAULT 0,
+            runway_months REAL NOT NULL DEFAULT 0,
+            burn_multiple REAL NOT NULL DEFAULT 0,
+            health TEXT NOT NULL DEFAULT 'UNKNOWN',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4200_init()
+except Exception:
+    pass
+
+def _v4200_metrics(cash_balance, monthly_burn, monthly_revenue):
+    cash = max(0.0, float(cash_balance or 0))
+    burn = max(0.0, float(monthly_burn or 0))
+    rev = max(0.0, float(monthly_revenue or 0))
+    net_burn = max(0.0, burn - rev)
+
+    runway = 999.0 if net_burn <= 0 else round(cash / net_burn, 2)
+    burn_multiple = 0.0 if rev <= 0 else round(net_burn / rev, 2)
+
+    if runway >= 18:
+        health = "STRONG"
+    elif runway >= 12:
+        health = "HEALTHY"
+    elif runway >= 6:
+        health = "WATCH"
+    else:
+        health = "CRITICAL"
+
+    return runway, burn_multiple, health
+
+@app.route("/api/treasury-runway", methods=["GET", "POST"])
+def v4200_treasury_runway():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM treasury_runway_control WHERE username=? ORDER BY id DESC LIMIT 120", (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4200_VERSION, "snapshots": rows, "latest": rows[0] if rows else None})
+
+    p = request.get_json(silent=True) or request.form
+    label = str(p.get("label") or "Treasury Snapshot").strip()
+    cash = float(p.get("cash_balance") or 0)
+    burn = float(p.get("monthly_burn") or 0)
+    revenue = float(p.get("monthly_revenue") or 0)
+    runway, burn_multiple, health = _v4200_metrics(cash, burn, revenue)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO treasury_runway_control
+            (username,label,cash_balance,monthly_burn,monthly_revenue,runway_months,burn_multiple,health,notes,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?)""", (
+            u, label[:500], cash, burn, revenue, runway, burn_multiple, health,
+            str(p.get("notes") or "")[:3000],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        tid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({
+        "success": True,
+        "version": V4200_VERSION,
+        "snapshot_id": tid,
+        "runway_months": runway,
+        "burn_multiple": burn_multiple,
+        "health": health
+    })
+
+@app.route("/api/treasury-runway/dashboard", methods=["GET"])
+def v4200_treasury_dashboard():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM treasury_runway_control WHERE username=? ORDER BY id DESC LIMIT 120", (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    latest = rows[0] if rows else None
+    return jsonify({
+        "success": True,
+        "version": V4200_VERSION,
+        "latest": latest,
+        "history_count": len(rows),
+        "trend": rows[:12]
+    })
+
 if __name__ == "__main__":
 
     init_db()
