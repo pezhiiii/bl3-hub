@@ -103938,6 +103938,38 @@ def founder_signal_engine_v79(): return jsonify({'success':True, **_v79_signal_e
 def founder_signal_engine_page_v79():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Signal Engine</title><style>body{margin:0;background:radial-gradient(circle at 20% 0,#201a37,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.posture{font-size:68px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:34px;font-weight:950}.muted{color:#8f91a3}.STRONG{border-color:#baff5a}.WATCH{border-color:#ffd66b}.WEAK{border-color:#ff6b7a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V79.00</div><h1>Founder Signal Engine</h1><div id='posture' class='posture'>...</div><p id='weak' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-signal-engine')).json();posture.textContent=d.posture;weak.textContent='Weakest signal: '+(d.weakest_signal?.label||'-');grid.innerHTML=(d.signals||[]).map(x=>`<div class="card ${x.state}"><div class="muted">${x.label}</div><div class="big">${x.value}</div><b>${x.state}</b><div class="muted">${x.detail}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+
+# ===== V80.00 FOUNDER PRIORITY AUTOPILOT =====
+V8000_VERSION = "V80.00"
+
+def _v80_priority_autopilot_payload():
+    tower=_v78_control_tower_payload(); signal=_v79_signal_engine_payload(); dep=tower.get('dependencies') or {}; timeline=tower.get('timeline') or {}
+    actions=[]
+    for i,n in enumerate(dep.get('bottlenecks') or []):
+        state=n.get('state') or 'OPEN'; score=95-i*6 if state=='BLOCKED' else 82-i*5
+        actions.append({'action':f"Clear {n.get('label')}",'source':'dependency','score':max(1,score),'reason':f"Dependency state = {state}"})
+    current=timeline.get('current_step') or {}
+    if current:
+        actions.append({'action':f"Complete {current.get('title')}",'source':'timeline','score':78,'reason':'Current launch timeline step'})
+    weakest=signal.get('weakest_signal') or {}
+    if weakest:
+        actions.append({'action':f"Strengthen {weakest.get('label')}",'source':'signal','score':74,'reason':f"Signal state = {weakest.get('state')}"})
+    actions.append({'action':tower.get('next_action') or 'Review Founder Control Tower','source':'control_tower','score':88,'reason':f"Control Tower mode = {tower.get('mode')}"})
+    dedup={}
+    for a in actions:
+        k=a['action'].strip().lower(); dedup[k]=a if k not in dedup or a['score']>dedup[k]['score'] else dedup[k]
+    ranked=sorted(dedup.values(),key=lambda x:(-x['score'],x['action']))[:7]
+    for i,a in enumerate(ranked,1): a['rank']=i
+    top=ranked[0] if ranked else {'action':'Review system state','score':0,'reason':'No queued action'}
+    return {'version':V8000_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','autopilot_state':'EXECUTE' if top['score']>=85 else ('PREPARE' if top['score']>=70 else 'OBSERVE'),'top_priority':top,'queue':ranked,'posture':signal.get('posture')}
+
+@app.route('/api/founder-priority-autopilot', methods=['GET'])
+def founder_priority_autopilot_v80(): return jsonify({'success':True, **_v80_priority_autopilot_payload()})
+
+@app.route('/founder-priority-autopilot', methods=['GET'])
+def founder_priority_autopilot_page_v80():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Priority Autopilot</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1000px;margin:auto}.hero,.row{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.hero{margin-bottom:12px}.state{font-size:64px;font-weight:950;color:#baff5a}.row{display:grid;grid-template-columns:70px 1fr 80px;gap:14px;align-items:center;margin:9px 0}.rank,.score{font-size:28px;font-weight:950}.muted{color:#8f91a3}@media(max-width:650px){.row{grid-template-columns:52px 1fr}.score{grid-column:2}}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V80.00</div><h1>Founder Priority Autopilot</h1><div id='state' class='state'>...</div><h2 id='top'></h2><p id='why' class='muted'></p></div><div id='list'></div></div><script>async function go(){let d=await (await fetch('/api/founder-priority-autopilot')).json();state.textContent=d.autopilot_state;top.textContent='TOP: '+(d.top_priority?.action||'-');why.textContent=d.top_priority?.reason||'';list.innerHTML=(d.queue||[]).map(x=>`<div class="row"><div class="rank">#${x.rank}</div><div><b>${x.action}</b><div class="muted">${x.reason} · ${x.source}</div></div><div class="score">${x.score}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
