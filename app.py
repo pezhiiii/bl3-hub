@@ -104751,6 +104751,34 @@ def founder_cohort_intelligence():
 def api_founder_cohort_intelligence(): return jsonify(_v99_cohort_snapshot())
 
 
+
+# ===== V100.00 ACTIVATION QUALITY INDEX =====
+def _v100_activation_quality():
+    conn=db()
+    try:
+        users=int(conn.execute('SELECT COUNT(*) n FROM users').fetchone()['n'] or 0)
+        questers=int(conn.execute('SELECT COUNT(DISTINCT username) n FROM quests').fetchone()['n'] or 0)
+        battlers=int(conn.execute("SELECT COUNT(DISTINCT username) n FROM (SELECT challenger username FROM creature_battles UNION SELECT opponent username FROM creature_battles)").fetchone()['n'] or 0)
+        proofers=int(conn.execute('SELECT COUNT(DISTINCT username) n FROM hunter_proof_bundles').fetchone()['n'] or 0)
+        referred=int(conn.execute('SELECT COUNT(DISTINCT invited) n FROM referrals').fetchone()['n'] or 0)
+        pct=lambda x,d: round((x/d)*100,1) if d else 0.0
+        activation=pct(questers,users); battle=pct(battlers,questers); proof=pct(proofers,questers); referral=pct(referred,users)
+        score=round(min(100,activation*.30+battle*.30+proof*.25+referral*.15),1)
+        state='ELITE' if score>=75 else ('HEALTHY' if score>=55 else ('FRAGILE' if score>=30 else 'WEAK'))
+        weak=min([('Activation',activation),('Battle depth',battle),('Proof depth',proof),('Referral depth',referral)],key=lambda x:x[1])[0]
+        actions={'Activation':'Improve first-session quest completion.','Battle depth':'Move activated Hunters into their first Clash faster.','Proof depth':'Turn activity into proof bundles.','Referral depth':'Prompt successful Hunters to invite one qualified peer.'}
+        return {'score':score,'state':state,'metrics':{'activation_rate':activation,'battle_depth':battle,'proof_depth':proof,'referral_depth':referral},'weakest':weak,'next_action':actions[weak],'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+    finally: conn.close()
+
+@app.route('/founder-activation-quality')
+def founder_activation_quality():
+    s=_v100_activation_quality(); cards=''.join(f"<div class='card'><small>{html.escape(k.replace('_',' ').title())}</small><h2>{v}%</h2></div>" for k,v in s['metrics'].items())
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Activation Quality</title><style>body{{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}}main{{max-width:1050px;margin:auto;padding:32px}}.hero,.card{{border:1px solid #292936;background:#111118;border-radius:24px;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}}.k,a{{color:#baff5a}}small,p{{color:#9b9bad}}@media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}}}</style></head><body><main><div class="hero"><div class="k">V100.00</div><h1>Activation Quality Index</h1><h2>{s['score']} / 100 · {s['state']}</h2><p>Weakest signal: <b>{s['weakest']}</b> · {html.escape(s['next_action'])}</p></div><div class="grid">{cards}</div><a href="/founder-cohort-intelligence">← Cohort Intelligence</a></main></body></html>'''
+
+@app.route('/api/founder/activation-quality')
+def api_founder_activation_quality(): return jsonify(_v100_activation_quality())
+
+
 if __name__ == "__main__":
 
     init_db()
