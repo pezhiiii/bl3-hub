@@ -104924,6 +104924,31 @@ def v105_growth_sentinel_api(): return jsonify(_v105_growth_anomaly_payload())
 @app.route('/founder-growth-sentinel')
 def v105_growth_sentinel_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Growth Anomaly Sentinel</title><style>body{margin:0;background:radial-gradient(circle at 50% 0,#3a1518,#050507 47%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#ff7d8a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}.big{font-size:28px;font-weight:950}.muted{color:#8f91a3}.pos{color:#baff5a}.neg{color:#ff7d8a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V105.00</div><h1>Growth Anomaly Sentinel</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-sentinel')).json();score.textContent=d.sentinel_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.delta_pct).map(([k,v])=>`<div class='card'><div class='muted'>${k.toUpperCase()} 7D Δ</div><div class='big ${v>=0?'pos':'neg'}'>${v}%</div><div>${d.current_7d[k]} now · ${d.previous_7d[k]} prior</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+# ===== V106.00 FOUNDER GROWTH INTELLIGENCE HQ =====
+V10600_VERSION = "106.00"
+
+def _v106_growth_hq_payload():
+    growth=_v102_growth_os_payload(); value=_v103_hunter_value_payload(); segments=_v104_segment_payload(); sentinel=_v105_growth_anomaly_payload()
+    score=round(max(0,min(100, growth['score']*.40 + value['value_score']*.25 + segments['segment_score']*.20 + sentinel['sentinel_score']*.15)))
+    if sentinel['state']=='ALERT': mode='PROTECT'
+    elif growth['mode']=='SCALE' and value['value_score']>=60: mode='COMPOUND'
+    elif value['value_score']<40: mode='DEEPEN VALUE'
+    elif segments['mix_pct'].get('new',0)>=40: mode='ACTIVATE'
+    else: mode='OPTIMIZE'
+    directives={'PROTECT':'Stop scaling pressure and investigate negative growth anomalies first.','COMPOUND':'Scale the healthiest acquisition and advocacy loops while preserving Hunter quality.','DEEPEN VALUE':'Increase repeat battles, proof creation and advocacy before chasing more top-of-funnel volume.','ACTIVATE':'Move new Hunters to first value faster with quests, wallet, battle and proof milestones.','OPTIMIZE':'Improve the weakest value or segment signal while maintaining current growth momentum.'}
+    return {'version':V10600_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','hq_score':score,'mode':mode,'directive':directives[mode],'growth_os':{'score':growth['score'],'mode':growth['mode']},'hunter_value':{'score':value['value_score'],'state':value['state']},'segments':{'score':segments['segment_score'],'state':segments['state'],'mix_pct':segments['mix_pct']},'sentinel':{'score':sentinel['sentinel_score'],'state':sentinel['state'],'alerts':sentinel['alerts']}}
+
+@app.route('/api/founder/growth-intelligence-hq')
+def v106_growth_hq_api(): return jsonify(_v106_growth_hq_payload())
+
+@app.route('/api/founder/growth-intelligence-hq/export')
+def v106_growth_hq_export(): return Response(json.dumps(_v106_growth_hq_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-growth-intelligence-hq-v106.json'})
+
+@app.route('/founder-growth-intelligence-hq')
+def v106_growth_hq_page():
+    s=_v106_growth_hq_payload()
+    cards=''.join([f"<div class='card'><div class='muted'>{html.escape(k)}</div><div class='big'>{html.escape(str(v))}</div></div>" for k,v in [('Growth OS',s['growth_os']['score']),('Hunter Value',s['hunter_value']['score']),('Segments',s['segments']['score']),('Sentinel',s['sentinel']['score'])]])
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Growth Intelligence HQ</title><style>body{{font-family:Inter,system-ui;background:radial-gradient(circle at 20% 0,#1b3144,#050507 45%);color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:rgba(17,17,24,.92);border-radius:26px;padding:24px}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}}.hot,a{{color:#61f4ff}}.mode{{font-size:54px;font-weight:950;letter-spacing:-2px;margin:6px 0}}.big{{font-size:30px;font-weight:950}}.muted,p{{color:#9c9cad}}@media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}.mode{{font-size:40px}}}}</style></head><body><main><div class="hero"><div class="hot">V106.00 · FOUNDER GROWTH INTELLIGENCE HQ</div><div class="mode">{html.escape(s['mode'])}</div><h2>{s['hq_score']} / 100</h2><p>{html.escape(s['directive'])}</p></div><div class="grid">{cards}</div><p><a href="/founder-growth-os">Growth OS</a> · <a href="/founder-hunter-value">Hunter Value</a> · <a href="/founder-hunter-segments">Segments</a> · <a href="/founder-growth-sentinel">Sentinel</a> · <a href="/api/founder/growth-intelligence-hq/export">Export JSON</a></p></main></body></html>'''
 
 
 if __name__ == "__main__":
