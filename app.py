@@ -104891,6 +104891,39 @@ def v104_segment_api(): return jsonify(_v104_segment_payload())
 @app.route('/founder-hunter-segments')
 def v104_segment_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Hunter Segments</title><style>body{margin:0;background:radial-gradient(circle at 85% 0,#163a37,#050507 46%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#6fffd6}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V104.00</div><h1>Hunter Segment Intelligence</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-hunter-segments')).json();score.textContent=d.segment_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.counts).map(([k,v])=>`<div class='card'><div class='muted'>${k.toUpperCase()}</div><div class='big'>${v}</div><div>${d.mix_pct[k]}%</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+# ===== V105.00 GROWTH ANOMALY SENTINEL =====
+V10500_VERSION = "105.00"
+
+def _v105_growth_anomaly_payload():
+    conn=db()
+    try:
+        def count_between(table, col, days_a, days_b=0):
+            if days_b == 0:
+                q=f"SELECT COUNT(*) c FROM {table} WHERE {col} >= datetime('now', ?)"
+                return int(conn.execute(q,(f'-{days_a} days',)).fetchone()['c'] or 0)
+            q=f"SELECT COUNT(*) c FROM {table} WHERE {col} >= datetime('now', ?) AND {col} < datetime('now', ?)"
+            return int(conn.execute(q,(f'-{days_a} days',f'-{days_b} days')).fetchone()['c'] or 0)
+        current={'battles':count_between('creature_battles','created_at',7),'proofs':count_between('hunter_proof_bundles','created_at',7),'referrals':count_between('referrals','date',7),'reputation':count_between('reputation_events','created_at',7)}
+        previous={'battles':count_between('creature_battles','created_at',14,7),'proofs':count_between('hunter_proof_bundles','created_at',14,7),'referrals':count_between('referrals','date',14,7),'reputation':count_between('reputation_events','created_at',14,7)}
+        deltas, alerts = {}, []
+        for k,v in current.items():
+            p=previous[k]; delta=round(((v-p)/max(1,p))*100,1); deltas[k]=delta
+            if v==0 and p>0: alerts.append({'signal':k,'severity':'CRITICAL','delta_pct':delta,'message':f'{k} fell to zero in the current 7-day window.'})
+            elif p>=3 and delta<=-40: alerts.append({'signal':k,'severity':'HIGH','delta_pct':delta,'message':f'{k} dropped sharply versus the prior 7-day window.'})
+            elif delta>=75 and v>=4: alerts.append({'signal':k,'severity':'POSITIVE','delta_pct':delta,'message':f'{k} accelerated materially versus the prior window.'})
+        negatives=sum(1 for a in alerts if a['severity'] in ('HIGH','CRITICAL'))
+        score=max(0,100-negatives*25)
+        state='ALERT' if negatives>=2 else 'WATCH' if negatives==1 else 'CLEAR'
+        next_move='Investigate the highest-severity falling signal before scaling.' if negatives else 'No major negative anomaly detected; keep watching weekly deltas.'
+        return {'version':V10500_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','sentinel_score':score,'state':state,'next_move':next_move,'current_7d':current,'previous_7d':previous,'delta_pct':deltas,'alerts':alerts}
+    finally: conn.close()
+
+@app.route('/api/founder-growth-sentinel')
+def v105_growth_sentinel_api(): return jsonify(_v105_growth_anomaly_payload())
+
+@app.route('/founder-growth-sentinel')
+def v105_growth_sentinel_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Growth Anomaly Sentinel</title><style>body{margin:0;background:radial-gradient(circle at 50% 0,#3a1518,#050507 47%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#ff7d8a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}.big{font-size:28px;font-weight:950}.muted{color:#8f91a3}.pos{color:#baff5a}.neg{color:#ff7d8a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V105.00</div><h1>Growth Anomaly Sentinel</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-sentinel')).json();score.textContent=d.sentinel_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.delta_pct).map(([k,v])=>`<div class='card'><div class='muted'>${k.toUpperCase()} 7D Δ</div><div class='big ${v>=0?'pos':'neg'}'>${v}%</div><div>${d.current_7d[k]} now · ${d.previous_7d[k]} prior</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
 
 if __name__ == "__main__":
