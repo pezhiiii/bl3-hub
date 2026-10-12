@@ -104854,6 +104854,43 @@ def v103_hunter_value_api(): return jsonify(_v103_hunter_value_payload())
 @app.route('/founder-hunter-value')
 def v103_hunter_value_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Hunter Value Intelligence</title><style>body{margin:0;background:radial-gradient(circle at 10% 0,#2f173f,#050507 48%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#d69cff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}.big{font-size:28px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V103.00</div><h1>Hunter Value Intelligence</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-hunter-value')).json();score.textContent=d.value_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.components).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}%</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+# ===== V104.00 HUNTER SEGMENT INTELLIGENCE =====
+V10400_VERSION = "104.00"
+
+def _v104_segment_payload():
+    conn = db()
+    try:
+        users = conn.execute("SELECT username, xp, streak, wallet FROM users").fetchall()
+        segments = {'new':0,'activated':0,'engaged':0,'champion':0}
+        samples = {k:[] for k in segments}
+        for u in users:
+            name = u['username']
+            battles = conn.execute("SELECT COUNT(*) c FROM creature_battles WHERE challenger=? OR opponent=?",(name,name)).fetchone()['c']
+            proofs = conn.execute("SELECT COUNT(*) c FROM hunter_proof_bundles WHERE username=?",(name,)).fetchone()['c']
+            invites = conn.execute("SELECT COUNT(*) c FROM referrals WHERE inviter=?",(name,)).fetchone()['c']
+            quests = conn.execute("SELECT COUNT(*) c FROM quests WHERE username=?",(name,)).fetchone()['c']
+            if battles >= 5 and (proofs >= 1 or invites >= 2): seg='champion'
+            elif battles >= 2 or proofs >= 1 or int(u['streak'] or 0) >= 3: seg='engaged'
+            elif quests >= 1 or str(u['wallet'] or '').strip(): seg='activated'
+            else: seg='new'
+            segments[seg]+=1
+            if len(samples[seg])<5: samples[seg].append(name)
+        total=max(1,len(users))
+        mix={k:round(v/total*100,1) for k,v in segments.items()}
+        healthy_share=round((segments['engaged']+segments['champion'])/total*100,1)
+        score=round(min(100, healthy_share*1.15 + mix['activated']*.20))
+        state='POWERED' if score>=75 else 'BALANCED' if score>=55 else 'TOP-HEAVY' if mix['new']<25 else 'EARLY'
+        next_move='Move activated Hunters into repeat product actions.' if mix['activated']>=25 else ('Create a clearer first-value path for new Hunters.' if mix['new']>=40 else 'Turn engaged Hunters into champions through proof, rivalry and referral loops.')
+        return {'version':V10400_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','segment_score':score,'state':state,'next_move':next_move,'counts':segments,'mix_pct':mix,'samples':samples}
+    finally:
+        conn.close()
+
+@app.route('/api/founder-hunter-segments')
+def v104_segment_api(): return jsonify(_v104_segment_payload())
+
+@app.route('/founder-hunter-segments')
+def v104_segment_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Hunter Segments</title><style>body{margin:0;background:radial-gradient(circle at 85% 0,#163a37,#050507 46%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#6fffd6}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V104.00</div><h1>Hunter Segment Intelligence</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-hunter-segments')).json();score.textContent=d.segment_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.counts).map(([k,v])=>`<div class='card'><div class='muted'>${k.toUpperCase()}</div><div class='big'>${v}</div><div>${d.mix_pct[k]}%</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
 
 if __name__ == "__main__":
