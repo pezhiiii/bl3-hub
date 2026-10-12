@@ -102932,6 +102932,46 @@ def v5900_weekly_review():
         con.close()
     return jsonify({"success":True,"version":V5900_VERSION,"week_key":week,"status":status})
 
+
+# ===== V60.00 BOTTLENECK RADAR =====
+V6000_VERSION = "V60.00"
+
+def _v6000_age_days(ts):
+    try:
+        clean=str(ts or "").replace("Z","")
+        return max(0,(datetime.utcnow()-datetime.fromisoformat(clean)).days)
+    except Exception:
+        return 0
+
+@app.route("/api/founder-bottlenecks", methods=["GET"])
+def v6000_bottlenecks():
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    items=[]
+    try:
+        for r in con.execute("SELECT * FROM founder_daily_execution WHERE username=? AND status='BLOCKED' ORDER BY priority DESC,impact DESC,id DESC LIMIT 30",(u,)).fetchall():
+            d=dict(r); score=min(100,25+int(d.get("priority") or 1)*8+int(d.get("impact") or 1)*8+min(20,_v6000_age_days(d.get("updated_at"))*2))
+            items.append({"kind":"blocked_execution","score":score,"title":d.get("title") or "Blocked execution","ref_id":d.get("id"),"detail":d.get("note") or ""})
+        for r in con.execute("SELECT * FROM founder_risk_radar WHERE username=? AND status NOT IN ('CLOSED','RESOLVED') ORDER BY risk_score DESC,id DESC LIMIT 30",(u,)).fetchall():
+            d=dict(r); items.append({"kind":"risk","score":round(min(100,float(d.get("risk_score") or 0)),2),"title":d.get("risk_title") or "Open risk","ref_id":d.get("id"),"detail":d.get("mitigation") or ""})
+        cutoff=(datetime.utcnow()-timedelta(days=7)).isoformat(timespec="seconds")+"Z"
+        for r in con.execute("SELECT * FROM founder_decision_journal WHERE username=? AND status='OPEN' AND created_at<? ORDER BY id DESC LIMIT 30",(u,cutoff)).fetchall():
+            d=dict(r); age=_v6000_age_days(d.get("created_at")); score=min(100,30+age*4+(100-int(d.get("confidence") or 50))*0.25)
+            items.append({"kind":"stale_decision","score":round(score,2),"title":d.get("title") or "Stale decision","ref_id":d.get("id"),"detail":d.get("decision") or d.get("context") or ""})
+        for r in con.execute("SELECT * FROM founder_priority_engine WHERE username=? AND status NOT IN ('DONE','ARCHIVED') ORDER BY priority_score DESC,id DESC LIMIT 20",(u,)).fetchall():
+            d=dict(r); effort=float(d.get("effort") or 0); confidence=float(d.get("confidence") or 0)
+            if effort>=70 or confidence<=35:
+                score=min(100,35+(effort*0.35)+((100-confidence)*0.25))
+                items.append({"kind":"priority_friction","score":round(score,2),"title":d.get("title") or "Priority friction","ref_id":d.get("id"),"detail":d.get("notes") or ""})
+    finally:
+        con.close()
+    items.sort(key=lambda x:(float(x.get("score") or 0)),reverse=True)
+    critical=sum(1 for x in items if float(x.get("score") or 0)>=75)
+    state="CRITICAL" if critical>=3 else "PRESSURED" if items and float(items[0].get("score") or 0)>=60 else "CLEAR"
+    return jsonify({"success":True,"version":V6000_VERSION,"state":state,"critical_count":critical,"count":len(items),"bottlenecks":items[:20]})
+
 if __name__ == "__main__":
 
     init_db()
