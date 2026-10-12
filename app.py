@@ -104071,6 +104071,79 @@ def founder_execution_radar_v83():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Execution Radar</title><style>body{margin:0;background:radial-gradient(circle at 20% 0,#221d3e,#050507 46%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1080px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.score{font-size:88px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.muted{color:#8f91a3}.big{font-size:28px;font-weight:900}.row{padding:12px 0;border-bottom:1px solid #25252f}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V83.00</div><h1>Founder Execution Radar</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next' class='muted'></p></div><div class='grid'><div class='card'><div class='muted'>Confidence</div><div id='conf' class='big'>-</div></div><div class='card'><div class='muted'>Launch Progress</div><div id='prog' class='big'>-</div></div><div class='card'><div class='muted'>Verdict</div><div id='verdict' class='big'>-</div></div></div><div class='card' style='margin-top:14px'><h3>Top Actions</h3><div id='actions'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-execution-radar')).json();score.textContent=d.execution_score+'/100';state.textContent=d.state;next.textContent='NEXT: '+(d.next_action||'-');conf.textContent=d.confidence+'/100';prog.textContent=d.launch_progress+'%';verdict.textContent=d.launch_verdict;actions.innerHTML=(d.top_actions||[]).map((x,i)=>`<div class="row"><b>#${i+1} ${x.action||'-'}</b><div class="muted">${x.reason||''}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
 
 
+
+# ===== V84.00 DAILY COMMAND BRIEF =====
+V8400_VERSION = "84.00"
+
+def _v84_daily_command_brief_payload():
+    radar = _v83_execution_radar_payload()
+    auto = _v80_priority_autopilot_payload()
+    signal = _v79_signal_engine_payload()
+    queue = list(auto.get("queue") or [])[:3]
+    directive = radar.get("next_action") or "Review the Founder Command Nexus."
+    return {
+        "version": V8400_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "headline": f"{radar.get('state','VERIFY')} // {radar.get('execution_score',0)}/100",
+        "directive": directive,
+        "top_3": queue,
+        "signal_posture": signal.get("posture"),
+        "weakest_signal": signal.get("weakest_signal"),
+        "launch_verdict": radar.get("launch_verdict"),
+        "confidence": radar.get("confidence"),
+        "launch_progress": radar.get("launch_progress"),
+    }
+
+@app.route('/api/founder-daily-command-brief', methods=['GET'])
+def api_founder_daily_command_brief_v84():
+    return jsonify(_v84_daily_command_brief_payload())
+
+@app.route('/api/founder-daily-command-brief/export', methods=['GET'])
+def api_founder_daily_command_brief_export_v84():
+    return Response(json.dumps(_v84_daily_command_brief_payload(), indent=2, ensure_ascii=False), mimetype='application/json', headers={'Content-Disposition':'attachment; filename=bl3-founder-daily-command-brief.json'})
+
+@app.route('/founder-daily-command-brief', methods=['GET'])
+def founder_daily_command_brief_v84():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Daily Command Brief</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:960px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.headline{font-size:54px;font-weight:950;color:#baff5a}.directive{font-size:28px;font-weight:900;margin:14px 0}.row{padding:13px 0;border-bottom:1px solid #262630}.muted{color:#8f91a3}.btn{display:inline-block;background:#baff5a;color:#070906;text-decoration:none;padding:10px 13px;border-radius:11px;font-weight:900}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V84.00</div><h1>Daily Command Brief</h1><div id='headline' class='headline'>...</div><div id='directive' class='directive'></div><div id='meta' class='muted'></div><a class='btn' href='/api/founder-daily-command-brief/export'>Export JSON</a></div><div class='card' style='margin-top:14px'><h3>Top 3</h3><div id='list'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-daily-command-brief')).json();headline.textContent=d.headline;directive.textContent=d.directive;meta.textContent=`Signal ${d.signal_posture} · Verdict ${d.launch_verdict} · Confidence ${d.confidence}/100 · Progress ${d.launch_progress}%`;list.innerHTML=(d.top_3||[]).map((x,i)=>`<div class="row"><b>#${i+1} ${x.action||'-'}</b><div class="muted">${x.reason||''}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
+
+
+
+# ===== V85.00 FOUNDER SCOREBOARD =====
+V8500_VERSION = "85.00"
+
+def _v85_founder_scoreboard_payload():
+    radar = _v83_execution_radar_payload()
+    nexus = _v82_command_nexus_payload()
+    signal = _v79_signal_engine_payload()
+    dimensions = [
+        {"key":"execution","label":"Execution","score":int(radar.get("execution_score") or 0)},
+        {"key":"confidence","label":"Confidence","score":int(radar.get("confidence") or 0)},
+        {"key":"launch","label":"Launch Progress","score":int(radar.get("launch_progress") or 0)},
+    ]
+    posture = str(signal.get("posture") or "WATCH").upper()
+    posture_score = {"ACCELERATE":100,"ADVANCE":85,"STRONG":85,"VERIFY":65,"WATCH":55,"DEFEND":45,"WEAK":35}.get(posture, 50)
+    dimensions.append({"key":"signal","label":"Signal Health","score":posture_score})
+    overall = round(sum(x["score"] for x in dimensions) / len(dimensions))
+    grade = "A" if overall >= 85 else "B" if overall >= 70 else "C" if overall >= 55 else "D"
+    return {
+        "version": V8500_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "overall": overall,
+        "grade": grade,
+        "dimensions": dimensions,
+        "mode": nexus.get("nexus_mode"),
+        "next_action": nexus.get("next_action"),
+    }
+
+@app.route('/api/founder-scoreboard', methods=['GET'])
+def api_founder_scoreboard_v85():
+    return jsonify(_v85_founder_scoreboard_payload())
+
+@app.route('/founder-scoreboard', methods=['GET'])
+def founder_scoreboard_v85():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Scoreboard</title><style>body{margin:0;background:radial-gradient(circle at 85% 0,#261f42,#050507 45%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.score{font-size:100px;font-weight:950;color:#baff5a;line-height:.9}.grade{font-size:42px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.bar{height:9px;background:#25252f;border-radius:999px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:#baff5a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V85.00</div><h1>Founder Scoreboard</h1><div id='score' class='score'>...</div><div id='grade' class='grade'></div><p id='next' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-scoreboard')).json();score.textContent=d.overall+'/100';grade.textContent='GRADE '+d.grade+' · '+(d.mode||'');next.textContent='NEXT: '+(d.next_action||'-');grid.innerHTML=(d.dimensions||[]).map(x=>`<div class="card"><b>${x.label}</b><div style="font-size:32px;font-weight:950">${x.score}</div><div class="bar"><i style="width:${x.score}%"></i></div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
+
+
 if __name__ == "__main__":
 
     init_db()
