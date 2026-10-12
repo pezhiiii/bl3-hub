@@ -103905,6 +103905,39 @@ def founder_control_tower_export_v78():
 @app.route('/founder-control-tower', methods=['GET'])
 def founder_control_tower_page_v78():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Control Tower</title><style>:root{--hot:#baff5a;--warn:#ffd66b;--bad:#ff6b7a}body{margin:0;background:radial-gradient(circle at 15% 0,#211b38,#050507 40%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:rgba(16,16,23,.95);border-radius:24px;padding:20px}.mode{font-size:78px;font-weight:950;color:var(--hot)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.big{font-size:36px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;text-decoration:none;color:#080a06;background:var(--hot);font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V78.00</div><h1>Founder Control Tower</h1><div id='mode' class='mode'>...</div><div id='next' class='big'></div><p id='cmd' class='muted'></p><div class='links'><a href='/founder-war-room'>War Room</a><a href='/founder-launch-timeline'>Timeline</a><a href='/founder-dependency-map'>Dependencies</a><a href='/founder-confidence-index'>Confidence</a><a href='/api/founder-control-tower/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Confidence</div><div id='confidence' class='big'>-</div></div><div class='card'><div class='muted'>Launch Progress</div><div id='progress' class='big'>-</div></div><div class='card'><div class='muted'>Ready Dependencies</div><div id='deps' class='big'>-</div></div><div class='card'><div class='muted'>War Room</div><div id='war' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-control-tower')).json();mode.textContent=d.mode;next.textContent='NEXT: '+d.next_action;cmd.textContent='Command: '+d.command;confidence.textContent=(d.confidence?.score||0)+'/100';progress.textContent=(d.timeline?.progress||0)+'%';deps.textContent=(d.dependencies?.ready_nodes||0)+'/'+(d.dependencies?.total_nodes||0);war.textContent=d.war_room_status||'-'}go()</script></body></html>""",mimetype='text/html')
+
+# ===== V79.00 FOUNDER SIGNAL ENGINE =====
+V7900_VERSION = "V79.00"
+
+def _v79_signal_engine_payload():
+    tower=_v78_control_tower_payload()
+    confidence=tower.get('confidence') or {}
+    timeline=tower.get('timeline') or {}
+    deps=tower.get('dependencies') or {}
+    war=_v74_war_room_payload()
+    alerts=((war.get('alerts') or {}).get('alerts') or [])
+    signals=[]
+    c=int(confidence.get('score') or 0)
+    p=int(timeline.get('progress') or 0)
+    ready=int(deps.get('ready_nodes') or 0); total=max(1,int(deps.get('total_nodes') or 1))
+    dep_pct=round(ready/total*100)
+    high=sum(1 for a in alerts if a.get('severity') in ('CRITICAL','HIGH'))
+    signals.append({'key':'confidence','label':'Founder Confidence','value':c,'state':'STRONG' if c>=80 else ('WATCH' if c>=60 else 'WEAK'),'detail':'Confidence Index'})
+    signals.append({'key':'timeline','label':'Launch Progress','value':p,'state':'STRONG' if p>=80 else ('WATCH' if p>=50 else 'WEAK'),'detail':'Launch timeline completion'})
+    signals.append({'key':'dependencies','label':'Dependency Readiness','value':dep_pct,'state':'STRONG' if dep_pct>=80 else ('WATCH' if dep_pct>=60 else 'WEAK'),'detail':f'{ready}/{total} ready'})
+    signals.append({'key':'alerts','label':'Critical Alert Load','value':high,'state':'STRONG' if high==0 else ('WATCH' if high==1 else 'WEAK'),'detail':'CRITICAL/HIGH alerts'})
+    strength=sum(2 if s['state']=='STRONG' else (1 if s['state']=='WATCH' else 0) for s in signals)
+    posture='ACCELERATE' if strength>=7 else ('ADVANCE' if strength>=5 else ('VERIFY' if strength>=3 else 'DEFEND'))
+    weakest=sorted(signals,key=lambda s:({'WEAK':0,'WATCH':1,'STRONG':2}[s['state']], s['value'] if s['key']!='alerts' else -s['value']))[0]
+    return {'version':V7900_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','posture':posture,'signal_strength':strength,'max_strength':8,'weakest_signal':weakest,'signals':signals,'control_tower_mode':tower.get('mode')}
+
+@app.route('/api/founder-signal-engine', methods=['GET'])
+def founder_signal_engine_v79(): return jsonify({'success':True, **_v79_signal_engine_payload()})
+
+@app.route('/founder-signal-engine', methods=['GET'])
+def founder_signal_engine_page_v79():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Signal Engine</title><style>body{margin:0;background:radial-gradient(circle at 20% 0,#201a37,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.posture{font-size:68px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:34px;font-weight:950}.muted{color:#8f91a3}.STRONG{border-color:#baff5a}.WATCH{border-color:#ffd66b}.WEAK{border-color:#ff6b7a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V79.00</div><h1>Founder Signal Engine</h1><div id='posture' class='posture'>...</div><p id='weak' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-signal-engine')).json();posture.textContent=d.posture;weak.textContent='Weakest signal: '+(d.weakest_signal?.label||'-');grid.innerHTML=(d.signals||[]).map(x=>`<div class="card ${x.state}"><div class="muted">${x.label}</div><div class="big">${x.value}</div><b>${x.state}</b><div class="muted">${x.detail}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
