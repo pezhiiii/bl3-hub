@@ -104805,6 +104805,31 @@ def founder_growth_forecast():
 def api_founder_growth_forecast(): return jsonify(_v101_growth_forecast())
 
 
+
+# ===== V102.00 FOUNDER GROWTH OPERATING SYSTEM =====
+def _v102_growth_os():
+    aq=_v100_activation_quality(); fc=_v101_growth_forecast(); co=_v99_cohort_snapshot()
+    base=_v98_growth_engine_snapshot() if '_v98_growth_engine_snapshot' in globals() else {'score':0}
+    base_score=float(base.get('score',0) or 0); cohort=float(co.get('average_quality',0) or 0)
+    fs=75 if fc['state']=='EXPANDING' else (62 if fc['state']=='GROWING' else (48 if fc['state']=='FLAT' else 25))
+    score=round(min(100,base_score*.35+aq['score']*.30+cohort*.20+fs*.15),1)
+    if score>=78 and fc['state'] in ('GROWING','EXPANDING'): mode='SCALE'
+    elif aq['score']<45: mode='ACTIVATE'
+    elif cohort<45: mode='RETAIN'
+    elif fc['state']=='CONTRACTING': mode='RECOVER'
+    else: mode='OPTIMIZE'
+    directive={'SCALE':'Increase acquisition while preserving cohort quality.','ACTIVATE':aq['next_action'],'RETAIN':'Improve repeat participation inside the newest cohorts.','RECOVER':'Stabilize weekly activity before adding more acquisition.','OPTIMIZE':'Run one focused experiment against the weakest growth signal.'}[mode]
+    return {'score':score,'mode':mode,'directive':directive,'growth_engine_score':base_score,'activation_quality':aq['score'],'cohort_quality':cohort,'cohort_trend':co['trend'],'forecast_state':fc['state'],'forecast_7d':fc['forecast_next_7d'],'forecast_30d':fc['forecast_next_30d'],'forecast_confidence':fc['confidence_pct'],'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+
+@app.route('/founder-growth-os')
+def founder_growth_os():
+    s=_v102_growth_os(); metrics=[('Growth Engine',s['growth_engine_score']),('Activation Quality',s['activation_quality']),('Cohort Quality',s['cohort_quality']),('Forecast confidence',s['forecast_confidence'])]; cards=''.join(f"<div class='card'><small>{n}</small><h2>{v}</h2></div>" for n,v in metrics)
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Founder Growth OS</title><style>body{{font-family:Inter,system-ui;background:radial-gradient(circle at 20% 0,#241e40,#050507 45%);color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:rgba(17,17,24,.92);border-radius:26px;padding:24px}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}}.hot,a{{color:#baff5a}}.mode{{font-size:54px;font-weight:950;letter-spacing:-2px;margin:6px 0}}p,small{{color:#9c9cad}}@media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}.mode{{font-size:40px}}}}</style></head><body><main><div class="hero"><div class="hot">V102.00 · FOUNDER GROWTH OPERATING SYSTEM</div><div class="mode">{s['mode']}</div><h2>{s['score']} / 100</h2><p>{html.escape(s['directive'])}</p><p>Cohort trend: <b>{s['cohort_trend']}</b> · Forecast: <b>{s['forecast_state']}</b> · 7D: <b>{s['forecast_7d']}</b> · 30D: <b>{s['forecast_30d']}</b></p></div><div class="grid">{cards}</div><p><a href="/founder-growth-engine">Growth Engine</a> · <a href="/founder-cohort-intelligence">Cohorts</a> · <a href="/founder-activation-quality">Activation</a> · <a href="/founder-growth-forecast">Forecast</a> · <a href="/api/founder/growth-os">JSON</a></p></main></body></html>'''
+
+@app.route('/api/founder/growth-os')
+def api_founder_growth_os(): return jsonify(_v102_growth_os())
+
+
 if __name__ == "__main__":
 
     init_db()
