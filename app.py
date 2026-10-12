@@ -103804,6 +103804,32 @@ def founder_war_room_export_v74():
 def founder_war_room_page_v74():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder War Room</title><style>:root{--hot:#baff5a;--warn:#ffd66b;--bad:#ff6b7a}body{margin:0;background:radial-gradient(circle at 20% 0,#1d1830,#050507 38%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:rgba(16,16,23,.94);border-radius:22px;padding:20px}.status{font-size:70px;font-weight:950}.GREEN{color:var(--hot)}.AMBER{color:var(--warn)}.RED{color:var(--bad)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:14px}.big{font-size:34px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;color:#090b06;background:var(--hot);font-weight:900;text-decoration:none;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V74.00</div><h1>Founder War Room</h1><div id='status' class='status'>...</div><div id='command' class='big'></div><p id='instruction' class='muted'></p><div class='links'><a href='/founder-mission-control'>Mission Control</a><a href='/founder-launch-readiness'>Readiness</a><a href='/founder-alerts'>Alerts</a><a href='/founder-scenarios'>Scenarios</a><a href='/api/founder-war-room/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Readiness</div><div id='readiness' class='big'>-</div></div><div class='card'><div class='muted'>Alert Level</div><div id='alert' class='big'>-</div></div><div class='card'><div class='muted'>Best Scenario</div><div id='best' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-war-room')).json();status.textContent=d.status;status.className='status '+d.status;command.textContent=d.command?.name||'-';instruction.textContent=d.command?.instruction||'';readiness.textContent=(d.readiness?.score||0)+'/100';alert.textContent=d.alerts?.top_severity||'-';best.textContent=(d.scenarios?.best?.score||0)+'/100'}go()</script></body></html>""",mimetype='text/html')
 
+# ===== V75.00 FOUNDER LAUNCH TIMELINE =====
+V7500_VERSION = "V75.00"
+
+def _v75_launch_timeline_payload():
+    war = _v74_war_room_payload()
+    readiness = war.get('readiness') or {}
+    metrics = readiness.get('metrics') or {}
+    score = int(readiness.get('score') or 0)
+    steps = [
+        {'key':'stabilize','title':'Stabilize critical risk','state':'DONE' if float(metrics.get('top_risk_score') or 0) <= 12 else 'ACTIVE','evidence':'Top risk score <= 12'},
+        {'key':'unblock','title':'Clear execution blockers','state':'DONE' if int(metrics.get('blocked') or 0) == 0 else 'ACTIVE','evidence':'Blocked items = 0'},
+        {'key':'decide','title':'Close launch decisions','state':'DONE' if int(metrics.get('open_decisions') or 0) == 0 else 'ACTIVE','evidence':'Open decisions = 0'},
+        {'key':'focus','title':'Lock founder focus','state':'DONE' if bool(metrics.get('focus_locked')) else 'PENDING','evidence':'Focus lock active'},
+        {'key':'launch','title':'Founder launch authorization','state':'DONE' if readiness.get('state') == 'READY' else ('ACTIVE' if score >= 60 else 'PENDING'),'evidence':'Readiness state = READY'},
+    ]
+    completed = sum(1 for s in steps if s['state']=='DONE')
+    active = next((s for s in steps if s['state']=='ACTIVE'), next((s for s in steps if s['state']=='PENDING'), None))
+    progress = round(completed / len(steps) * 100)
+    return {'version':V7500_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','progress':progress,'completed':completed,'total':len(steps),'current_step':active,'steps':steps,'war_room_status':war.get('status'),'readiness_score':score}
+
+@app.route('/api/founder-launch-timeline', methods=['GET'])
+def founder_launch_timeline_v75(): return jsonify({'success':True, **_v75_launch_timeline_payload()})
+
+@app.route('/founder-launch-timeline', methods=['GET'])
+def founder_launch_timeline_page_v75():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Launch Timeline</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.step{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.hero{margin-bottom:14px}.bar{height:12px;background:#24242d;border-radius:999px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,#a17cff,#baff5a)}.grid{display:grid;gap:10px}.DONE{border-color:#baff5a}.ACTIVE{border-color:#ffd66b}.state{font-weight:950}.DONE .state{color:#baff5a}.ACTIVE .state{color:#ffd66b}.PENDING .state{color:#8f91a3}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V75.00</div><h1>Founder Launch Timeline</h1><div id='pct' style='font-size:54px;font-weight:950'>...</div><div class='bar'><i id='bar'></i></div><p id='current' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-launch-timeline')).json();pct.textContent=d.progress+'%';bar.style.width=d.progress+'%';current.textContent='Current: '+(d.current_step?.title||'Launch path complete');grid.innerHTML=(d.steps||[]).map((x,i)=>`<div class="step ${x.state}"><div class="state">${i+1}. ${x.state}</div><h2>${x.title}</h2><div class="muted">${x.evidence}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
