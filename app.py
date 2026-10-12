@@ -104555,6 +104555,76 @@ def v94_growth_command_export(): return Response(json.dumps(_v94_growth_command_
 def v94_growth_command_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Growth Command</title><style>:root{--hot:#baff5a;--cyan:#61f4ff;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 20% 0,#263d31,transparent 30%),radial-gradient(circle at 85% 0,#2b2149,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1200px;margin:auto}.hero,.card{background:rgba(16,16,23,.96);border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:112px;font-weight:950;color:var(--hot);line-height:.88}.mode{font-size:40px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.big{font-size:32px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V94.00</div><h1>Founder Growth Command Center</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><h2 id='cmd'></h2><div class='links'><a href='/founder-cockpit'>Cockpit</a><a href='/founder-retention-radar'>Retention</a><a href='/founder-community-health'>Community</a><a href='/founder-network-flywheel'>Flywheel</a><a href='/api/founder-growth-command/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>FOUNDER COCKPIT</div><div id='cockpit' class='big'>-</div></div><div class='card'><div class='muted'>RETENTION</div><div id='ret' class='big'>-</div></div><div class='card'><div class='muted'>COMMUNITY</div><div id='community' class='big'>-</div></div><div class='card'><div class='muted'>FLYWHEEL</div><div id='flywheel' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-command')).json();score.textContent=d.growth_command_score+'/100';mode.textContent=d.mode;cmd.textContent=d.command;cockpit.textContent=d.cockpit.score+'/100';ret.textContent=d.retention.retention_score+'/100';community.textContent=d.community.community_score+'/100';flywheel.textContent=d.flywheel.flywheel_score+'/100'}go()</script></body></html>""",mimetype='text/html')
 
+
+
+# ===== V95.00 ACQUISITION FUNNEL =====
+V9500_VERSION = "95.00"
+
+def _v95_scalar(sql, params=()):
+    conn = db()
+    try:
+        row = conn.execute(sql, params).fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+def _v95_acquisition_payload():
+    users = _v95_scalar("SELECT COUNT(*) FROM users")
+    wallet_users = _v95_scalar("SELECT COUNT(*) FROM users WHERE TRIM(COALESCE(wallet,'')) <> ''")
+    quest_users = _v95_scalar("SELECT COUNT(DISTINCT username) FROM quests")
+    battle_users = _v95_scalar("SELECT COUNT(*) FROM (SELECT challenger AS username FROM creature_battles UNION SELECT opponent AS username FROM creature_battles)")
+    proof_users = _v95_scalar("SELECT COUNT(DISTINCT username) FROM hunter_proof_bundles")
+    referred_users = _v95_scalar("SELECT COUNT(DISTINCT invited) FROM referrals")
+    def pct(n, d): return round((n / max(1, d)) * 100, 1)
+    activation = round(pct(quest_users, users) * .35 + pct(battle_users, users) * .35 + pct(proof_users, users) * .30, 1)
+    activation = max(0, min(100, activation))
+    state = 'CONVERTING' if activation >= 70 else 'HEALTHY' if activation >= 50 else 'LEAKY' if activation >= 25 else 'COLD'
+    stages = {
+        'hunters': users,
+        'wallet_connected': wallet_users,
+        'quest_activated': quest_users,
+        'battle_activated': battle_users,
+        'proof_activated': proof_users,
+        'referred_hunters': referred_users,
+    }
+    bottlenecks = [
+        ('Wallet connection', pct(wallet_users, users)),
+        ('Quest activation', pct(quest_users, users)),
+        ('Battle activation', pct(battle_users, users)),
+        ('Proof activation', pct(proof_users, users)),
+    ]
+    weakest = min(bottlenecks, key=lambda x: x[1]) if bottlenecks else ('Activation', 0)
+    next_move = f"Improve {weakest[0]} first; current conversion is {weakest[1]}%."
+    return {
+        'version': V9500_VERSION,
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'activation_score': round(activation),
+        'state': state,
+        'next_move': next_move,
+        'weakest_stage': {'stage': weakest[0], 'conversion_pct': weakest[1]},
+        'stages': stages,
+        'conversion': {
+            'wallet_pct': pct(wallet_users, users),
+            'quest_pct': pct(quest_users, users),
+            'battle_pct': pct(battle_users, users),
+            'proof_pct': pct(proof_users, users),
+            'referral_pct': pct(referred_users, users),
+        }
+    }
+
+@app.route('/api/founder-acquisition-funnel', methods=['GET'])
+def v95_acquisition_api():
+    return jsonify(_v95_acquisition_payload())
+
+@app.route('/api/founder-acquisition-funnel/export', methods=['GET'])
+def v95_acquisition_export():
+    return Response(json.dumps(_v95_acquisition_payload(), indent=2, ensure_ascii=False), mimetype='application/json', headers={'Content-Disposition':'attachment; filename=bl3-acquisition-funnel-v95.json'})
+
+@app.route('/founder-acquisition-funnel', methods=['GET'])
+def v95_acquisition_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Acquisition Funnel</title><style>body{margin:0;background:radial-gradient(circle at 15% 0,#3e2d16,#050507 45%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:104px;font-weight:950;color:#ffd66b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin-top:14px}.big{font-size:29px;font-weight:950}.muted{color:#8f91a3}a{color:#ffd66b}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V95.00</div><h1>Acquisition Funnel</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p><a href='/api/founder-acquisition-funnel/export'>Export JSON</a></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-acquisition-funnel')).json();score.textContent=d.activation_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.conversion).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}%</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
