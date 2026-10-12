@@ -103759,6 +103759,29 @@ def founder_alerts_v72(): return jsonify({'success':True, **_v72_alerts_payload(
 def founder_alerts_page_v72():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Alerts</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.card{border:1px solid #2a2a34;background:#101017;border-radius:18px;padding:18px;margin:10px 0}.CRITICAL,.HIGH{color:#ff6b7a}.MEDIUM{color:#ffd66b}.INFO{color:#baff5a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='muted'>BL3 // V72.00</div><h1>Founder Alerts</h1><div id='list'>Loading...</div></div><script>async function go(){let d=await (await fetch('/api/founder-alerts')).json();list.innerHTML=(d.alerts||[]).map(x=>`<div class="card"><b class="${x.severity}">${x.severity}</b><h2>${x.title}</h2><p>${x.detail}</p><div class="muted">Action: ${x.action}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+# ===== V73.00 SCENARIO PLANNER =====
+V7300_VERSION = "V73.00"
+
+def _v73_scenarios():
+    r=_v71_readiness_payload(); base=float(r.get('score') or 0); m=r.get('metrics') or {}
+    scenarios=[]
+    scenarios.append({'key':'ship_now','name':'Ship now','score':max(0,min(100,base-10 if r.get('state')!='READY' else base)),'tradeoff':'Fastest path; accepts current unresolved execution risk.','recommended':r.get('state')=='READY'})
+    risk_gain=15 if float(m.get('top_risk_score') or 0)>12 else 5
+    scenarios.append({'key':'derisk','name':'De-risk first','score':max(0,min(100,base+risk_gain)),'tradeoff':'Delay briefly to reduce the largest active risk.','recommended':float(m.get('top_risk_score') or 0)>12})
+    blocker_gain=20 if int(m.get('blocked') or 0)>0 else 5
+    scenarios.append({'key':'clear_blockers','name':'Clear blockers','score':max(0,min(100,base+blocker_gain)),'tradeoff':'Protects throughput by removing blocked work before expansion.','recommended':int(m.get('blocked') or 0)>0})
+    scenarios.append({'key':'focus_sprint','name':'Focus sprint','score':max(0,min(100,base+10)),'tradeoff':'Locks scope and concentrates the next execution window.','recommended':not bool(r.get('mission')=='EXECUTE')})
+    scenarios.sort(key=lambda x:x['score'],reverse=True)
+    if not any(x['recommended'] for x in scenarios): scenarios[0]['recommended']=True
+    return {'version':V7300_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','baseline_score':base,'baseline_state':r.get('state'),'scenarios':scenarios,'best':scenarios[0]}
+
+@app.route('/api/founder-scenarios', methods=['GET'])
+def founder_scenarios_v73(): return jsonify({'success':True, **_v73_scenarios()})
+
+@app.route('/founder-scenarios', methods=['GET'])
+def founder_scenarios_page_v73():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Scenario Planner</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.card{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.score{font-size:42px;color:#baff5a;font-weight:950}.rec{border-color:#baff5a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='muted'>BL3 // V73.00</div><h1>Founder Scenario Planner</h1><p id='base'></p><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-scenarios')).json();base.textContent='Baseline '+d.baseline_score+'/100 · '+d.baseline_state;grid.innerHTML=(d.scenarios||[]).map(x=>`<div class="card ${x.recommended?'rec':''}"><div>${x.recommended?'★ RECOMMENDED':''}</div><h2>${x.name}</h2><div class="score">${x.score}</div><p class="muted">${x.tradeoff}</p></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
