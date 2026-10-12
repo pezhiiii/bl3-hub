@@ -104144,6 +104144,50 @@ def founder_scoreboard_v85():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Scoreboard</title><style>body{margin:0;background:radial-gradient(circle at 85% 0,#261f42,#050507 45%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.score{font-size:100px;font-weight:950;color:#baff5a;line-height:.9}.grade{font-size:42px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.bar{height:9px;background:#25252f;border-radius:999px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:#baff5a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V85.00</div><h1>Founder Scoreboard</h1><div id='score' class='score'>...</div><div id='grade' class='grade'></div><p id='next' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-scoreboard')).json();score.textContent=d.overall+'/100';grade.textContent='GRADE '+d.grade+' · '+(d.mode||'');next.textContent='NEXT: '+(d.next_action||'-');grid.innerHTML=(d.dimensions||[]).map(x=>`<div class="card"><b>${x.label}</b><div style="font-size:32px;font-weight:950">${x.score}</div><div class="bar"><i style="width:${x.score}%"></i></div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
 
 
+
+# ===== V86.00 FOUNDER OS DASHBOARD =====
+V8600_VERSION = "86.00"
+
+def _v86_founder_os_payload():
+    nexus = _v82_command_nexus_payload()
+    radar = _v83_execution_radar_payload()
+    brief = _v84_daily_command_brief_payload()
+    board = _v85_founder_scoreboard_payload()
+    return {
+        "version": V8600_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "os_state": board.get("grade"),
+        "overall_score": board.get("overall"),
+        "nexus_mode": nexus.get("nexus_mode"),
+        "execution_state": radar.get("state"),
+        "execution_score": radar.get("execution_score"),
+        "launch_verdict": nexus.get("launch_verdict"),
+        "confidence": nexus.get("confidence"),
+        "launch_progress": nexus.get("launch_progress"),
+        "directive": brief.get("directive"),
+        "top_3": brief.get("top_3") or [],
+        "dimensions": board.get("dimensions") or [],
+        "links":[
+            {"label":"Command Nexus","href":"/founder-command-nexus"},
+            {"label":"Execution Radar","href":"/founder-execution-radar"},
+            {"label":"Daily Brief","href":"/founder-daily-command-brief"},
+            {"label":"Scoreboard","href":"/founder-scoreboard"},
+        ]
+    }
+
+@app.route('/api/founder-os-dashboard', methods=['GET'])
+def api_founder_os_dashboard_v86():
+    return jsonify(_v86_founder_os_payload())
+
+@app.route('/api/founder-os-dashboard/export', methods=['GET'])
+def api_founder_os_dashboard_export_v86():
+    return Response(json.dumps(_v86_founder_os_payload(), indent=2, ensure_ascii=False), mimetype='application/json', headers={'Content-Disposition':'attachment; filename=bl3-founder-os-dashboard.json'})
+
+@app.route('/founder-os', methods=['GET'])
+def founder_os_dashboard_v86():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder OS</title><style>:root{--hot:#baff5a;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 15% 0,#251e42,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1200px;margin:auto}.hero,.card{background:rgba(16,16,23,.96);border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:104px;font-weight:950;color:var(--hot);line-height:.9}.mode{font-size:34px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}.row{padding:10px 0;border-bottom:1px solid #25252f}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V86.00</div><h1>Founder OS Dashboard</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><h2 id='directive'></h2><div class='links'><a href='/founder-command-nexus'>Nexus</a><a href='/founder-execution-radar'>Radar</a><a href='/founder-daily-command-brief'>Daily Brief</a><a href='/founder-scoreboard'>Scoreboard</a><a href='/api/founder-os-dashboard/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Execution</div><div id='exec' class='big'>-</div></div><div class='card'><div class='muted'>Launch Verdict</div><div id='verdict' class='big'>-</div></div><div class='card'><div class='muted'>Confidence</div><div id='conf' class='big'>-</div></div><div class='card'><div class='muted'>Progress</div><div id='prog' class='big'>-</div></div></div><div class='card' style='margin-top:14px'><h3>Top 3 Commands</h3><div id='top'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-os-dashboard')).json();score.textContent=d.overall_score+'/100';mode.textContent='GRADE '+d.os_state+' · '+d.nexus_mode;directive.textContent=d.directive||'';exec.textContent=d.execution_state+' · '+d.execution_score;verdict.textContent=d.launch_verdict;conf.textContent=d.confidence+'/100';prog.textContent=d.launch_progress+'%';top.innerHTML=(d.top_3||[]).map((x,i)=>`<div class="row"><b>#${i+1} ${x.action||'-'}</b><div class="muted">${x.reason||''}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
+
+
 if __name__ == "__main__":
 
     init_db()
