@@ -104456,6 +104456,40 @@ def v91_retention_export():
 def v91_retention_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Retention Radar</title><style>body{margin:0;background:radial-gradient(circle at 20% 0,#233b37,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#baff5a;line-height:.9}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}a{color:#baff5a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V91.00</div><h1>Founder Retention Radar</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p><a href='/api/founder-retention-radar/export'>Export JSON</a></div><div class='grid' id='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-retention-radar')).json();score.textContent=d.retention_score+'/100';state.textContent=d.state;next.textContent=d.next_move;let m=d.metrics;grid.innerHTML=[['7D ACTIVE',m.active_7d],['30D ACTIVE',m.active_30d],['REPEAT 30D',m.repeat_30d],['REPEAT RATE',m.repeat_rate_pct+'%'],['BATTLE DEPTH',m.battle_depth_pct+'%'],['TOTAL HUNTERS',m.users]].map(x=>`<div class='card'><div class='muted'>${x[0]}</div><div class='big'>${x[1]}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
 
+
+
+# ===== V92.00 COMMUNITY HEALTH INDEX =====
+V9200_VERSION = "92.00"
+
+def _v92_count(sql, params=()):
+    conn=db()
+    try:
+        row=conn.execute(sql,params).fetchone(); return int(row[0] or 0) if row else 0
+    except Exception: return 0
+    finally: conn.close()
+
+def _v92_community_payload():
+    users=_v92_count('SELECT COUNT(*) FROM users')
+    follows=_v92_count("SELECT COUNT(*) FROM hunter_connections WHERE kind='follow'")
+    rivalries=_v92_count("SELECT COUNT(*) FROM hunter_connections WHERE kind='rival'")
+    battles=_v92_count("SELECT COUNT(*) FROM creature_battles WHERE created_at >= datetime('now','-30 day')")
+    guestbook=_v92_count("SELECT COUNT(*) FROM hunter_guestbook_entries WHERE created_at >= datetime('now','-30 day')")
+    proofs=_v92_count("SELECT COUNT(*) FROM hunter_proof_bundles WHERE created_at >= datetime('now','-30 day')")
+    social_per_user=(follows+rivalries+guestbook)/max(1,users)
+    battle_per_user=battles/max(1,users)
+    proof_per_user=proofs/max(1,users)
+    score=max(0,min(100,round(min(40,social_per_user*18)+min(35,battle_per_user*28)+min(25,proof_per_user*35))))
+    state='THRIVING' if score>=75 else 'ACTIVE' if score>=55 else 'FORMING' if score>=30 else 'QUIET'
+    next_move={'QUIET':'Seed conversations, follows and low-friction social actions.','FORMING':'Connect Hunters into rivalries and recurring interactions.','ACTIVE':'Push community-created events and proof-driven status loops.','THRIVING':'Protect quality while scaling community discovery.'}[state]
+    return {'version':V9200_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','community_score':score,'state':state,'next_move':next_move,'metrics':{'users':users,'follows':follows,'rivalries':rivalries,'battles_30d':battles,'guestbook_30d':guestbook,'proofs_30d':proofs,'social_actions_per_user':round(social_per_user,2),'battles_per_user':round(battle_per_user,2),'proofs_per_user':round(proof_per_user,2)}}
+
+@app.route('/api/founder-community-health', methods=['GET'])
+def v92_community_api(): return jsonify(_v92_community_payload())
+
+@app.route('/founder-community-health', methods=['GET'])
+def v92_community_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Community Health</title><style>body{margin:0;background:radial-gradient(circle at 85% 0,#31235b,#050507 45%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#a17cff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:29px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V92.00</div><h1>Community Health Index</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-community-health')).json();score.textContent=d.community_score+'/100';state.textContent=d.state;next.textContent=d.next_move;let m=d.metrics;grid.innerHTML=[['FOLLOWS',m.follows],['RIVALRIES',m.rivalries],['BATTLES 30D',m.battles_30d],['GUESTBOOK 30D',m.guestbook_30d],['PROOFS 30D',m.proofs_30d],['SOCIAL / USER',m.social_actions_per_user]].map(x=>`<div class='card'><div class='muted'>${x[0]}</div><div class='big'>${x[1]}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
