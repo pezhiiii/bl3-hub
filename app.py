@@ -102855,6 +102855,83 @@ def v5800_executive_snapshot():
         "counts":counts,"focus":focus,"top_goal":top_goal,"top_priority":top_priority,"top_risk":top_risk,
         "latest_decision":latest_decision,"today_execution":exec_rows})
 
+
+# ===== V59.00 WEEKLY REVIEW =====
+V5900_VERSION = "V59.00"
+
+def _v5900_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_weekly_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            week_key TEXT NOT NULL,
+            wins TEXT NOT NULL DEFAULT '',
+            misses TEXT NOT NULL DEFAULT '',
+            lessons TEXT NOT NULL DEFAULT '',
+            next_focus TEXT NOT NULL DEFAULT '',
+            energy_score INTEGER NOT NULL DEFAULT 50,
+            execution_score INTEGER NOT NULL DEFAULT 50,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, week_key)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_weekly_review_user_week ON founder_weekly_reviews(username,week_key DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v5900_init()
+
+def _v5900_week_key(raw=""):
+    raw=str(raw or "").strip()
+    if raw:
+        return raw[:16]
+    y,w,_=datetime.utcnow().isocalendar()
+    return f"{int(y):04d}-W{int(w):02d}"
+
+@app.route("/api/founder-weekly-review", methods=["GET","POST"])
+def v5900_weekly_review():
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    week=_v5900_week_key(request.args.get("week") if request.method=="GET" else "")
+    if request.method=="GET":
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try:
+            row=con.execute("SELECT * FROM founder_weekly_reviews WHERE username=? AND week_key=?",(u,week)).fetchone()
+            since=(datetime.utcnow()-timedelta(days=7)).isoformat(timespec="seconds")+"Z"
+            done=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='DONE' AND completed_at>=?",(u,since))
+            blocked=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='BLOCKED' AND updated_at>=?",(u,since))
+            decisions=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND created_at>=?",(u,since))
+            reviewed=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND status IN ('REVIEWED','CLOSED') AND updated_at>=?",(u,since))
+        finally:
+            con.close()
+        return jsonify({"success":True,"version":V5900_VERSION,"week_key":week,"review":dict(row) if row else None,
+                        "signals":{"done_7d":done,"blocked_7d":blocked,"decisions_7d":decisions,"reviewed_decisions_7d":reviewed}})
+
+    p=request.get_json(silent=True) or request.form
+    week=_v5900_week_key(p.get("week_key"))
+    energy=max(0,min(100,int(float(p.get("energy_score") or 50))))
+    execution=max(0,min(100,int(float(p.get("execution_score") or 50))))
+    status=str(p.get("status") or "OPEN")[:40].upper()
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    values=(u,week,str(p.get("wins") or "")[:8000],str(p.get("misses") or "")[:8000],
+            str(p.get("lessons") or "")[:8000],str(p.get("next_focus") or "")[:8000],energy,execution,status,now,now)
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""INSERT INTO founder_weekly_reviews
+            (username,week_key,wins,misses,lessons,next_focus,energy_score,execution_score,status,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(username,week_key) DO UPDATE SET
+              wins=excluded.wins,misses=excluded.misses,lessons=excluded.lessons,next_focus=excluded.next_focus,
+              energy_score=excluded.energy_score,execution_score=excluded.execution_score,status=excluded.status,updated_at=excluded.updated_at""",values)
+        con.commit()
+    finally:
+        con.close()
+    return jsonify({"success":True,"version":V5900_VERSION,"week_key":week,"status":status})
+
 if __name__ == "__main__":
 
     init_db()
