@@ -104779,6 +104779,32 @@ def founder_activation_quality():
 def api_founder_activation_quality(): return jsonify(_v100_activation_quality())
 
 
+
+# ===== V101.00 GROWTH FORECAST =====
+def _v101_growth_forecast():
+    conn=db()
+    try:
+        now=datetime.utcnow().date(); counts=[]
+        for offset in range(13,-1,-1):
+            day=(now-timedelta(days=offset)).isoformat()
+            n=int(conn.execute("SELECT COUNT(*) n FROM creature_battles WHERE substr(created_at,1,10)=?",(day,)).fetchone()['n'] or 0)
+            counts.append(n)
+        prior7=sum(counts[:7]); last7=sum(counts[7:]); delta=0.0 if prior7==0 else round((last7-prior7)*100.0/prior7,1)
+        mult=1.0+max(-0.5,min(1.0,delta/100.0)); forecast7=max(0,round(last7*mult)); forecast30=max(0,round((forecast7/7.0)*30)) if forecast7 else 0
+        q=_v100_activation_quality(); confidence=round(min(95,50+q['score']*.35),1)
+        state='EXPANDING' if delta>15 else ('GROWING' if delta>3 else ('FLAT' if delta>=-3 else 'CONTRACTING'))
+        return {'state':state,'battle_velocity_7d':last7,'prior_7d':prior7,'velocity_change_pct':delta,'forecast_next_7d':forecast7,'forecast_next_30d':forecast30,'confidence_pct':confidence,'activation_quality':q['score'],'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+    finally: conn.close()
+
+@app.route('/founder-growth-forecast')
+def founder_growth_forecast():
+    s=_v101_growth_forecast()
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Growth Forecast</title><style>body{{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}}main{{max-width:1000px;margin:auto;padding:32px}}.hero,.card{{border:1px solid #292936;background:#111118;border-radius:24px;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}}.hot,a{{color:#baff5a}}p,small{{color:#9999aa}}@media(max-width:700px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><main><div class="hero"><div class="hot">V101.00</div><h1>Growth Forecast</h1><h2>{s['state']} · confidence {s['confidence_pct']}%</h2><p>7-day velocity change: {s['velocity_change_pct']}%</p></div><div class="grid"><div class="card"><small>Current 7D battles</small><h2>{s['battle_velocity_7d']}</h2></div><div class="card"><small>Forecast next 7D</small><h2>{s['forecast_next_7d']}</h2></div><div class="card"><small>Forecast next 30D</small><h2>{s['forecast_next_30d']}</h2></div></div><a href="/founder-activation-quality">← Activation Quality</a></main></body></html>'''
+
+@app.route('/api/founder/growth-forecast')
+def api_founder_growth_forecast(): return jsonify(_v101_growth_forecast())
+
+
 if __name__ == "__main__":
 
     init_db()
