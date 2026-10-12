@@ -102813,6 +102813,48 @@ def v5700_founder_momentum():
                    "decisions_reviewed_7d":reviewed7,"active_goals":goals,"milestones_done_7d":milestones_done},
         "weights":{"execution":round(execution,2),"consistency":round(consistency,2),"decisions":round(decisions,2),"progress":round(progress,2)}})
 
+
+# ===== V58.00 EXECUTIVE SNAPSHOT =====
+V5800_VERSION = "V58.00"
+
+def _v5800_one(con, sql, params=()):
+    try:
+        row=con.execute(sql,params).fetchone()
+        return dict(row) if row else None
+    except Exception: return None
+
+@app.route("/api/founder-executive-snapshot", methods=["GET"])
+def v5800_executive_snapshot():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        top_goal=_v5800_one(con,"""SELECT *, CASE WHEN target_value>0 THEN ROUND((current_value/target_value)*100.0,2) ELSE 0 END AS progress_pct
+                                      FROM founder_goal_tracker WHERE username=? AND status='ACTIVE' ORDER BY progress_pct DESC,id DESC LIMIT 1""",(u,))
+        top_priority=_v5800_one(con,"SELECT * FROM founder_priority_engine WHERE username=? AND status NOT IN ('DONE','ARCHIVED') ORDER BY priority_score DESC,id DESC LIMIT 1",(u,))
+        top_risk=_v5800_one(con,"SELECT * FROM founder_risk_radar WHERE username=? AND status NOT IN ('CLOSED','RESOLVED') ORDER BY risk_score DESC,id DESC LIMIT 1",(u,))
+        latest_decision=_v5800_one(con,"SELECT id,title,decision,confidence,status,created_at FROM founder_decision_journal WHERE username=? ORDER BY id DESC LIMIT 1",(u,))
+        today=datetime.utcnow().strftime("%Y-%m-%d")
+        exec_rows=[dict(r) for r in con.execute("SELECT * FROM founder_daily_execution WHERE username=? AND work_date=? ORDER BY status='DONE',priority DESC,impact DESC,id DESC LIMIT 8",(u,today)).fetchall()]
+        counts={
+            "active_goals":_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_goal_tracker WHERE username=? AND status='ACTIVE'",(u,)),
+            "open_risks":_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_risk_radar WHERE username=? AND status NOT IN ('CLOSED','RESOLVED')",(u,)),
+            "open_priorities":_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_priority_engine WHERE username=? AND status NOT IN ('DONE','ARCHIVED')",(u,)),
+            "open_decisions":_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND status='OPEN'",(u,)),
+            "today_execution":len(exec_rows),
+            "today_done":sum(1 for r in exec_rows if r.get("status")=="DONE")
+        }
+    finally: con.close()
+    completion=round(counts["today_done"]/max(1,counts["today_execution"])*100,2)
+    focus=[]
+    if top_priority: focus.append({"type":"priority","title":top_priority.get("title") or top_priority.get("name") or "Top priority"})
+    if top_risk: focus.append({"type":"risk","title":top_risk.get("risk_title") or "Top risk"})
+    if top_goal: focus.append({"type":"goal","title":top_goal.get("title") or top_goal.get("goal_title") or "Top goal"})
+    return jsonify({"success":True,"version":V5800_VERSION,"generated_at":datetime.utcnow().isoformat(timespec="seconds")+"Z",
+        "headline":{"today_completion_pct":completion,"operating_load":sum(counts.values()),"focus_count":len(focus)},
+        "counts":counts,"focus":focus,"top_goal":top_goal,"top_priority":top_priority,"top_risk":top_risk,
+        "latest_decision":latest_decision,"today_execution":exec_rows})
+
 if __name__ == "__main__":
 
     init_db()
