@@ -104983,6 +104983,30 @@ def v107_hunter_lifecycle_page():
     cards=''.join(f'<div class="card"><b>{html.escape(k.upper())}</b><div class="big">{v}</div><span>{s["percentages"][k]}%</span></div>' for k,v in s['stages'].items())
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Hunter Lifecycle</title><style>body{{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:24px;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.hot,a{{color:#baff5a}}.big{{font-size:32px;font-weight:950;margin:8px 0}}.state{{font-size:48px;font-weight:950}}p,span{{color:#9a9aaa}}</style></head><body><main><div class="hero"><div class="hot">V107.00 · HUNTER LIFECYCLE INTELLIGENCE</div><div class="state">{html.escape(s['state'])}</div><h2>{s['score']} / 100</h2><p>{html.escape(s['next_move'])}</p></div><div class="grid">{cards}</div><p>Weakest stage: <b>{html.escape(s['weakest_stage'])}</b> · <a href="/api/founder/hunter-lifecycle">JSON</a></p></main></body></html>'''
 
+
+# ===== V108.00 CHURN RISK RADAR =====
+V10800_VERSION='108.00'
+
+def _v108_churn_snapshot():
+    conn=db(); now=datetime.utcnow(); d7=(now-timedelta(days=7)).isoformat(); d30=(now-timedelta(days=30)).isoformat()
+    total=int(conn.execute('SELECT COUNT(*) FROM users').fetchone()[0] or 0)
+    q='SELECT challenger u FROM creature_battles WHERE created_at >= ? UNION SELECT opponent u FROM creature_battles WHERE created_at >= ? UNION SELECT username u FROM quests WHERE date >= ? UNION SELECT username u FROM hunter_proof_bundles WHERE created_at >= ?'
+    a7=len({str(r[0]) for r in conn.execute(q,(d7,d7,d7,d7)).fetchall() if r[0]}); a30=len({str(r[0]) for r in conn.execute(q,(d30,d30,d30,d30)).fetchall() if r[0]})
+    conn.close(); dormant=max(0,total-a30); slip=max(0,a30-a7); activity=(a30/total*100) if total else 0; hold=(a7/a30*100) if a30 else 0
+    risk=int(round(max(0,min(100,100-(activity*.55+hold*.45))))) if total else 0
+    state='HIGH RISK' if risk>=70 else 'WATCH' if risk>=45 else 'STABLE' if risk>=25 else 'HEALTHY'
+    action='Re-engage recently slipping Hunters with a direct challenge or mission.' if slip else ('Prioritize activation before reactivation.' if total and not a30 else 'Maintain cadence and watch cohort decay.')
+    return {'version':V10800_VERSION,'generated_at':now.isoformat(timespec='seconds')+'Z','risk_score':risk,'state':state,'total_hunters':total,'active_7d':a7,'active_30d':a30,'slipping_hunters':slip,'dormant_30d':dormant,'weekly_hold_pct':round(hold,1),'activity_rate_pct':round(activity,1),'recommended_action':action}
+
+@app.route('/api/founder/churn-risk')
+def api_v108_churn_risk(): return jsonify(_v108_churn_snapshot())
+
+@app.route('/founder-churn-risk')
+def v108_churn_risk_page():
+    s=_v108_churn_snapshot(); metrics=[('Active 7D',s['active_7d']),('Active 30D',s['active_30d']),('Slipping',s['slipping_hunters']),('Dormant 30D',s['dormant_30d']),('Weekly hold',str(s['weekly_hold_pct'])+'%'),('Activity rate',str(s['activity_rate_pct'])+'%')]
+    cards=''.join(f'<div class="card"><span>{html.escape(k)}</span><div class="big">{html.escape(str(v))}</div></div>' for k,v in metrics)
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Churn Risk</title><style>body{{font-family:Inter,system-ui;background:#080509;color:#fff;margin:0}}main{{max-width:1050px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#111118;border-radius:24px;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.hot,a{{color:#ff758f}}.state{{font-size:52px;font-weight:950}}.big{{font-size:30px;font-weight:950;margin-top:8px}}p,span{{color:#9c9cad}}</style></head><body><main><div class="hero"><div class="hot">V108.00 · CHURN RISK RADAR</div><div class="state">{html.escape(s['state'])}</div><h2>Risk {s['risk_score']} / 100</h2><p>{html.escape(s['recommended_action'])}</p></div><div class="grid">{cards}</div><p><a href="/api/founder/churn-risk">JSON</a></p></main></body></html>'''
+
 if __name__ == "__main__":
 
     init_db()
