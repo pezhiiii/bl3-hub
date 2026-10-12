@@ -101921,6 +101921,115 @@ def v4800_finish_experiment(experiment_id):
 
     return jsonify({"success": True, "version": V4800_VERSION, "experiment_id": experiment_id, "outcome": outcome})
 
+
+# ===== V49.00 STRATEGY MAP =====
+V4900_VERSION = "V49.00"
+
+def _v4900_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS strategy_map (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            pillar TEXT NOT NULL DEFAULT 'GENERAL',
+            metric TEXT NOT NULL DEFAULT '',
+            target TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            horizon TEXT NOT NULL DEFAULT '90D',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            dependency TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4900_init()
+except Exception:
+    pass
+
+@app.route("/api/strategy-map", methods=["GET", "POST"])
+def v4900_strategy_map():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        pillar = str(request.args.get("pillar") or "").strip()
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            if pillar:
+                rows = [dict(r) for r in con.execute(
+                    "SELECT * FROM strategy_map WHERE username=? AND pillar=? ORDER BY id DESC LIMIT 300",
+                    (u, pillar)
+                ).fetchall()]
+            else:
+                rows = [dict(r) for r in con.execute(
+                    "SELECT * FROM strategy_map WHERE username=? ORDER BY pillar, id DESC LIMIT 300",
+                    (u,)
+                ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4900_VERSION, "objectives": rows})
+
+    p = request.get_json(silent=True) or request.form
+    objective = str(p.get("objective") or "").strip()
+    if not objective:
+        return jsonify({"success": False, "error": "objective_required"}), 400
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO strategy_map
+            (username,objective,pillar,metric,target,owner,horizon,status,dependency,notes,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, objective[:700],
+            str(p.get("pillar") or "GENERAL")[:160],
+            str(p.get("metric") or "")[:500],
+            str(p.get("target") or "")[:500],
+            str(p.get("owner") or "")[:250],
+            str(p.get("horizon") or "90D")[:80],
+            str(p.get("status") or "ACTIVE")[:80],
+            str(p.get("dependency") or "")[:2000],
+            str(p.get("notes") or "")[:4000],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        oid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4900_VERSION, "objective_id": oid})
+
+@app.route("/api/strategy-map/summary", methods=["GET"])
+def v4900_strategy_summary():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM strategy_map WHERE username=? ORDER BY id DESC LIMIT 500",
+            (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    by_pillar = {}
+    for r in rows:
+        key = r["pillar"]
+        by_pillar.setdefault(key, {"total": 0, "active": 0})
+        by_pillar[key]["total"] += 1
+        if r["status"] == "ACTIVE":
+            by_pillar[key]["active"] += 1
+
+    return jsonify({"success": True, "version": V4900_VERSION, "total": len(rows), "by_pillar": by_pillar})
+
 if __name__ == "__main__":
 
     init_db()
