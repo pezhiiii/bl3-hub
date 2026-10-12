@@ -103970,6 +103970,37 @@ def founder_priority_autopilot_v80(): return jsonify({'success':True, **_v80_pri
 def founder_priority_autopilot_page_v80():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Priority Autopilot</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1000px;margin:auto}.hero,.row{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.hero{margin-bottom:12px}.state{font-size:64px;font-weight:950;color:#baff5a}.row{display:grid;grid-template-columns:70px 1fr 80px;gap:14px;align-items:center;margin:9px 0}.rank,.score{font-size:28px;font-weight:950}.muted{color:#8f91a3}@media(max-width:650px){.row{grid-template-columns:52px 1fr}.score{grid-column:2}}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V80.00</div><h1>Founder Priority Autopilot</h1><div id='state' class='state'>...</div><h2 id='top'></h2><p id='why' class='muted'></p></div><div id='list'></div></div><script>async function go(){let d=await (await fetch('/api/founder-priority-autopilot')).json();state.textContent=d.autopilot_state;top.textContent='TOP: '+(d.top_priority?.action||'-');why.textContent=d.top_priority?.reason||'';list.innerHTML=(d.queue||[]).map(x=>`<div class="row"><div class="rank">#${x.rank}</div><div><b>${x.action}</b><div class="muted">${x.reason} · ${x.source}</div></div><div class="score">${x.score}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+
+# ===== V81.00 FOUNDER LAUNCH BRIEFING PACK =====
+V8100_VERSION = "V81.00"
+
+def _v81_launch_brief_payload():
+    tower=_v78_control_tower_payload(); signal=_v79_signal_engine_payload(); auto=_v80_priority_autopilot_payload(); war=_v74_war_room_payload()
+    confidence=(tower.get('confidence') or {}).get('score') or 0
+    progress=(tower.get('timeline') or {}).get('progress') or 0
+    readiness=(war.get('readiness') or {}).get('score') or 0
+    verdict='GO' if confidence>=80 and readiness>=80 and signal.get('posture') in ('ACCELERATE','ADVANCE') else ('CONDITIONAL' if confidence>=60 and readiness>=60 else 'HOLD')
+    bullets=[
+        f"Control Tower: {tower.get('mode')}",
+        f"Confidence: {confidence}/100",
+        f"Readiness: {readiness}/100",
+        f"Launch progress: {progress}%",
+        f"Signal posture: {signal.get('posture')}",
+        f"Top priority: {(auto.get('top_priority') or {}).get('action','-')}",
+    ]
+    return {'version':V8100_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','verdict':verdict,'headline':f'BL3 Founder Launch Brief // {verdict}','executive_summary':bullets,'top_priority':auto.get('top_priority'),'signal_engine':signal,'control_tower':tower}
+
+@app.route('/api/founder-launch-brief', methods=['GET'])
+def founder_launch_brief_v81(): return jsonify({'success':True, **_v81_launch_brief_payload()})
+
+@app.route('/api/founder-launch-brief/export', methods=['GET'])
+def founder_launch_brief_export_v81():
+    return Response(json.dumps(_v81_launch_brief_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-launch-brief.json'})
+
+@app.route('/founder-launch-brief', methods=['GET'])
+def founder_launch_brief_page_v81():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Launch Brief</title><style>body{margin:0;background:radial-gradient(circle at 80% 0,#1e1833,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.verdict{font-size:88px;font-weight:950;color:#baff5a}.card{margin-top:12px}.line{padding:11px 0;border-bottom:1px solid #262630}.line:last-child{border-bottom:0}.muted{color:#8f91a3}.btn{display:inline-block;margin-top:12px;background:#baff5a;color:#080a06;text-decoration:none;padding:10px 14px;border-radius:11px;font-weight:900}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V81.00</div><h1>Founder Launch Briefing Pack</h1><div id='verdict' class='verdict'>...</div><a class='btn' href='/api/founder-launch-brief/export'>Export JSON</a></div><div id='card' class='card'></div></div><script>async function go(){let d=await (await fetch('/api/founder-launch-brief')).json();verdict.textContent=d.verdict;card.innerHTML=(d.executive_summary||[]).map(x=>`<div class="line">${x}</div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
