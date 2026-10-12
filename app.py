@@ -103736,6 +103736,29 @@ def founder_launch_readiness_v71():
 def founder_launch_readiness_page_v71():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Launch Readiness Radar</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:20px;padding:20px}.score{font-size:72px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:14px}.ok{color:#baff5a}.no{color:#ff6b7a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V71.00</div><h1>Launch Readiness Radar</h1><div id='score' class='score'>--</div><h2 id='state'>Loading...</h2><p id='next' class='muted'></p></div><div id='checks' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-launch-readiness')).json();score.textContent=d.score+'/100';state.textContent=d.state;next.textContent='Next: '+d.next_action;checks.innerHTML=(d.checks||[]).map(x=>`<div class="card"><b class="${x.ok?'ok':'no'}">${x.ok?'PASS':'FIX'}</b><h3>${x.label}</h3><div class="muted">Weight ${x.weight}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+# ===== V72.00 FOUNDER ALERTS =====
+V7200_VERSION = "V72.00"
+
+def _v72_alerts_payload():
+    r=_v71_readiness_payload(); m=r.get('metrics') or {}; alerts=[]
+    def add(severity,title,detail,action): alerts.append({'severity':severity,'title':title,'detail':detail,'action':action})
+    if int(m.get('blocked') or 0)>0: add('CRITICAL','Blocked execution',f"{int(m.get('blocked') or 0)} founder item(s) are blocked.",'Clear the highest-impact blocker before adding new work.')
+    if float(m.get('top_risk_score') or 0)>12: add('HIGH','Risk exposure elevated',f"Top risk score is {m.get('top_risk_score')}.",'Mitigate or explicitly accept the top risk.')
+    if int(m.get('open_decisions') or 0)>=3: add('MEDIUM','Decision queue growing',f"{int(m.get('open_decisions') or 0)} decisions remain open.",'Resolve the highest weighted decision.')
+    if float(m.get('operating_score') or 0)<60: add('HIGH','Operating score weak',f"Operating score is {m.get('operating_score')}.",'Stabilize execution and reduce work in progress.')
+    if r.get('state')=='NOT READY': add('HIGH','Launch readiness below threshold',f"Readiness score is {r.get('score')}/100.",r.get('next_action'))
+    if not alerts: add('INFO','Founder system nominal','No high-priority execution alert is active.','Keep the current plan and monitor the next checkpoint.')
+    rank={'CRITICAL':4,'HIGH':3,'MEDIUM':2,'INFO':1}
+    alerts.sort(key=lambda x:rank.get(x['severity'],0),reverse=True)
+    return {'version':V7200_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','count':len(alerts),'top_severity':alerts[0]['severity'],'alerts':alerts,'readiness':r}
+
+@app.route('/api/founder-alerts', methods=['GET'])
+def founder_alerts_v72(): return jsonify({'success':True, **_v72_alerts_payload()})
+
+@app.route('/founder-alerts', methods=['GET'])
+def founder_alerts_page_v72():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Alerts</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.card{border:1px solid #2a2a34;background:#101017;border-radius:18px;padding:18px;margin:10px 0}.CRITICAL,.HIGH{color:#ff6b7a}.MEDIUM{color:#ffd66b}.INFO{color:#baff5a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='muted'>BL3 // V72.00</div><h1>Founder Alerts</h1><div id='list'>Loading...</div></div><script>async function go(){let d=await (await fetch('/api/founder-alerts')).json();list.innerHTML=(d.alerts||[]).map(x=>`<div class="card"><b class="${x.severity}">${x.severity}</b><h2>${x.title}</h2><p>${x.detail}</p><div class="muted">Action: ${x.action}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
