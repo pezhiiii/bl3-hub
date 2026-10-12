@@ -103880,6 +103880,31 @@ def founder_confidence_index_v77(): return jsonify({'success':True, **_v77_confi
 @app.route('/founder-confidence-index', methods=['GET'])
 def founder_confidence_index_page_v77():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Confidence Index</title><style>body{margin:0;background:radial-gradient(circle at 50% -10%,#231b3c,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:900px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.score{font-size:96px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V77.00</div><h1>Founder Confidence Index</h1><div id='score' class='score'>...</div><div id='state' class='big'></div><p id='rec' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-confidence-index')).json();score.textContent=d.score;state.textContent=d.state+' CONFIDENCE';rec.textContent=d.recommendation;grid.innerHTML=(d.components||[]).map(x=>`<div class="card"><div class="muted">${x.name} · ${x.weight}</div><div class="big">${x.score}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+# ===== V78.00 FOUNDER CONTROL TOWER =====
+V7800_VERSION = "V78.00"
+
+def _v78_control_tower_payload():
+    war=_v74_war_room_payload(); timeline=_v75_launch_timeline_payload(); dep=_v76_dependency_map_payload(); confidence=_v77_confidence_payload()
+    bottlenecks=dep.get('bottlenecks') or []
+    command=(war.get('command') or {}).get('name') or 'Hold position'
+    if confidence.get('state')=='HIGH' and war.get('status')=='GREEN': mode='LAUNCH'
+    elif bottlenecks: mode='UNBLOCK'
+    elif confidence.get('state')=='MEDIUM': mode='VERIFY'
+    else: mode='STABILIZE'
+    next_action=(bottlenecks[0].get('label') if bottlenecks else (timeline.get('current_step') or {}).get('title')) or command
+    return {'version':V7800_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','mode':mode,'war_room_status':war.get('status'),'confidence':confidence,'timeline':timeline,'dependencies':dep,'command':command,'next_action':next_action,'links':[{'label':'War Room','href':'/founder-war-room'},{'label':'Launch Timeline','href':'/founder-launch-timeline'},{'label':'Dependency Map','href':'/founder-dependency-map'},{'label':'Confidence Index','href':'/founder-confidence-index'}]}
+
+@app.route('/api/founder-control-tower', methods=['GET'])
+def founder_control_tower_v78(): return jsonify({'success':True, **_v78_control_tower_payload()})
+
+@app.route('/api/founder-control-tower/export', methods=['GET'])
+def founder_control_tower_export_v78():
+    body=json.dumps(_v78_control_tower_payload(),indent=2,ensure_ascii=False)
+    return Response(body,mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-control-tower.json'})
+
+@app.route('/founder-control-tower', methods=['GET'])
+def founder_control_tower_page_v78():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Control Tower</title><style>:root{--hot:#baff5a;--warn:#ffd66b;--bad:#ff6b7a}body{margin:0;background:radial-gradient(circle at 15% 0,#211b38,#050507 40%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:rgba(16,16,23,.95);border-radius:24px;padding:20px}.mode{font-size:78px;font-weight:950;color:var(--hot)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.big{font-size:36px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;text-decoration:none;color:#080a06;background:var(--hot);font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V78.00</div><h1>Founder Control Tower</h1><div id='mode' class='mode'>...</div><div id='next' class='big'></div><p id='cmd' class='muted'></p><div class='links'><a href='/founder-war-room'>War Room</a><a href='/founder-launch-timeline'>Timeline</a><a href='/founder-dependency-map'>Dependencies</a><a href='/founder-confidence-index'>Confidence</a><a href='/api/founder-control-tower/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Confidence</div><div id='confidence' class='big'>-</div></div><div class='card'><div class='muted'>Launch Progress</div><div id='progress' class='big'>-</div></div><div class='card'><div class='muted'>Ready Dependencies</div><div id='deps' class='big'>-</div></div><div class='card'><div class='muted'>War Room</div><div id='war' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-control-tower')).json();mode.textContent=d.mode;next.textContent='NEXT: '+d.next_action;cmd.textContent='Command: '+d.command;confidence.textContent=(d.confidence?.score||0)+'/100';progress.textContent=(d.timeline?.progress||0)+'%';deps.textContent=(d.dependencies?.ready_nodes||0)+'/'+(d.dependencies?.total_nodes||0);war.textContent=d.war_room_status||'-'}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
