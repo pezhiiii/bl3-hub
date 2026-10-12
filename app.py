@@ -104951,6 +104951,38 @@ def v106_growth_hq_page():
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Growth Intelligence HQ</title><style>body{{font-family:Inter,system-ui;background:radial-gradient(circle at 20% 0,#1b3144,#050507 45%);color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:rgba(17,17,24,.92);border-radius:26px;padding:24px}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}}.hot,a{{color:#61f4ff}}.mode{{font-size:54px;font-weight:950;letter-spacing:-2px;margin:6px 0}}.big{{font-size:30px;font-weight:950}}.muted,p{{color:#9c9cad}}@media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}.mode{{font-size:40px}}}}</style></head><body><main><div class="hero"><div class="hot">V106.00 · FOUNDER GROWTH INTELLIGENCE HQ</div><div class="mode">{html.escape(s['mode'])}</div><h2>{s['hq_score']} / 100</h2><p>{html.escape(s['directive'])}</p></div><div class="grid">{cards}</div><p><a href="/founder-growth-os">Growth OS</a> · <a href="/founder-hunter-value">Hunter Value</a> · <a href="/founder-hunter-segments">Segments</a> · <a href="/founder-growth-sentinel">Sentinel</a> · <a href="/api/founder/growth-intelligence-hq/export">Export JSON</a></p></main></body></html>'''
 
 
+
+# ===== V107.00 HUNTER LIFECYCLE INTELLIGENCE =====
+V10700_VERSION = '107.00'
+
+def _v107_lifecycle_snapshot():
+    conn=db()
+    total=int(conn.execute('SELECT COUNT(*) FROM users').fetchone()[0] or 0)
+    quested=int(conn.execute('SELECT COUNT(DISTINCT username) FROM quests').fetchone()[0] or 0)
+    battled_rows=conn.execute('SELECT challenger FROM creature_battles UNION SELECT opponent FROM creature_battles').fetchall()
+    battled=len({str(r[0]) for r in battled_rows if r[0]})
+    proofed=int(conn.execute('SELECT COUNT(DISTINCT username) FROM hunter_proof_bundles').fetchone()[0] or 0)
+    advocates=int(conn.execute('SELECT COUNT(DISTINCT inviter) FROM referrals').fetchone()[0] or 0)
+    champions=int(conn.execute("SELECT COUNT(DISTINCT username) FROM reputation_events WHERE points >= 5").fetchone()[0] or 0)
+    conn.close()
+    stages={'joined':total,'activated':min(total,quested),'engaged':min(total,battled),'proved':min(total,proofed),'advocates':min(total,advocates),'champions':min(total,champions)}
+    pct={k:round(v/total*100,1) if total else 0.0 for k,v in stages.items()}
+    weights={'activated':20,'engaged':25,'proved':20,'advocates':20,'champions':15}
+    score=int(round(sum((pct[k]/100)*w for k,w in weights.items()))) if total else 0
+    state='COMPOUNDING' if score>=70 else 'HEALTHY' if score>=45 else 'FORMING' if score>=20 else 'EARLY'
+    weakest=min(weights,key=lambda k:pct[k]) if total else 'activated'
+    moves={'activated':'Increase first-session quest completion.','engaged':'Move activated Hunters into their first Clash.','proved':'Turn engagement into verifiable proof bundles.','advocates':'Create stronger referral prompts after wins and proof.','champions':'Give high-value Hunters visible recognition and recurring missions.'}
+    return {'version':V10700_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','score':score,'state':state,'total_hunters':total,'stages':stages,'percentages':pct,'weakest_stage':weakest,'next_move':moves[weakest]}
+
+@app.route('/api/founder/hunter-lifecycle')
+def api_v107_hunter_lifecycle(): return jsonify(_v107_lifecycle_snapshot())
+
+@app.route('/founder-hunter-lifecycle')
+def v107_hunter_lifecycle_page():
+    s=_v107_lifecycle_snapshot()
+    cards=''.join(f'<div class="card"><b>{html.escape(k.upper())}</b><div class="big">{v}</div><span>{s["percentages"][k]}%</span></div>' for k,v in s['stages'].items())
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Hunter Lifecycle</title><style>body{{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:24px;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.hot,a{{color:#baff5a}}.big{{font-size:32px;font-weight:950;margin:8px 0}}.state{{font-size:48px;font-weight:950}}p,span{{color:#9a9aaa}}</style></head><body><main><div class="hero"><div class="hot">V107.00 · HUNTER LIFECYCLE INTELLIGENCE</div><div class="state">{html.escape(s['state'])}</div><h2>{s['score']} / 100</h2><p>{html.escape(s['next_move'])}</p></div><div class="grid">{cards}</div><p>Weakest stage: <b>{html.escape(s['weakest_stage'])}</b> · <a href="/api/founder/hunter-lifecycle">JSON</a></p></main></body></html>'''
+
 if __name__ == "__main__":
 
     init_db()
