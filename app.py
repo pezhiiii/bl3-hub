@@ -103560,6 +103560,84 @@ def v6800_decision_matrix_status(item_id):
     return jsonify({'success':True,'version':V6800_VERSION,'id':item_id,'status':status})
 
 
+
+
+# ===== V69.00 FOUNDER RELEASE GATE =====
+V6900_VERSION = "V69.00"
+
+def _v6900_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_release_gate_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            gate_key TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            score REAL NOT NULL DEFAULT 0,
+            evidence_json TEXT NOT NULL DEFAULT '{}',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_release_gate_user_time ON founder_release_gate_snapshots(username,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6900_init()
+
+def _v6900_compute(u):
+    metrics=_v6500_compute(u)
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        risks=con.execute("SELECT * FROM founder_risk_register WHERE username=? AND status IN ('OPEN','WATCH') ORDER BY (probability*impact) DESC LIMIT 20",(u,)).fetchall()
+        sprint=con.execute("SELECT * FROM founder_sprints WHERE username=? AND status='ACTIVE' ORDER BY id DESC LIMIT 1",(u,)).fetchone()
+        moves=con.execute("SELECT COUNT(*) AS n FROM founder_next_move_queue WHERE username=? AND status IN ('OPEN','ACTIVE')",(u,)).fetchone()
+        decisions=con.execute("SELECT COUNT(*) AS n FROM founder_decision_matrix WHERE username=? AND status='OPEN'",(u,)).fetchone()
+    finally:
+        con.close()
+    max_risk=max([int(r['probability'] or 0)*int(r['impact'] or 0) for r in risks] or [0])
+    sprint_pct=0.0
+    if sprint:
+        target=float(sprint['target_value'] or 0); current=float(sprint['current_value'] or 0)
+        sprint_pct=min(100,(current/target*100) if target>0 else 0)
+    score=100.0
+    score-=min(40,max_risk*1.6)
+    score-=min(24,int(metrics.get('blocked') or 0)*8)
+    score-=min(16,int(decisions['n'] or 0)*4)
+    if sprint and sprint_pct<50: score-=10
+    if float(metrics.get('operating_score') or 0)<50: score-=10
+    score=round(max(0,min(100,score)),2)
+    verdict='GO' if score>=80 and max_risk<16 and int(metrics.get('blocked') or 0)==0 else 'CONDITIONAL' if score>=60 else 'HOLD'
+    return {'verdict':verdict,'score':score,'max_risk_score':max_risk,'blocked':int(metrics.get('blocked') or 0),'open_decisions':int(decisions['n'] or 0),'open_next_moves':int(moves['n'] or 0),'operating_score':float(metrics.get('operating_score') or 0),'sprint_progress_pct':round(sprint_pct,2)}
+
+@app.route('/api/founder-release-gate', methods=['GET','POST'])
+def v6900_release_gate():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    evidence=_v6900_compute(u)
+    if request.method=='POST':
+        p=request.get_json(silent=True) or request.form
+        gate_key=str(p.get('gate_key') or datetime.utcnow().strftime('%Y-%m-%dT%H:%MZ'))[:80]
+        note=str(p.get('note') or '')[:4000]
+        now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+        con=sqlite3.connect(DB)
+        try:
+            cur=con.execute('INSERT INTO founder_release_gate_snapshots (username,gate_key,verdict,score,evidence_json,note,created_at) VALUES (?,?,?,?,?,?,?)',
+                (u,gate_key,evidence['verdict'],evidence['score'],json.dumps(evidence,sort_keys=True,separators=(',',':')),note,now))
+            con.commit(); snapshot_id=cur.lastrowid
+        finally:
+            con.close()
+        return jsonify({'success':True,'version':V6900_VERSION,'snapshot_id':snapshot_id,'gate':evidence})
+    return jsonify({'success':True,'version':V6900_VERSION,'gate':evidence})
+
+@app.route('/founder-release-gate', methods=['GET'])
+def v6900_release_gate_page():
+    if not session.get('authenticated_username'):
+        return redirect('/')
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Release Gate</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:980px;margin:auto}.hero{padding:28px;border:1px solid #2a2a34;border-radius:24px;background:#101017}.verdict{font-size:64px;font-weight:950}.hot{color:#baff5a}.warn{color:#ffd66b}.bad{color:#ff6b7a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}.card{padding:16px;border:1px solid #2a2a34;border-radius:16px;background:#0c0c12}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V69.00</div><h1>Founder Release Gate</h1><div id='v' class='verdict'>...</div><div id='score'></div></div><div id='grid' class='grid'></div></div><script>async function load(){const r=await fetch('/api/founder-release-gate');const d=await r.json();const g=d.gate||{};const v=document.getElementById('v');v.textContent=g.verdict||'-';v.className='verdict '+(g.verdict==='GO'?'hot':g.verdict==='CONDITIONAL'?'warn':'bad');document.getElementById('score').textContent='Readiness '+(g.score||0)+'/100';const c=[['Max Risk',g.max_risk_score],['Blocked',g.blocked],['Open Decisions',g.open_decisions],['Next Moves',g.open_next_moves],['Operating Score',g.operating_score],['Sprint',g.sprint_progress_pct+'%']];document.getElementById('grid').innerHTML=c.map(x=>`<div class="card"><div class="muted">${x[0]}</div><h2>${x[1]}</h2></div>`).join('');}load();</script></body></html>""",mimetype='text/html')
+
+
 if __name__ == "__main__":
 
     init_db()
