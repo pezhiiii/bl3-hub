@@ -101587,6 +101587,120 @@ def v4500_best_scenario():
         con.close()
     return jsonify({"success": True, "version": V4500_VERSION, "best": dict(row) if row else None})
 
+
+# ===== V46.00 FOUNDER WEEKLY REVIEW =====
+V4600_VERSION = "V46.00"
+
+def _v4600_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_weekly_review (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            week_label TEXT NOT NULL,
+            wins TEXT NOT NULL DEFAULT '',
+            losses TEXT NOT NULL DEFAULT '',
+            lessons TEXT NOT NULL DEFAULT '',
+            blockers TEXT NOT NULL DEFAULT '',
+            next_focus TEXT NOT NULL DEFAULT '',
+            energy_score REAL NOT NULL DEFAULT 0,
+            execution_score REAL NOT NULL DEFAULT 0,
+            growth_score REAL NOT NULL DEFAULT 0,
+            overall_score REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4600_init()
+except Exception:
+    pass
+
+def _v4600_score(energy, execution, growth):
+    vals = []
+    for v in (energy, execution, growth):
+        try:
+            vals.append(max(0.0, min(100.0, float(v or 0))))
+        except Exception:
+            vals.append(0.0)
+    return vals[0], vals[1], vals[2], round(sum(vals) / 3.0, 2)
+
+@app.route("/api/weekly-reviews", methods=["GET", "POST"])
+def v4600_weekly_reviews():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM founder_weekly_review WHERE username=? ORDER BY id DESC LIMIT 120",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4600_VERSION, "reviews": rows})
+
+    p = request.get_json(silent=True) or request.form
+    week_label = str(p.get("week_label") or "").strip()
+    if not week_label:
+        return jsonify({"success": False, "error": "week_label_required"}), 400
+
+    energy, execution, growth, overall = _v4600_score(
+        p.get("energy_score"), p.get("execution_score"), p.get("growth_score")
+    )
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO founder_weekly_review
+            (username,week_label,wins,losses,lessons,blockers,next_focus,energy_score,execution_score,growth_score,overall_score,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, week_label[:220],
+            str(p.get("wins") or "")[:4000],
+            str(p.get("losses") or "")[:4000],
+            str(p.get("lessons") or "")[:4000],
+            str(p.get("blockers") or "")[:4000],
+            str(p.get("next_focus") or "")[:4000],
+            energy, execution, growth, overall,
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4600_VERSION, "review_id": rid, "overall_score": overall})
+
+@app.route("/api/weekly-reviews/summary", methods=["GET"])
+def v4600_weekly_summary():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM founder_weekly_review WHERE username=? ORDER BY id DESC LIMIT 12",
+            (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    avg = round(sum(float(r["overall_score"] or 0) for r in rows) / len(rows), 2) if rows else 0.0
+    return jsonify({
+        "success": True,
+        "version": V4600_VERSION,
+        "weeks": len(rows),
+        "average_overall_score": avg,
+        "latest": rows[0] if rows else None,
+        "history": rows
+    })
+
 if __name__ == "__main__":
 
     init_db()
