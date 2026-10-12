@@ -104001,6 +104001,31 @@ def founder_launch_brief_export_v81():
 def founder_launch_brief_page_v81():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Launch Brief</title><style>body{margin:0;background:radial-gradient(circle at 80% 0,#1e1833,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.verdict{font-size:88px;font-weight:950;color:#baff5a}.card{margin-top:12px}.line{padding:11px 0;border-bottom:1px solid #262630}.line:last-child{border-bottom:0}.muted{color:#8f91a3}.btn{display:inline-block;margin-top:12px;background:#baff5a;color:#080a06;text-decoration:none;padding:10px 14px;border-radius:11px;font-weight:900}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V81.00</div><h1>Founder Launch Briefing Pack</h1><div id='verdict' class='verdict'>...</div><a class='btn' href='/api/founder-launch-brief/export'>Export JSON</a></div><div id='card' class='card'></div></div><script>async function go(){let d=await (await fetch('/api/founder-launch-brief')).json();verdict.textContent=d.verdict;card.innerHTML=(d.executive_summary||[]).map(x=>`<div class="line">${x}</div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+
+# ===== V82.00 FOUNDER COMMAND NEXUS =====
+V8200_VERSION = "V82.00"
+
+def _v82_command_nexus_payload():
+    tower=_v78_control_tower_payload(); signal=_v79_signal_engine_payload(); auto=_v80_priority_autopilot_payload(); brief=_v81_launch_brief_payload()
+    verdict=brief.get('verdict')
+    if verdict=='GO' and signal.get('posture')=='ACCELERATE': nexus='SHIP'
+    elif auto.get('autopilot_state')=='EXECUTE': nexus='EXECUTE'
+    elif verdict=='HOLD': nexus='STABILIZE'
+    else: nexus='VERIFY'
+    top=auto.get('top_priority') or {}
+    return {'version':V8200_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','nexus_mode':nexus,'launch_verdict':verdict,'signal_posture':signal.get('posture'),'autopilot_state':auto.get('autopilot_state'),'top_priority':top,'confidence':(tower.get('confidence') or {}).get('score',0),'launch_progress':(tower.get('timeline') or {}).get('progress',0),'war_room_status':tower.get('war_room_status'),'command':tower.get('command'),'next_action':top.get('action') or tower.get('next_action'),'links':[{'label':'Control Tower','href':'/founder-control-tower'},{'label':'Signal Engine','href':'/founder-signal-engine'},{'label':'Priority Autopilot','href':'/founder-priority-autopilot'},{'label':'Launch Brief','href':'/founder-launch-brief'}]}
+
+@app.route('/api/founder-command-nexus', methods=['GET'])
+def founder_command_nexus_v82(): return jsonify({'success':True, **_v82_command_nexus_payload()})
+
+@app.route('/api/founder-command-nexus/export', methods=['GET'])
+def founder_command_nexus_export_v82():
+    return Response(json.dumps(_v82_command_nexus_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-command-nexus.json'})
+
+@app.route('/founder-command-nexus', methods=['GET'])
+def founder_command_nexus_page_v82():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Command Nexus</title><style>:root{--hot:#baff5a;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 15% 0,#241d40,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:rgba(16,16,23,.96);border-radius:24px;padding:20px}.mode{font-size:92px;font-weight:950;line-height:.9;color:var(--hot)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:34px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V82.00</div><h1>Founder Command Nexus</h1><div id='mode' class='mode'>...</div><h2 id='next'></h2><p id='cmd' class='muted'></p><div class='links'><a href='/founder-control-tower'>Control Tower</a><a href='/founder-signal-engine'>Signal Engine</a><a href='/founder-priority-autopilot'>Autopilot</a><a href='/founder-launch-brief'>Launch Brief</a><a href='/api/founder-command-nexus/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Launch Verdict</div><div id='verdict' class='big'>-</div></div><div class='card'><div class='muted'>Signal Posture</div><div id='posture' class='big'>-</div></div><div class='card'><div class='muted'>Confidence</div><div id='conf' class='big'>-</div></div><div class='card'><div class='muted'>Launch Progress</div><div id='prog' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-command-nexus')).json();mode.textContent=d.nexus_mode;next.textContent='NEXT: '+d.next_action;cmd.textContent='Command: '+d.command;verdict.textContent=d.launch_verdict;posture.textContent=d.signal_posture;conf.textContent=d.confidence+'/100';prog.textContent=d.launch_progress+'%'}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
