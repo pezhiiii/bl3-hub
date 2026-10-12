@@ -103470,6 +103470,96 @@ def v6700_risk_register_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Risk Register</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.grid{display:grid;gap:10px;margin-top:14px}.hot{color:#baff5a}.muted{color:#8f91a3}.score{font-size:28px;font-weight:900}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V67.00</div><h1>Founder Risk Register</h1><p>Probability × impact. Highest exposure first.</p></div><div id='grid' class='grid'></div></div><script>async function load(){const r=await fetch('/api/founder-risks?status=OPEN');const d=await r.json();document.getElementById('grid').innerHTML=(d.risks||[]).map(x=>`<div class="card"><div class="score hot">${x.risk_score}</div><b>${x.title}</b><div class="muted">${x.category} · P${x.probability} × I${x.impact}</div><p>${x.mitigation||'No mitigation yet'}</p></div>`).join('')||'<div class="card">No open risks.</div>';}load();</script></body></html>""",mimetype='text/html')
 
 
+
+
+# ===== V68.00 FOUNDER DECISION MATRIX =====
+V6800_VERSION = "V68.00"
+
+def _v6800_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_decision_matrix (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            option_name TEXT NOT NULL,
+            impact INTEGER NOT NULL DEFAULT 3,
+            confidence INTEGER NOT NULL DEFAULT 3,
+            reversibility INTEGER NOT NULL DEFAULT 3,
+            urgency INTEGER NOT NULL DEFAULT 3,
+            rationale TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_decision_matrix_user_status ON founder_decision_matrix(username,status,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6800_init()
+
+def _v6800_weighted(d):
+    impact=int(d.get('impact') or 0); confidence=int(d.get('confidence') or 0); reversibility=int(d.get('reversibility') or 0); urgency=int(d.get('urgency') or 0)
+    return round(impact*0.35 + confidence*0.30 + reversibility*0.15 + urgency*0.20, 2)
+
+@app.route('/api/founder-decision-matrix', methods=['GET','POST'])
+def v6800_decision_matrix():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        status=str(request.args.get('status') or 'OPEN').upper()[:20]
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try:
+            rows=con.execute('SELECT * FROM founder_decision_matrix WHERE username=? AND status=? ORDER BY id DESC LIMIT 100',(u,status)).fetchall()
+        finally:
+            con.close()
+        items=[]
+        for r in rows:
+            d=dict(r); d['weighted_score']=_v6800_weighted(d); items.append(d)
+        items.sort(key=lambda x:(x['weighted_score'],x['id']), reverse=True)
+        return jsonify({'success':True,'version':V6800_VERSION,'status':status,'options':items})
+    p=request.get_json(silent=True) or request.form
+    title=str(p.get('title') or '').strip(); option_name=str(p.get('option_name') or '').strip()
+    if not title or not option_name:
+        return jsonify({'success':False,'error':'title_and_option_required'}),400
+    vals=[]
+    for k in ('impact','confidence','reversibility','urgency'):
+        vals.append(max(1,min(5,int(float(p.get(k) or 3)))))
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO founder_decision_matrix
+        (username,title,option_name,impact,confidence,reversibility,urgency,rationale,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?, 'OPEN',?,?)""",
+        (u,title[:1200],option_name[:800],*vals,str(p.get('rationale') or '')[:5000],now,now))
+        con.commit(); item_id=cur.lastrowid
+    finally:
+        con.close()
+    score=round(vals[0]*0.35+vals[1]*0.30+vals[2]*0.15+vals[3]*0.20,2)
+    return jsonify({'success':True,'version':V6800_VERSION,'id':item_id,'weighted_score':score})
+
+@app.route('/api/founder-decision-matrix/<int:item_id>/status', methods=['POST'])
+def v6800_decision_matrix_status(item_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.get_json(silent=True) or request.form
+    status=str(p.get('status') or 'CHOSEN').upper()[:20]
+    if status not in ('OPEN','CHOSEN','REJECTED','ARCHIVED'):
+        return jsonify({'success':False,'error':'invalid_status'}),400
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('UPDATE founder_decision_matrix SET status=?,updated_at=? WHERE id=? AND username=?',(status,now,item_id,u)); con.commit()
+        if cur.rowcount<1:
+            return jsonify({'success':False,'error':'option_not_found'}),404
+    finally:
+        con.close()
+    return jsonify({'success':True,'version':V6800_VERSION,'id':item_id,'status':status})
+
+
 if __name__ == "__main__":
 
     init_db()
