@@ -104828,6 +104828,32 @@ def founder_growth_os():
 
 @app.route('/api/founder/growth-os')
 def api_founder_growth_os(): return jsonify(_v102_growth_os())
+# ===== V103.00 HUNTER VALUE INTELLIGENCE =====
+V10300_VERSION = "103.00"
+
+def _v103_hunter_value_payload():
+    users = _v95_scalar("SELECT COUNT(*) FROM users")
+    active_30 = _v95_scalar("SELECT COUNT(DISTINCT username) FROM reputation_events WHERE created_at >= datetime('now','-30 days')")
+    battlers = _v95_scalar("SELECT COUNT(*) FROM (SELECT challenger AS username FROM creature_battles UNION SELECT opponent AS username FROM creature_battles)")
+    proof_users = _v95_scalar("SELECT COUNT(DISTINCT username) FROM hunter_proof_bundles")
+    inviters = _v95_scalar("SELECT COUNT(DISTINCT inviter) FROM referrals")
+    repeat_battlers = _v95_scalar("SELECT COUNT(*) FROM (SELECT username FROM (SELECT challenger AS username FROM creature_battles UNION ALL SELECT opponent AS username FROM creature_battles) GROUP BY username HAVING COUNT(*) >= 3)")
+    def pct(n,d): return round((n / max(1,d))*100,1)
+    engagement, battle_depth = pct(active_30, users), pct(repeat_battlers, battlers)
+    proof_depth, advocacy = pct(proof_users, users), pct(inviters, users)
+    score = round(max(0,min(100, engagement*.30 + battle_depth*.30 + proof_depth*.20 + advocacy*.20)))
+    state = 'ELITE' if score >= 75 else 'STRONG' if score >= 55 else 'DEVELOPING' if score >= 30 else 'THIN'
+    components = {'30d_engagement_pct':engagement,'repeat_battle_pct':battle_depth,'proof_depth_pct':proof_depth,'advocacy_pct':advocacy}
+    weakest = min(components.items(), key=lambda kv: kv[1]) if components else ('value',0)
+    next_move = f"Raise {weakest[0].replace('_',' ')}; it is the weakest Hunter value signal at {weakest[1]}%."
+    return {'version':V10300_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','value_score':score,'state':state,'next_move':next_move,'components':components,'counts':{'users':users,'active_30d':active_30,'battlers':battlers,'repeat_battlers':repeat_battlers,'proof_users':proof_users,'inviters':inviters}}
+
+@app.route('/api/founder-hunter-value')
+def v103_hunter_value_api(): return jsonify(_v103_hunter_value_payload())
+
+@app.route('/founder-hunter-value')
+def v103_hunter_value_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Hunter Value Intelligence</title><style>body{margin:0;background:radial-gradient(circle at 10% 0,#2f173f,#050507 48%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#d69cff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}.big{font-size:28px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V103.00</div><h1>Hunter Value Intelligence</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-hunter-value')).json();score.textContent=d.value_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.components).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}%</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
 
 if __name__ == "__main__":
