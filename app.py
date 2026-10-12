@@ -102778,6 +102778,41 @@ def v5600_execution_status(item_id):
     finally: con.close()
     return jsonify({"success":True,"version":V5600_VERSION,"item_id":item_id,"status":status})
 
+
+# ===== V57.00 MOMENTUM SCORE =====
+V5700_VERSION = "V57.00"
+
+def _v5700_safe_count(con, sql, params=()):
+    try:
+        row=con.execute(sql,params).fetchone(); return int(row[0] or 0) if row else 0
+    except Exception: return 0
+
+@app.route("/api/founder-momentum", methods=["GET"])
+def v5700_founder_momentum():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    now=datetime.utcnow(); since7=(now-timedelta(days=7)).isoformat(timespec="seconds")+"Z"; today=now.strftime("%Y-%m-%d")
+    con=sqlite3.connect(DB)
+    try:
+        done7=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND status='DONE' AND completed_at>=?",(u,since7))
+        today_total=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND work_date=?",(u,today))
+        today_done=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_daily_execution WHERE username=? AND work_date=? AND status='DONE'",(u,today))
+        decisions7=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND created_at>=?",(u,since7))
+        reviewed7=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND status IN ('REVIEWED','CLOSED') AND updated_at>=?",(u,since7))
+        goals=_v5700_safe_count(con,"SELECT COUNT(*) FROM founder_goal_tracker WHERE username=? AND status='ACTIVE'",(u,))
+        milestones_done=_v5700_safe_count(con,"SELECT COUNT(*) FROM milestone_control WHERE username=? AND status='DONE' AND updated_at>=?",(u,since7))
+    finally: con.close()
+    execution=min(40.0, done7*5.0)
+    consistency=(today_done/max(1,today_total))*20.0 if today_total else 0.0
+    decisions=min(15.0, decisions7*3.0)+min(10.0,reviewed7*2.0)
+    progress=min(15.0,milestones_done*3.0)
+    score=round(min(100.0,execution+consistency+decisions+progress),2)
+    state="SURGING" if score>=80 else "BUILDING" if score>=60 else "STEADY" if score>=35 else "COLD START"
+    return jsonify({"success":True,"version":V5700_VERSION,"momentum_score":score,"state":state,
+        "signals":{"execution_done_7d":done7,"today_done":today_done,"today_total":today_total,"decisions_7d":decisions7,
+                   "decisions_reviewed_7d":reviewed7,"active_goals":goals,"milestones_done_7d":milestones_done},
+        "weights":{"execution":round(execution,2),"consistency":round(consistency,2),"decisions":round(decisions,2),"progress":round(progress,2)}})
+
 if __name__ == "__main__":
 
     init_db()
