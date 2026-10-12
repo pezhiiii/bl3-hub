@@ -103857,6 +103857,29 @@ def founder_dependency_map_v76(): return jsonify({'success':True, **_v76_depende
 @app.route('/founder-dependency-map', methods=['GET'])
 def founder_dependency_map_page_v76():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Dependency Map</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1080px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.card{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.READY{border-color:#baff5a}.BLOCKED{border-color:#ff6b7a}.OPEN{border-color:#ffd66b}.state{font-weight:950}.READY .state{color:#baff5a}.BLOCKED .state{color:#ff6b7a}.OPEN .state{color:#ffd66b}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='muted'>BL3 // V76.00</div><h1>Founder Dependency Map</h1><p id='sum'></p><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-dependency-map')).json();sum.textContent=`${d.ready_nodes}/${d.total_nodes} nodes ready · Timeline ${d.timeline_progress}%`;grid.innerHTML=(d.nodes||[]).map(x=>`<div class="card ${x.state}"><div class="state">${x.state}</div><h2>${x.label}</h2><div class="muted">Depends on: ${(x.depends_on||[]).join(', ')||'None'}</div><div class="muted">Blocked by: ${(x.blocked_by||[]).join(', ')||'None'}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+# ===== V77.00 FOUNDER CONFIDENCE INDEX =====
+V7700_VERSION = "V77.00"
+
+def _v77_confidence_payload():
+    war = _v74_war_room_payload()
+    timeline = _v75_launch_timeline_payload()
+    dep = _v76_dependency_map_payload()
+    readiness = int((war.get('readiness') or {}).get('score') or 0)
+    timeline_score = int(timeline.get('progress') or 0)
+    dep_score = round((int(dep.get('ready_nodes') or 0) / max(1,int(dep.get('total_nodes') or 1))) * 100)
+    alert_penalty = min(30, 10 * sum(1 for a in (war.get('alerts') or {}).get('alerts',[]) if a.get('severity') in ('CRITICAL','HIGH')))
+    score = max(0,min(100,round(readiness*.5 + timeline_score*.25 + dep_score*.25 - alert_penalty)))
+    state='HIGH' if score>=80 else ('MEDIUM' if score>=60 else 'LOW')
+    components=[{'name':'Readiness','score':readiness,'weight':'50%'},{'name':'Timeline','score':timeline_score,'weight':'25%'},{'name':'Dependencies','score':dep_score,'weight':'25%'},{'name':'Alert penalty','score':-alert_penalty,'weight':'penalty'}]
+    recommendation='Authorize launch path.' if state=='HIGH' else ('Close the top bottleneck before launch.' if state=='MEDIUM' else 'Stabilize execution before committing to launch.')
+    return {'version':V7700_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','score':score,'state':state,'components':components,'recommendation':recommendation}
+
+@app.route('/api/founder-confidence-index', methods=['GET'])
+def founder_confidence_index_v77(): return jsonify({'success':True, **_v77_confidence_payload()})
+
+@app.route('/founder-confidence-index', methods=['GET'])
+def founder_confidence_index_page_v77():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Confidence Index</title><style>body{margin:0;background:radial-gradient(circle at 50% -10%,#231b3c,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:900px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:22px;padding:20px}.score{font-size:96px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V77.00</div><h1>Founder Confidence Index</h1><div id='score' class='score'>...</div><div id='state' class='big'></div><p id='rec' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-confidence-index')).json();score.textContent=d.score;state.textContent=d.state+' CONFIDENCE';rec.textContent=d.recommendation;grid.innerHTML=(d.components||[]).map(x=>`<div class="card"><div class="muted">${x.name} · ${x.weight}</div><div class="big">${x.score}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
