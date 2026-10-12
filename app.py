@@ -103699,6 +103699,42 @@ def v7000_mission_control_page():
         return redirect('/')
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Mission Control</title><style>:root{--bg:#050507;--panel:#101017;--line:#2a2a34;--hot:#baff5a;--violet:#a17cff;--muted:#8f91a3;--warn:#ffd66b;--bad:#ff6b7a}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#201a34 0,var(--bg) 35%);color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid var(--line);background:rgba(16,16,23,.92);border-radius:22px;padding:18px}.hero{padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}.mission{font-size:54px;font-weight:950;color:var(--hot);letter-spacing:-2px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:900}.section{margin-top:20px}a.btn{display:inline-block;margin-top:12px;background:var(--hot);color:#090b06;padding:10px 14px;border-radius:12px;text-decoration:none;font-weight:900}.pill{display:inline-block;padding:6px 10px;border:1px solid var(--line);border-radius:999px;margin:4px 4px 0 0;font-size:12px}</style></head><body><div class='wrap'><div class='hero'><div class='top'><div><div class='muted'>BL3 // V70.00</div><h1>Founder Mission Control</h1><div id='mission' class='mission'>Loading...</div><p id='directive' class='muted'></p></div><div><div class='muted'>Release Gate</div><div id='gate' class='big'>-</div><div id='gateScore' class='muted'></div></div></div><a class='btn' href='/api/founder-mission-control/export'>Export Snapshot</a></div><div id='metrics' class='grid'></div><div class='section grid'><div class='card'><h2>Top Risks</h2><div id='risks'></div></div><div class='card'><h2>Next Moves</h2><div id='moves'></div></div><div class='card'><h2>Open Decisions</h2><div id='decisions'></div></div></div></div><script>function esc(x){return String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}async function load(){const r=await fetch('/api/founder-mission-control');const d=await r.json();document.getElementById('mission').textContent=d.mission||'-';document.getElementById('directive').textContent=d.directive||'';document.getElementById('gate').textContent=(d.gate||{}).verdict||'-';document.getElementById('gateScore').textContent=((d.gate||{}).score||0)+'/100';const m=d.metrics||{};const cards=[['Operating',m.operating_score],['Done 7d',m.done_7d],['Blocked',m.blocked],['Open Today',m.today_open],['Open Decisions',m.open_decisions],['Top Risk',m.top_risk_score],['Sprint',d.active_sprint?d.active_sprint.progress_pct+'%':'None'],['Focus',d.focus?'LOCKED':'Not set']];document.getElementById('metrics').innerHTML=cards.map(x=>`<div class="card"><div class="muted">${x[0]}</div><div class="big">${esc(x[1])}</div></div>`).join('');document.getElementById('risks').innerHTML=(d.top_risks||[]).map(x=>`<div class="pill">${esc(x.risk_score)} · ${esc(x.title)}</div>`).join('')||'<span class="muted">Clear</span>';document.getElementById('moves').innerHTML=(d.next_moves||[]).map(x=>`<div class="pill">${esc(x.priority_score)} · ${esc(x.title)}</div>`).join('')||'<span class="muted">None</span>';document.getElementById('decisions').innerHTML=(d.open_decisions||[]).map(x=>`<div class="pill">${esc(x.weighted_score)} · ${esc(x.option_name)}</div>`).join('')||'<span class="muted">None</span>';}load();</script></body></html>""",mimetype='text/html')
 
+# ===== V71.00 LAUNCH READINESS RADAR =====
+V7100_VERSION = "V71.00"
+
+def _v71_readiness_payload():
+    now = datetime.utcnow()
+    # Reuse V70 founder mission-control calculations as a single source of truth.
+    with app.test_request_context('/api/founder-mission-control'):
+        try:
+            response = founder_mission_control_v70()
+            raw = response.get_json() if hasattr(response, 'get_json') else None
+        except Exception:
+            raw = None
+    raw = raw or {}
+    gate = raw.get('gate') or {}
+    metrics = raw.get('metrics') or {}
+    checks = [
+        {'key':'release_gate','label':'Release gate is GO','ok':str(gate.get('verdict','')).upper()=='GO','weight':25},
+        {'key':'operating_score','label':'Operating score ≥ 70','ok':float(metrics.get('operating_score') or 0)>=70,'weight':20},
+        {'key':'blocked','label':'No blocked founder items','ok':int(metrics.get('blocked') or 0)==0,'weight':20},
+        {'key':'risk','label':'Top risk score ≤ 12','ok':float(metrics.get('top_risk_score') or 0)<=12,'weight':15},
+        {'key':'focus','label':'Daily focus is locked','ok':bool(raw.get('focus')),'weight':10},
+        {'key':'sprint','label':'Active sprint exists','ok':bool(raw.get('active_sprint')),'weight':10},
+    ]
+    score=sum(x['weight'] for x in checks if x['ok'])
+    state='READY' if score>=85 else ('NEAR READY' if score>=65 else 'NOT READY')
+    failed=[x for x in checks if not x['ok']]
+    next_action=(failed[0]['label'] if failed else 'Proceed with the release plan and keep monitoring.')
+    return {'version':V7100_VERSION,'generated_at':now.isoformat(timespec='seconds')+'Z','score':score,'state':state,'checks':checks,'next_action':next_action,'mission':raw.get('mission'),'gate':gate,'metrics':metrics}
+
+@app.route('/api/founder-launch-readiness', methods=['GET'])
+def founder_launch_readiness_v71():
+    return jsonify({'success':True, **_v71_readiness_payload()})
+
+@app.route('/founder-launch-readiness', methods=['GET'])
+def founder_launch_readiness_page_v71():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Launch Readiness Radar</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui;padding:24px}.wrap{max-width:980px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:20px;padding:20px}.score{font-size:72px;font-weight:950;color:#baff5a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:14px}.ok{color:#baff5a}.no{color:#ff6b7a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V71.00</div><h1>Launch Readiness Radar</h1><div id='score' class='score'>--</div><h2 id='state'>Loading...</h2><p id='next' class='muted'></p></div><div id='checks' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-launch-readiness')).json();score.textContent=d.score+'/100';state.textContent=d.state;next.textContent='Next: '+d.next_action;checks.innerHTML=(d.checks||[]).map(x=>`<div class="card"><b class="${x.ok?'ok':'no'}">${x.ok?'PASS':'FIX'}</b><h3>${x.label}</h3><div class="muted">Weight ${x.weight}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
 if __name__ == "__main__":
 
