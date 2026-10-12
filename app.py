@@ -103378,6 +103378,98 @@ def v6600_command_center_page():
     html_page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Command Center</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.hero{padding:24px;border:1px solid #2a2a34;border-radius:22px;background:#101017}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.card{border:1px solid #2a2a34;border-radius:18px;padding:16px;background:#0c0c12}.hot{color:#baff5a}.muted{color:#8f91a3;font-size:13px}.big{font-size:34px;font-weight:900}button{background:#baff5a;border:0;border-radius:12px;padding:10px 14px;font-weight:900;cursor:pointer}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V66.00</div><h1>Founder Command Center</h1><div id='state' class='big hot'>Loading...</div><p id='action' class='muted'></p><button onclick='loadCC()'>Refresh</button></div><div id='grid' class='grid'></div></div><script>async function loadCC(){const r=await fetch('/api/founder-command-center');const d=await r.json();document.getElementById('state').textContent=d.state||'-';document.getElementById('action').textContent=d.recommended_action||'';const m=d.metrics||{};const cards=[['Operating Score',m.operating_score],['Done 7d',m.done_7d],['Blocked',m.blocked],['Open Today',m.today_open],['Open Decisions',m.open_decisions],['Top Risk',m.top_risk_score],['Next Moves',(d.next_moves||[]).length],['Sprint',d.active_sprint?((d.active_sprint.progress_pct||0)+'%'):'None']];document.getElementById('grid').innerHTML=cards.map(function(x){return '<div class=\"card\"><div class=\"muted\">'+x[0]+'</div><div class=\"big\">'+(x[1]===undefined?'-':x[1])+'</div></div>';}).join('');}loadCC();</script></body></html>"""
     return Response(html_page,mimetype="text/html")
 
+
+
+# ===== V67.00 FOUNDER RISK REGISTER =====
+V6700_VERSION = "V67.00"
+
+def _v6700_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_risk_register (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'execution',
+            probability INTEGER NOT NULL DEFAULT 3,
+            impact INTEGER NOT NULL DEFAULT 3,
+            mitigation TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_risk_register_user_status ON founder_risk_register(username,status,probability DESC,impact DESC,id DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6700_init()
+
+def _v6700_score(row):
+    return int(row.get('probability') or 0) * int(row.get('impact') or 0)
+
+@app.route('/api/founder-risks', methods=['GET','POST'])
+def v6700_risks():
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    if request.method=='GET':
+        status=str(request.args.get('status') or 'OPEN').upper()[:20]
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try:
+            rows=con.execute("SELECT * FROM founder_risk_register WHERE username=? AND status=? ORDER BY (probability*impact) DESC,id DESC LIMIT 100",(u,status)).fetchall()
+        finally:
+            con.close()
+        items=[]
+        for r in rows:
+            d=dict(r); d['risk_score']=_v6700_score(d); items.append(d)
+        return jsonify({'success':True,'version':V6700_VERSION,'status':status,'risks':items})
+    p=request.get_json(silent=True) or request.form
+    title=str(p.get('title') or '').strip()
+    if not title:
+        return jsonify({'success':False,'error':'title_required'}),400
+    probability=max(1,min(5,int(float(p.get('probability') or 3))))
+    impact=max(1,min(5,int(float(p.get('impact') or 3))))
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO founder_risk_register
+            (username,title,category,probability,impact,mitigation,owner,status,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,'OPEN',?,?)""",
+            (u,title[:1200],str(p.get('category') or 'execution')[:60],probability,impact,
+             str(p.get('mitigation') or '')[:4000],str(p.get('owner') or u)[:120],now,now))
+        con.commit(); risk_id=cur.lastrowid
+    finally:
+        con.close()
+    return jsonify({'success':True,'version':V6700_VERSION,'id':risk_id,'risk_score':probability*impact})
+
+@app.route('/api/founder-risks/<int:risk_id>/status', methods=['POST'])
+def v6700_risk_status(risk_id):
+    u=session.get('authenticated_username')
+    if not u:
+        return jsonify({'success':False,'error':'auth_required'}),401
+    p=request.get_json(silent=True) or request.form
+    status=str(p.get('status') or 'MITIGATED').upper()[:20]
+    if status not in ('OPEN','WATCH','MITIGATED','CLOSED'):
+        return jsonify({'success':False,'error':'invalid_status'}),400
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute('UPDATE founder_risk_register SET status=?,updated_at=? WHERE id=? AND username=?',(status,now,risk_id,u)); con.commit()
+        if cur.rowcount<1:
+            return jsonify({'success':False,'error':'risk_not_found'}),404
+    finally:
+        con.close()
+    return jsonify({'success':True,'version':V6700_VERSION,'id':risk_id,'status':status})
+
+@app.route('/founder-risk-register', methods=['GET'])
+def v6700_risk_register_page():
+    if not session.get('authenticated_username'):
+        return redirect('/')
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Risk Register</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.grid{display:grid;gap:10px;margin-top:14px}.hot{color:#baff5a}.muted{color:#8f91a3}.score{font-size:28px;font-weight:900}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V67.00</div><h1>Founder Risk Register</h1><p>Probability × impact. Highest exposure first.</p></div><div id='grid' class='grid'></div></div><script>async function load(){const r=await fetch('/api/founder-risks?status=OPEN');const d=await r.json();document.getElementById('grid').innerHTML=(d.risks||[]).map(x=>`<div class="card"><div class="score hot">${x.risk_score}</div><b>${x.title}</b><div class="muted">${x.category} · P${x.probability} × I${x.impact}</div><p>${x.mitigation||'No mitigation yet'}</p></div>`).join('')||'<div class="card">No open risks.</div>';}load();</script></body></html>""",mimetype='text/html')
+
+
 if __name__ == "__main__":
 
     init_db()
