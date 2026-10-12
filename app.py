@@ -102702,6 +102702,82 @@ def v5500_review_decision(decision_id):
     finally: con.close()
     return jsonify({"success":True,"version":V5500_VERSION,"decision_id":decision_id})
 
+
+# ===== V56.00 DAILY EXECUTION BOARD =====
+V5600_VERSION = "V56.00"
+
+def _v5600_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_daily_execution (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            work_date TEXT NOT NULL,
+            title TEXT NOT NULL,
+            category TEXT DEFAULT 'EXECUTION',
+            priority INTEGER NOT NULL DEFAULT 3,
+            impact INTEGER NOT NULL DEFAULT 3,
+            effort INTEGER NOT NULL DEFAULT 3,
+            status TEXT NOT NULL DEFAULT 'TODO',
+            note TEXT DEFAULT '',
+            completed_at TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_daily_exec_user_date ON founder_daily_execution(username,work_date,status,id DESC)")
+        con.commit()
+    finally: con.close()
+
+_v5600_init()
+
+def _v5600_score(priority, impact, effort):
+    return round((max(1,priority)*max(1,impact))/max(1,effort),2)
+
+@app.route("/api/founder-execution", methods=["GET","POST"])
+def v5600_execution_board():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    if request.method == "GET":
+        day=str(request.args.get("date") or datetime.utcnow().strftime("%Y-%m-%d"))[:10]
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try:
+            rows=[dict(r) for r in con.execute("SELECT * FROM founder_daily_execution WHERE username=? AND work_date=? ORDER BY status='DONE', priority DESC, impact DESC, id DESC",(u,day)).fetchall()]
+        finally: con.close()
+        for r in rows: r["execution_score"]=_v5600_score(int(r["priority"] or 1),int(r["impact"] or 1),int(r["effort"] or 1))
+        done=sum(1 for r in rows if r["status"]=="DONE")
+        return jsonify({"success":True,"version":V5600_VERSION,"date":day,"completion_pct":round(done/max(1,len(rows))*100,2),"items":rows})
+    p=request.get_json(silent=True) or request.form
+    title=str(p.get("title") or "").strip()
+    if not title: return jsonify({"success":False,"error":"title_required"}),400
+    work_date=str(p.get("work_date") or datetime.utcnow().strftime("%Y-%m-%d"))[:10]
+    priority=max(1,min(5,int(float(p.get("priority") or 3))))
+    impact=max(1,min(5,int(float(p.get("impact") or 3))))
+    effort=max(1,min(5,int(float(p.get("effort") or 3))))
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("""INSERT INTO founder_daily_execution
+            (username,work_date,title,category,priority,impact,effort,status,note,completed_at,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",(u,work_date,title[:700],str(p.get("category") or "EXECUTION")[:120],priority,impact,effort,"TODO",str(p.get("note") or "")[:4000],"",now,now))
+        con.commit(); iid=cur.lastrowid
+    finally: con.close()
+    return jsonify({"success":True,"version":V5600_VERSION,"item_id":iid,"execution_score":_v5600_score(priority,impact,effort)})
+
+@app.route("/api/founder-execution/<int:item_id>/status", methods=["POST"])
+def v5600_execution_status(item_id):
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form
+    status=str(p.get("status") or "DONE")[:40].upper()
+    if status not in {"TODO","DOING","BLOCKED","DONE","ARCHIVED"}: return jsonify({"success":False,"error":"invalid_status"}),400
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"; completed=now if status=="DONE" else ""
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("UPDATE founder_daily_execution SET status=?,completed_at=?,updated_at=? WHERE id=? AND username=?",(status,completed,now,item_id,u)); con.commit()
+        if cur.rowcount<1: return jsonify({"success":False,"error":"item_not_found"}),404
+    finally: con.close()
+    return jsonify({"success":True,"version":V5600_VERSION,"item_id":item_id,"status":status})
+
 if __name__ == "__main__":
 
     init_db()
