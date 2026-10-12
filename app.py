@@ -101701,6 +101701,112 @@ def v4600_weekly_summary():
         "history": rows
     })
 
+
+# ===== V47.00 FOUNDER PRIORITY ENGINE =====
+V4700_VERSION = "V47.00"
+
+def _v4700_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_priority_engine (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            impact REAL NOT NULL DEFAULT 0,
+            urgency REAL NOT NULL DEFAULT 0,
+            effort REAL NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL DEFAULT 0,
+            priority_score REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'BACKLOG',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4700_init()
+except Exception:
+    pass
+
+def _v4700_score(impact, urgency, effort, confidence):
+    i = max(0.0, min(100.0, float(impact or 0)))
+    u = max(0.0, min(100.0, float(urgency or 0)))
+    e = max(1.0, min(100.0, float(effort or 1)))
+    c = max(0.0, min(100.0, float(confidence or 0)))
+    score = ((i * 0.45) + (u * 0.30) + (c * 0.25)) / (e / 25.0)
+    return round(score, 2)
+
+@app.route("/api/founder-priorities", methods=["GET", "POST"])
+def v4700_priorities():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM founder_priority_engine WHERE username=? ORDER BY priority_score DESC, id DESC LIMIT 300",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4700_VERSION, "priorities": rows})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "title_required"}), 400
+
+    impact = float(p.get("impact") or 0)
+    urgency = float(p.get("urgency") or 0)
+    effort = float(p.get("effort") or 1)
+    confidence = float(p.get("confidence") or 0)
+    score = _v4700_score(impact, urgency, effort, confidence)
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO founder_priority_engine
+            (username,title,impact,urgency,effort,confidence,priority_score,status,notes,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, title[:500], impact, urgency, effort, confidence, score,
+            str(p.get("status") or "BACKLOG")[:80],
+            str(p.get("notes") or "")[:4000],
+            now, now
+        ))
+        con.commit()
+        pid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4700_VERSION, "priority_id": pid, "priority_score": score})
+
+@app.route("/api/founder-priorities/top", methods=["GET"])
+def v4700_top_priorities():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    limit = max(1, min(25, int(request.args.get("limit", 5))))
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            """SELECT * FROM founder_priority_engine
+               WHERE username=? AND status NOT IN ('DONE','ARCHIVED')
+               ORDER BY priority_score DESC, id DESC LIMIT ?""",
+            (u, limit)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4700_VERSION, "top_priorities": rows})
+
 if __name__ == "__main__":
 
     init_db()
