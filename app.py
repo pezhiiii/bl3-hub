@@ -104188,6 +104188,86 @@ def founder_os_dashboard_v86():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder OS</title><style>:root{--hot:#baff5a;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 15% 0,#251e42,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1200px;margin:auto}.hero,.card{background:rgba(16,16,23,.96);border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:104px;font-weight:950;color:var(--hot);line-height:.9}.mode{font-size:34px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}.row{padding:10px 0;border-bottom:1px solid #25252f}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V86.00</div><h1>Founder OS Dashboard</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><h2 id='directive'></h2><div class='links'><a href='/founder-command-nexus'>Nexus</a><a href='/founder-execution-radar'>Radar</a><a href='/founder-daily-command-brief'>Daily Brief</a><a href='/founder-scoreboard'>Scoreboard</a><a href='/api/founder-os-dashboard/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Execution</div><div id='exec' class='big'>-</div></div><div class='card'><div class='muted'>Launch Verdict</div><div id='verdict' class='big'>-</div></div><div class='card'><div class='muted'>Confidence</div><div id='conf' class='big'>-</div></div><div class='card'><div class='muted'>Progress</div><div id='prog' class='big'>-</div></div></div><div class='card' style='margin-top:14px'><h3>Top 3 Commands</h3><div id='top'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-os-dashboard')).json();score.textContent=d.overall_score+'/100';mode.textContent='GRADE '+d.os_state+' · '+d.nexus_mode;directive.textContent=d.directive||'';exec.textContent=d.execution_state+' · '+d.execution_score;verdict.textContent=d.launch_verdict;conf.textContent=d.confidence+'/100';prog.textContent=d.launch_progress+'%';top.innerHTML=(d.top_3||[]).map((x,i)=>`<div class="row"><b>#${i+1} ${x.action||'-'}</b><div class="muted">${x.reason||''}</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
 
 
+
+# ===== V87.00 FOUNDER ROADMAP INTELLIGENCE =====
+V8700_VERSION = "87.00"
+
+def _v87_ensure_schema():
+    conn = db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS founder_roadmap_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        lane TEXT NOT NULL DEFAULT 'Product',
+        impact INTEGER NOT NULL DEFAULT 3,
+        effort INTEGER NOT NULL DEFAULT 3,
+        confidence INTEGER NOT NULL DEFAULT 3,
+        status TEXT NOT NULL DEFAULT 'PLANNED',
+        target_date TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_founder_roadmap_status ON founder_roadmap_items(status, id DESC)")
+    conn.commit(); conn.close()
+
+_v87_ensure_schema()
+
+def _v87_priority(row):
+    impact=max(1,min(5,int(row.get('impact') or 1)))
+    effort=max(1,min(5,int(row.get('effort') or 1)))
+    confidence=max(1,min(5,int(row.get('confidence') or 1)))
+    return round((impact * confidence * 20) / effort)
+
+def _v87_roadmap_payload():
+    conn=db(); conn.row_factory=sqlite3.Row
+    rows=[dict(r) for r in conn.execute("SELECT * FROM founder_roadmap_items ORDER BY id DESC LIMIT 200").fetchall()]
+    conn.close()
+    for r in rows: r['priority_score']=_v87_priority(r)
+    rows.sort(key=lambda r:(r['status']=='DONE', -r['priority_score'], r['id']))
+    planned=sum(1 for r in rows if r['status'] in ('PLANNED','READY'))
+    active=sum(1 for r in rows if r['status']=='ACTIVE')
+    done=sum(1 for r in rows if r['status']=='DONE')
+    top=next((r for r in rows if r['status']!='DONE'), None)
+    return {'version':V8700_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','counts':{'planned':planned,'active':active,'done':done},'top_priority':top,'items':rows}
+
+@app.route('/api/founder-roadmap', methods=['GET','POST'])
+def api_founder_roadmap_v87():
+    if request.method=='GET': return jsonify(_v87_roadmap_payload())
+    data=request.get_json(silent=True) or request.form.to_dict()
+    title=' '.join(str(data.get('title') or '').split())[:180]
+    if not title: return jsonify({'ok':False,'error':'title required'}),400
+    lane=' '.join(str(data.get('lane') or 'Product').split())[:60]
+    status=str(data.get('status') or 'PLANNED').upper()
+    if status not in ('PLANNED','READY','ACTIVE','BLOCKED','DONE'): status='PLANNED'
+    def n(k,d=3):
+        try:return max(1,min(5,int(data.get(k,d))))
+        except:return d
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    conn=db(); cur=conn.execute("INSERT INTO founder_roadmap_items(title,lane,impact,effort,confidence,status,target_date,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",(title,lane,n('impact'),n('effort'),n('confidence'),status,str(data.get('target_date') or '')[:20],str(data.get('note') or '')[:500],now,now)); conn.commit(); rid=cur.lastrowid; conn.close()
+    return jsonify({'ok':True,'id':rid,'roadmap':_v87_roadmap_payload()}),201
+
+@app.route('/api/founder-roadmap/<int:item_id>', methods=['POST'])
+def api_founder_roadmap_update_v87(item_id):
+    data=request.get_json(silent=True) or request.form.to_dict(); allowed=[]; vals=[]
+    for k in ('title','lane','target_date','note'):
+        if k in data: allowed.append(k+' = ?'); vals.append(str(data[k])[:500])
+    for k in ('impact','effort','confidence'):
+        if k in data:
+            try:v=max(1,min(5,int(data[k])))
+            except:v=3
+            allowed.append(k+' = ?'); vals.append(v)
+    if 'status' in data:
+        s=str(data['status']).upper()
+        if s in ('PLANNED','READY','ACTIVE','BLOCKED','DONE'): allowed.append('status = ?'); vals.append(s)
+    if not allowed:return jsonify({'ok':False,'error':'no fields'}),400
+    allowed.append('updated_at = ?'); vals.append(datetime.utcnow().isoformat(timespec='seconds')+'Z'); vals.append(item_id)
+    conn=db(); conn.execute('UPDATE founder_roadmap_items SET '+', '.join(allowed)+' WHERE id = ?', vals); conn.commit(); conn.close()
+    return jsonify({'ok':True,'roadmap':_v87_roadmap_payload()})
+
+@app.route('/founder-roadmap', methods=['GET'])
+def founder_roadmap_v87():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Roadmap</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.row{padding:12px 0;border-bottom:1px solid #262630}.hot{color:#baff5a}.muted{color:#8f91a3}.score{font-size:38px;font-weight:950}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V87.00</div><h1>Founder Roadmap Intelligence</h1><h2 id='top'>Loading...</h2></div><div class='grid' id='stats' style='margin-top:14px'></div><div class='card' style='margin-top:14px'><h3>Roadmap</h3><div id='rows'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-roadmap')).json();top.textContent=d.top_priority?('TOP: '+d.top_priority.title+' · '+d.top_priority.priority_score):'No roadmap items yet';stats.innerHTML=Object.entries(d.counts).map(([k,v])=>`<div class="card"><div class="muted">${k.toUpperCase()}</div><div class="score">${v}</div></div>`).join('');rows.innerHTML=(d.items||[]).map(x=>`<div class="row"><b>${x.title}</b> <span class="hot">${x.priority_score}</span><div class="muted">${x.lane} · ${x.status} · I${x.impact}/E${x.effort}/C${x.confidence}</div></div>`).join('')||'<div class="muted">Add items via /api/founder-roadmap</div>'}go()</script></body></html>""", mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
