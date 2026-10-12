@@ -102972,6 +102972,95 @@ def v6000_bottlenecks():
     state="CRITICAL" if critical>=3 else "PRESSURED" if items and float(items[0].get("score") or 0)>=60 else "CLEAR"
     return jsonify({"success":True,"version":V6000_VERSION,"state":state,"critical_count":critical,"count":len(items),"bottlenecks":items[:20]})
 
+
+# ===== V61.00 FOCUS LOCK =====
+V6100_VERSION = "V61.00"
+
+def _v6100_init():
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_focus_contracts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            focus_date TEXT NOT NULL,
+            primary_outcome TEXT NOT NULL,
+            must_do_json TEXT NOT NULL DEFAULT '[]',
+            avoid_json TEXT NOT NULL DEFAULT '[]',
+            commitment TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            completion_score INTEGER NOT NULL DEFAULT 0,
+            reflection TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, focus_date)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_founder_focus_user_date ON founder_focus_contracts(username,focus_date DESC)")
+        con.commit()
+    finally:
+        con.close()
+
+_v6100_init()
+
+def _v6100_list(value):
+    if isinstance(value,list): return [str(x)[:500] for x in value[:12] if str(x).strip()]
+    if isinstance(value,str):
+        try:
+            parsed=json.loads(value)
+            if isinstance(parsed,list): return [str(x)[:500] for x in parsed[:12] if str(x).strip()]
+        except Exception: pass
+        return [x.strip()[:500] for x in value.split("|") if x.strip()][:12]
+    return []
+
+@app.route("/api/founder-focus-lock", methods=["GET","POST"])
+def v6100_focus_lock():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    day=str((request.args.get("date") if request.method=="GET" else "") or datetime.utcnow().strftime("%Y-%m-%d"))[:10]
+    if request.method=="GET":
+        con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        try: row=con.execute("SELECT * FROM founder_focus_contracts WHERE username=? AND focus_date=?",(u,day)).fetchone()
+        finally: con.close()
+        if not row: return jsonify({"success":True,"version":V6100_VERSION,"date":day,"focus":None})
+        d=dict(row)
+        for key in ("must_do_json","avoid_json"):
+            try: d[key.replace("_json","")]=json.loads(d.get(key) or "[]")
+            except Exception: d[key.replace("_json","")]=[]
+        return jsonify({"success":True,"version":V6100_VERSION,"date":day,"focus":d})
+    p=request.get_json(silent=True) or request.form
+    day=str(p.get("focus_date") or day)[:10]
+    outcome=str(p.get("primary_outcome") or "").strip()
+    if not outcome: return jsonify({"success":False,"error":"primary_outcome_required"}),400
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    must=_v6100_list(p.get("must_do")); avoid=_v6100_list(p.get("avoid"))
+    con=sqlite3.connect(DB)
+    try:
+        con.execute("""INSERT INTO founder_focus_contracts
+            (username,focus_date,primary_outcome,must_do_json,avoid_json,commitment,status,completion_score,reflection,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(username,focus_date) DO UPDATE SET
+              primary_outcome=excluded.primary_outcome,must_do_json=excluded.must_do_json,avoid_json=excluded.avoid_json,
+              commitment=excluded.commitment,status='ACTIVE',updated_at=excluded.updated_at""",
+            (u,day,outcome[:1200],json.dumps(must,ensure_ascii=False),json.dumps(avoid,ensure_ascii=False),str(p.get("commitment") or "")[:3000],"ACTIVE",0,"",now,now))
+        con.commit()
+    finally: con.close()
+    return jsonify({"success":True,"version":V6100_VERSION,"date":day,"must_do":must,"avoid":avoid})
+
+@app.route("/api/founder-focus-lock/close", methods=["POST"])
+def v6100_focus_close():
+    u=session.get("authenticated_username")
+    if not u: return jsonify({"success":False,"error":"auth_required"}),401
+    p=request.get_json(silent=True) or request.form
+    day=str(p.get("focus_date") or datetime.utcnow().strftime("%Y-%m-%d"))[:10]
+    score=max(0,min(100,int(float(p.get("completion_score") or 0))))
+    now=datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    con=sqlite3.connect(DB)
+    try:
+        cur=con.execute("UPDATE founder_focus_contracts SET status='CLOSED',completion_score=?,reflection=?,updated_at=? WHERE username=? AND focus_date=?",
+                        (score,str(p.get("reflection") or "")[:5000],now,u,day)); con.commit()
+        if cur.rowcount<1: return jsonify({"success":False,"error":"focus_not_found"}),404
+    finally: con.close()
+    return jsonify({"success":True,"version":V6100_VERSION,"date":day,"completion_score":score})
+
 if __name__ == "__main__":
 
     init_db()
