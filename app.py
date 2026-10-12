@@ -105035,6 +105035,31 @@ def v109_champion_engine_page():
     s=_v109_champion_snapshot(); rows=''.join(f'<div class="row"><b>{html.escape(x["username"])}</b><span>{x["score"]}/100</span></div>' for x in s['top_champions']) or '<p>No champion candidates yet.</p>'
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Champion Engine</title><style>body{{font-family:Inter,system-ui;background:#070706;color:#fff;margin:0}}main{{max-width:950px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:24px;padding:22px}}.hot,a{{color:#ffd66b}}.state{{font-size:50px;font-weight:950}}.stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}}.big{{font-size:30px;font-weight:950}}.row{{display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.08);padding:12px 0}}p,span{{color:#9c9cad}}</style></head><body><main><div class="hero"><div class="hot">V109.00 · CHAMPION ENGINE</div><div class="state">{html.escape(s['state'])}</div><h2>{s['engine_score']} / 100</h2><p>{html.escape(s['next_move'])}</p></div><div class="stats"><div class="card"><span>Champions</span><div class="big">{s['champions']}</div></div><div class="card"><span>Rising</span><div class="big">{s['rising']}</div></div><div class="card"><span>Champion rate</span><div class="big">{s['champion_rate_pct']}%</div></div></div><div class="card"><h3>Top candidates</h3>{rows}</div><p><a href="/api/founder/champion-engine">JSON</a></p></main></body></html>'''
 
+
+# ===== V110.00 HUNTER SUCCESS OPERATING SYSTEM =====
+V11000_VERSION='110.00'
+
+def _v110_hunter_success_snapshot():
+    lifecycle=_v107_lifecycle_snapshot(); churn=_v108_churn_snapshot(); champion=_v109_champion_snapshot(); growth=_v106_growth_intelligence_hq_snapshot(); churn_health=max(0,100-int(churn['risk_score']))
+    score=int(round(lifecycle['score']*.28+churn_health*.27+champion['engine_score']*.20+int(growth['hq_score'])*.25))
+    if churn['risk_score']>=70: mode='RECOVER'; directive='Protect retention first: reactivate slipping Hunters before adding acquisition pressure.'
+    elif lifecycle['score']<35: mode='ACTIVATE'; directive='Fix the weakest lifecycle transition and shorten time-to-first-value.'
+    elif champion['engine_score']<30: mode='DEEPEN'; directive='Turn active Hunters into repeat contributors, proof creators, and advocates.'
+    elif score>=72: mode='COMPOUND'; directive='Scale the loops that already create retained, advocating Hunters.'
+    else: mode='OPTIMIZE'; directive='Improve the weakest Hunter-success signal while preserving healthy loops.'
+    return {'version':V11000_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','success_score':score,'mode':mode,'directive':directive,'lifecycle':{'score':lifecycle['score'],'state':lifecycle['state'],'weakest_stage':lifecycle['weakest_stage']},'retention':{'health_score':churn_health,'risk_score':churn['risk_score'],'state':churn['state']},'champions':{'score':champion['engine_score'],'state':champion['state'],'count':champion['champions']},'growth_hq':{'score':growth['hq_score'],'mode':growth['mode']}}
+
+@app.route('/api/founder/hunter-success-os')
+def api_v110_hunter_success_os(): return jsonify(_v110_hunter_success_snapshot())
+@app.route('/api/founder/hunter-success-os/export')
+def api_v110_hunter_success_export():
+    payload=json.dumps(_v110_hunter_success_snapshot(),ensure_ascii=False,indent=2); return Response(payload,mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-hunter-success-os.json'})
+@app.route('/founder-hunter-success-os')
+def v110_hunter_success_page():
+    s=_v110_hunter_success_snapshot(); parts=[('Lifecycle',s['lifecycle']['score'],s['lifecycle']['state']),('Retention',s['retention']['health_score'],s['retention']['state']),('Champion Engine',s['champions']['score'],s['champions']['state']),('Growth HQ',s['growth_hq']['score'],s['growth_hq']['mode'])]
+    cards=''.join(f'<div class="card"><span>{html.escape(name)}</span><div class="big">{score}</div><b>{html.escape(str(state))}</b></div>' for name,score,state in parts)
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Hunter Success OS</title><style>body{{font-family:Inter,system-ui;background:#05070a;color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:26px;padding:24px}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}}.hot,a{{color:#61f4ff}}.mode{{font-size:58px;font-weight:950}}.score,.big{{font-size:34px;font-weight:950}}p,span{{color:#9c9cad}}</style></head><body><main><div class="hero"><div class="hot">V110.00 · HUNTER SUCCESS OPERATING SYSTEM</div><div class="mode">{html.escape(s['mode'])}</div><div class="score">{s['success_score']} / 100</div><p>{html.escape(s['directive'])}</p></div><div class="grid">{cards}</div><p><a href="/founder-hunter-lifecycle">Lifecycle</a> · <a href="/founder-churn-risk">Churn Risk</a> · <a href="/founder-champion-engine">Champion Engine</a> · <a href="/founder-growth-intelligence-hq">Growth HQ</a> · <a href="/api/founder/hunter-success-os/export">Export JSON</a></p></main></body></html>'''
+
 if __name__ == "__main__":
 
     init_db()
