@@ -104625,6 +104625,36 @@ def v95_acquisition_export():
 @app.route('/founder-acquisition-funnel', methods=['GET'])
 def v95_acquisition_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Acquisition Funnel</title><style>body{margin:0;background:radial-gradient(circle at 15% 0,#3e2d16,#050507 45%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:104px;font-weight:950;color:#ffd66b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin-top:14px}.big{font-size:29px;font-weight:950}.muted{color:#8f91a3}a{color:#ffd66b}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V95.00</div><h1>Acquisition Funnel</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p><a href='/api/founder-acquisition-funnel/export'>Export JSON</a></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-acquisition-funnel')).json();score.textContent=d.activation_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.conversion).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}%</div></div>`).join('')}go()</script></body></html>""", mimetype='text/html')
+
+
+# ===== V96.00 REFERRAL INTELLIGENCE =====
+V9600_VERSION = "96.00"
+
+def _v96_referral_payload():
+    users = _v95_scalar("SELECT COUNT(*) FROM users")
+    referrals = _v95_scalar("SELECT COUNT(*) FROM referrals")
+    inviters = _v95_scalar("SELECT COUNT(DISTINCT inviter) FROM referrals")
+    repeat_inviters = _v95_scalar("SELECT COUNT(*) FROM (SELECT inviter FROM referrals GROUP BY inviter HAVING COUNT(*) >= 2)")
+    referred_active = _v95_scalar("SELECT COUNT(DISTINCT r.invited) FROM referrals r JOIN reputation_events e ON e.username=r.invited")
+    referred_battlers = _v95_scalar("SELECT COUNT(DISTINCT r.invited) FROM referrals r JOIN (SELECT challenger AS username FROM creature_battles UNION SELECT opponent AS username FROM creature_battles) b ON b.username=r.invited")
+    referrals_per_inviter = round(referrals / max(1, inviters), 2)
+    inviter_penetration = round(inviters / max(1, users) * 100, 1)
+    repeat_rate = round(repeat_inviters / max(1, inviters) * 100, 1)
+    referred_activation = round(max(referred_active, referred_battlers) / max(1, referrals) * 100, 1)
+    score = round(min(100, inviter_penetration * .35 + repeat_rate * .25 + referred_activation * .30 + min(100, referrals_per_inviter * 35) * .10))
+    state = 'ADVOCACY' if score >= 75 else 'WORKING' if score >= 50 else 'EARLY' if score >= 25 else 'DORMANT'
+    if inviter_penetration < 15: next_move = 'Increase the share of Hunters who invite at least one person.'
+    elif repeat_rate < 25: next_move = 'Turn one-time inviters into repeat inviters with visible referral rewards.'
+    elif referred_activation < 40: next_move = 'Improve post-referral activation so invited Hunters reach a real product action.'
+    else: next_move = 'Scale the strongest referral source while protecting invite quality.'
+    return {'version':V9600_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','referral_score':score,'state':state,'next_move':next_move,'metrics':{'users':users,'referrals':referrals,'inviters':inviters,'repeat_inviters':repeat_inviters,'referrals_per_inviter':referrals_per_inviter,'inviter_penetration_pct':inviter_penetration,'repeat_inviter_rate_pct':repeat_rate,'referred_activation_pct':referred_activation}}
+
+@app.route('/api/founder-referral-intelligence', methods=['GET'])
+def v96_referral_api(): return jsonify(_v96_referral_payload())
+
+@app.route('/founder-referral-intelligence', methods=['GET'])
+def v96_referral_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Referral Intelligence</title><style>body{margin:0;background:radial-gradient(circle at 80% 0,#213d48,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:104px;font-weight:950;color:#61f4ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:28px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V96.00</div><h1>Referral Intelligence</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-referral-intelligence')).json();score.textContent=d.referral_score+'/100';state.textContent=d.state;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.metrics).filter(([k])=>!['users'].includes(k)).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 if __name__ == "__main__":
 
     init_db()
