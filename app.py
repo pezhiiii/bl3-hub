@@ -104723,6 +104723,34 @@ def v98_growth_engine_export(): return Response(json.dumps(_v98_growth_engine_pa
 @app.route('/founder-growth-engine', methods=['GET'])
 def v98_growth_engine_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Growth Engine</title><style>body{margin:0;background:radial-gradient(circle at 50% -10%,#3e294f,#050507 46%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1160px;margin:auto}.hero,.card{background:linear-gradient(145deg,#14141d,#0c0c12);border:1px solid #2a2a34;border-radius:26px;padding:22px}.score{font-size:112px;font-weight:950;color:#baff5a;line-height:.9}.mode{font-size:34px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:16px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}a{color:#baff5a}.tag{display:inline-block;padding:7px 10px;border:1px solid #334;border-radius:999px;margin-top:8px}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V98.00</div><h1>Founder Growth Engine</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><p id='cmd'></p><div id='weak' class='tag'></div><p><a href='/api/founder-growth-engine/export'>Export JSON Snapshot</a></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-engine')).json();score.textContent=d.growth_engine_score+'/100';mode.textContent=d.mode;cmd.textContent=d.command;weak.textContent='Weakest: '+d.weakest_component.name+' '+d.weakest_component.score+'/100';grid.innerHTML=Object.entries(d.components).map(([k,v])=>`<div class='card'><div class='muted'>${k.replaceAll('_',' ').toUpperCase()}</div><div class='big'>${v}/100</div></div>`).join('')+`<div class='card'><div class='muted'>VIRAL K</div><div class='big'>${d.viral_k_factor}</div></div>`}go()</script></body></html>""",mimetype='text/html')
+
+# ===== V99.00 FOUNDER COHORT INTELLIGENCE =====
+def _v99_cohort_snapshot():
+    conn=db()
+    try:
+        rows=conn.execute("SELECT substr(COALESCE(q.date,''),1,7) cohort, COUNT(DISTINCT q.username) activated FROM quests q WHERE COALESCE(q.date,'')<>'' GROUP BY substr(q.date,1,7) ORDER BY cohort DESC LIMIT 8").fetchall()
+        out=[]
+        for r in rows:
+            cohort=r['cohort'] or 'unknown'; activated=int(r['activated'] or 0)
+            battle=int(conn.execute("SELECT COUNT(DISTINCT username) n FROM (SELECT challenger username FROM creature_battles WHERE substr(created_at,1,7)=? UNION SELECT opponent username FROM creature_battles WHERE substr(created_at,1,7)=?)",(cohort,cohort)).fetchone()['n'] or 0)
+            proof=int(conn.execute("SELECT COUNT(DISTINCT username) n FROM hunter_proof_bundles WHERE substr(created_at,1,7)=?",(cohort,)).fetchone()['n'] or 0)
+            battle=min(activated,battle); proof=min(activated,proof)
+            quality=0.0 if not activated else round((battle/activated)*55+(proof/activated)*45,1)
+            out.append({'cohort':cohort,'activated':activated,'battle_users':battle,'proof_users':proof,'quality':quality})
+        avg=round(sum(x['quality'] for x in out)/len(out),1) if out else 0.0
+        trend='NO DATA' if len(out)<2 else ('IMPROVING' if out[0]['quality']>out[1]['quality']+3 else ('SOFTENING' if out[0]['quality']<out[1]['quality']-3 else 'STABLE'))
+        return {'cohorts':out,'average_quality':avg,'trend':trend,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+    finally: conn.close()
+
+@app.route('/founder-cohort-intelligence')
+def founder_cohort_intelligence():
+    s=_v99_cohort_snapshot(); rows=''.join(f"<tr><td>{html.escape(str(x['cohort']))}</td><td>{x['activated']}</td><td>{x['battle_users']}</td><td>{x['proof_users']}</td><td><b>{x['quality']}</b></td></tr>" for x in s['cohorts']) or '<tr><td colspan=5>No cohort data yet.</td></tr>'
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Cohort Intelligence</title><style>body{{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}}main{{max-width:1050px;margin:auto;padding:32px}}.hero,.card{{border:1px solid #272733;background:#111118;border-radius:24px;padding:22px;margin-bottom:16px}}.k,a{{color:#baff5a}}table{{width:100%;border-collapse:collapse}}td,th{{padding:12px;border-bottom:1px solid #282833;text-align:left}}p{{color:#9999aa}}</style></head><body><main><div class="hero"><div class="k">V99.00</div><h1>Founder Cohort Intelligence</h1><h2>{s['average_quality']} / 100 · {s['trend']}</h2><p>Activation cohorts measured by battle participation and proof creation.</p></div><div class="card"><table><tr><th>Cohort</th><th>Activated</th><th>Battle users</th><th>Proof users</th><th>Quality</th></tr>{rows}</table></div><a href="/founder-growth-engine">← Growth Engine</a></main></body></html>'''
+
+@app.route('/api/founder/cohort-intelligence')
+def api_founder_cohort_intelligence(): return jsonify(_v99_cohort_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
