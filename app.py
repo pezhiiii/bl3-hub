@@ -104373,6 +104373,31 @@ def api_founder_growth_loop_v89(): return jsonify(_v89_growth_payload())
 def founder_growth_loop_v89():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Growth Loop</title><style>:root{--hot:#baff5a}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.score{font-size:96px;font-weight:950;color:var(--hot);line-height:.9}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V89.00</div><h1>Growth Loop Monitor</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='rec' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-loop')).json();score.textContent=d.loop_score+'/100';state.textContent=d.state;rec.textContent=d.recommendation;grid.innerHTML=Object.entries(d.signals).map(([k,v])=>`<div class="card"><div class="muted">${k.replaceAll('_',' ').toUpperCase()}</div><div class="big">${v}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+
+# ===== V90.00 FOUNDER COCKPIT =====
+V9000_VERSION = "90.00"
+
+def _v90_founder_cockpit_payload():
+    osd=_v86_founder_os_payload(); roadmap=_v87_roadmap_payload(); lab=_v88_experiment_payload(); growth=_v89_growth_payload()
+    road_top=roadmap.get('top_priority') or {}
+    exec_score=int(osd.get('overall_score') or 0); loop=float(growth.get('loop_score') or 0)
+    exp_bonus=min(10,int((lab.get('counts') or {}).get('RUNNING',0))*2)
+    cockpit_score=round(min(100,(exec_score*0.60)+(loop*0.30)+exp_bonus))
+    mode='SCALE' if cockpit_score>=82 and growth.get('state') in ('MOVING','COMPOUNDING') else 'EXECUTE' if cockpit_score>=65 else 'LEARN' if (lab.get('counts') or {}).get('RUNNING',0) else 'FOCUS'
+    next_move=(road_top.get('title') or osd.get('directive') or growth.get('recommendation') or 'Define the next measurable move.')
+    return {'version':V9000_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','cockpit_score':cockpit_score,'mode':mode,'next_move':next_move,'founder_os':osd,'roadmap':{'counts':roadmap.get('counts'),'top_priority':road_top},'experiments':{'counts':lab.get('counts'),'win_rate':lab.get('win_rate')},'growth':growth,'links':[{'label':'Founder OS','href':'/founder-os'},{'label':'Roadmap','href':'/founder-roadmap'},{'label':'Experiment Lab','href':'/founder-experiments'},{'label':'Growth Loop','href':'/founder-growth-loop'}]}
+
+@app.route('/api/founder-cockpit', methods=['GET'])
+def api_founder_cockpit_v90(): return jsonify(_v90_founder_cockpit_payload())
+
+@app.route('/api/founder-cockpit/export', methods=['GET'])
+def api_founder_cockpit_export_v90():
+    return Response(json.dumps(_v90_founder_cockpit_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-cockpit-v90.json'})
+
+@app.route('/founder-cockpit', methods=['GET'])
+def founder_cockpit_v90():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Cockpit</title><style>:root{--hot:#baff5a;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 10% 0,#2b2149,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1200px;margin:auto}.hero,.card{background:rgba(16,16,23,.96);border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:110px;font-weight:950;color:var(--hot);line-height:.88}.mode{font-size:38px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}.big{font-size:31px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V90.00</div><h1>Founder Cockpit</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><h2 id='next'></h2><div class='links'><a href='/founder-os'>Founder OS</a><a href='/founder-roadmap'>Roadmap</a><a href='/founder-experiments'>Experiments</a><a href='/founder-growth-loop'>Growth Loop</a><a href='/api/founder-cockpit/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>OS SCORE</div><div id='os' class='big'>-</div></div><div class='card'><div class='muted'>GROWTH LOOP</div><div id='growth' class='big'>-</div></div><div class='card'><div class='muted'>EXPERIMENT WIN RATE</div><div id='wins' class='big'>-</div></div><div class='card'><div class='muted'>ROADMAP TOP</div><div id='road' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-cockpit')).json();score.textContent=d.cockpit_score+'/100';mode.textContent=d.mode;next.textContent='NEXT: '+d.next_move;os.textContent=(d.founder_os.overall_score||0)+'/100';growth.textContent=d.growth.loop_score+'/100';wins.textContent=d.experiments.win_rate+'%';road.textContent=(d.roadmap.top_priority||{}).title||'—'}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
