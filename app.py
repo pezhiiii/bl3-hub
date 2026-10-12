@@ -104520,6 +104520,41 @@ def v93_flywheel_export(): return Response(json.dumps(_v93_network_payload(),ind
 def v93_flywheel_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Network Flywheel</title><style>body{margin:0;background:radial-gradient(circle at 50% 0,#23475a,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1080px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:108px;font-weight:950;color:#61f4ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}a{color:#61f4ff}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V93.00</div><h1>Network Flywheel</h1><div id='score' class='score'>...</div><h2 id='mode'></h2><p id='next'></p><a href='/api/founder-network-flywheel/export'>Export JSON</a></div><div class='grid' id='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-network-flywheel')).json();score.textContent=d.flywheel_score+'/100';mode.textContent=d.mode;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.stages).map(([k,v])=>`<div class='card'><div class='muted'>${k.toUpperCase()}</div><div class='big'>${v}/100</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+
+
+# ===== V94.00 GROWTH COMMAND CENTER =====
+V9400_VERSION = "94.00"
+
+def _v94_growth_command_payload():
+    cockpit=_v90_founder_cockpit_payload()
+    retention=_v91_retention_payload()
+    community=_v92_community_payload()
+    flywheel=_v93_network_payload()
+    founder_score=int(cockpit.get('cockpit_score',0) or 0)
+    score=max(0,min(100,round(founder_score*.35+retention['retention_score']*.20+community['community_score']*.20+flywheel['flywheel_score']*.25)))
+    if score>=80 and flywheel['flywheel_score']>=70: mode='SCALE'
+    elif retention['retention_score']<40: mode='RETAIN'
+    elif community['community_score']<40: mode='CONNECT'
+    elif flywheel['flywheel_score']<55: mode='COMPOUND'
+    else: mode='GROW'
+    commands={
+      'SCALE':'Increase acquisition while guarding retention and community quality.',
+      'RETAIN':'Pause aggressive acquisition; strengthen repeat-use loops first.',
+      'CONNECT':'Create denser Hunter-to-Hunter interaction and rivalry loops.',
+      'COMPOUND':'Link referral, proof, battle and retention loops into one repeatable cycle.',
+      'GROW':'Run the highest-confidence roadmap experiment and measure the flywheel response.'}
+    return {'version':V9400_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','growth_command_score':score,'mode':mode,'command':commands[mode],'cockpit':{'score':founder_score,'mode':cockpit.get('mode')},'retention':retention,'community':community,'flywheel':flywheel,'links':[{'label':'Founder Cockpit','href':'/founder-cockpit'},{'label':'Retention Radar','href':'/founder-retention-radar'},{'label':'Community Health','href':'/founder-community-health'},{'label':'Network Flywheel','href':'/founder-network-flywheel'}]}
+
+@app.route('/api/founder-growth-command', methods=['GET'])
+def v94_growth_command_api(): return jsonify(_v94_growth_command_payload())
+
+@app.route('/api/founder-growth-command/export', methods=['GET'])
+def v94_growth_command_export(): return Response(json.dumps(_v94_growth_command_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-growth-command-v94.json'})
+
+@app.route('/founder-growth-command', methods=['GET'])
+def v94_growth_command_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Growth Command</title><style>:root{--hot:#baff5a;--cyan:#61f4ff;--vio:#a17cff}body{margin:0;background:radial-gradient(circle at 20% 0,#263d31,transparent 30%),radial-gradient(circle at 85% 0,#2b2149,transparent 34%),#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1200px;margin:auto}.hero,.card{background:rgba(16,16,23,.96);border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:112px;font-weight:950;color:var(--hot);line-height:.88}.mode{font-size:40px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.big{font-size:32px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;background:var(--hot);color:#070906;text-decoration:none;font-weight:900;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V94.00</div><h1>Founder Growth Command Center</h1><div id='score' class='score'>...</div><div id='mode' class='mode'></div><h2 id='cmd'></h2><div class='links'><a href='/founder-cockpit'>Cockpit</a><a href='/founder-retention-radar'>Retention</a><a href='/founder-community-health'>Community</a><a href='/founder-network-flywheel'>Flywheel</a><a href='/api/founder-growth-command/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>FOUNDER COCKPIT</div><div id='cockpit' class='big'>-</div></div><div class='card'><div class='muted'>RETENTION</div><div id='ret' class='big'>-</div></div><div class='card'><div class='muted'>COMMUNITY</div><div id='community' class='big'>-</div></div><div class='card'><div class='muted'>FLYWHEEL</div><div id='flywheel' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-command')).json();score.textContent=d.growth_command_score+'/100';mode.textContent=d.mode;cmd.textContent=d.command;cockpit.textContent=d.cockpit.score+'/100';ret.textContent=d.retention.retention_score+'/100';community.textContent=d.community.community_score+'/100';flywheel.textContent=d.flywheel.flywheel_score+'/100'}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
