@@ -103331,6 +103331,53 @@ def v6500_kpi_pulse():
     trend=round(float(hist[-1]["operating_score"] or 0)-float(hist[0]["operating_score"] or 0),2) if len(hist)>=2 else 0.0
     return jsonify({"success":True,"version":V6500_VERSION,"days":days,"trend":trend,"history":hist})
 
+
+# ===== V66.00 FOUNDER COMMAND CENTER =====
+V6600_VERSION = "V66.00"
+
+@app.route("/api/founder-command-center", methods=["GET"])
+def v6600_command_center():
+    u=session.get("authenticated_username")
+    if not u:
+        return jsonify({"success":False,"error":"auth_required"}),401
+    now=datetime.utcnow(); today=now.strftime("%Y-%m-%d")
+    metrics=_v6500_compute(u)
+    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    try:
+        moves=con.execute("SELECT * FROM founder_next_move_queue WHERE username=? AND status IN ('OPEN','ACTIVE') ORDER BY priority_score DESC,id DESC LIMIT 5",(u,)).fetchall()
+        sprint=con.execute("SELECT * FROM founder_sprints WHERE username=? AND status='ACTIVE' ORDER BY id DESC LIMIT 1",(u,)).fetchone()
+        focus=con.execute("SELECT * FROM founder_focus_contracts WHERE username=? AND focus_date=?",(u,today)).fetchone()
+        bottlenecks=con.execute("SELECT * FROM founder_daily_execution WHERE username=? AND status='BLOCKED' ORDER BY priority DESC,impact DESC,id DESC LIMIT 5",(u,)).fetchall()
+    finally:
+        con.close()
+    sprint_data=dict(sprint) if sprint else None
+    if sprint_data:
+        target=float(sprint_data.get("target_value") or 0); current=float(sprint_data.get("current_value") or 0)
+        sprint_data["progress_pct"]=round(min(100,(current/target*100) if target>0 else 0),2)
+    state="LOCKED IN" if metrics["operating_score"]>=80 else "ON TRACK" if metrics["operating_score"]>=60 else "NEEDS FOCUS" if metrics["operating_score"]>=40 else "AT RISK"
+    recommended="Protect the primary outcome and execute the top next move."
+    if metrics["blocked"]>0:
+        recommended="Unblock the highest-impact execution item before adding work."
+    elif not focus:
+        recommended="Set today's Focus Lock, then start the highest-priority next move."
+    elif sprint_data and sprint_data.get("progress_pct",0)<35:
+        recommended="Push the active sprint toward its measurable target."
+    elif moves:
+        recommended="Execute the highest-scored item in the Next Move Queue."
+    return jsonify({
+        "success":True,"version":V6600_VERSION,"generated_at":now.isoformat(timespec="seconds")+"Z",
+        "state":state,"recommended_action":recommended,"metrics":metrics,
+        "focus":dict(focus) if focus else None,"active_sprint":sprint_data,
+        "next_moves":[dict(r) for r in moves],"blocked_items":[dict(r) for r in bottlenecks]
+    })
+
+@app.route("/founder-command-center", methods=["GET"])
+def v6600_command_center_page():
+    if not session.get("authenticated_username"):
+        return redirect("/")
+    html_page = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder Command Center</title><style>body{margin:0;background:#050507;color:#f7f7fb;font-family:Inter,system-ui,Arial;padding:24px}.wrap{max-width:1100px;margin:auto}.hero{padding:24px;border:1px solid #2a2a34;border-radius:22px;background:#101017}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.card{border:1px solid #2a2a34;border-radius:18px;padding:16px;background:#0c0c12}.hot{color:#baff5a}.muted{color:#8f91a3;font-size:13px}.big{font-size:34px;font-weight:900}button{background:#baff5a;border:0;border-radius:12px;padding:10px 14px;font-weight:900;cursor:pointer}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V66.00</div><h1>Founder Command Center</h1><div id='state' class='big hot'>Loading...</div><p id='action' class='muted'></p><button onclick='loadCC()'>Refresh</button></div><div id='grid' class='grid'></div></div><script>async function loadCC(){const r=await fetch('/api/founder-command-center');const d=await r.json();document.getElementById('state').textContent=d.state||'-';document.getElementById('action').textContent=d.recommended_action||'';const m=d.metrics||{};const cards=[['Operating Score',m.operating_score],['Done 7d',m.done_7d],['Blocked',m.blocked],['Open Today',m.today_open],['Open Decisions',m.open_decisions],['Top Risk',m.top_risk_score],['Next Moves',(d.next_moves||[]).length],['Sprint',d.active_sprint?((d.active_sprint.progress_pct||0)+'%'):'None']];document.getElementById('grid').innerHTML=cards.map(function(x){return '<div class=\"card\"><div class=\"muted\">'+x[0]+'</div><div class=\"big\">'+(x[1]===undefined?'-':x[1])+'</div></div>';}).join('');}loadCC();</script></body></html>"""
+    return Response(html_page,mimetype="text/html")
+
 if __name__ == "__main__":
 
     init_db()
