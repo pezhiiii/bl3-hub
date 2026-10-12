@@ -102030,6 +102030,121 @@ def v4900_strategy_summary():
 
     return jsonify({"success": True, "version": V4900_VERSION, "total": len(rows), "by_pillar": by_pillar})
 
+
+# ===== V50.00 EXECUTIVE CONTROL TOWER =====
+V5000_VERSION = "V50.00"
+
+def _v5000_safe_count(con, query, params):
+    try:
+        return int(con.execute(query, params).fetchone()[0] or 0)
+    except Exception:
+        return 0
+
+@app.route("/api/executive-control-tower", methods=["GET"])
+def v5000_executive_control_tower():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        open_decisions = _v5000_safe_count(
+            con, "SELECT COUNT(*) FROM founder_decision_journal WHERE username=? AND status='OPEN'", (u,)
+        )
+        active_priorities = _v5000_safe_count(
+            con, "SELECT COUNT(*) FROM founder_priority_engine WHERE username=? AND status NOT IN ('DONE','ARCHIVED')", (u,)
+        )
+        running_experiments = _v5000_safe_count(
+            con, "SELECT COUNT(*) FROM experiment_lab WHERE username=? AND outcome='RUNNING'", (u,)
+        )
+        active_strategy = _v5000_safe_count(
+            con, "SELECT COUNT(*) FROM strategy_map WHERE username=? AND status='ACTIVE'", (u,)
+        )
+
+        try:
+            kpi_rows = [dict(r) for r in con.execute(
+                "SELECT * FROM kpi_command_center WHERE username=? ORDER BY id DESC LIMIT 100",
+                (u,)
+            ).fetchall()]
+        except Exception:
+            kpi_rows = []
+
+        try:
+            latest_review = con.execute(
+                "SELECT * FROM founder_weekly_review WHERE username=? ORDER BY id DESC LIMIT 1",
+                (u,)
+            ).fetchone()
+            latest_review = dict(latest_review) if latest_review else None
+        except Exception:
+            latest_review = None
+
+        try:
+            top_priority = con.execute(
+                """SELECT * FROM founder_priority_engine
+                   WHERE username=? AND status NOT IN ('DONE','ARCHIVED')
+                   ORDER BY priority_score DESC, id DESC LIMIT 1""",
+                (u,)
+            ).fetchone()
+            top_priority = dict(top_priority) if top_priority else None
+        except Exception:
+            top_priority = None
+
+        try:
+            best_scenario = con.execute(
+                "SELECT * FROM scenario_planner WHERE username=? ORDER BY score DESC, id DESC LIMIT 1",
+                (u,)
+            ).fetchone()
+            best_scenario = dict(best_scenario) if best_scenario else None
+        except Exception:
+            best_scenario = None
+    finally:
+        con.close()
+
+    if kpi_rows:
+        total_weight = sum(max(0.0, float(r.get("weight") or 0)) for r in kpi_rows) or 1.0
+        kpi_score = sum(float(r.get("progress") or 0) * max(0.0, float(r.get("weight") or 0)) for r in kpi_rows) / total_weight
+    else:
+        kpi_score = 0.0
+
+    return jsonify({
+        "success": True,
+        "version": V5000_VERSION,
+        "headline": {
+            "open_decisions": open_decisions,
+            "active_priorities": active_priorities,
+            "running_experiments": running_experiments,
+            "active_strategy_objectives": active_strategy,
+            "weighted_kpi_score": round(kpi_score, 2)
+        },
+        "top_priority": top_priority,
+        "best_scenario": best_scenario,
+        "latest_weekly_review": latest_review,
+        "kpis": kpi_rows[:12]
+    })
+
+@app.route("/api/executive-control-tower/health", methods=["GET"])
+def v5000_control_tower_health():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    con = sqlite3.connect(DB)
+    try:
+        modules = {
+            "decisions": _v5000_safe_count(con, "SELECT COUNT(*) FROM founder_decision_journal WHERE username=?", (u,)),
+            "kpis": _v5000_safe_count(con, "SELECT COUNT(*) FROM kpi_command_center WHERE username=?", (u,)),
+            "scenarios": _v5000_safe_count(con, "SELECT COUNT(*) FROM scenario_planner WHERE username=?", (u,)),
+            "weekly_reviews": _v5000_safe_count(con, "SELECT COUNT(*) FROM founder_weekly_review WHERE username=?", (u,)),
+            "priorities": _v5000_safe_count(con, "SELECT COUNT(*) FROM founder_priority_engine WHERE username=?", (u,)),
+            "experiments": _v5000_safe_count(con, "SELECT COUNT(*) FROM experiment_lab WHERE username=?", (u,)),
+            "strategy": _v5000_safe_count(con, "SELECT COUNT(*) FROM strategy_map WHERE username=?", (u,))
+        }
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V5000_VERSION, "modules": modules, "total_records": sum(modules.values())})
+
 if __name__ == "__main__":
 
     init_db()
