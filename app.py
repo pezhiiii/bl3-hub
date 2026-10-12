@@ -100770,6 +100770,129 @@ def v3800_decision_dashboard():
         "total_decisions": len(rows)
     })
 
+
+# ===== V39.00 FOUNDER RISK RADAR =====
+V3900_VERSION = "V39.00"
+
+def _v3900_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS founder_risk_radar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            risk_title TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'GENERAL',
+            likelihood REAL NOT NULL DEFAULT 0,
+            impact REAL NOT NULL DEFAULT 0,
+            detectability REAL NOT NULL DEFAULT 0,
+            mitigation_strength REAL NOT NULL DEFAULT 0,
+            risk_score REAL NOT NULL DEFAULT 0,
+            risk_level TEXT NOT NULL DEFAULT 'LOW',
+            mitigation TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v3900_init()
+except Exception:
+    pass
+
+def _v3900_clip(v):
+    try: v = float(v or 0)
+    except Exception: v = 0.0
+    return max(0.0, min(100.0, v))
+
+def _v3900_score(likelihood, impact, detectability, mitigation_strength):
+    score = (
+        _v3900_clip(likelihood) * 0.35 +
+        _v3900_clip(impact) * 0.40 +
+        (100 - _v3900_clip(detectability)) * 0.15 +
+        (100 - _v3900_clip(mitigation_strength)) * 0.10
+    )
+    score = round(score, 2)
+    level = "CRITICAL" if score >= 80 else "HIGH" if score >= 65 else "MEDIUM" if score >= 40 else "LOW"
+    return score, level
+
+@app.route("/api/founder-risks", methods=["GET", "POST"])
+def v3900_founder_risks():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM founder_risk_radar WHERE username=? ORDER BY risk_score DESC, id DESC LIMIT 200",
+                (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V3900_VERSION, "risks": rows})
+
+    p = request.get_json(silent=True) or request.form
+    title = str(p.get("risk_title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "error": "risk_title_required"}), 400
+
+    likelihood = _v3900_clip(p.get("likelihood"))
+    impact = _v3900_clip(p.get("impact"))
+    detectability = _v3900_clip(p.get("detectability"))
+    mitigation_strength = _v3900_clip(p.get("mitigation_strength"))
+    score, level = _v3900_score(likelihood, impact, detectability, mitigation_strength)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO founder_risk_radar
+            (username,risk_title,category,likelihood,impact,detectability,mitigation_strength,
+             risk_score,risk_level,mitigation,owner,status,created_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, title[:500], str(p.get("category") or "GENERAL")[:120],
+            likelihood, impact, detectability, mitigation_strength,
+            score, level, str(p.get("mitigation") or "")[:3000],
+            str(p.get("owner") or "")[:220],
+            str(p.get("status") or "OPEN")[:80],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        rid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V3900_VERSION, "risk_id": rid, "risk_score": score, "risk_level": level})
+
+@app.route("/api/founder-risks/dashboard", methods=["GET"])
+def v3900_risk_dashboard():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM founder_risk_radar WHERE username=? ORDER BY risk_score DESC LIMIT 250", (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    levels = {}
+    for r in rows:
+        levels[r["risk_level"]] = levels.get(r["risk_level"], 0) + 1
+
+    return jsonify({
+        "success": True,
+        "version": V3900_VERSION,
+        "total_risks": len(rows),
+        "by_level": levels,
+        "top_risks": rows[:10]
+    })
+
 if __name__ == "__main__":
 
     init_db()
