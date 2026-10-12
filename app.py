@@ -100893,6 +100893,121 @@ def v3900_risk_dashboard():
         "top_risks": rows[:10]
     })
 
+
+# ===== V40.00 EXECUTION SPRINT ENGINE =====
+V4000_VERSION = "V40.00"
+
+def _v4000_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS execution_sprint_engine (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            sprint_name TEXT NOT NULL,
+            objective TEXT NOT NULL DEFAULT '',
+            metric_name TEXT NOT NULL DEFAULT '',
+            target_value REAL NOT NULL DEFAULT 0,
+            current_value REAL NOT NULL DEFAULT 0,
+            progress REAL NOT NULL DEFAULT 0,
+            priority TEXT NOT NULL DEFAULT 'MEDIUM',
+            owner TEXT NOT NULL DEFAULT '',
+            deadline TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4000_init()
+except Exception:
+    pass
+
+def _v4000_progress(current_value, target_value):
+    try:
+        c = float(current_value or 0)
+        t = float(target_value or 0)
+    except Exception:
+        c, t = 0.0, 0.0
+    if t <= 0:
+        return 0.0
+    return round(max(0.0, min(100.0, (c / t) * 100.0)), 2)
+
+@app.route("/api/execution-sprints", methods=["GET", "POST"])
+def v4000_execution_sprints():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM execution_sprint_engine WHERE username=? ORDER BY id DESC LIMIT 200", (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4000_VERSION, "sprints": rows})
+
+    p = request.get_json(silent=True) or request.form
+    name = str(p.get("sprint_name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "sprint_name_required"}), 400
+
+    target = float(p.get("target_value") or 0)
+    current = float(p.get("current_value") or 0)
+    progress = _v4000_progress(current, target)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO execution_sprint_engine
+            (username,sprint_name,objective,metric_name,target_value,current_value,progress,priority,owner,deadline,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, name[:500], str(p.get("objective") or "")[:3000],
+            str(p.get("metric_name") or "")[:220], target, current, progress,
+            str(p.get("priority") or "MEDIUM")[:40],
+            str(p.get("owner") or "")[:220],
+            str(p.get("deadline") or "")[:120],
+            str(p.get("status") or "ACTIVE")[:80],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        sid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4000_VERSION, "sprint_id": sid, "progress": progress})
+
+@app.route("/api/execution-sprints/<int:sprint_id>/progress", methods=["POST"])
+def v4000_update_sprint_progress(sprint_id):
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    p = request.get_json(silent=True) or request.form
+    current = float(p.get("current_value") or 0)
+
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM execution_sprint_engine WHERE id=? AND username=?", (sprint_id, u)
+        ).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "sprint_not_found"}), 404
+        progress = _v4000_progress(current, row["target_value"])
+        status = "DONE" if progress >= 100 else row["status"]
+        con.execute(
+            "UPDATE execution_sprint_engine SET current_value=?, progress=?, status=? WHERE id=? AND username=?",
+            (current, progress, status, sprint_id, u)
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4000_VERSION, "sprint_id": sprint_id, "progress": progress, "status": status})
+
 if __name__ == "__main__":
 
     init_db()
