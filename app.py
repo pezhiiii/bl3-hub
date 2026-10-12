@@ -103782,6 +103782,28 @@ def founder_scenarios_v73(): return jsonify({'success':True, **_v73_scenarios()}
 def founder_scenarios_page_v73():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Scenario Planner</title><style>body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.card{border:1px solid #2a2a34;background:#101017;border-radius:20px;padding:18px}.score{font-size:42px;color:#baff5a;font-weight:950}.rec{border-color:#baff5a}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='muted'>BL3 // V73.00</div><h1>Founder Scenario Planner</h1><p id='base'></p><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-scenarios')).json();base.textContent='Baseline '+d.baseline_score+'/100 · '+d.baseline_state;grid.innerHTML=(d.scenarios||[]).map(x=>`<div class="card ${x.recommended?'rec':''}"><div>${x.recommended?'★ RECOMMENDED':''}</div><h2>${x.name}</h2><div class="score">${x.score}</div><p class="muted">${x.tradeoff}</p></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+# ===== V74.00 FOUNDER WAR ROOM =====
+V7400_VERSION = "V74.00"
+
+def _v74_war_room_payload():
+    readiness=_v71_readiness_payload(); alerts=_v72_alerts_payload(); scenarios=_v73_scenarios()
+    critical=sum(1 for a in alerts.get('alerts',[]) if a.get('severity') in ('CRITICAL','HIGH'))
+    status='GREEN' if readiness.get('state')=='READY' and critical==0 else ('AMBER' if readiness.get('score',0)>=60 else 'RED')
+    command=scenarios.get('best') or {}
+    return {'version':V7400_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','status':status,'readiness':readiness,'alerts':alerts,'scenarios':scenarios,'command':{'name':command.get('name'),'score':command.get('score'),'instruction':command.get('tradeoff')},'links':[{'label':'Mission Control','href':'/founder-mission-control'},{'label':'Readiness','href':'/founder-launch-readiness'},{'label':'Alerts','href':'/founder-alerts'},{'label':'Scenarios','href':'/founder-scenarios'}]}
+
+@app.route('/api/founder-war-room', methods=['GET'])
+def founder_war_room_v74(): return jsonify({'success':True, **_v74_war_room_payload()})
+
+@app.route('/api/founder-war-room/export', methods=['GET'])
+def founder_war_room_export_v74():
+    payload=_v74_war_room_payload(); body=json.dumps(payload,indent=2,ensure_ascii=False)
+    return Response(body,mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-founder-war-room.json'})
+
+@app.route('/founder-war-room', methods=['GET'])
+def founder_war_room_page_v74():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Founder War Room</title><style>:root{--hot:#baff5a;--warn:#ffd66b;--bad:#ff6b7a}body{margin:0;background:radial-gradient(circle at 20% 0,#1d1830,#050507 38%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1180px;margin:auto}.hero,.card{border:1px solid #2a2a34;background:rgba(16,16,23,.94);border-radius:22px;padding:20px}.status{font-size:70px;font-weight:950}.GREEN{color:var(--hot)}.AMBER{color:var(--warn)}.RED{color:var(--bad)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:14px}.big{font-size:34px;font-weight:950}.muted{color:#8f91a3}.links a{display:inline-block;color:#090b06;background:var(--hot);font-weight:900;text-decoration:none;padding:10px 13px;border-radius:11px;margin:6px 5px 0 0}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V74.00</div><h1>Founder War Room</h1><div id='status' class='status'>...</div><div id='command' class='big'></div><p id='instruction' class='muted'></p><div class='links'><a href='/founder-mission-control'>Mission Control</a><a href='/founder-launch-readiness'>Readiness</a><a href='/founder-alerts'>Alerts</a><a href='/founder-scenarios'>Scenarios</a><a href='/api/founder-war-room/export'>Export JSON</a></div></div><div class='grid'><div class='card'><div class='muted'>Readiness</div><div id='readiness' class='big'>-</div></div><div class='card'><div class='muted'>Alert Level</div><div id='alert' class='big'>-</div></div><div class='card'><div class='muted'>Best Scenario</div><div id='best' class='big'>-</div></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-war-room')).json();status.textContent=d.status;status.className='status '+d.status;command.textContent=d.command?.name||'-';instruction.textContent=d.command?.instruction||'';readiness.textContent=(d.readiness?.score||0)+'/100';alert.textContent=d.alerts?.top_severity||'-';best.textContent=(d.scenarios?.best?.score||0)+'/100'}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
