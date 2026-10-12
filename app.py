@@ -104339,6 +104339,40 @@ def api_founder_experiments_update_v88(item_id):
 def founder_experiments_v88():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Experiment Lab</title><style>body{margin:0;background:radial-gradient(circle at 90% 0,#241e42,#050507 42%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2b2b35;border-radius:22px;padding:20px}.big{font-size:56px;font-weight:950;color:#baff5a}.row{padding:12px 0;border-bottom:1px solid #292933}.muted{color:#8f91a3}.win{color:#baff5a}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V88.00</div><h1>Founder Experiment Lab</h1><div id='rate' class='big'>...</div><div class='muted'>completed experiment win rate</div></div><div class='card' style='margin-top:14px'><h3>Experiments</h3><div id='rows'></div></div></div><script>async function go(){let d=await (await fetch('/api/founder-experiments')).json();rate.textContent=d.win_rate+'%';rows.innerHTML=(d.experiments||[]).map(x=>`<div class="row"><b>${x.name}</b> <span class="win">${x.signal}</span><div class="muted">${x.primary_metric} · ${x.observed_value}/${x.target_value} · ${x.attainment}% · ${x.status}</div></div>`).join('')||'<div class="muted">No experiments yet.</div>'}go()</script></body></html>""",mimetype='text/html')
 
+
+# ===== V89.00 GROWTH LOOP MONITOR =====
+V8900_VERSION = "89.00"
+
+def _v89_safe_count(sql, params=()):
+    try:
+        conn=db(); row=conn.execute(sql,params).fetchone(); conn.close(); return int(row[0] if row else 0)
+    except Exception:
+        try: conn.close()
+        except Exception: pass
+        return 0
+
+def _v89_growth_payload():
+    users=_v89_safe_count('SELECT COUNT(*) FROM users')
+    referred=_v89_safe_count('SELECT COUNT(*) FROM referrals')
+    follows=_v89_safe_count("SELECT COUNT(*) FROM hunter_connections WHERE kind='follow'")
+    battles=_v89_safe_count('SELECT COUNT(*) FROM creature_battles')
+    proofs=_v89_safe_count('SELECT COUNT(*) FROM hunter_proof_bundles')
+    active_users=_v89_safe_count("SELECT COUNT(DISTINCT username) FROM reputation_events WHERE created_at >= datetime('now','-7 day')")
+    activation=round(min(100,(active_users/max(1,users))*100),1)
+    referral=round(min(100,(referred/max(1,users))*100),1)
+    engagement=round(min(100,((battles+proofs+follows)/max(1,users))*12.5),1)
+    loop_score=round((activation*0.45)+(referral*0.25)+(engagement*0.30),1)
+    state='COMPOUNDING' if loop_score>=70 else 'MOVING' if loop_score>=45 else 'EARLY' if loop_score>=20 else 'COLD'
+    recommendation='Scale the strongest loop.' if state=='COMPOUNDING' else 'Improve activation and repeat usage.' if state=='MOVING' else 'Create one repeatable activation → proof → referral loop.'
+    return {'version':V8900_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','loop_score':loop_score,'state':state,'recommendation':recommendation,'signals':{'users':users,'active_7d':active_users,'referrals':referred,'follows':follows,'battles':battles,'proof_bundles':proofs,'activation_rate':activation,'referral_rate':referral,'engagement_index':engagement}}
+
+@app.route('/api/founder-growth-loop', methods=['GET'])
+def api_founder_growth_loop_v89(): return jsonify(_v89_growth_payload())
+
+@app.route('/founder-growth-loop', methods=['GET'])
+def founder_growth_loop_v89():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Growth Loop</title><style>:root{--hot:#baff5a}body{margin:0;background:#050507;color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1050px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:22px;padding:20px}.score{font-size:96px;font-weight:950;color:var(--hot);line-height:.9}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V89.00</div><h1>Growth Loop Monitor</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='rec' class='muted'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-growth-loop')).json();score.textContent=d.loop_score+'/100';state.textContent=d.state;rec.textContent=d.recommendation;grid.innerHTML=Object.entries(d.signals).map(([k,v])=>`<div class="card"><div class="muted">${k.replaceAll('_',' ').toUpperCase()}</div><div class="big">${v}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
