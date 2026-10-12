@@ -101008,6 +101008,135 @@ def v4000_update_sprint_progress(sprint_id):
 
     return jsonify({"success": True, "version": V4000_VERSION, "sprint_id": sprint_id, "progress": progress, "status": status})
 
+
+# ===== V41.00 GROWTH EXPERIMENT LAB =====
+V4100_VERSION = "V41.00"
+
+def _v4100_init():
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS growth_experiment_lab (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            experiment_name TEXT NOT NULL,
+            hypothesis TEXT NOT NULL DEFAULT '',
+            channel TEXT NOT NULL DEFAULT 'GENERAL',
+            baseline REAL NOT NULL DEFAULT 0,
+            target REAL NOT NULL DEFAULT 0,
+            result REAL NOT NULL DEFAULT 0,
+            lift_pct REAL NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL DEFAULT 0,
+            verdict TEXT NOT NULL DEFAULT 'PENDING',
+            notes TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'RUNNING',
+            created_at TEXT NOT NULL
+        )""")
+        con.commit()
+    finally:
+        con.close()
+
+try:
+    _v4100_init()
+except Exception:
+    pass
+
+def _v4100_lift(baseline, result):
+    try:
+        b = float(baseline or 0)
+        r = float(result or 0)
+    except Exception:
+        return 0.0
+    if b == 0:
+        return 0.0
+    return round(((r - b) / abs(b)) * 100.0, 2)
+
+def _v4100_verdict(target, result, confidence):
+    try:
+        t = float(target or 0)
+        r = float(result or 0)
+        c = float(confidence or 0)
+    except Exception:
+        return "PENDING"
+    if c < 50:
+        return "INCONCLUSIVE"
+    if r >= t:
+        return "WINNER"
+    if r >= t * 0.85:
+        return "PROMISING"
+    return "LOSER"
+
+@app.route("/api/growth-experiments", methods=["GET", "POST"])
+def v4100_growth_experiments():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+
+    if request.method == "GET":
+        con = sqlite3.connect(DB)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in con.execute(
+                "SELECT * FROM growth_experiment_lab WHERE username=? ORDER BY id DESC LIMIT 250", (u,)
+            ).fetchall()]
+        finally:
+            con.close()
+        return jsonify({"success": True, "version": V4100_VERSION, "experiments": rows})
+
+    p = request.get_json(silent=True) or request.form
+    name = str(p.get("experiment_name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "experiment_name_required"}), 400
+
+    baseline = float(p.get("baseline") or 0)
+    target = float(p.get("target") or 0)
+    result = float(p.get("result") or 0)
+    confidence = max(0.0, min(100.0, float(p.get("confidence") or 0)))
+    lift = _v4100_lift(baseline, result)
+    verdict = _v4100_verdict(target, result, confidence)
+
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.execute("""INSERT INTO growth_experiment_lab
+            (username,experiment_name,hypothesis,channel,baseline,target,result,lift_pct,confidence,verdict,notes,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            u, name[:500], str(p.get("hypothesis") or "")[:3000],
+            str(p.get("channel") or "GENERAL")[:120], baseline, target, result,
+            lift, confidence, verdict, str(p.get("notes") or "")[:3000],
+            str(p.get("status") or "RUNNING")[:80],
+            datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ))
+        con.commit()
+        eid = cur.lastrowid
+    finally:
+        con.close()
+
+    return jsonify({"success": True, "version": V4100_VERSION, "experiment_id": eid, "lift_pct": lift, "verdict": verdict})
+
+@app.route("/api/growth-experiments/dashboard", methods=["GET"])
+def v4100_growth_dashboard():
+    u = session.get("authenticated_username")
+    if not u:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM growth_experiment_lab WHERE username=? ORDER BY id DESC LIMIT 500", (u,)
+        ).fetchall()]
+    finally:
+        con.close()
+
+    winners = [x for x in rows if x["verdict"] == "WINNER"]
+    avg_lift = round(sum(float(x["lift_pct"] or 0) for x in rows) / len(rows), 2) if rows else 0.0
+    return jsonify({
+        "success": True,
+        "version": V4100_VERSION,
+        "total_experiments": len(rows),
+        "winner_count": len(winners),
+        "average_lift_pct": avg_lift,
+        "top_winners": sorted(winners, key=lambda x: float(x["lift_pct"] or 0), reverse=True)[:10]
+    })
+
 if __name__ == "__main__":
 
     init_db()
