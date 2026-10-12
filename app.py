@@ -104490,6 +104490,36 @@ def v92_community_api(): return jsonify(_v92_community_payload())
 def v92_community_page():
     return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Community Health</title><style>body{margin:0;background:radial-gradient(circle at 85% 0,#31235b,#050507 45%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1100px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:100px;font-weight:950;color:#a17cff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.big{font-size:29px;font-weight:950}.muted{color:#8f91a3}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V92.00</div><h1>Community Health Index</h1><div id='score' class='score'>...</div><h2 id='state'></h2><p id='next'></p></div><div id='grid' class='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-community-health')).json();score.textContent=d.community_score+'/100';state.textContent=d.state;next.textContent=d.next_move;let m=d.metrics;grid.innerHTML=[['FOLLOWS',m.follows],['RIVALRIES',m.rivalries],['BATTLES 30D',m.battles_30d],['GUESTBOOK 30D',m.guestbook_30d],['PROOFS 30D',m.proofs_30d],['SOCIAL / USER',m.social_actions_per_user]].map(x=>`<div class='card'><div class='muted'>${x[0]}</div><div class='big'>${x[1]}</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
 
+
+
+# ===== V93.00 NETWORK FLYWHEEL =====
+V9300_VERSION = "93.00"
+
+def _v93_network_payload():
+    growth=_v89_growth_payload()
+    retention=_v91_retention_payload()
+    community=_v92_community_payload()
+    referrals=_v91_scalar("SELECT COUNT(*) FROM referrals")
+    proof_bundles=_v91_scalar("SELECT COUNT(*) FROM hunter_proof_bundles")
+    users=max(1,int(retention['metrics']['users'] or 0))
+    referral_density=min(100, round(referrals/users*100))
+    proof_density=min(100, round(proof_bundles/users*50))
+    score=max(0,min(100,round(growth.get('loop_score',0)*.30+retention['retention_score']*.30+community['community_score']*.30+referral_density*.05+proof_density*.05)))
+    mode='COMPOUNDING' if score>=75 else 'SPINNING' if score>=55 else 'IGNITING' if score>=35 else 'IDLE'
+    bottleneck=min([('Retention',retention['retention_score']),('Community',community['community_score']),('Growth',growth.get('loop_score',0)),('Referrals',referral_density)], key=lambda x:x[1])
+    next_move=f"Strengthen {bottleneck[0]} first; it is the weakest flywheel stage at {bottleneck[1]}/100."
+    return {'version':V9300_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','flywheel_score':score,'mode':mode,'next_move':next_move,'bottleneck':{'stage':bottleneck[0],'score':bottleneck[1]},'stages':{'growth':growth.get('loop_score',0),'retention':retention['retention_score'],'community':community['community_score'],'referrals':referral_density,'proof_density':proof_density}}
+
+@app.route('/api/founder-network-flywheel', methods=['GET'])
+def v93_flywheel_api(): return jsonify(_v93_network_payload())
+
+@app.route('/api/founder-network-flywheel/export', methods=['GET'])
+def v93_flywheel_export(): return Response(json.dumps(_v93_network_payload(),indent=2,ensure_ascii=False),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-network-flywheel-v93.json'})
+
+@app.route('/founder-network-flywheel', methods=['GET'])
+def v93_flywheel_page():
+    return Response("""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Network Flywheel</title><style>body{margin:0;background:radial-gradient(circle at 50% 0,#23475a,#050507 44%);color:#fff;font-family:Inter,system-ui;padding:24px}.wrap{max-width:1080px;margin:auto}.hero,.card{background:#101017;border:1px solid #2a2a34;border-radius:24px;padding:20px}.score{font-size:108px;font-weight:950;color:#61f4ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}.big{font-size:30px;font-weight:950}.muted{color:#8f91a3}a{color:#61f4ff}</style></head><body><div class='wrap'><div class='hero'><div class='muted'>BL3 // V93.00</div><h1>Network Flywheel</h1><div id='score' class='score'>...</div><h2 id='mode'></h2><p id='next'></p><a href='/api/founder-network-flywheel/export'>Export JSON</a></div><div class='grid' id='grid'></div></div><script>async function go(){let d=await (await fetch('/api/founder-network-flywheel')).json();score.textContent=d.flywheel_score+'/100';mode.textContent=d.mode;next.textContent=d.next_move;grid.innerHTML=Object.entries(d.stages).map(([k,v])=>`<div class='card'><div class='muted'>${k.toUpperCase()}</div><div class='big'>${v}/100</div></div>`).join('')}go()</script></body></html>""",mimetype='text/html')
+
 if __name__ == "__main__":
 
     init_db()
