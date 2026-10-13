@@ -105994,6 +105994,41 @@ def founder_v1_qa():
 @app.route('/api/founder/v1-qa')
 def api_founder_v1_qa(): return jsonify(_v138_v1_qa_snapshot())
 
+
+# ===== V139.00 QA FAILURE TRIAGE =====
+def _v139_qa_failure_triage_snapshot():
+    qa=_v138_v1_qa_snapshot()
+    items=[]
+    components=[
+        ("readiness", qa.get("readiness",{})),
+        ("regression", qa.get("regression",{})),
+        ("security", qa.get("security",{})),
+        ("database", qa.get("database",{})),
+        ("uat", qa.get("uat",{})),
+    ]
+    for name,data in components:
+        verdict=str(data.get("verdict", "UNKNOWN"))
+        score=int(data.get("score",0) or 0)
+        healthy=(score>=95 and any(k in verdict for k in ("PASS","READY","ACCEPTED","LOCKED")))
+        if not healthy:
+            severity="P0" if score<60 else ("P1" if score<80 else "P2")
+            items.append({"component":name,"severity":severity,"score":score,"verdict":verdict,"action":f"Clear {name} gate and rerun V1 QA."})
+    rank={"P0":0,"P1":1,"P2":2}
+    items.sort(key=lambda x:(rank.get(x["severity"],9),x["score"]))
+    payload={"version":"V139.00","state":"CLEAR" if not items else "TRIAGE REQUIRED","open_items":len(items),"items":items,"source_qa_score":qa.get("score",0),"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload["evidence_sha256"]=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-qa-triage')
+def founder_qa_triage():
+    s=_v139_qa_failure_triage_snapshot()
+    rows=''.join(f"<tr><td>{html.escape(x['severity'])}</td><td>{html.escape(x['component'])}</td><td>{x['score']}</td><td>{html.escape(x['verdict'])}</td><td>{html.escape(x['action'])}</td></tr>" for x in s['items']) or "<tr><td colspan='5'>No open QA failures.</td></tr>"
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 QA Triage</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}.v{{color:#baff5a}}</style><h1>BL3 // QA Failure Triage</h1><h2 class='v'>{s['state']} · {s['open_items']} open</h2><table><tr><th>Severity</th><th>Component</th><th>Score</th><th>Verdict</th><th>Action</th></tr>{rows}</table>"""
+
+@app.route('/api/founder/qa-triage')
+def api_founder_qa_triage(): return jsonify(_v139_qa_failure_triage_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
