@@ -1,3 +1,5 @@
-BL3 NEON RIFT V3
-Arena V3: real creature sprites, animated background, enemy separation, chaser/shooter/tank AI, boss patterns, trails, particles, shockwaves, screen shake, pickups, combo, XP and weapon evolution.
-JS validated with node --check.
+BL3 NEON RIFT V4 MOBILE
+Creature silhouettes replace square-looking sprites.
+Mobile Arena becomes fullscreen with touch joystick and Fire/Dash/Nova/Repair controls.
+Enemy separation retained to prevent sticky collisions.
+JavaScript validated with Node --check.
