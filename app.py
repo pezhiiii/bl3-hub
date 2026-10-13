@@ -106029,6 +106029,30 @@ def founder_qa_triage():
 def api_founder_qa_triage(): return jsonify(_v139_qa_failure_triage_snapshot())
 
 
+
+# ===== V140.00 RELEASE BLOCKER BURN-DOWN =====
+def _v140_release_blocker_burndown_snapshot():
+    triage=_v139_qa_failure_triage_snapshot()
+    qa=_v138_v1_qa_snapshot()
+    total=max(1,5)
+    open_count=min(total,int(triage.get("open_items",0) or 0))
+    closed=total-open_count
+    progress=round(100*closed/total)
+    state="COMPLETE" if open_count==0 else ("FINAL MILE" if open_count<=1 else ("IN PROGRESS" if open_count<=3 else "BLOCKED"))
+    next_action="Lock release candidate and proceed to staging sign-off." if open_count==0 else (triage['items'][0]['action'] if triage.get('items') else 'Rerun QA.')
+    payload={"version":"V140.00","state":state,"progress":progress,"closed_gates":closed,"open_gates":open_count,"qa_score":qa.get("score",0),"next_action":next_action,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload["evidence_sha256"]=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-blocker-burndown')
+def founder_blocker_burndown():
+    s=_v140_release_blocker_burndown_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Blocker Burn-down</title><style>body{{font-family:system-ui;background:#040407;color:#fff;padding:28px}}.box{{max-width:820px;border:1px solid #2d2d36;border-radius:22px;padding:24px}}.bar{{height:16px;background:#1c1c22;border-radius:999px;overflow:hidden}}.bar i{{display:block;height:100%;width:{s['progress']}%;background:#baff5a}}.v{{font-size:42px;font-weight:900;color:#baff5a}}</style><h1>BL3 // Release Blocker Burn-down</h1><div class='box'><div class='v'>{s['progress']}%</div><h2>{s['state']}</h2><div class='bar'><i></i></div><p>{s['closed_gates']} gates closed · {s['open_gates']} open</p><h3>Next action</h3><p>{html.escape(s['next_action'])}</p></div>"""
+
+@app.route('/api/founder/blocker-burndown')
+def api_founder_blocker_burndown(): return jsonify(_v140_release_blocker_burndown_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
