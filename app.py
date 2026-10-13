@@ -106099,6 +106099,126 @@ def founder_v1_release_lock():
 def api_founder_v1_release_lock(): return jsonify(_v142_v1_release_lock_snapshot())
 
 
+
+# ===== V143.00 BUG FIX VERIFICATION LEDGER =====
+def _v143_init():
+    conn = db()
+    conn.execute("CREATE TABLE IF NOT EXISTS v1_bug_fix_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, bug_key TEXT NOT NULL UNIQUE, title TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'P2', status TEXT NOT NULL DEFAULT 'OPEN', verification_note TEXT NOT NULL DEFAULT '', verified_at TEXT DEFAULT '', updated_at TEXT NOT NULL)")
+    conn.commit(); conn.close()
+
+_v143_init()
+
+def _v143_summary():
+    conn = db(); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM v1_bug_fix_verifications ORDER BY CASE severity WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END, id DESC").fetchall(); conn.close()
+    items = [dict(r) for r in rows]
+    counts = {s: sum(1 for x in items if x['status'] == s) for s in ('OPEN','FIXED','VERIFIED','REOPENED')}
+    blockers = sum(1 for x in items if x['severity'] in ('P0','P1') and x['status'] != 'VERIFIED')
+    verdict = 'CLEAN' if blockers == 0 and counts['OPEN'] == 0 and counts['REOPENED'] == 0 else ('VERIFY' if blockers == 0 else 'BLOCKED')
+    return {'verdict': verdict, 'blockers': blockers, 'counts': counts, 'items': items}
+
+@app.route('/founder-bug-fix-ledger', methods=['GET','POST'])
+def founder_bug_fix_ledger():
+    if not _admin_ok(): return jsonify({'ok':False,'error':'admin_required'}), 403
+    if request.method == 'POST':
+        if not _same_origin_ok(): return jsonify({'ok':False,'error':'origin_rejected'}), 403
+        p = request.get_json(silent=True) or request.form
+        bug_key = str(p.get('bug_key','')).strip()[:80]; title = str(p.get('title','')).strip()[:180]
+        severity = str(p.get('severity','P2')).upper(); status = str(p.get('status','OPEN')).upper(); note = str(p.get('verification_note','')).strip()[:1000]
+        if not bug_key or not title or severity not in ('P0','P1','P2') or status not in ('OPEN','FIXED','VERIFIED','REOPENED'):
+            return jsonify({'ok':False,'error':'invalid_payload'}), 400
+        now = datetime.utcnow().isoformat(timespec='seconds')+'Z'; verified_at = now if status == 'VERIFIED' else ''
+        conn = db(); conn.execute("INSERT INTO v1_bug_fix_verifications(bug_key,title,severity,status,verification_note,verified_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(bug_key) DO UPDATE SET title=excluded.title,severity=excluded.severity,status=excluded.status,verification_note=excluded.verification_note,verified_at=excluded.verified_at,updated_at=excluded.updated_at", (bug_key,title,severity,status,note,verified_at,now)); conn.commit(); conn.close()
+        _admin_action('v143_bug_verification', True, bug_key+':'+status)
+    return jsonify({'ok':True, **_v143_summary()})
+
+
+
+# ===== V144.00 UAT RE-RUN GATE =====
+def _v144_uat_snapshot():
+    bug = _v143_summary(); uat = {'available':False,'passed':0,'failed':0,'pending':0,'total':0}
+    try:
+        conn = db(); conn.row_factory = sqlite3.Row
+        tables = {r['name'] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        candidate = next((t for t in ('v1_uat_evidence','user_acceptance_evidence','uat_evidence') if t in tables), None)
+        if candidate:
+            cols = {r['name'] for r in conn.execute('PRAGMA table_info('+candidate+')').fetchall()}
+            if 'status' in cols:
+                for r in conn.execute('SELECT status, COUNT(*) AS n FROM '+candidate+' GROUP BY status').fetchall():
+                    key=str(r['status'] or '').upper(); n=int(r['n'] or 0)
+                    if key == 'PASS': uat['passed'] += n
+                    elif key == 'FAIL': uat['failed'] += n
+                    else: uat['pending'] += n
+                uat['total']=uat['passed']+uat['failed']+uat['pending']; uat['available']=True
+        conn.close()
+    except Exception:
+        pass
+    if bug['verdict'] != 'CLEAN': verdict='BLOCKED'
+    elif not uat['available'] or uat['total'] == 0: verdict='UAT REQUIRED'
+    elif uat['failed'] == 0 and uat['pending'] == 0: verdict='UAT PASS'
+    else: verdict='UAT RE-RUN'
+    return {'verdict':verdict,'bug_ledger':bug,'uat':uat,'next_action':'Proceed to staging burn-in.' if verdict=='UAT PASS' else 'Clear bugs and complete/re-run all V1 UAT cases.'}
+
+@app.route('/founder-uat-rerun')
+def founder_uat_rerun_gate():
+    if not _admin_ok(): return jsonify({'ok':False,'error':'admin_required'}),403
+    return jsonify({'ok':True, **_v144_uat_snapshot()})
+
+
+
+# ===== V145.00 STAGING BURN-IN MONITOR =====
+def _v145_burnin_snapshot():
+    uat = _v144_uat_snapshot()
+    with _OBS_LOCK:
+        req=int(_OBS.get('requests',0)); err=int(_OBS.get('errors',0)); slow=int(_OBS.get('slow',0)); max_ms=float(_OBS.get('max_ms',0.0))
+    error_rate=(err/req*100.0) if req else 0.0; slow_rate=(slow/req*100.0) if req else 0.0
+    healthy = error_rate <= 1.0 and slow_rate <= 10.0 and max_ms <= max(1500.0, float(_OBS_SLOW_MS)*3)
+    if uat['verdict'] != 'UAT PASS': verdict='BLOCKED'
+    elif req < 25: verdict='COLLECT TRAFFIC'
+    elif healthy: verdict='BURN-IN PASS'
+    else: verdict='BURN-IN WATCH'
+    return {'verdict':verdict,'requests':req,'sample_target':25,'errors':err,'slow':slow,'error_rate_pct':round(error_rate,2),'slow_rate_pct':round(slow_rate,2),'max_ms':round(max_ms,1),'uat_verdict':uat['verdict']}
+
+@app.route('/founder-staging-burn-in')
+def founder_staging_burn_in():
+    if not _admin_ok(): return jsonify({'ok':False,'error':'admin_required'}),403
+    return jsonify({'ok':True, **_v145_burnin_snapshot()})
+
+
+
+# ===== V146.00 V1 GO-LIVE HANDOFF =====
+def _v146_release_lock_verdict():
+    for name in ('_v142_release_lock_snapshot','_release_lock_snapshot','_v1_release_lock_snapshot'):
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                data = fn() or {}; return str(data.get('verdict') or data.get('state') or 'UNKNOWN')
+            except Exception:
+                pass
+    return 'UNKNOWN'
+
+def _v146_handoff_snapshot():
+    burn=_v145_burnin_snapshot(); bug=_v143_summary(); uat=_v144_uat_snapshot(); lock_verdict=_v146_release_lock_verdict()
+    lock_ok = ('LOCK' in lock_verdict.upper()) or lock_verdict.upper() in ('READY','PASS','V1 READY')
+    ready = burn['verdict']=='BURN-IN PASS' and bug['verdict']=='CLEAN' and uat['verdict']=='UAT PASS' and lock_ok
+    conditional = burn['verdict'] in ('COLLECT TRAFFIC','BURN-IN WATCH') and bug['blockers']==0 and uat['verdict']=='UAT PASS' and lock_ok
+    verdict = 'GO-LIVE READY' if ready else ('GO-LIVE CONDITIONAL' if conditional else 'GO-LIVE HOLD')
+    payload={'verdict':verdict,'release_lock':lock_verdict,'bug_ledger':bug['verdict'],'uat':uat['verdict'],'burn_in':burn['verdict'],'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
+    payload['directive']='Hand off the sealed V1 artifact for production deployment and watch post-launch health.' if verdict=='GO-LIVE READY' else 'Do not deploy yet; clear the remaining gate shown above.'
+    return payload
+
+@app.route('/founder-v1-go-live-handoff')
+def founder_v1_go_live_handoff():
+    if not _admin_ok(): return jsonify({'ok':False,'error':'admin_required'}),403
+    return jsonify({'ok':True, **_v146_handoff_snapshot()})
+
+@app.route('/api/founder/v1-go-live-handoff')
+def api_founder_v1_go_live_handoff():
+    if not _admin_ok(): return jsonify({'ok':False,'error':'admin_required'}),403
+    return jsonify({'ok':True, **_v146_handoff_snapshot()})
+
+
 if __name__ == "__main__":
 
     init_db()
