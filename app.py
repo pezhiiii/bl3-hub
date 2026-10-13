@@ -105901,6 +105901,38 @@ def founder_regression_suite():
 @app.route("/api/founder/regression-suite")
 def api_founder_regression_suite(): return jsonify(_v135_safe_regression_snapshot())
 
+# ===== V136.00 SECURITY GUARD VERIFIER =====
+def _v136_security_guard_snapshot():
+    checks=[]
+    checks.append({"name":"HttpOnly session cookie","ok":bool(app.config.get("SESSION_COOKIE_HTTPONLY")),"detail":str(app.config.get("SESSION_COOKIE_HTTPONLY"))})
+    checks.append({"name":"SameSite cookie policy","ok":str(app.config.get("SESSION_COOKIE_SAMESITE") or "").lower() in ("lax","strict"),"detail":str(app.config.get("SESSION_COOKIE_SAMESITE"))})
+    secure_expected=BL3_PUBLIC_URL.startswith("https://") or BL3_ENV in ("production","prod")
+    secure_ok=(not secure_expected) or bool(app.config.get("SESSION_COOKIE_SECURE"))
+    checks.append({"name":"Secure cookie for HTTPS/prod","ok":secure_ok,"detail":str(bool(app.config.get("SESSION_COOKIE_SECURE")))})
+    checks.append({"name":"Admin token configured","ok":bool(BL3_ADMIN_TOKEN),"detail":"configured" if BL3_ADMIN_TOKEN else "missing"})
+    checks.append({"name":"Rate limiting enabled","ok":bool(BL3_RATE_LIMIT),"detail":f"{BL3_RATE_MAX}/{BL3_RATE_WINDOW}s"})
+    checks.append({"name":"Auth rate cap bounded","ok":int(BL3_AUTH_RATE_MAX)<=int(BL3_RATE_MAX),"detail":str(BL3_AUTH_RATE_MAX)})
+    try:
+        client=app.test_client()
+        negative=client.post('/api/founder/v1-readiness/issue', json={})
+        neg_ok=int(negative.status_code) in (401,403)
+        checks.append({"name":"Admin issue endpoint rejects anonymous POST","ok":neg_ok,"detail":str(negative.status_code)})
+    except Exception as exc:
+        checks.append({"name":"Admin issue endpoint rejects anonymous POST","ok":False,"detail":type(exc).__name__})
+    passed=sum(1 for x in checks if x['ok']); score=round(100*passed/max(1,len(checks)))
+    verdict="SECURITY PASS" if passed==len(checks) else ("SECURITY WARN" if score>=80 else "SECURITY FAIL")
+    payload={"version":"V136.00","verdict":verdict,"score":score,"checks":checks,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-security-guard')
+def founder_security_guard():
+    s=_v136_security_guard_snapshot(); rows=''.join(f"<tr><td>{html.escape(x['name'])}</td><td>{'PASS' if x['ok'] else 'FAIL'}</td><td>{html.escape(str(x['detail']))}</td></tr>" for x in s['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Security Guard</title><style>body{{font-family:system-ui;background:#040407;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}.v{{color:#baff5a}}</style><h1>BL3 // Security Guard Verifier</h1><h2 class='v'>{s['verdict']} · {s['score']}/100</h2><table><tr><th>Guard</th><th>Result</th><th>Detail</th></tr>{rows}</table>"""
+
+@app.route('/api/founder/security-guard')
+def api_founder_security_guard(): return jsonify(_v136_security_guard_snapshot())
+
 if __name__ == "__main__":
 
     init_db()
