@@ -1,5 +1,8 @@
-BL3 NEON RIFT V4 MOBILE
-Creature silhouettes replace square-looking sprites.
-Mobile Arena becomes fullscreen with touch joystick and Fire/Dash/Nova/Repair controls.
-Enemy separation retained to prevent sticky collisions.
-JavaScript validated with Node --check.
+BL3 NEON RIFT V5 TRUE MOBILE
+- Arena becomes fixed full-screen on phones/tablets.
+- Header, page text and side panels disappear while playing.
+- Canvas resizes to actual mobile viewport.
+- Larger joystick/buttons, portrait + landscape layouts.
+- Mobile auto-aim and enemy lock indicator.
+- Reduced mobile enemy crowding/speed.
+- JavaScript validated with node --check.
