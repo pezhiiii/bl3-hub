@@ -105861,6 +105861,46 @@ def api_founder_v1_readiness_issue():
     result=_v134_issue_certificate(); return jsonify(result), (200 if result.get('ok') else 409)
 
 
+# ===== V135.00 SAFE REGRESSION SUITE =====
+def _v135_safe_regression_snapshot():
+    """Read-only regression checks against important public GET surfaces."""
+    targets=[
+        ("home","/"),
+        ("v1_readiness","/founder-v1-readiness"),
+        ("production_cutover","/founder-production-cutover"),
+        ("release_artifact","/founder-release-artifact"),
+        ("uat","/founder-uat"),
+        ("production_release_command","/founder-production-release-command"),
+    ]
+    rows=[]
+    try:
+        client=app.test_client()
+        for key,path in targets:
+            started=time.time()
+            try:
+                resp=client.get(path, follow_redirects=False)
+                ms=round((time.time()-started)*1000.0,1)
+                status=int(resp.status_code)
+                ok=200 <= status < 400
+                rows.append({"key":key,"path":path,"status":status,"ok":ok,"ms":ms,"bytes":len(resp.data or b"")})
+            except Exception as exc:
+                rows.append({"key":key,"path":path,"status":0,"ok":False,"ms":round((time.time()-started)*1000.0,1),"bytes":0,"error":type(exc).__name__})
+    except Exception as exc:
+        rows=[{"key":"suite","path":"","status":0,"ok":False,"ms":0,"bytes":0,"error":type(exc).__name__}]
+    passed=sum(1 for r in rows if r.get("ok")); total=len(rows); score=round(100*passed/max(1,total))
+    verdict="REGRESSION PASS" if total and passed==total else ("REGRESSION WARN" if score>=80 else "REGRESSION FAIL")
+    payload={"version":"V135.00","verdict":verdict,"score":score,"passed":passed,"total":total,"checks":rows,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload["evidence_sha256"]=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route("/founder-regression-suite")
+def founder_regression_suite():
+    s=_v135_safe_regression_snapshot(); rows=''.join(f"<tr><td>{html.escape(r['path'])}</td><td>{r.get('status',0)}</td><td>{'PASS' if r.get('ok') else 'FAIL'}</td><td>{r.get('ms',0)} ms</td></tr>" for r in s['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Regression Suite</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2c2c35}}.v{{color:#baff5a}}</style><h1>BL3 // Safe Regression Suite</h1><h2 class='v'>{s['verdict']} · {s['score']}/100</h2><table><tr><th>Route</th><th>Status</th><th>Result</th><th>Latency</th></tr>{rows}</table><p><code>{s['evidence_sha256']}</code></p>"""
+
+@app.route("/api/founder/regression-suite")
+def api_founder_regression_suite(): return jsonify(_v135_safe_regression_snapshot())
+
 if __name__ == "__main__":
 
     init_db()
