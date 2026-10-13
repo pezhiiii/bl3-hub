@@ -105348,6 +105348,61 @@ def v119_final_preflight_page():
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Final Preflight</title><style>body{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}main{max-width:1050px;margin:auto;padding:32px}.hero,.card{background:#101018;border:1px solid #292935;border-radius:26px;padding:24px}.score{font-size:72px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.big{font-size:30px;font-weight:900}p,li,span{color:#999baa}a{color:#baff5a}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><main><div class='hero'><div>V119.00 · FINAL PREFLIGHT VERIFIER</div><div class='score'>%s / 100</div><h1>%s</h1><p>%s</p></div><div class='grid'><div class='card'><span>Launch Gate</span><div class='big'>%s</div></div><div class='card'><span>Audit</span><div class='big'>%s</div></div><div class='card'><span>Smoke</span><div class='big'>%s</div></div><div class='card'><span>DB</span><div class='big'>%s</div></div></div><div class='card'><h3>Blockers</h3><ul>%s</ul></div></main></body></html>"""%(s['score'],html.escape(s['state']),html.escape(s['directive']),s['production_gate']['score'],s['production_audit']['score'],s['smoke_tests']['score'],html.escape(s['database']['integrity']),blockers)
 
 
+# ===== V120.00 LAUNCH RUNBOOK TRACKER =====
+V12000_VERSION = "120.00"
+V12000_STEPS = [
+    ("freeze_code","Freeze feature work and tag the candidate"),
+    ("final_backup","Create and verify the final database backup"),
+    ("staging_deploy","Deploy the candidate to staging"),
+    ("acceptance_pass","Complete real-user acceptance checks"),
+    ("env_verify","Verify production environment variables and HTTPS"),
+    ("smoke_verify","Rerun smoke tests on the candidate"),
+    ("rollback_ready","Confirm rollback package and operator owner"),
+    ("launch_window","Confirm launch window and monitoring owner"),
+]
+
+def _v120_ensure_table():
+    conn=sqlite3.connect(DB)
+    conn.execute("""CREATE TABLE IF NOT EXISTS launch_runbook_steps (
+        step_key TEXT PRIMARY KEY, label TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
+        note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')""")
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'
+    for key,label in V12000_STEPS:
+        conn.execute("INSERT OR IGNORE INTO launch_runbook_steps(step_key,label,status,note,updated_at) VALUES(?,?, 'PENDING','',?)",(key,label,now))
+    conn.commit(); conn.close()
+
+def _v120_runbook_snapshot():
+    _v120_ensure_table(); conn=sqlite3.connect(DB); conn.row_factory=sqlite3.Row
+    rows=conn.execute("SELECT step_key,label,status,note,updated_at FROM launch_runbook_steps ORDER BY rowid").fetchall(); conn.close()
+    items=[dict(r) for r in rows]; done=sum(1 for r in items if r['status']=='DONE'); total=len(items)
+    score=int(round(done/max(1,total)*100)); state='COMPLETE' if done==total else ('IN PROGRESS' if done else 'NOT STARTED')
+    return {'version':V12000_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','score':score,'state':state,'done':done,'total':total,'steps':items,'preflight':_v119_final_preflight_snapshot()}
+
+@app.route('/api/founder/launch-runbook')
+def v120_launch_runbook_api():
+    if not _admin_ok(): return jsonify({'error':'admin authorization required'}),403
+    return jsonify(_v120_runbook_snapshot())
+
+@app.route('/api/founder/launch-runbook/step', methods=['POST'])
+def v120_launch_runbook_step_api():
+    if not _admin_ok(): return jsonify({'error':'admin authorization required'}),403
+    if not _same_origin_ok(): return jsonify({'error':'same-origin request required'}),403
+    payload=request.get_json(silent=True) or request.form
+    key=str(payload.get('step_key') or '')[:80]; status=str(payload.get('status') or '').upper(); note=str(payload.get('note') or '')[:500]
+    valid={k for k,_ in V12000_STEPS}
+    if key not in valid or status not in ('PENDING','DONE'): return jsonify({'error':'invalid step or status'}),400
+    _v120_ensure_table(); conn=sqlite3.connect(DB)
+    conn.execute("UPDATE launch_runbook_steps SET status=?,note=?,updated_at=? WHERE step_key=?",(status,note,datetime.utcnow().isoformat(timespec='seconds')+'Z',key)); conn.commit(); conn.close()
+    _admin_action('launch_runbook_step',True,key+':'+status)
+    return jsonify(_v120_runbook_snapshot())
+
+@app.route('/founder-launch-runbook')
+def v120_launch_runbook_page():
+    if not _admin_ok(): return '<h1>403</h1>',403
+    s=_v120_runbook_snapshot(); rows=''.join("<div style='padding:12px;border-bottom:1px solid #292935'><b>%s</b><br><span>%s</span><div>%s</div></div>"%(html.escape(r['label']),html.escape(r['status']),html.escape(r['note'] or '')) for r in s['steps'])
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Launch Runbook</title><style>body{font-family:Inter,system-ui;background:#050507;color:white;margin:0}main{max-width:980px;margin:auto;padding:32px}.hero,.panel{background:#101018;border:1px solid #292935;border-radius:26px;padding:24px}.score{font-size:70px;font-weight:950}span{color:#999baa}</style></head><body><main><div class='hero'><div>V120.00 · LAUNCH RUNBOOK TRACKER</div><div class='score'>%s%%</div><h1>%s</h1><p>%s / %s steps complete</p></div><div class='panel'>%s</div></main></body></html>"""%(s['score'],html.escape(s['state']),s['done'],s['total'],rows)
+
+
 if __name__ == "__main__":
 
     init_db()
