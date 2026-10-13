@@ -106079,6 +106079,26 @@ def founder_staging_signoff():
 def api_founder_staging_signoff(): return jsonify(_v141_staging_signoff_snapshot())
 
 
+
+# ===== V142.00 V1 RELEASE LOCK =====
+def _v142_v1_release_lock_snapshot():
+    qa=_v138_v1_qa_snapshot(); triage=_v139_qa_failure_triage_snapshot(); burn=_v140_release_blocker_burndown_snapshot(); staging=_v141_staging_signoff_snapshot()
+    locked=(qa.get('verdict')=='QA LOCKED' and triage.get('open_items')==0 and burn.get('state')=='COMPLETE' and staging.get('verdict')=='STAGING SIGN-OFF')
+    state='V1 RELEASE LOCKED' if locked else 'V1 RELEASE NOT LOCKED'
+    directive='Preserve this build fingerprint, deploy only this artifact to staging, and begin controlled launch verification.' if locked else 'Do not create new product features. Clear the remaining release blockers and rerun the lock gate.'
+    payload={"version":"V142.00","state":state,"locked":locked,"qa_score":qa.get('score',0),"open_triage":triage.get('open_items',0),"burndown_progress":burn.get('progress',0),"staging":staging.get('verdict'),"directive":directive,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-v1-release-lock')
+def founder_v1_release_lock():
+    s=_v142_v1_release_lock_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V1 Release Lock</title><style>body{{font-family:system-ui;background:#020204;color:#fff;padding:28px}}.hero{{max-width:900px;border:1px solid #303038;border-radius:26px;padding:28px}}.v{{font-size:46px;font-weight:950;color:#baff5a}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}}.c{{padding:14px;border:1px solid #292932;border-radius:14px}}code{{word-break:break-all;color:#a17cff}}</style><h1>BL3 // V1 Release Lock</h1><div class='hero'><div class='v'>{s['state']}</div><div class='grid'><div class='c'>QA<br><b>{s['qa_score']}</b></div><div class='c'>Open triage<br><b>{s['open_triage']}</b></div><div class='c'>Burn-down<br><b>{s['burndown_progress']}%</b></div><div class='c'>Staging<br><b>{html.escape(str(s['staging']))}</b></div></div><h3>Directive</h3><p>{html.escape(s['directive'])}</p><p>Evidence SHA256<br><code>{s['evidence_sha256']}</code></p></div>"""
+
+@app.route('/api/founder/v1-release-lock')
+def api_founder_v1_release_lock(): return jsonify(_v142_v1_release_lock_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
