@@ -105143,6 +105143,31 @@ def v112_smoke_page():
     rows=''.join('<div class="row"><span>{}</span><b class="{}">{}</b><small>{}</small></div>'.format(html.escape(t['name']),'ok' if t['ok'] else 'bad','PASS' if t['ok'] else 'FAIL',html.escape(t['detail'])) for t in s['tests'])
     return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Smoke Tests</title><style>body{background:#050507;color:#fff;font-family:Inter,system-ui;margin:0}main{max-width:1000px;margin:auto;padding:32px}.hero,.panel{background:#101018;border:1px solid #292935;border-radius:24px;padding:22px}.score{font-size:70px;font-weight:950}.row{display:grid;grid-template-columns:1fr auto;gap:6px;padding:13px 0;border-bottom:1px solid #24242d}small{grid-column:1/-1;color:#8f91a3}.ok{color:#baff5a}.bad{color:#ff758f}a{color:#61f4ff}</style></head><body><main><div class="hero"><div>V112.00 · SAFE SMOKE TEST SUITE</div><div class="score">{} / 100</div><h1>{}</h1><p>{} / {} checks passed</p></div><div class="panel">{}</div><p><a href="/api/founder/smoke-tests">JSON</a></p></main></body></html>'''.format(s['score'],s['state'],s['passed'],s['total'],rows)
 
+# ===== V113.00 RELEASE CANDIDATE GATE =====
+V11300_VERSION = '113.00'
+
+def _v113_release_candidate_snapshot():
+    audit=_v111_production_audit_snapshot(); smoke=_v112_smoke_snapshot(); success=_v110_hunter_success_snapshot()
+    score=int(round(audit['audit_score']*.50 + smoke['score']*.35 + success['success_score']*.15))
+    hard_blockers=len(audit['blockers']) + sum(1 for t in smoke['tests'] if not t['ok'])
+    if hard_blockers==0 and score>=90: verdict='RC READY'
+    elif score>=78: verdict='RC CONDITIONAL'
+    else: verdict='RC HOLD'
+    actions=[]
+    for b in audit['blockers'][:5]: actions.append(b['detail'])
+    for t in smoke['tests']:
+        if not t['ok'] and len(actions)<8: actions.append('Fix {}: {}'.format(t['name'],t['detail']))
+    if not actions: actions=['Freeze feature work, back up the database, deploy to staging, and run a short real-user acceptance pass.']
+    return {'version':V11300_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','rc_score':score,'verdict':verdict,'hard_blockers':hard_blockers,'audit_score':audit['audit_score'],'smoke_score':smoke['score'],'hunter_success_score':success['success_score'],'required_actions':actions}
+
+@app.route('/api/founder/release-candidate-gate')
+def api_v113_release_candidate_gate(): return jsonify(_v113_release_candidate_snapshot())
+
+@app.route('/founder-release-candidate')
+def v113_release_candidate_page():
+    s=_v113_release_candidate_snapshot(); actions=''.join('<li>{}</li>'.format(html.escape(x)) for x in s['required_actions'])
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Release Candidate Gate</title><style>body{font-family:Inter,system-ui;background:radial-gradient(circle at 50% 0,#202947,#050507 45%);color:white;margin:0}main{max-width:1000px;margin:auto;padding:34px}.hero,.card{background:#101018;border:1px solid rgba(255,255,255,.1);border-radius:26px;padding:24px}.verdict{font-size:62px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}.big{font-size:32px;font-weight:950}p,li{color:#a0a1b0}a{color:#61f4ff}</style></head><body><main><div class="hero"><div>V113.00 · RELEASE CANDIDATE GATE</div><div class="verdict">{}</div><h2>{} / 100</h2><p>{} blocker(s)</p></div><div class="grid"><div class="card"><span>Production Audit</span><div class="big">{}</div></div><div class="card"><span>Smoke Tests</span><div class="big">{}</div></div><div class="card"><span>Hunter Success</span><div class="big">{}</div></div></div><div class="card"><h3>Required actions</h3><ol>{}</ol></div><p><a href="/api/founder/release-candidate-gate">JSON</a></p></main></body></html>'''.format(html.escape(s['verdict']),s['rc_score'],s['hard_blockers'],s['audit_score'],s['smoke_score'],s['hunter_success_score'],actions)
+
 if __name__ == "__main__":
 
     init_db()
