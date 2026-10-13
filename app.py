@@ -105403,6 +105403,59 @@ def v120_launch_runbook_page():
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Launch Runbook</title><style>body{font-family:Inter,system-ui;background:#050507;color:white;margin:0}main{max-width:980px;margin:auto;padding:32px}.hero,.panel{background:#101018;border:1px solid #292935;border-radius:26px;padding:24px}.score{font-size:70px;font-weight:950}span{color:#999baa}</style></head><body><main><div class='hero'><div>V120.00 · LAUNCH RUNBOOK TRACKER</div><div class='score'>%s%%</div><h1>%s</h1><p>%s / %s steps complete</p></div><div class='panel'>%s</div></main></body></html>"""%(s['score'],html.escape(s['state']),s['done'],s['total'],rows)
 
 
+# ===== V121.00 RELEASE MANIFEST + SEAL =====
+V12100_VERSION = "121.00"
+
+def _v121_ensure_table():
+    conn=sqlite3.connect(DB)
+    conn.execute("""CREATE TABLE IF NOT EXISTS release_manifest_seals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL, schema_sha256 TEXT NOT NULL, route_sha256 TEXT NOT NULL,
+        manifest_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_release_manifest_seals_id ON release_manifest_seals(id DESC)")
+    conn.commit(); conn.close()
+
+def _v121_manifest_payload():
+    source_path=os.path.abspath(__file__)
+    try:
+        with open(source_path,'rb') as f: source_sha=hashlib.sha256(f.read()).hexdigest()
+    except Exception: source_sha='UNAVAILABLE'
+    conn=sqlite3.connect(DB)
+    schema_rows=conn.execute("SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type,name").fetchall(); conn.close()
+    schema_text='\n'.join('|'.join(str(x or '') for x in r) for r in schema_rows)
+    schema_sha=hashlib.sha256(schema_text.encode('utf-8')).hexdigest()
+    routes=sorted((str(r.rule),','.join(sorted(r.methods or []))) for r in app.url_map.iter_rules())
+    route_text='\n'.join(a+'|'+b for a,b in routes); route_sha=hashlib.sha256(route_text.encode('utf-8')).hexdigest()
+    preflight=_v119_final_preflight_snapshot(); runbook=_v120_runbook_snapshot()
+    return {'version':V12100_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','source_sha256':source_sha,'schema_sha256':schema_sha,'route_sha256':route_sha,'route_count':len(routes),'preflight_state':preflight['state'],'preflight_score':preflight['score'],'runbook_state':runbook['state'],'runbook_score':runbook['score'],'environment':BL3_ENV}
+
+def _v121_latest_seal():
+    _v121_ensure_table(); conn=sqlite3.connect(DB); conn.row_factory=sqlite3.Row
+    row=conn.execute("SELECT manifest_id,created_at,source_sha256,schema_sha256,route_sha256,manifest_sha256,payload_json FROM release_manifest_seals ORDER BY id DESC LIMIT 1").fetchone(); conn.close()
+    return dict(row) if row else None
+
+@app.route('/api/founder/release-manifest')
+def v121_release_manifest_api():
+    if not _admin_ok(): return jsonify({'error':'admin authorization required'}),403
+    return jsonify({'current':_v121_manifest_payload(),'latest_seal':_v121_latest_seal()})
+
+@app.route('/api/founder/release-manifest/seal', methods=['POST'])
+def v121_release_manifest_seal_api():
+    if not _admin_ok(): return jsonify({'error':'admin authorization required'}),403
+    if not _same_origin_ok(): return jsonify({'error':'same-origin request required'}),403
+    payload=_v121_manifest_payload(); canonical=json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False); digest=hashlib.sha256(canonical.encode('utf-8')).hexdigest(); manifest_id='BL3-'+datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')+'-'+digest[:12]
+    _v121_ensure_table(); conn=sqlite3.connect(DB)
+    conn.execute("INSERT INTO release_manifest_seals(manifest_id,created_at,source_sha256,schema_sha256,route_sha256,manifest_sha256,payload_json) VALUES(?,?,?,?,?,?,?)",(manifest_id,payload['generated_at'],payload['source_sha256'],payload['schema_sha256'],payload['route_sha256'],digest,canonical)); conn.commit(); conn.close()
+    _admin_action('release_manifest_sealed',True,manifest_id)
+    return jsonify({'sealed':True,'manifest_id':manifest_id,'manifest_sha256':digest,'payload':payload})
+
+@app.route('/founder-release-manifest')
+def v121_release_manifest_page():
+    if not _admin_ok(): return '<h1>403</h1>',403
+    p=_v121_manifest_payload(); latest=_v121_latest_seal(); latest_id=latest['manifest_id'] if latest else 'None'
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Release Manifest</title><style>body{font-family:Inter,system-ui;background:#050507;color:white;margin:0}main{max-width:980px;margin:auto;padding:32px}.card{background:#101018;border:1px solid #292935;border-radius:26px;padding:24px;margin-bottom:14px}code{word-break:break-all;color:#baff5a}span,p{color:#999baa}</style></head><body><main><div class='card'><div>V121.00 · RELEASE MANIFEST + SEAL</div><h1>%s</h1><p>Latest seal: %s</p></div><div class='card'><p>Source</p><code>%s</code><p>Schema</p><code>%s</code><p>Routes</p><code>%s</code><p>Route count: %s</p></div></main></body></html>"""%(html.escape(p['preflight_state']),html.escape(latest_id),p['source_sha256'],p['schema_sha256'],p['route_sha256'],p['route_count'])
+
+
 if __name__ == "__main__":
 
     init_db()
