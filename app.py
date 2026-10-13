@@ -105702,6 +105702,47 @@ def founder_production_release_command():
 def api_founder_production_release_command():
     return jsonify(_v130_release_command_snapshot())
 
+# ===== V131.00 RELEASE ARTIFACT FINGERPRINT =====
+def _v131_source_fingerprint():
+    try:
+        source_path = os.path.abspath(__file__)
+        h = hashlib.sha256()
+        size = 0
+        with open(source_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                size += len(chunk); h.update(chunk)
+        return {"ok":True,"sha256":h.hexdigest(),"bytes":size,"file":os.path.basename(source_path)}
+    except Exception as exc:
+        return {"ok":False,"sha256":"","bytes":0,"file":"","error":type(exc).__name__}
+
+def _v131_schema_fingerprint():
+    try:
+        c=sqlite3.connect(DB)
+        rows=c.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type,name").fetchall(); c.close()
+        canonical=json.dumps([list(r) for r in rows],ensure_ascii=False,separators=(",",":"))
+        return {"ok":True,"sha256":hashlib.sha256(canonical.encode("utf-8")).hexdigest(),"objects":len(rows)}
+    except Exception as exc:
+        return {"ok":False,"sha256":"","objects":0,"error":type(exc).__name__}
+
+def _v131_release_artifact_snapshot():
+    src=_v131_source_fingerprint(); schema=_v131_schema_fingerprint(); cmd=_v130_release_command_snapshot()
+    route_names=sorted(str(r.rule) for r in app.url_map.iter_rules())
+    route_sha=hashlib.sha256("\n".join(route_names).encode("utf-8")).hexdigest()
+    payload={"version":"V131.00","source":src,"schema":schema,"route_count":len(route_names),"routes_sha256":route_sha,"release_command":cmd.get("command"),"generated_at":datetime.utcnow().isoformat()+"Z"}
+    canonical=json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False)
+    payload["artifact_sha256"]=hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
+
+@app.route("/founder-release-artifact")
+def founder_release_artifact():
+    s=_v131_release_artifact_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Release Artifact</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}.c{{border:1px solid #30303a;border-radius:18px;padding:20px;max-width:920px}}code{{color:#baff5a;word-break:break-all}}</style><h1>BL3 // Release Artifact Fingerprint</h1><div class='c'><p>Source: {s['source'].get('file','')} · {s['source'].get('bytes',0)} bytes</p><p>Source SHA256<br><code>{s['source'].get('sha256','')}</code></p><p>Schema SHA256<br><code>{s['schema'].get('sha256','')}</code></p><p>Routes: {s['route_count']} · <code>{s['routes_sha256']}</code></p><p>Artifact SHA256<br><code>{s['artifact_sha256']}</code></p></div>"""
+
+@app.route("/api/founder/release-artifact")
+def api_founder_release_artifact():
+    return jsonify(_v131_release_artifact_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
