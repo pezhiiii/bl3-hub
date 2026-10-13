@@ -105558,6 +105558,28 @@ def v124_rollback_page():
     r=_v124_rollback_report(); rows=''.join(f"<li>{'✅' if c['ok'] else '❌'} <b>{html.escape(c['name'])}</b> — {html.escape(str(c['detail']))}</li>" for c in r['checks'])
     return f'<!doctype html><meta charset="utf-8"><title>BL3 V124 Rollback Readiness</title><style>body{{font-family:system-ui;background:#07070b;color:#fff;padding:28px}}.c{{max-width:900px;margin:auto}}h1{{color:#baff5a}}li{{margin:10px 0}}</style><div class="c"><h1>V124 · Rollback Readiness</h1><h2>{r["state"]} · {r["score"]}/100</h2><ul>{rows}</ul></div>'
 
+
+# ===== V125.00 POST-LAUNCH MONITOR =====
+def _v125_monitor_snapshot():
+    with _OBS_LOCK:
+        req=int(_OBS.get('requests',0)); err=int(_OBS.get('errors',0)); slow=int(_OBS.get('slow',0)); max_ms=float(_OBS.get('max_ms',0.0)); routes=len(_OBS.get('routes',{}))
+    error_rate=(err/req*100.0) if req else 0.0; slow_rate=(slow/req*100.0) if req else 0.0; score=100
+    if error_rate>2: score-=35
+    elif error_rate>0.5: score-=15
+    if slow_rate>10: score-=25
+    elif slow_rate>3: score-=10
+    if max_ms>3000: score-=20
+    score=max(0,score); state='HEALTHY' if score>=90 else ('WATCH' if score>=70 else 'DEGRADED')
+    return {'state':state,'score':score,'requests':req,'errors':err,'error_rate_pct':round(error_rate,2),'slow_requests':slow,'slow_rate_pct':round(slow_rate,2),'max_ms':round(max_ms,1),'routes_seen':routes,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+
+@app.route('/api/founder/post-launch-monitor')
+def v125_monitor_api(): return jsonify(_v125_monitor_snapshot())
+
+@app.route('/founder-post-launch-monitor')
+def v125_monitor_page():
+    r=_v125_monitor_snapshot(); cards=''.join(f'<div><small>{k}</small><b>{html.escape(str(v))}</b></div>' for k,v in r.items() if k!='generated_at')
+    return f'<!doctype html><meta charset="utf-8"><title>BL3 V125 Post-Launch Monitor</title><style>body{{font-family:system-ui;background:#06060a;color:#fff;padding:28px}}.c{{max-width:1000px;margin:auto}}h1{{color:#baff5a}}.g{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}.g div{{background:#12121a;border:1px solid #292936;padding:16px;border-radius:16px}}small,b{{display:block}}b{{font-size:22px;margin-top:8px}}</style><div class="c"><h1>V125 · Post-Launch Monitor</h1><div class="g">{cards}</div></div>'
+
 if __name__ == "__main__":
 
     init_db()
