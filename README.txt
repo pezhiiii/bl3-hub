@@ -1,2 +1,1 @@
-BL3 FINAL GAME POLISHED
-Upload app.py to the existing GitHub repo and commit. Railway will redeploy automatically.
+BL3 Investor Final. Upload app.py to the existing GitHub repo and commit. Railway redeploys automatically.
