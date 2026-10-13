@@ -105667,6 +105667,41 @@ def founder_post_launch_stability():
     s=_v129_post_launch_stability_snapshot()
     return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Stability Gate</title><style>body{{font-family:system-ui;background:#060609;color:#fff;padding:28px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}}.c{{border:1px solid #292934;border-radius:16px;padding:18px}}b{{color:#baff5a;font-size:24px}}</style><h1>BL3 // Post-Launch Stability</h1><h2>{s['state']} · {s['score']}/100</h2><div class='grid'><div class='c'>Requests<br><b>{s['requests']}</b></div><div class='c'>Error rate<br><b>{s['error_rate']}%</b></div><div class='c'>Slow rate<br><b>{s['slow_rate']}%</b></div><div class='c'>Max latency<br><b>{s['max_ms']} ms</b></div></div>"""
 
+
+# ===== V130.00 PRODUCTION RELEASE COMMAND =====
+def _v130_release_command_snapshot():
+    staging=_v127_staging_acceptance_snapshot()
+    window=_v128_launch_window_snapshot()
+    stability=_v129_post_launch_stability_snapshot()
+    if staging["verdict"]!="ACCEPT":
+        command="HOLD"
+        reason="Staging acceptance is not complete."
+    elif not window["ready"]:
+        command="HOLD"
+        reason="Launch window is not locked."
+    elif stability["state"]=="DEGRADED":
+        command="ROLLBACK / FIX"
+        reason="Post-launch health is degraded."
+    elif stability["state"]=="WATCH":
+        command="LAUNCH & WATCH"
+        reason="Release is viable but requires close observation."
+    else:
+        command="GO"
+        reason="Staging, launch window, and stability checks are green."
+    payload={"version":"V130.00","command":command,"reason":reason,"staging":staging,"launch_window":window,"stability":stability,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    canonical=json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False)
+    payload["evidence_sha256"]=hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
+
+@app.route("/founder-production-release-command")
+def founder_production_release_command():
+    s=_v130_release_command_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Production Release Command</title><style>body{{font-family:system-ui;background:#040407;color:#fff;padding:28px}}.hero{{max-width:900px;border:1px solid #30303a;border-radius:22px;padding:24px;background:#0d0d13}}.cmd{{font-size:42px;font-weight:900;color:#baff5a}}code{{word-break:break-all;color:#a17cff}}</style><h1>BL3 // Production Release Command</h1><div class='hero'><div class='cmd'>{html.escape(s['command'])}</div><p>{html.escape(s['reason'])}</p><p>Staging: {s['staging']['verdict']} · Window: {s['launch_window']['window_state']} · Stability: {s['stability']['state']}</p><p>Evidence SHA256<br><code>{s['evidence_sha256']}</code></p></div>"""
+
+@app.route("/api/founder/production-release-command")
+def api_founder_production_release_command():
+    return jsonify(_v130_release_command_snapshot())
+
 if __name__ == "__main__":
 
     init_db()
