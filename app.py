@@ -105505,6 +105505,36 @@ def v122_launch_authorization_page():
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Launch Authorization</title><style>body{font-family:Inter,system-ui;background:radial-gradient(circle at 50%% 0,#21351d,#050507 45%%);color:white;margin:0}main{max-width:1000px;margin:auto;padding:34px}.hero,.card{background:#101018;border:1px solid rgba(255,255,255,.1);border-radius:28px;padding:24px;margin-bottom:14px}.state{font-size:58px;font-weight:950}p,li{color:#9da0ad}code{color:#baff5a}</style></head><body><main><div class='hero'><div>V122.00 · LAUNCH AUTHORIZATION CENTER</div><div class='state'>%s</div><p>Manifest: <code>%s</code></p><p>Latest authorization: <code>%s</code></p></div><div class='card'><h3>Prerequisites</h3><p>Preflight %s/100 · Runbook %s%%</p><ul>%s</ul><p>Authorization here records approval evidence only. It does not deploy infrastructure.</p></div></main></body></html>"""%(html.escape(s['state']),html.escape(str(s['manifest_id'] or 'None')),html.escape(str(latest)),s['preflight']['score'],s['runbook']['score'],blockers)
 
 
+
+# ===== V123.00 DEPLOYMENT PLAN SNAPSHOT =====
+def _v123_deploy_plan_table():
+    conn=db()
+    conn.execute("CREATE TABLE IF NOT EXISTS launch_deployment_plans (id INTEGER PRIMARY KEY AUTOINCREMENT, release_key TEXT NOT NULL, environment TEXT NOT NULL DEFAULT 'production', deploy_method TEXT NOT NULL DEFAULT 'manual', target_url TEXT NOT NULL DEFAULT '', rollback_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, plan_sha256 TEXT NOT NULL)")
+    conn.commit(); conn.close()
+
+def _v123_plan_payload():
+    release_key=(request.args.get('release_key') or 'current').strip()[:80]
+    payload={'release_key':release_key,'environment':BL3_ENV,'public_url':BL3_PUBLIC_URL,'db':os.path.basename(DB),'backup_dir':BL3_BACKUP_DIR,'secure_cookie':bool(app.config.get('SESSION_COOKIE_SECURE')),'rate_limit':bool(BL3_RATE_LIMIT),'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+    canonical=json.dumps(payload,sort_keys=True,separators=(',',':'))
+    payload['plan_sha256']=hashlib.sha256(canonical.encode()).hexdigest()
+    return payload
+
+@app.route('/api/founder/deployment-plan', methods=['GET','POST'])
+def v123_deployment_plan_api():
+    _v123_deploy_plan_table()
+    if request.method=='GET': return jsonify(_v123_plan_payload())
+    if not _admin_ok(): return jsonify({'ok':False,'error':'admin_required'}),403
+    p=_v123_plan_payload(); body=request.get_json(silent=True) or {}
+    method=str(body.get('deploy_method') or 'manual')[:40]; target=str(body.get('target_url') or BL3_PUBLIC_URL)[:500]
+    rollback=str(body.get('rollback_note') or 'Restore latest verified backup and previous sealed build.')[:1000]
+    conn=db(); conn.execute("INSERT INTO launch_deployment_plans (release_key,environment,deploy_method,target_url,rollback_note,created_at,plan_sha256) VALUES (?,?,?,?,?,?,?)",(p['release_key'],p['environment'],method,target,rollback,datetime.utcnow().isoformat(),p['plan_sha256'])); conn.commit(); conn.close()
+    _admin_action('deployment_plan_saved',True,p['release_key']); return jsonify({'ok':True,'plan':p})
+
+@app.route('/founder-deployment-plan')
+def v123_deployment_plan_page():
+    p=_v123_plan_payload()
+    return f'<!doctype html><meta charset="utf-8"><title>BL3 V123 Deployment Plan</title><style>body{{font-family:system-ui;background:#07070b;color:#fff;padding:28px}}.c{{max-width:900px;margin:auto}}pre{{background:#11131a;padding:18px;border-radius:16px;overflow:auto}}h1{{color:#baff5a}}</style><div class="c"><h1>V123 · Deployment Plan Snapshot</h1><p>Read-only deployment evidence. It never deploys infrastructure.</p><pre>{html.escape(json.dumps(p,indent=2))}</pre></div>'
+
 if __name__ == "__main__":
 
     init_db()
