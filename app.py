@@ -105107,6 +105107,42 @@ def v111_production_audit_page():
     cards=''.join('<div class="card"><b>{}</b><div class="status {}">{}</div><p>{}</p></div>'.format(html.escape(c['label']), 'ok' if c['ok'] else 'bad', 'PASS' if c['ok'] else 'FIX', html.escape(c['detail'])) for c in s['checks'])
     return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Production Audit</title><style>body{font-family:Inter,system-ui;background:#05070a;color:#fff;margin:0}main{max-width:1100px;margin:auto;padding:32px}.hero,.card{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:24px;padding:22px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px}.score{font-size:72px;font-weight:950}.ok{color:#baff5a}.bad{color:#ff758f}p{color:#9c9cad}a{color:#61f4ff}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style></head><body><main><div class="hero"><div>V111.00 · PRODUCTION AUDIT MATRIX</div><div class="score">{} / 100</div><h1>{}</h1><p>{} high-weight blocker(s)</p></div><div class="grid">{}</div><p><a href="/api/founder/production-audit">JSON</a></p></main></body></html>'''.format(s['audit_score'],html.escape(s['state']),len(s['blockers']),cards)
 
+# ===== V112.00 SAFE SMOKE TEST SUITE =====
+V11200_VERSION = '112.00'
+
+def _v112_smoke_snapshot():
+    tests=[]
+    def record(name,ok,detail): tests.append({'name':name,'ok':bool(ok),'detail':str(detail)[:300]})
+    rules={r.rule for r in app.url_map.iter_rules()}
+    for route in ['/', '/api/leaderboard', '/api/founder/production-audit', '/founder-hunter-success-os']:
+        record('route '+route, route in rules, 'registered' if route in rules else 'missing')
+    try:
+        conn=db(); tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        required={'users','quests','referrals','creature_battles','reputation_events','notifications'}
+        missing=sorted(required-tables); record('core tables', not missing, 'all present' if not missing else 'missing: '+', '.join(missing))
+        fk=list(conn.execute('PRAGMA foreign_key_check').fetchall()); record('foreign key check', len(fk)==0, 'ok' if not fk else f'{len(fk)} issue(s)')
+        conn.close()
+    except Exception as exc:
+        record('database inspection',False,type(exc).__name__)
+    try:
+        with app.test_client() as client:
+            for path in ['/', '/api/leaderboard', '/api/founder/production-audit']:
+                resp=client.get(path)
+                record('GET '+path, resp.status_code < 500, f'HTTP {resp.status_code}')
+    except Exception as exc:
+        record('Flask test client',False,type(exc).__name__)
+    passed=sum(1 for t in tests if t['ok']); total=len(tests); score=int(round(passed/max(1,total)*100)); state='PASS' if passed==total else 'WARN' if score>=80 else 'FAIL'
+    return {'version':V11200_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','score':score,'state':state,'passed':passed,'total':total,'tests':tests}
+
+@app.route('/api/founder/smoke-tests')
+def api_v112_smoke_tests(): return jsonify(_v112_smoke_snapshot())
+
+@app.route('/founder-smoke-tests')
+def v112_smoke_page():
+    s=_v112_smoke_snapshot()
+    rows=''.join('<div class="row"><span>{}</span><b class="{}">{}</b><small>{}</small></div>'.format(html.escape(t['name']),'ok' if t['ok'] else 'bad','PASS' if t['ok'] else 'FAIL',html.escape(t['detail'])) for t in s['tests'])
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Smoke Tests</title><style>body{background:#050507;color:#fff;font-family:Inter,system-ui;margin:0}main{max-width:1000px;margin:auto;padding:32px}.hero,.panel{background:#101018;border:1px solid #292935;border-radius:24px;padding:22px}.score{font-size:70px;font-weight:950}.row{display:grid;grid-template-columns:1fr auto;gap:6px;padding:13px 0;border-bottom:1px solid #24242d}small{grid-column:1/-1;color:#8f91a3}.ok{color:#baff5a}.bad{color:#ff758f}a{color:#61f4ff}</style></head><body><main><div class="hero"><div>V112.00 · SAFE SMOKE TEST SUITE</div><div class="score">{} / 100</div><h1>{}</h1><p>{} / {} checks passed</p></div><div class="panel">{}</div><p><a href="/api/founder/smoke-tests">JSON</a></p></main></body></html>'''.format(s['score'],s['state'],s['passed'],s['total'],rows)
+
 if __name__ == "__main__":
 
     init_db()
