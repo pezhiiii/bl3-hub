@@ -105633,6 +105633,19 @@ def founder_staging_acceptance():
     rows=''.join(f"<tr><td>{html.escape(x['name'])}</td><td>{'PASS' if x['ok'] else 'FAIL'}</td><td>{html.escape(x['detail'])}</td></tr>" for x in snap['checks'])
     return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Staging Acceptance</title><style>body{{font-family:system-ui;background:#07070b;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}.k{{color:#baff5a}}</style><h1>BL3 // Staging Acceptance Gate</h1><h2 class='k'>{snap['verdict']} · {snap['score']}/100</h2><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>{rows}</table>"""
 
+
+# ===== V128.00 LAUNCH WINDOW LOCK =====
+def _v128_launch_window_snapshot():
+    staging=_v127_staging_acceptance_snapshot()
+    now=datetime.utcnow()
+    ready=staging["verdict"]=="ACCEPT"
+    return {"version":"V128.00","ready":ready,"window_state":"LOCKED" if ready else "UNLOCKED","staging":staging,"utc":now.isoformat()+"Z","directive":"Proceed only inside a staffed launch window." if ready else "Clear staging acceptance failures before locking a launch window."}
+
+@app.route("/founder-launch-window")
+def founder_launch_window():
+    s=_v128_launch_window_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Launch Window</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}.card{{border:1px solid #292934;border-radius:18px;padding:20px;max-width:760px}}b{{color:#baff5a}}</style><h1>BL3 // Launch Window Lock</h1><div class='card'><h2><b>{s['window_state']}</b></h2><p>Staging: {s['staging']['verdict']} ({s['staging']['score']}/100)</p><p>{html.escape(s['directive'])}</p><p>UTC: {s['utc']}</p></div>"""
+
 if __name__ == "__main__":
 
     init_db()
