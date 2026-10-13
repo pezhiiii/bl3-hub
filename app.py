@@ -105168,6 +105168,30 @@ def v113_release_candidate_page():
     s=_v113_release_candidate_snapshot(); actions=''.join('<li>{}</li>'.format(html.escape(x)) for x in s['required_actions'])
     return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Release Candidate Gate</title><style>body{font-family:Inter,system-ui;background:radial-gradient(circle at 50% 0,#202947,#050507 45%);color:white;margin:0}main{max-width:1000px;margin:auto;padding:34px}.hero,.card{background:#101018;border:1px solid rgba(255,255,255,.1);border-radius:26px;padding:24px}.verdict{font-size:62px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}.big{font-size:32px;font-weight:950}p,li{color:#a0a1b0}a{color:#61f4ff}</style></head><body><main><div class="hero"><div>V113.00 · RELEASE CANDIDATE GATE</div><div class="verdict">{}</div><h2>{} / 100</h2><p>{} blocker(s)</p></div><div class="grid"><div class="card"><span>Production Audit</span><div class="big">{}</div></div><div class="card"><span>Smoke Tests</span><div class="big">{}</div></div><div class="card"><span>Hunter Success</span><div class="big">{}</div></div></div><div class="card"><h3>Required actions</h3><ol>{}</ol></div><p><a href="/api/founder/release-candidate-gate">JSON</a></p></main></body></html>'''.format(html.escape(s['verdict']),s['rc_score'],s['hard_blockers'],s['audit_score'],s['smoke_score'],s['hunter_success_score'],actions)
 
+# ===== V114.00 LAUNCH CANDIDATE CONTROL ROOM =====
+V11400_VERSION = '114.00'
+
+def _v114_launch_candidate_snapshot():
+    rc=_v113_release_candidate_snapshot(); audit=_v111_production_audit_snapshot(); smoke=_v112_smoke_snapshot(); success=_v110_hunter_success_snapshot()
+    if rc['verdict']=='RC READY': mode='FREEZE & STAGE'; directive='Stop adding product features. Create a backup, deploy this candidate to staging, and run real-user acceptance tests.'
+    elif rc['verdict']=='RC CONDITIONAL': mode='FIX & VERIFY'; directive='Resolve the listed release blockers, rerun smoke tests, then freeze the candidate.'
+    else: mode='HARDEN'; directive='Keep the launch closed until production audit and smoke-test failures are cleared.'
+    return {'version':V11400_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','mode':mode,'directive':directive,'release_candidate':rc,'production_audit':{'score':audit['audit_score'],'state':audit['state']},'smoke_tests':{'score':smoke['score'],'state':smoke['state'],'passed':smoke['passed'],'total':smoke['total']},'hunter_success':{'score':success['success_score'],'mode':success['mode']}}
+
+@app.route('/api/founder/launch-candidate-control-room')
+def api_v114_launch_candidate(): return jsonify(_v114_launch_candidate_snapshot())
+
+@app.route('/api/founder/launch-candidate-control-room/export')
+def api_v114_launch_candidate_export():
+    return Response(json.dumps(_v114_launch_candidate_snapshot(),ensure_ascii=False,indent=2),mimetype='application/json',headers={'Content-Disposition':'attachment; filename=bl3-launch-candidate-v114.json'})
+
+@app.route('/founder-launch-candidate')
+def v114_launch_candidate_page():
+    s=_v114_launch_candidate_snapshot(); rc=s['release_candidate']
+    parts=[('RC Score',rc['rc_score'],rc['verdict']),('Production',s['production_audit']['score'],s['production_audit']['state']),('Smoke',s['smoke_tests']['score'],s['smoke_tests']['state']),('Hunter Success',s['hunter_success']['score'],s['hunter_success']['mode'])]
+    cards=''.join('<div class="card"><span>{}</span><div class="big">{}</div><b>{}</b></div>'.format(label,value,html.escape(str(state))) for label,value,state in parts)
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Launch Candidate</title><style>body{font-family:Inter,system-ui;background:#040406;color:#fff;margin:0}main{max-width:1120px;margin:auto;padding:34px}.hero,.card{background:linear-gradient(145deg,#15151f,#0c0c12);border:1px solid rgba(255,255,255,.1);border-radius:28px;padding:24px}.mode{font-size:64px;font-weight:950;letter-spacing:-2px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.big{font-size:34px;font-weight:950}p,span{color:#989aaa}a{color:#baff5a}@media(max-width:780px){.grid{grid-template-columns:1fr 1fr}.mode{font-size:42px}}</style></head><body><main><div class="hero"><div>V114.00 · LAUNCH CANDIDATE CONTROL ROOM</div><div class="mode">{}</div><h2>{} · {} / 100</h2><p>{}</p></div><div class="grid">{}</div><p><a href="/founder-production-audit">Production Audit</a> · <a href="/founder-smoke-tests">Smoke Tests</a> · <a href="/founder-release-candidate">RC Gate</a> · <a href="/api/founder/launch-candidate-control-room/export">Export JSON</a></p></main></body></html>'''.format(html.escape(s['mode']),html.escape(rc['verdict']),rc['rc_score'],html.escape(s['directive']),cards)
+
 if __name__ == "__main__":
 
     init_db()
