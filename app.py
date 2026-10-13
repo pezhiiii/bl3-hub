@@ -105599,6 +105599,40 @@ def v126_launch_day_page():
     r=_v126_launch_day_state(); blockers=''.join('<li>'+html.escape(x)+'</li>' for x in r['blockers']) or '<li>No active blockers detected.</li>'; snap=html.escape(json.dumps({'rollback':r['rollback'],'monitor':r['monitor']},indent=2))
     return f'<!doctype html><meta charset="utf-8"><title>BL3 V126 Launch Day Ops</title><style>body{{font-family:system-ui;background:radial-gradient(circle at top,#242044,#06060a 45%);color:#fff;padding:30px}}.c{{max-width:1050px;margin:auto}}h1{{font-size:44px;margin-bottom:6px}}.mode{{color:#baff5a;font-size:28px;font-weight:900}}.card{{background:#111118;border:1px solid #292938;border-radius:20px;padding:20px;margin-top:16px}}pre{{white-space:pre-wrap}}</style><div class="c"><h1>BL3 · V126 Launch Day Operations Center</h1><div class="mode">{html.escape(r["mode"])} · {r["score"]}/100</div><div class="card"><h2>Directive</h2><p>{html.escape(r["directive"])}</p></div><div class="card"><h2>Blockers</h2><ul>{blockers}</ul></div><div class="card"><h2>Live Snapshot</h2><pre>{snap}</pre></div></div>'
 
+
+# ===== V127.00 STAGING ACCEPTANCE GATE =====
+def _v127_staging_acceptance_snapshot():
+    checks=[]
+    def add(name, ok, detail):
+        checks.append({"name":name,"ok":bool(ok),"detail":str(detail)[:220]})
+    add("public_url_configured", bool(BL3_PUBLIC_URL), BL3_PUBLIC_URL or "BL3_PUBLIC_URL not set")
+    add("https_target", bool(BL3_PUBLIC_URL.startswith("https://")) if BL3_PUBLIC_URL else False, "HTTPS required for launch target")
+    add("secure_cookie", bool(app.config.get("SESSION_COOKIE_SECURE")), "Secure session cookie")
+    add("admin_control", bool(BL3_ADMIN_TOKEN), "Admin token configured")
+    try:
+        c=sqlite3.connect(DB)
+        integrity=c.execute("PRAGMA integrity_check").fetchone()[0]
+        c.close()
+        add("database_integrity", str(integrity).lower()=="ok", integrity)
+    except Exception as exc:
+        add("database_integrity", False, type(exc).__name__)
+    try:
+        with app.test_client() as client:
+            resp=client.get("/")
+            add("home_route", resp.status_code==200, f"HTTP {resp.status_code}")
+    except Exception as exc:
+        add("home_route", False, type(exc).__name__)
+    passed=sum(1 for x in checks if x["ok"])
+    score=round(100*passed/max(1,len(checks)))
+    verdict="ACCEPT" if score==100 else ("CONDITIONAL" if score>=70 else "REJECT")
+    return {"version":"V127.00","score":score,"verdict":verdict,"checks":checks,"generated_at":datetime.utcnow().isoformat()+"Z"}
+
+@app.route("/founder-staging-acceptance")
+def founder_staging_acceptance():
+    snap=_v127_staging_acceptance_snapshot()
+    rows=''.join(f"<tr><td>{html.escape(x['name'])}</td><td>{'PASS' if x['ok'] else 'FAIL'}</td><td>{html.escape(x['detail'])}</td></tr>" for x in snap['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Staging Acceptance</title><style>body{{font-family:system-ui;background:#07070b;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}.k{{color:#baff5a}}</style><h1>BL3 // Staging Acceptance Gate</h1><h2 class='k'>{snap['verdict']} · {snap['score']}/100</h2><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>{rows}</table>"""
+
 if __name__ == "__main__":
 
     init_db()
