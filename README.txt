@@ -1,3 +1,3 @@
-BL3 Investor+Share build.
-Adds: 1200x630 social preview at /share-card.jpg, Open Graph/Twitter metadata, and first-visit cinematic welcome banner.
-Upload app.py to the existing GitHub repo and commit; Railway should redeploy automatically.
+BL3 COMPLETE INVESTOR BUILD
+Includes Arena, Quests, Task Hub with proof flow, Worlds, Creature Evolution, Market, Clan, Hunter Passport, Daily Chest, Live Activity, share preview, and cinematic intro.
+Deploy: upload app.py to the existing GitHub repo and commit.
