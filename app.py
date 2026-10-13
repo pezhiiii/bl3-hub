@@ -106226,6 +106226,155 @@ def api_founder_v1_go_live_handoff():
     return jsonify({'ok':True, **_v146_handoff_snapshot()})
 
 
+
+# ============================================================================
+# BL3 V2 GAME EDITION // PLAYABLE FRONT DOOR
+# Keeps the complete BL3 V1 backend and adds a game-first experience.
+# ============================================================================
+
+_GAME_CREATURES = [
+    ("Void Lynx", "🐈‍⬛"), ("Neon Warden", "🦾"), ("Alpha Drake", "🐉"),
+    ("Signal Fox", "🦊"), ("Chain Specter", "👻"), ("Pixel Ronin", "🥷"),
+]
+_GAME_ENEMIES = [
+    ("Rogue Sentinel", "🤖", 88, 15), ("Shadow Kraken", "🐙", 112, 18),
+    ("Meme Golem", "🗿", 96, 16), ("Chain Reaper", "💀", 126, 21),
+    ("Void Wyrm", "🐲", 140, 24), ("Glitch King", "👾", 155, 27),
+]
+
+def _game_db_ensure():
+    conn = sqlite3.connect(DB)
+    conn.execute("""CREATE TABLE IF NOT EXISTS game_profiles (
+        username TEXT PRIMARY KEY, creature_name TEXT NOT NULL DEFAULT 'Void Lynx',
+        creature_icon TEXT NOT NULL DEFAULT '🐈‍⬛', level INTEGER NOT NULL DEFAULT 1,
+        xp INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 250,
+        energy INTEGER NOT NULL DEFAULT 100, wins INTEGER NOT NULL DEFAULT 0,
+        losses INTEGER NOT NULL DEFAULT 0, streak INTEGER NOT NULL DEFAULT 0,
+        best_streak INTEGER NOT NULL DEFAULT 0, last_chest TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS game_battle_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, enemy_name TEXT NOT NULL,
+        result TEXT NOT NULL, damage_done INTEGER NOT NULL DEFAULT 0,
+        damage_taken INTEGER NOT NULL DEFAULT 0, xp_earned INTEGER NOT NULL DEFAULT 0,
+        coins_earned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_game_history_user ON game_battle_history(username, id DESC)")
+    conn.commit(); conn.close()
+
+def _game_clean_username(value):
+    value = "".join(ch for ch in str(value or "") if ch.isalnum() or ch in "_-.")[:32]
+    return value or "demo_user"
+
+def _game_profile(username):
+    _game_db_ensure(); username = _game_clean_username(username)
+    conn = sqlite3.connect(DB); conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM game_profiles WHERE username=?", (username,)).fetchone()
+    if row is None:
+        idx = int(hashlib.sha256(username.encode()).hexdigest()[:4], 16) % len(_GAME_CREATURES)
+        creature_name, creature_icon = _GAME_CREATURES[idx]
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        conn.execute("INSERT INTO game_profiles(username,creature_name,creature_icon,updated_at) VALUES(?,?,?,?)", (username, creature_name, creature_icon, now))
+        try: conn.execute("INSERT OR IGNORE INTO users(username) VALUES(?)", (username,))
+        except Exception: pass
+        conn.commit(); row = conn.execute("SELECT * FROM game_profiles WHERE username=?", (username,)).fetchone()
+    data = dict(row); conn.close()
+    data["xp_next"] = max(100, int(data["level"]) * 120)
+    data["xp_pct"] = min(100, round((int(data["xp"]) / max(1, data["xp_next"])) * 100, 1))
+    return data
+
+def _game_level_up(conn, username):
+    row = conn.execute("SELECT level,xp FROM game_profiles WHERE username=?", (username,)).fetchone()
+    if not row: return 0
+    level, xp, gained = int(row[0]), int(row[1]), 0
+    while xp >= max(100, level * 120):
+        xp -= max(100, level * 120); level += 1; gained += 1
+    if gained: conn.execute("UPDATE game_profiles SET level=?,xp=?,energy=100 WHERE username=?", (level, xp, username))
+    return gained
+
+@app.route('/api/game/profile/<username>')
+def game_profile_api(username):
+    username = _game_clean_username(username); profile = _game_profile(username)
+    conn = sqlite3.connect(DB); conn.row_factory = sqlite3.Row
+    history = conn.execute("SELECT enemy_name,result,xp_earned,coins_earned,created_at FROM game_battle_history WHERE username=? ORDER BY id DESC LIMIT 6", (username,)).fetchall()
+    conn.close(); return jsonify({"success": True, "profile": profile, "history": [dict(r) for r in history]})
+
+@app.route('/api/game/battle', methods=['POST'])
+def game_battle_api():
+    data = request.get_json(silent=True) or {}; username = _game_clean_username(data.get('username'))
+    move = str(data.get('move') or 'attack').lower()
+    if move not in ('attack','power','heal'): return jsonify({"success":False,"message":"Unknown move"}),400
+    profile = _game_profile(username)
+    if int(profile['energy']) < 8: return jsonify({"success":False,"message":"Not enough energy. Open your Daily Chest or come back later."}),400
+    enemy_name, enemy_icon, base_hp, base_power = _GAME_ENEMIES[secrets.randbelow(len(_GAME_ENEMIES))]
+    level = int(profile['level']); enemy_hp = base_hp + level*6; player_hp = 105 + level*9; player_power = 18 + level*3
+    logs=[]; damage_done=0; damage_taken=0; healed_total=0
+    for rnd in range(1,4):
+        if move=='power':
+            hit=player_power+8+secrets.randbelow(16)
+            if secrets.randbelow(100)<18: hit=0; logs.append(f"R{rnd} ⚡ Power Strike missed!")
+            else: logs.append(f"R{rnd} ⚡ Power Strike hit for {hit}.")
+        elif move=='heal' and rnd==1:
+            heal=18+level*2+secrets.randbelow(12); player_hp+=heal; healed_total+=heal; hit=8+level+secrets.randbelow(8); logs.append(f"R{rnd} 💚 Repaired +{heal} HP and countered for {hit}.")
+        else:
+            hit=player_power+secrets.randbelow(13)
+            if secrets.randbelow(100)<16: hit=int(hit*1.7); logs.append(f"R{rnd} 💥 CRITICAL for {hit}!")
+            else: logs.append(f"R{rnd} ⚔️ Strike for {hit}.")
+        enemy_hp-=hit; damage_done+=hit
+        if enemy_hp<=0: break
+        retaliation=max(4,base_power+secrets.randbelow(11)-level); player_hp-=retaliation; damage_taken+=retaliation; logs.append(f"↳ {enemy_name} retaliates for {retaliation}.")
+        if player_hp<=0: break
+    if enemy_hp>0 and player_hp>0:
+        won=(max(0,player_hp)+damage_done+secrets.randbelow(25)) >= (max(0,enemy_hp)+damage_taken+secrets.randbelow(25))
+    else: won=enemy_hp<=0 and player_hp>0
+    energy_cost=14 if move=='power' else 10
+    xp_gain=(42+secrets.randbelow(28)+level*3) if won else (14+secrets.randbelow(12)); coins_gain=(28+secrets.randbelow(32)+level*2) if won else (4+secrets.randbelow(9))
+    now=datetime.utcnow().isoformat(timespec='seconds')+'Z'; conn=sqlite3.connect(DB)
+    if won:
+        conn.execute("UPDATE game_profiles SET xp=xp+?,coins=coins+?,energy=MAX(0,energy-?),wins=wins+1,streak=streak+1,best_streak=MAX(best_streak,streak+1),updated_at=? WHERE username=?",(xp_gain,coins_gain,energy_cost,now,username)); result='WIN'
+    else:
+        conn.execute("UPDATE game_profiles SET xp=xp+?,coins=coins+?,energy=MAX(0,energy-?),losses=losses+1,streak=0,updated_at=? WHERE username=?",(xp_gain,coins_gain,energy_cost,now,username)); result='LOSS'
+    levels=_game_level_up(conn,username)
+    try: conn.execute("UPDATE users SET xp=xp+? WHERE username=?",(xp_gain,username))
+    except Exception: pass
+    conn.execute("INSERT INTO game_battle_history(username,enemy_name,result,damage_done,damage_taken,xp_earned,coins_earned,created_at) VALUES(?,?,?,?,?,?,?,?)",(username,enemy_name,result,damage_done,damage_taken,xp_gain,coins_gain,now))
+    conn.commit(); conn.close(); fresh=_game_profile(username)
+    return jsonify({"success":True,"won":won,"result":result,"enemy":{"name":enemy_name,"icon":enemy_icon,"hp":max(0,enemy_hp),"max_hp":base_hp+level*6},"player":{"hp":max(0,player_hp),"max_hp":105+level*9,"healed":healed_total},"damage_done":damage_done,"damage_taken":damage_taken,"xp_earned":xp_gain,"coins_earned":coins_gain,"level_up":levels,"logs":logs,"profile":fresh})
+
+@app.route('/api/game/chest', methods=['POST'])
+def game_chest_api():
+    data=request.get_json(silent=True) or {}; username=_game_clean_username(data.get('username')); profile=_game_profile(username); today=datetime.utcnow().strftime('%Y-%m-%d')
+    if str(profile.get('last_chest') or '')==today: return jsonify({"success":False,"message":"Daily Chest already claimed. Come back tomorrow."}),409
+    coins=70+secrets.randbelow(91); xp=25+secrets.randbelow(46); now=datetime.utcnow().isoformat(timespec='seconds')+'Z'; conn=sqlite3.connect(DB)
+    conn.execute("UPDATE game_profiles SET coins=coins+?,xp=xp+?,energy=100,last_chest=?,updated_at=? WHERE username=?",(coins,xp,today,now,username)); levels=_game_level_up(conn,username)
+    try: conn.execute("UPDATE users SET xp=xp+? WHERE username=?",(xp,username))
+    except Exception: pass
+    conn.commit(); conn.close(); return jsonify({"success":True,"coins":coins,"xp":xp,"level_up":levels,"profile":_game_profile(username)})
+
+@app.route('/api/game/leaderboard')
+def game_leaderboard_api():
+    _game_db_ensure(); conn=sqlite3.connect(DB); conn.row_factory=sqlite3.Row
+    rows=conn.execute("SELECT username,creature_icon,level,wins,streak,coins FROM game_profiles ORDER BY wins DESC,level DESC,coins DESC LIMIT 12").fetchall(); conn.close()
+    return jsonify({"success":True,"leaders":[dict(r) for r in rows]})
+
+_BL3_CLASSIC_HOME = app.view_functions.get('home')
+@app.route('/classic')
+def classic_home_v2():
+    if _BL3_CLASSIC_HOME: return _BL3_CLASSIC_HOME()
+    return redirect('/')
+
+def game_home_v2():
+    return r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06070b"><title>BL3 // Game Edition</title>
+<style>
+:root{--bg:#05060a;--panel:#0c0e16;--line:#252c3e;--text:#f4f7ff;--muted:#7e899f;--lime:#b8ff5a;--violet:#8c6cff;--cyan:#53efff;--red:#ff5577;--gold:#ffd45f}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% -10%,#27214c 0,transparent 30%),radial-gradient(circle at 95% 10%,#153c3b 0,transparent 25%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;min-height:100vh;overflow-x:hidden}body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:38px 38px;mask-image:linear-gradient(#000,transparent 92%)}button,input{font:inherit}.app{max-width:1450px;margin:auto;padding:18px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border:1px solid var(--line);border-radius:20px;background:rgba(8,10,16,.8);backdrop-filter:blur(18px);position:sticky;top:10px;z-index:20;box-shadow:0 20px 50px rgba(0,0,0,.28)}.brand{font-size:24px;font-weight:1000;letter-spacing:-1px}.brand em{font-style:normal;color:var(--lime)}.tag{font-size:10px;letter-spacing:2px;color:var(--muted);font-weight:900}.topright{display:flex;gap:8px}.mini{padding:8px 11px;border:1px solid var(--line);border-radius:999px;background:#0c1019;color:#b9c2d3;font-size:11px;font-weight:900}.live{color:var(--lime)}.hero{display:grid;grid-template-columns:1.25fr .75fr;gap:16px;margin-top:18px}.panel{border:1px solid var(--line);border-radius:26px;background:linear-gradient(145deg,rgba(17,20,31,.96),rgba(7,9,14,.96));box-shadow:0 25px 70px rgba(0,0,0,.28);overflow:hidden}.intro{padding:38px;position:relative;min-height:315px}.intro:after{content:"";position:absolute;width:340px;height:340px;border-radius:50%;right:-80px;top:-120px;background:rgba(184,255,90,.08);filter:blur(45px)}.eyebrow{color:var(--lime);font-size:10px;font-weight:1000;letter-spacing:2.5px}.intro h1{font-size:clamp(48px,6.5vw,94px);line-height:.88;letter-spacing:-5px;margin:15px 0;max-width:860px}.grad{background:linear-gradient(100deg,#fff 10%,#a990ff 50%,#b8ff5a);-webkit-background-clip:text;color:transparent}.lead{max-width:680px;color:#929caf;line-height:1.7;font-size:15px}.identity{display:flex;gap:9px;margin-top:23px;position:relative;z-index:2}.identity input{flex:1;min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#090c13;color:#fff;outline:none}.btn{cursor:pointer;border:1px solid var(--line);border-radius:14px;padding:13px 16px;background:#111622;color:#fff;font-weight:950;transition:.18s transform,.18s background}.btn:hover{transform:translateY(-2px);background:#181f30}.btn.hot{background:var(--lime);border-color:transparent;color:#091006}.btn.violet{background:var(--violet);border-color:transparent}.btn:disabled{opacity:.45}.creature{padding:24px;display:flex;flex-direction:column;justify-content:space-between;min-height:315px;background:radial-gradient(circle at 50% 35%,rgba(140,108,255,.16),transparent 36%)}.creature-top{display:flex;justify-content:space-between}.orb{width:154px;height:154px;border-radius:50%;display:grid;place-items:center;margin:5px auto 12px;font-size:78px;position:relative;background:radial-gradient(circle,#27314a 0,#111627 56%,#080a10 72%);border:1px solid #35415c;box-shadow:0 0 70px rgba(83,239,255,.11);animation:float 3.2s ease-in-out infinite}.orb:before{content:"";position:absolute;inset:-10px;border:1px dashed rgba(184,255,90,.22);border-radius:50%;animation:spin 18s linear infinite}@keyframes float{50%{transform:translateY(-7px)}}@keyframes spin{to{transform:rotate(360deg)}}.cname{text-align:center;font-size:23px;font-weight:1000}.level{text-align:center;color:var(--cyan);font-size:11px;font-weight:900;letter-spacing:2px;margin-top:5px}.bar{height:9px;background:#1a1e2a;border-radius:99px;overflow:hidden;margin-top:13px}.fill{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--cyan),var(--lime));transition:.5s width}.barline{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;margin-top:6px}.deck{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(330px,.75fr);gap:16px;margin-top:16px}.arena{padding:22px;background:radial-gradient(circle at 50% 42%,rgba(255,85,119,.06),transparent 32%),linear-gradient(145deg,#11141d,#080a0f)}.arena-head,.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.arena-head h2,.section-head h2{margin:5px 0;font-size:25px}.battlefield{display:grid;grid-template-columns:1fr 100px 1fr;gap:12px;align-items:center;min-height:340px;padding:20px 0}.fighter{text-align:center}.avatar{width:150px;height:150px;margin:auto;display:grid;place-items:center;font-size:82px;border-radius:32px;background:linear-gradient(145deg,#151a29,#090b11);border:1px solid var(--line);box-shadow:0 25px 55px rgba(0,0,0,.35)}.avatar.enemy{border-color:rgba(255,85,119,.3)}.fighter-name{font-weight:1000;font-size:17px;margin-top:13px}.hp{margin:9px auto 0;height:10px;max-width:220px;background:#24141a;border-radius:99px;overflow:hidden}.hp>div{height:100%;background:linear-gradient(90deg,#ff5577,#ff9e6e);width:100%;transition:.45s width}.hp.player>div{background:linear-gradient(90deg,#53efff,#b8ff5a)}.hptext{font-size:10px;color:var(--muted);margin-top:5px}.vs{font-size:30px;font-weight:1000;color:#68748b;text-align:center}.moves{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.move{padding:15px 10px}.move small{display:block;color:var(--muted);font-size:9px;margin-top:3px}.result{min-height:47px;margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:12px;color:#cbd2df;background:#090c12;font-size:12px;line-height:1.55}.flash-win{animation:winflash .6s ease}@keyframes winflash{50%{box-shadow:0 0 80px rgba(184,255,90,.3);border-color:var(--lime)}}.shake{animation:shake .35s ease}@keyframes shake{25%{transform:translateX(-6px)}50%{transform:translateX(6px)}75%{transform:translateX(-3px)}}.side{display:grid;gap:16px}.stats,.chest,.feed,.leaders{padding:20px}.statgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-top:12px}.stat{padding:14px;border:1px solid var(--line);border-radius:16px;background:#0a0d14}.stat b{font-size:24px;display:block}.stat span{font-size:9px;letter-spacing:1.5px;color:var(--muted);font-weight:900}.chest{background:radial-gradient(circle at 85% 10%,rgba(255,212,95,.14),transparent 32%),linear-gradient(145deg,#15140f,#0b0b0a)}.chest-icon{font-size:54px}.chest h3{margin:5px 0}.chest p{font-size:11px;color:var(--muted);line-height:1.5}.chest .btn{width:100%;background:var(--gold);color:#181308;border:0}.lower{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.log{display:grid;gap:8px;margin-top:12px;max-height:320px;overflow:auto}.logitem,.leader{padding:11px 12px;border:1px solid var(--line);border-radius:13px;background:#0a0d14;display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:11px}.muted{color:var(--muted)}.rank{width:25px;height:25px;border-radius:8px;display:grid;place-items:center;background:#171c28;font-weight:1000;color:var(--lime)}.leader-left{display:flex;gap:9px;align-items:center}.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;padding:12px 17px;border-radius:999px;border:1px solid var(--line);background:#111621;color:#fff;font-size:12px;font-weight:800;z-index:50;transition:.25s}.toast.show{opacity:1;transform:translate(-50%,0)}.particle{position:fixed;pointer-events:none;z-index:49;font-size:22px;animation:pop 1s ease-out forwards}@keyframes pop{to{transform:translate(var(--dx),var(--dy)) rotate(240deg);opacity:0}}.footer{text-align:center;padding:35px 0 10px;color:#566077;font-size:10px}.classic{color:#8d97aa;text-decoration:none}@media(max-width:920px){.hero,.deck,.lower{grid-template-columns:1fr}.battlefield{grid-template-columns:1fr 70px 1fr}.avatar{width:120px;height:120px;font-size:65px}.top .tag{display:none}}@media(max-width:600px){.app{padding:10px}.intro{padding:25px 19px}.intro h1{font-size:54px;letter-spacing:-3px}.identity{flex-direction:column}.battlefield{grid-template-columns:1fr 38px 1fr;min-height:270px}.avatar{width:96px;height:96px;border-radius:25px;font-size:53px}.vs{font-size:20px}.moves{grid-template-columns:1fr}}
+</style></head><body><div class="app"><header class="top"><div><div class="brand">BL3<em>●</em> GAME</div><div class="tag">HUMAN ALPHA // PLAYABLE NETWORK</div></div><div class="topright"><div class="mini live">● LIVE</div><div class="mini" id="navHunter">GUEST HUNTER</div></div></header>
+<section class="hero"><div class="panel intro"><div class="eyebrow">BL3 // GAME EDITION</div><h1>HUNT.<br><span class="grad">CLASH. EVOLVE.</span></h1><div class="lead">Stop reading dashboards. Pick a Hunter ID, awaken your Creature, enter the Arena and build your legend one clash at a time.</div><div class="identity"><input id="username" maxlength="32" placeholder="Choose your Hunter ID"><button class="btn hot" onclick="enterGame()">ENTER THE NETWORK →</button></div></div><div class="panel creature"><div class="creature-top"><span class="eyebrow">YOUR CREATURE</span><span class="mini" id="energyBadge">⚡ 100</span></div><div><div class="orb" id="creatureIcon">🐈‍⬛</div><div class="cname" id="creatureName">Void Lynx</div><div class="level" id="levelText">LEVEL 1 // AWAKENING</div><div class="bar"><div class="fill" id="xpFill"></div></div><div class="barline"><span id="xpText">0 XP</span><span id="xpNext">100 NEXT</span></div></div></div></section>
+<section class="deck"><div class="panel arena" id="arenaPanel"><div class="arena-head"><div><div class="eyebrow">LIVE COMBAT // ARENA 01</div><h2>⚔️ Alpha Clash</h2></div><button class="btn" onclick="rollEnemy()">↻ NEW RIVAL</button></div><div class="battlefield"><div class="fighter"><div class="avatar" id="playerAvatar">🐈‍⬛</div><div class="fighter-name" id="playerName">Your Hunter</div><div class="hp player"><div id="playerHpBar"></div></div><div class="hptext" id="playerHpText">100 / 100 HP</div></div><div class="vs">VS</div><div class="fighter"><div class="avatar enemy" id="enemyAvatar">🤖</div><div class="fighter-name" id="enemyName">Rogue Sentinel</div><div class="hp"><div id="enemyHpBar"></div></div><div class="hptext" id="enemyHpText">??? HP</div></div></div><div class="moves"><button class="btn move hot" onclick="battle('attack')">⚔️ ATTACK<small>steady damage · 10 energy</small></button><button class="btn move violet" onclick="battle('power')">⚡ POWER STRIKE<small>heavy damage · miss chance</small></button><button class="btn move" onclick="battle('heal')">💚 REPAIR<small>heal + counter · 10 energy</small></button></div><div class="result" id="battleResult">Choose a move. Your first rival is waiting.</div></div><aside class="side"><div class="panel stats"><div class="section-head"><div><div class="eyebrow">HUNTER CORE</div><h2>Loadout</h2></div></div><div class="statgrid"><div class="stat"><b id="coins">250</b><span>🪙 COINS</span></div><div class="stat"><b id="wins">0</b><span>🏆 WINS</span></div><div class="stat"><b id="streak">0</b><span>🔥 STREAK</span></div><div class="stat"><b id="record">0-0</b><span>⚔️ RECORD</span></div></div></div><div class="panel chest"><div class="chest-icon">🎁</div><div class="eyebrow">DAILY DROP</div><h3>Signal Chest</h3><p>One free drop every UTC day. Restores energy and can push your Creature into the next level.</p><button class="btn" id="chestBtn" onclick="openChest()">OPEN DAILY CHEST</button></div></aside></section>
+<section class="lower"><div class="panel feed"><div class="section-head"><div><div class="eyebrow">COMBAT MEMORY</div><h2>Battle Log</h2></div></div><div class="log" id="battleLog"><div class="logitem"><span class="muted">No clashes yet. Enter the Arena.</span></div></div></div><div class="panel leaders"><div class="section-head"><div><div class="eyebrow">NETWORK RANKING</div><h2>Top Hunters</h2></div><button class="btn" onclick="loadLeaders()">↻</button></div><div class="log" id="leaders"><div class="logitem"><span class="muted">Scanning Hunters…</span></div></div></div></section><div class="footer">BL3 V2 GAME EDITION · <a class="classic" href="/classic">OPEN CLASSIC BL3</a></div></div><div class="toast" id="toast"></div>
+<script>
+const enemies=[['Rogue Sentinel','🤖'],['Shadow Kraken','🐙'],['Meme Golem','🗿'],['Chain Reaper','💀'],['Void Wyrm','🐲'],['Glitch King','👾']];let username=localStorage.getItem('bl3Hunter')||'demo_user',profile=null,busy=false;const $=id=>document.getElementById(id);function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function toast(t){$('toast').textContent=t;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),2200)}function particles(win=true){for(let i=0;i<14;i++){let e=document.createElement('div');e.className='particle';e.textContent=win?(Math.random()>.5?'✨':'💚'):'💥';e.style.left=(45+Math.random()*10)+'vw';e.style.top=(42+Math.random()*10)+'vh';e.style.setProperty('--dx',((Math.random()-.5)*300)+'px');e.style.setProperty('--dy',(-80-Math.random()*220)+'px');document.body.appendChild(e);setTimeout(()=>e.remove(),1100)}}function rollEnemy(){let e=enemies[Math.floor(Math.random()*enemies.length)];$('enemyName').textContent=e[0];$('enemyAvatar').textContent=e[1];$('enemyHpBar').style.width='100%';$('enemyHpText').textContent='READY';$('battleResult').textContent='New rival acquired. Choose your move.'}function render(p){profile=p;$('navHunter').textContent='⚔ '+p.username;$('playerName').textContent=p.username;$('creatureName').textContent=p.creature_name;$('creatureIcon').textContent=p.creature_icon;$('playerAvatar').textContent=p.creature_icon;$('levelText').textContent='LEVEL '+p.level+' // '+(p.level>=10?'MYTHIC':p.level>=5?'ASCENDED':'AWAKENING');$('xpFill').style.width=p.xp_pct+'%';$('xpText').textContent=p.xp+' XP';$('xpNext').textContent=p.xp_next+' NEXT';$('energyBadge').textContent='⚡ '+p.energy;$('coins').textContent=p.coins;$('wins').textContent=p.wins;$('streak').textContent=p.streak;$('record').textContent=p.wins+'-'+p.losses}async function enterGame(){let v=$('username').value.trim();if(v)username=v;username=username.replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,32)||'demo_user';localStorage.setItem('bl3Hunter',username);$('username').value=username;await loadProfile();toast('Hunter '+username+' online ⚔')}async function loadProfile(){try{let r=await fetch('/api/game/profile/'+encodeURIComponent(username));let d=await r.json();if(!d.success)throw 0;render(d.profile);let h=d.history||[];$('battleLog').innerHTML=h.length?h.map(x=>`<div class="logitem"><span><b>${esc(x.result==='WIN'?'🏆 WIN':'☠ LOSS')}</b> vs ${esc(x.enemy_name)}</span><span class="muted">+${x.xp_earned} XP · +${x.coins_earned} 🪙</span></div>`).join(''):'<div class="logitem"><span class="muted">No clashes yet. Enter the Arena.</span></div>'}catch(e){toast('Could not load Hunter profile')}}async function battle(move){if(busy)return;busy=true;document.querySelectorAll('.moves button').forEach(b=>b.disabled=true);$('battleResult').textContent='Clash resolving…';try{let r=await fetch('/api/game/battle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,move})});let d=await r.json();if(!r.ok||!d.success){toast(d.message||'Battle unavailable');$('battleResult').textContent=d.message||'Battle unavailable';return}render(d.profile);$('enemyName').textContent=d.enemy.name;$('enemyAvatar').textContent=d.enemy.icon;$('enemyHpBar').style.width=Math.max(0,100*d.enemy.hp/d.enemy.max_hp)+'%';$('enemyHpText').textContent=d.enemy.hp+' / '+d.enemy.max_hp+' HP';$('playerHpBar').style.width=Math.max(0,100*d.player.hp/d.player.max_hp)+'%';$('playerHpText').textContent=d.player.hp+' / '+d.player.max_hp+' HP';$('battleResult').innerHTML=`<b style="color:${d.won?'var(--lime)':'var(--red)'}">${d.won?'🏆 VICTORY':'☠ DEFEAT'}</b> · +${d.xp_earned} XP · +${d.coins_earned} 🪙`+(d.level_up?` · <b>LEVEL UP +${d.level_up}</b>`:'')+'<br>'+d.logs.map(esc).join(' &nbsp; ');$('arenaPanel').classList.remove('flash-win','shake');void $('arenaPanel').offsetWidth;$('arenaPanel').classList.add(d.won?'flash-win':'shake');particles(d.won);await loadProfile();await loadLeaders()}catch(e){toast('Network error during clash')}finally{busy=false;document.querySelectorAll('.moves button').forEach(b=>b.disabled=false)}}async function openChest(){let b=$('chestBtn');b.disabled=true;try{let r=await fetch('/api/game/chest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})});let d=await r.json();if(!d.success){toast(d.message||'Chest unavailable');return}render(d.profile);particles(true);toast('🎁 +'+d.xp+' XP · +'+d.coins+' coins · Energy restored!');await loadLeaders()}catch(e){toast('Chest network error')}finally{setTimeout(()=>b.disabled=false,800)}}async function loadLeaders(){try{let r=await fetch('/api/game/leaderboard');let d=await r.json();let a=d.leaders||[];$('leaders').innerHTML=a.length?a.map((x,i)=>`<div class="leader"><div class="leader-left"><span class="rank">${i+1}</span><span>${esc(x.creature_icon)} <b>${esc(x.username)}</b><br><span class="muted">LV ${x.level} · ${x.streak} streak</span></span></div><b>${x.wins} W</b></div>`).join(''):'<div class="logitem"><span class="muted">No Hunters ranked yet.</span></div>'}catch(e){}}$('username').value=username;loadProfile();loadLeaders();rollEnemy();
+</script></body></html>'''
+
+app.view_functions['home'] = game_home_v2
+
 if __name__ == "__main__":
 
     init_db()
