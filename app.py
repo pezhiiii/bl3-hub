@@ -105580,6 +105580,25 @@ def v125_monitor_page():
     r=_v125_monitor_snapshot(); cards=''.join(f'<div><small>{k}</small><b>{html.escape(str(v))}</b></div>' for k,v in r.items() if k!='generated_at')
     return f'<!doctype html><meta charset="utf-8"><title>BL3 V125 Post-Launch Monitor</title><style>body{{font-family:system-ui;background:#06060a;color:#fff;padding:28px}}.c{{max-width:1000px;margin:auto}}h1{{color:#baff5a}}.g{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}.g div{{background:#12121a;border:1px solid #292936;padding:16px;border-radius:16px}}small,b{{display:block}}b{{font-size:22px;margin-top:8px}}</style><div class="c"><h1>V125 · Post-Launch Monitor</h1><div class="g">{cards}</div></div>'
 
+
+# ===== V126.00 LAUNCH DAY OPERATIONS CENTER =====
+def _v126_launch_day_state():
+    rb=_v124_rollback_report(); mon=_v125_monitor_snapshot(); plan=_v123_plan_payload(); blockers=[]
+    if rb['state']!='READY': blockers.append('Rollback readiness is not fully READY.')
+    if mon['state']=='DEGRADED': blockers.append('Runtime observability is DEGRADED.')
+    if not BL3_PUBLIC_URL: blockers.append('BL3_PUBLIC_URL is missing.')
+    if not app.config.get('SESSION_COOKIE_SECURE') and BL3_PUBLIC_URL.startswith('https://'): blockers.append('Secure cookies are disabled on HTTPS.')
+    score=round((rb['score']+mon['score'])/2); mode='LAUNCH & WATCH' if not blockers and score>=90 else ('HOLD & FIX' if blockers else 'WATCH CLOSELY')
+    return {'mode':mode,'score':score,'blockers':blockers,'rollback':rb,'monitor':mon,'deployment_plan':plan,'directive':('Proceed only with the sealed, authorized build and keep rollback ready.' if mode=='LAUNCH & WATCH' else 'Resolve listed blockers before production launch.'),'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+
+@app.route('/api/founder/launch-day-ops')
+def v126_launch_day_api(): return jsonify(_v126_launch_day_state())
+
+@app.route('/founder-launch-day-ops')
+def v126_launch_day_page():
+    r=_v126_launch_day_state(); blockers=''.join('<li>'+html.escape(x)+'</li>' for x in r['blockers']) or '<li>No active blockers detected.</li>'; snap=html.escape(json.dumps({'rollback':r['rollback'],'monitor':r['monitor']},indent=2))
+    return f'<!doctype html><meta charset="utf-8"><title>BL3 V126 Launch Day Ops</title><style>body{{font-family:system-ui;background:radial-gradient(circle at top,#242044,#06060a 45%);color:#fff;padding:30px}}.c{{max-width:1050px;margin:auto}}h1{{font-size:44px;margin-bottom:6px}}.mode{{color:#baff5a;font-size:28px;font-weight:900}}.card{{background:#111118;border:1px solid #292938;border-radius:20px;padding:20px;margin-top:16px}}pre{{white-space:pre-wrap}}</style><div class="c"><h1>BL3 · V126 Launch Day Operations Center</h1><div class="mode">{html.escape(r["mode"])} · {r["score"]}/100</div><div class="card"><h2>Directive</h2><p>{html.escape(r["directive"])}</p></div><div class="card"><h2>Blockers</h2><ul>{blockers}</ul></div><div class="card"><h2>Live Snapshot</h2><pre>{snap}</pre></div></div>'
+
 if __name__ == "__main__":
 
     init_db()
