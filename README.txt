@@ -1,4 +1,3 @@
-BL3 CLEAN REAL-TIME BUILD
-Fresh rebuild from scratch. No inherited CSS/JS patches.
-Arena is now a real-time canvas game with movement, aiming, shooting, dash, waves, boss, loot, quests and progression.
-Deploy by replacing app.py in the GitHub repo.
+BL3 REAL-TIME V2 FIXED
+Fresh JS engine validated with Node --check.
+Includes chaser/shooter/tank enemies, boss radial attacks, XP/run levels, weapon evolution, shield/energy/heal pickups, dash, nova, repair, pause, combo and wave progression.
