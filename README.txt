@@ -1,8 +1,9 @@
-BL3 NEON RIFT V5 TRUE MOBILE
-- Arena becomes fixed full-screen on phones/tablets.
-- Header, page text and side panels disappear while playing.
-- Canvas resizes to actual mobile viewport.
-- Larger joystick/buttons, portrait + landscape layouts.
-- Mobile auto-aim and enemy lock indicator.
-- Reduced mobile enemy crowding/speed.
-- JavaScript validated with node --check.
+BL3 NEON RIFT V6 WALLET
+- EVM injected wallet connection (MetaMask/Rabby-compatible)
+- Address, chain ID, network name and ETH balance
+- Hunter Passport personal_sign verification
+- Account/network change listeners
+- Local disconnect/session clearing
+- Mobile wallet FAB and Task Hub wallet card
+- No seed phrase/private key collection
+- JavaScript validated with node --check
