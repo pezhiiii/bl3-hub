@@ -105933,6 +105933,42 @@ def founder_security_guard():
 @app.route('/api/founder/security-guard')
 def api_founder_security_guard(): return jsonify(_v136_security_guard_snapshot())
 
+# ===== V137.00 DATABASE MIGRATION VERIFIER =====
+def _v137_database_migration_snapshot():
+    checks=[]; schema_sha=""; objects=0
+    try:
+        c=sqlite3.connect(DB)
+        integrity=str(c.execute("PRAGMA integrity_check").fetchone()[0])
+        fk=list(c.execute("PRAGMA foreign_key_check").fetchall())
+        rows=c.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type,name").fetchall()
+        canonical=json.dumps([list(r) for r in rows],ensure_ascii=False,separators=(",",":"))
+        schema_sha=hashlib.sha256(canonical.encode()).hexdigest(); objects=len(rows)
+        required=['users','quests','referrals','reputation_events','creature_battles','notifications','release_uat_checks','v1_launch_readiness_certificates']
+        names={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        missing=[x for x in required if x not in names]
+        checks=[
+            {"name":"SQLite integrity","ok":integrity.lower()=="ok","detail":integrity},
+            {"name":"Foreign keys clean","ok":len(fk)==0,"detail":f"{len(fk)} violations"},
+            {"name":"Required V1 tables present","ok":not missing,"detail":"none missing" if not missing else ", ".join(missing)},
+            {"name":"Schema fingerprint generated","ok":bool(schema_sha),"detail":schema_sha[:16]},
+        ]
+        c.close()
+    except Exception as exc:
+        checks=[{"name":"Database verifier","ok":False,"detail":type(exc).__name__}]
+    passed=sum(1 for x in checks if x['ok']); score=round(100*passed/max(1,len(checks)))
+    verdict="DB PASS" if passed==len(checks) else ("DB WARN" if score>=75 else "DB FAIL")
+    payload={"version":"V137.00","verdict":verdict,"score":score,"objects":objects,"schema_sha256":schema_sha,"checks":checks,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-database-verifier')
+def founder_database_verifier():
+    s=_v137_database_migration_snapshot(); rows=''.join(f"<tr><td>{html.escape(x['name'])}</td><td>{'PASS' if x['ok'] else 'FAIL'}</td><td>{html.escape(str(x['detail']))}</td></tr>" for x in s['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 DB Verifier</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}.v{{color:#baff5a}}code{{word-break:break-all}}</style><h1>BL3 // Database Migration Verifier</h1><h2 class='v'>{s['verdict']} · {s['score']}/100</h2><p>Schema objects: {s['objects']}</p><p><code>{s['schema_sha256']}</code></p><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>{rows}</table>"""
+
+@app.route('/api/founder/database-verifier')
+def api_founder_database_verifier(): return jsonify(_v137_database_migration_snapshot())
+
 if __name__ == "__main__":
 
     init_db()
