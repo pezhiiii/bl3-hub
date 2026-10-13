@@ -105456,6 +105456,55 @@ def v121_release_manifest_page():
     return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Release Manifest</title><style>body{font-family:Inter,system-ui;background:#050507;color:white;margin:0}main{max-width:980px;margin:auto;padding:32px}.card{background:#101018;border:1px solid #292935;border-radius:26px;padding:24px;margin-bottom:14px}code{word-break:break-all;color:#baff5a}span,p{color:#999baa}</style></head><body><main><div class='card'><div>V121.00 · RELEASE MANIFEST + SEAL</div><h1>%s</h1><p>Latest seal: %s</p></div><div class='card'><p>Source</p><code>%s</code><p>Schema</p><code>%s</code><p>Routes</p><code>%s</code><p>Route count: %s</p></div></main></body></html>"""%(html.escape(p['preflight_state']),html.escape(latest_id),p['source_sha256'],p['schema_sha256'],p['route_sha256'],p['route_count'])
 
 
+# ===== V122.00 LAUNCH AUTHORIZATION CENTER =====
+V12200_VERSION = "122.00"
+
+def _v122_ensure_table():
+    conn=sqlite3.connect(DB)
+    conn.execute("""CREATE TABLE IF NOT EXISTS launch_authorizations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, authorization_id TEXT NOT NULL UNIQUE, manifest_id TEXT NOT NULL,
+        state TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', authorized_at TEXT NOT NULL, evidence_sha256 TEXT NOT NULL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_authorizations_id ON launch_authorizations(id DESC)")
+    conn.commit(); conn.close()
+
+def _v122_authorization_snapshot():
+    pre=_v119_final_preflight_snapshot(); run=_v120_runbook_snapshot(); seal=_v121_latest_seal()
+    blockers=[]
+    if pre['state']!='PREFLIGHT PASS': blockers.append('Final preflight is not PASS')
+    if run['score']<100: blockers.append('Launch runbook is not complete')
+    if not seal: blockers.append('No sealed release manifest exists')
+    ready=not blockers
+    _v122_ensure_table(); conn=sqlite3.connect(DB); conn.row_factory=sqlite3.Row
+    row=conn.execute("SELECT authorization_id,manifest_id,state,note,authorized_at,evidence_sha256 FROM launch_authorizations ORDER BY id DESC LIMIT 1").fetchone(); conn.close()
+    latest=dict(row) if row else None
+    return {'version':V12200_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','ready_for_authorization':ready,'state':'READY TO AUTHORIZE' if ready else 'BLOCKED','preflight':{'state':pre['state'],'score':pre['score']},'runbook':{'state':run['state'],'score':run['score']},'manifest_id':seal['manifest_id'] if seal else None,'blockers':blockers,'latest_authorization':latest}
+
+@app.route('/api/founder/launch-authorization')
+def v122_launch_authorization_api():
+    if not _admin_ok(): return jsonify({'error':'admin authorization required'}),403
+    return jsonify(_v122_authorization_snapshot())
+
+@app.route('/api/founder/launch-authorization/authorize', methods=['POST'])
+def v122_launch_authorize_api():
+    if not _admin_ok(): return jsonify({'error':'admin authorization required'}),403
+    if not _same_origin_ok(): return jsonify({'error':'same-origin request required'}),403
+    snap=_v122_authorization_snapshot()
+    if not snap['ready_for_authorization']: return jsonify({'authorized':False,'error':'launch prerequisites are incomplete','blockers':snap['blockers']}),409
+    payload=request.get_json(silent=True) or request.form; note=str(payload.get('note') or '')[:500]
+    evidence={'manifest_id':snap['manifest_id'],'preflight':snap['preflight'],'runbook':snap['runbook'],'authorized_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+    canonical=json.dumps(evidence,sort_keys=True,separators=(',',':')); digest=hashlib.sha256(canonical.encode('utf-8')).hexdigest(); auth_id='AUTH-'+datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')+'-'+digest[:10]
+    _v122_ensure_table(); conn=sqlite3.connect(DB)
+    conn.execute("INSERT INTO launch_authorizations(authorization_id,manifest_id,state,note,authorized_at,evidence_sha256) VALUES(?,?,?,?,?,?)",(auth_id,snap['manifest_id'],'AUTHORIZED',note,evidence['authorized_at'],digest)); conn.commit(); conn.close()
+    _admin_action('launch_authorized',True,auth_id)
+    return jsonify({'authorized':True,'authorization_id':auth_id,'manifest_id':snap['manifest_id'],'evidence_sha256':digest,'note':'Authorization records readiness only; it does not deploy or modify production infrastructure.'})
+
+@app.route('/founder-launch-authorization')
+def v122_launch_authorization_page():
+    if not _admin_ok(): return '<h1>403</h1>',403
+    s=_v122_authorization_snapshot(); blockers=''.join('<li>%s</li>'%html.escape(x) for x in s['blockers']) or '<li>None</li>'; latest=(s['latest_authorization'] or {}).get('authorization_id','None')
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Launch Authorization</title><style>body{font-family:Inter,system-ui;background:radial-gradient(circle at 50%% 0,#21351d,#050507 45%%);color:white;margin:0}main{max-width:1000px;margin:auto;padding:34px}.hero,.card{background:#101018;border:1px solid rgba(255,255,255,.1);border-radius:28px;padding:24px;margin-bottom:14px}.state{font-size:58px;font-weight:950}p,li{color:#9da0ad}code{color:#baff5a}</style></head><body><main><div class='hero'><div>V122.00 · LAUNCH AUTHORIZATION CENTER</div><div class='state'>%s</div><p>Manifest: <code>%s</code></p><p>Latest authorization: <code>%s</code></p></div><div class='card'><h3>Prerequisites</h3><p>Preflight %s/100 · Runbook %s%%</p><ul>%s</ul><p>Authorization here records approval evidence only. It does not deploy infrastructure.</p></div></main></body></html>"""%(html.escape(s['state']),html.escape(str(s['manifest_id'] or 'None')),html.escape(str(latest)),s['preflight']['score'],s['runbook']['score'],blockers)
+
+
 if __name__ == "__main__":
 
     init_db()
