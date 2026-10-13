@@ -105535,6 +105535,29 @@ def v123_deployment_plan_page():
     p=_v123_plan_payload()
     return f'<!doctype html><meta charset="utf-8"><title>BL3 V123 Deployment Plan</title><style>body{{font-family:system-ui;background:#07070b;color:#fff;padding:28px}}.c{{max-width:900px;margin:auto}}pre{{background:#11131a;padding:18px;border-radius:16px;overflow:auto}}h1{{color:#baff5a}}</style><div class="c"><h1>V123 · Deployment Plan Snapshot</h1><p>Read-only deployment evidence. It never deploys infrastructure.</p><pre>{html.escape(json.dumps(p,indent=2))}</pre></div>'
 
+
+# ===== V124.00 ROLLBACK READINESS VERIFIER =====
+def _v124_rollback_report():
+    checks=[]
+    def add(name,ok,detail): checks.append({'name':name,'ok':bool(ok),'detail':detail})
+    try:
+        os.makedirs(BL3_BACKUP_DIR,exist_ok=True); backups=[x for x in os.listdir(BL3_BACKUP_DIR) if x.endswith('.db')]; add('verified_backup_present',bool(backups),f'{len(backups)} backup(s) found')
+    except Exception as e: add('verified_backup_present',False,type(e).__name__)
+    try:
+        conn=sqlite3.connect(DB); row=conn.execute('PRAGMA integrity_check').fetchone(); conn.close(); add('primary_db_integrity',bool(row and row[0]=='ok'),str(row[0] if row else 'no result'))
+    except Exception as e: add('primary_db_integrity',False,type(e).__name__)
+    add('public_url_configured',bool(BL3_PUBLIC_URL),BL3_PUBLIC_URL or 'missing'); add('admin_control_enabled',bool(BL3_ADMIN_TOKEN),'enabled' if BL3_ADMIN_TOKEN else 'missing token')
+    score=round(sum(1 for c in checks if c['ok'])/max(1,len(checks))*100); state='READY' if score==100 else ('CONDITIONAL' if score>=75 else 'NOT READY')
+    return {'score':score,'state':state,'checks':checks,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+
+@app.route('/api/founder/rollback-readiness')
+def v124_rollback_api(): return jsonify(_v124_rollback_report())
+
+@app.route('/founder-rollback-readiness')
+def v124_rollback_page():
+    r=_v124_rollback_report(); rows=''.join(f"<li>{'✅' if c['ok'] else '❌'} <b>{html.escape(c['name'])}</b> — {html.escape(str(c['detail']))}</li>" for c in r['checks'])
+    return f'<!doctype html><meta charset="utf-8"><title>BL3 V124 Rollback Readiness</title><style>body{{font-family:system-ui;background:#07070b;color:#fff;padding:28px}}.c{{max-width:900px;margin:auto}}h1{{color:#baff5a}}li{{margin:10px 0}}</style><div class="c"><h1>V124 · Rollback Readiness</h1><h2>{r["state"]} · {r["score"]}/100</h2><ul>{rows}</ul></div>'
+
 if __name__ == "__main__":
 
     init_db()
