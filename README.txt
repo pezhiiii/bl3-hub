@@ -1,18 +1,18 @@
-BL3 V11 CRYPTO PLATFORM
-Professional crypto-first redesign.
+BL3 V12 PRODUCT DEMO
+Professional partner/investor demo.
 
-Core surfaces:
-- Discover feed
-- Campaigns with verified-action prototype
-- Token / NFT / points / access reward types
-- Rewards claim center
-- Events & drops
-- Hunter Passport reputation
-- EVM wallet connection + personal_sign Passport
-- Project campaign builder investor demo
-- Fully responsive mobile layout
+Core:
+- Overview / product positioning
+- Campaign marketplace
+- Project analytics dashboard
+- Rewards center
+- Events
+- Hunter Passport
+- Campaign builder
+- EVM wallet connection and wallet signature
+- Responsive mobile UX
 
-Important:
-- Wallet connection/signature are real browser EVM flows.
-- Non-wallet task verification and reward claims are explicitly prototype/demo until APIs, indexers and reward contracts are connected.
+Integrity:
+- Wallet connection/signature are live browser EVM flows.
+- Analytics, partner data, non-wallet verification and claims are explicitly demo/simulated until backend integrations are connected.
 - JavaScript validated with node --check.
