@@ -1,3 +1,4 @@
-BL3 GX ARENA BUILD
-Arena rebuilt as a proper mini-game: ranked/gauntlet/boss modes, 3 waves, boss AI, mana, armor, rage, dodge, ultimate, combo, particles, camera shake, rewards and progression.
-Deploy by replacing app.py in the existing GitHub repo.
+BL3 CLEAN REAL-TIME BUILD
+Fresh rebuild from scratch. No inherited CSS/JS patches.
+Arena is now a real-time canvas game with movement, aiming, shooting, dash, waves, boss, loot, quests and progression.
+Deploy by replacing app.py in the GitHub repo.
