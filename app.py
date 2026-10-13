@@ -105060,6 +105060,53 @@ def v110_hunter_success_page():
     cards=''.join(f'<div class="card"><span>{html.escape(name)}</span><div class="big">{score}</div><b>{html.escape(str(state))}</b></div>' for name,score,state in parts)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Hunter Success OS</title><style>body{{font-family:Inter,system-ui;background:#05070a;color:#fff;margin:0}}main{{max-width:1100px;margin:auto;padding:32px}}.hero,.card{{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:26px;padding:24px}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}}.hot,a{{color:#61f4ff}}.mode{{font-size:58px;font-weight:950}}.score,.big{{font-size:34px;font-weight:950}}p,span{{color:#9c9cad}}</style></head><body><main><div class="hero"><div class="hot">V110.00 · HUNTER SUCCESS OPERATING SYSTEM</div><div class="mode">{html.escape(s['mode'])}</div><div class="score">{s['success_score']} / 100</div><p>{html.escape(s['directive'])}</p></div><div class="grid">{cards}</div><p><a href="/founder-hunter-lifecycle">Lifecycle</a> · <a href="/founder-churn-risk">Churn Risk</a> · <a href="/founder-champion-engine">Champion Engine</a> · <a href="/founder-growth-intelligence-hq">Growth HQ</a> · <a href="/api/founder/hunter-success-os/export">Export JSON</a></p></main></body></html>'''
 
+# ===== V111.00 PRODUCTION AUDIT MATRIX =====
+V11100_VERSION = '111.00'
+
+def _v111_production_audit_snapshot():
+    checks=[]
+    def add(key,label,ok,detail,weight=10):
+        checks.append({'key':key,'label':label,'ok':bool(ok),'detail':str(detail),'weight':int(weight)})
+    prod = BL3_ENV in ('production','prod')
+    add('secret_key','Persistent secret key', bool(os.environ.get('BL3_SECRET_KEY')), 'BL3_SECRET_KEY configured' if os.environ.get('BL3_SECRET_KEY') else 'Set BL3_SECRET_KEY before production.', 15)
+    add('secure_cookie','Secure session cookie', bool(app.config.get('SESSION_COOKIE_SECURE')), 'Secure cookies enabled' if app.config.get('SESSION_COOKIE_SECURE') else 'Enable BL3_SECURE_COOKIES=1 on HTTPS.', 12)
+    add('admin_token','Admin control token', bool(BL3_ADMIN_TOKEN), 'Admin token configured' if BL3_ADMIN_TOKEN else 'Set BL3_ADMIN_TOKEN for protected operator actions.', 12)
+    add('rate_limit','Write rate limiting', bool(BL3_RATE_LIMIT), 'Rate limiting enabled' if BL3_RATE_LIMIT else 'Enable BL3_RATE_LIMIT=1.', 10)
+    add('public_url','Canonical public URL', bool(BL3_PUBLIC_URL), BL3_PUBLIC_URL or 'Set BL3_PUBLIC_URL to the HTTPS origin.', 8)
+    add('https_url','HTTPS public URL', bool(BL3_PUBLIC_URL.startswith('https://')), BL3_PUBLIC_URL or 'No HTTPS public URL configured.', 10)
+    add('db_writable','Database directory writable', os.access(os.path.dirname(os.path.abspath(DB)) or '.', os.W_OK), os.path.abspath(DB), 8)
+    try:
+        os.makedirs(BL3_BACKUP_DIR,exist_ok=True)
+        backup_ok=os.access(BL3_BACKUP_DIR,os.W_OK)
+    except Exception:
+        backup_ok=False
+    add('backup_dir','Backup directory writable', backup_ok, BL3_BACKUP_DIR, 8)
+    routes={r.rule for r in app.url_map.iter_rules()}
+    critical=['/','/api/user/<username>','/api/leaderboard','/founder-hunter-success-os']
+    present=[r for r in critical if r in routes]
+    add('critical_routes','Critical routes registered', len(present)==len(critical), f'{len(present)}/{len(critical)} critical routes present', 10)
+    try:
+        conn=db(); quick=str(conn.execute('PRAGMA quick_check').fetchone()[0]); conn.close()
+        db_ok=quick.lower()=='ok'
+    except Exception as exc:
+        quick=type(exc).__name__; db_ok=False
+    add('sqlite_integrity','SQLite quick_check', db_ok, quick, 15)
+    total=sum(c['weight'] for c in checks); earned=sum(c['weight'] for c in checks if c['ok']); score=int(round(earned/max(1,total)*100))
+    blockers=[c for c in checks if not c['ok'] and c['weight']>=10]
+    if score>=90 and not blockers: state='READY'
+    elif score>=75: state='NEAR READY'
+    else: state='HARDEN'
+    return {'version':V11100_VERSION,'generated_at':datetime.utcnow().isoformat(timespec='seconds')+'Z','environment':BL3_ENV,'production_mode':prod,'audit_score':score,'state':state,'blockers':blockers,'checks':checks,'startup_warnings':list(_PROD_WARNINGS)}
+
+@app.route('/api/founder/production-audit')
+def api_v111_production_audit(): return jsonify(_v111_production_audit_snapshot())
+
+@app.route('/founder-production-audit')
+def v111_production_audit_page():
+    s=_v111_production_audit_snapshot()
+    cards=''.join('<div class="card"><b>{}</b><div class="status {}">{}</div><p>{}</p></div>'.format(html.escape(c['label']), 'ok' if c['ok'] else 'bad', 'PASS' if c['ok'] else 'FIX', html.escape(c['detail'])) for c in s['checks'])
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Production Audit</title><style>body{font-family:Inter,system-ui;background:#05070a;color:#fff;margin:0}main{max-width:1100px;margin:auto;padding:32px}.hero,.card{border:1px solid rgba(255,255,255,.1);background:#101018;border-radius:24px;padding:22px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px}.score{font-size:72px;font-weight:950}.ok{color:#baff5a}.bad{color:#ff758f}p{color:#9c9cad}a{color:#61f4ff}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style></head><body><main><div class="hero"><div>V111.00 · PRODUCTION AUDIT MATRIX</div><div class="score">{} / 100</div><h1>{}</h1><p>{} high-weight blocker(s)</p></div><div class="grid">{}</div><p><a href="/api/founder/production-audit">JSON</a></p></main></body></html>'''.format(s['audit_score'],html.escape(s['state']),len(s['blockers']),cards)
+
 if __name__ == "__main__":
 
     init_db()
