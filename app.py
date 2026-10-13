@@ -105646,6 +105646,27 @@ def founder_launch_window():
     s=_v128_launch_window_snapshot()
     return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Launch Window</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}.card{{border:1px solid #292934;border-radius:18px;padding:20px;max-width:760px}}b{{color:#baff5a}}</style><h1>BL3 // Launch Window Lock</h1><div class='card'><h2><b>{s['window_state']}</b></h2><p>Staging: {s['staging']['verdict']} ({s['staging']['score']}/100)</p><p>{html.escape(s['directive'])}</p><p>UTC: {s['utc']}</p></div>"""
 
+
+# ===== V129.00 POST-LAUNCH STABILITY GATE =====
+def _v129_post_launch_stability_snapshot():
+    with _OBS_LOCK:
+        req=int(_OBS.get("requests",0) or 0); err=int(_OBS.get("errors",0) or 0); slow=int(_OBS.get("slow",0) or 0); max_ms=float(_OBS.get("max_ms",0.0) or 0.0)
+    error_rate=(err/req*100.0) if req else 0.0
+    slow_rate=(slow/req*100.0) if req else 0.0
+    if error_rate>=3 or slow_rate>=15:
+        state="DEGRADED"
+    elif error_rate>=1 or slow_rate>=5:
+        state="WATCH"
+    else:
+        state="STABLE"
+    score=max(0, round(100 - min(70,error_rate*12) - min(30,slow_rate*2)))
+    return {"version":"V129.00","state":state,"score":score,"requests":req,"errors":err,"error_rate":round(error_rate,2),"slow":slow,"slow_rate":round(slow_rate,2),"max_ms":round(max_ms,1),"generated_at":datetime.utcnow().isoformat()+"Z"}
+
+@app.route("/founder-post-launch-stability")
+def founder_post_launch_stability():
+    s=_v129_post_launch_stability_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Stability Gate</title><style>body{{font-family:system-ui;background:#060609;color:#fff;padding:28px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}}.c{{border:1px solid #292934;border-radius:16px;padding:18px}}b{{color:#baff5a;font-size:24px}}</style><h1>BL3 // Post-Launch Stability</h1><h2>{s['state']} · {s['score']}/100</h2><div class='grid'><div class='c'>Requests<br><b>{s['requests']}</b></div><div class='c'>Error rate<br><b>{s['error_rate']}%</b></div><div class='c'>Slow rate<br><b>{s['slow_rate']}%</b></div><div class='c'>Max latency<br><b>{s['max_ms']} ms</b></div></div>"""
+
 if __name__ == "__main__":
 
     init_db()
