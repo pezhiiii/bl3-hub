@@ -1,3 +1,1 @@
-BL3 COMPLETE INVESTOR BUILD
-Includes Arena, Quests, Task Hub with proof flow, Worlds, Creature Evolution, Market, Clan, Hunter Passport, Daily Chest, Live Activity, share preview, and cinematic intro.
-Deploy: upload app.py to the existing GitHub repo and commit.
+BL3 Arena Overhaul. Replaces the old battle screen with a polished ranked combat scene while preserving the rest of the investor build.
