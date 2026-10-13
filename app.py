@@ -105969,6 +105969,31 @@ def founder_database_verifier():
 @app.route('/api/founder/database-verifier')
 def api_founder_database_verifier(): return jsonify(_v137_database_migration_snapshot())
 
+# ===== V138.00 V1 QA CONTROL ROOM =====
+def _v138_v1_qa_snapshot():
+    readiness=_v134_readiness_snapshot(); regression=_v135_safe_regression_snapshot(); security=_v136_security_guard_snapshot(); database=_v137_database_migration_snapshot(); uat=_v132_uat_snapshot()
+    weighted=round(readiness['score']*.30 + regression['score']*.20 + security['score']*.20 + database['score']*.20 + uat['score']*.10)
+    blockers=[]
+    if readiness['verdict']!='V1 READY': blockers.append('V1 readiness certificate gate is not green.')
+    if regression['verdict']!='REGRESSION PASS': blockers.append('Regression suite is not fully passing.')
+    if security['verdict']!='SECURITY PASS': blockers.append('Security guard verification is not fully passing.')
+    if database['verdict']!='DB PASS': blockers.append('Database verification is not fully passing.')
+    if uat['verdict']!='ACCEPTED': blockers.append('User acceptance testing is incomplete or rejected.')
+    if not blockers: verdict='QA LOCKED'; directive='Freeze this build, preserve the artifact fingerprint, and move to controlled production cutover.'
+    elif weighted>=85: verdict='QA CONDITIONAL'; directive='Do not add features. Clear the remaining QA blockers, rerun verification, then lock the build.'
+    else: verdict='QA HOLD'; directive='Hold production cutover and fix failing QA gates before release.'
+    payload={"version":"V138.00","verdict":verdict,"score":weighted,"blockers":blockers,"directive":directive,"readiness":readiness,"regression":regression,"security":security,"database":database,"uat":uat,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-v1-qa')
+def founder_v1_qa():
+    s=_v138_v1_qa_snapshot(); blockers=''.join(f"<li>{html.escape(x)}</li>" for x in s['blockers']) or '<li>No open QA blockers.</li>'
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V1 QA</title><style>body{{font-family:system-ui;background:#030306;color:#fff;padding:28px}}.hero{{max-width:980px;border:1px solid #30303a;border-radius:24px;padding:24px}}.v{{font-size:42px;font-weight:900;color:#baff5a}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}}.c{{padding:14px;border:1px solid #292934;border-radius:14px}}code{{word-break:break-all;color:#a17cff}}</style><h1>BL3 // V1 QA Control Room</h1><div class='hero'><div class='v'>{s['verdict']}</div><h2>{s['score']}/100</h2><div class='grid'><div class='c'>Readiness<br><b>{s['readiness']['score']}</b></div><div class='c'>Regression<br><b>{s['regression']['score']}</b></div><div class='c'>Security<br><b>{s['security']['score']}</b></div><div class='c'>Database<br><b>{s['database']['score']}</b></div><div class='c'>UAT<br><b>{s['uat']['score']}</b></div></div><h3>Directive</h3><p>{html.escape(s['directive'])}</p><h3>Open blockers</h3><ul>{blockers}</ul><p>Evidence SHA256<br><code>{s['evidence_sha256']}</code></p></div>"""
+
+@app.route('/api/founder/v1-qa')
+def api_founder_v1_qa(): return jsonify(_v138_v1_qa_snapshot())
+
 if __name__ == "__main__":
 
     init_db()
