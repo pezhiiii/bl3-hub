@@ -105743,6 +105743,50 @@ def api_founder_release_artifact():
     return jsonify(_v131_release_artifact_snapshot())
 
 
+# ===== V132.00 USER ACCEPTANCE EVIDENCE =====
+def _v132_ensure_uat_table():
+    c=sqlite3.connect(DB)
+    c.execute("""CREATE TABLE IF NOT EXISTS release_uat_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        check_key TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        note TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+    )""")
+    defaults=[
+        ("auth","Authentication / session flow"),("profile","Hunter profile loads"),("quest","Quest action works"),
+        ("battle","Battle / challenge flow works"),("proof","Proof flow works"),("mobile","Mobile layout accepted"),
+        ("error","Error states are understandable"),("logout","Logout / session exit works")]
+    now=datetime.utcnow().isoformat()+"Z"
+    for k,label in defaults:
+        c.execute("INSERT OR IGNORE INTO release_uat_checks(check_key,label,status,note,updated_at) VALUES (?,?, 'PENDING','',?)",(k,label,now))
+    c.commit(); c.close()
+
+def _v132_uat_snapshot():
+    _v132_ensure_uat_table(); c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
+    rows=[dict(r) for r in c.execute("SELECT check_key,label,status,note,updated_at FROM release_uat_checks ORDER BY id").fetchall()]; c.close()
+    passed=sum(1 for r in rows if r['status']=='PASS'); failed=sum(1 for r in rows if r['status']=='FAIL'); total=len(rows)
+    score=round(100*passed/max(1,total)); verdict="ACCEPTED" if total and passed==total else ("REJECTED" if failed else "INCOMPLETE")
+    return {"version":"V132.00","score":score,"verdict":verdict,"passed":passed,"failed":failed,"total":total,"checks":rows,"generated_at":datetime.utcnow().isoformat()+"Z"}
+
+@app.route("/founder-uat", methods=["GET","POST"])
+def founder_uat():
+    _v132_ensure_uat_table()
+    if request.method=="POST":
+        if not _admin_ok(): return ("Admin authorization required",403)
+        key=(request.form.get("check_key") or "")[:80]; status=(request.form.get("status") or "PENDING").upper(); note=(request.form.get("note") or "")[:500]
+        if status not in ("PENDING","PASS","FAIL"): status="PENDING"
+        c=sqlite3.connect(DB); c.execute("UPDATE release_uat_checks SET status=?,note=?,updated_at=? WHERE check_key=?",(status,note,datetime.utcnow().isoformat()+"Z",key)); c.commit(); c.close()
+        _audit_write("uat_update",True,f"{key}:{status}")
+        return redirect("/founder-uat")
+    s=_v132_uat_snapshot(); rows=''.join(f"<tr><td>{html.escape(r['label'])}</td><td>{r['status']}</td><td>{html.escape(r['note'])}</td></tr>" for r in s['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 UAT</title><style>body{{font-family:system-ui;background:#050508;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}b{{color:#baff5a}}</style><h1>BL3 // User Acceptance Evidence</h1><h2><b>{s['verdict']}</b> · {s['score']}/100</h2><table><tr><th>Check</th><th>Status</th><th>Note</th></tr>{rows}</table>"""
+
+@app.route("/api/founder/uat")
+def api_founder_uat(): return jsonify(_v132_uat_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
