@@ -105220,6 +105220,35 @@ def v115_deployment_env_page():
     r=_v115_deployment_env_report(); rows="".join("<li>%s %s — %s</li>" % ("✅" if c["ok"] else "❌", html.escape(c["key"]), html.escape(c["detail"])) for c in r["checks"])
     return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V115 Deployment Environment Validator</h1><h2>%s/100 — %s</h2><ul>%s</ul></body></html>" % (r["score"],r["state"],rows)
 
+
+# ===== V116.00 BACKUP + RESTORE DRILL =====
+def _v116_restore_drill_report():
+    import tempfile, shutil
+    out={"version":"V116.00","backup_created":False,"restore_verified":False,"integrity":"UNKNOWN","error":""}
+    try:
+        backup=_db_backup("restore-drill")
+        out["backup_created"]=os.path.exists(backup); out["backup_path"]=backup
+        fd,tmp=tempfile.mkstemp(prefix="bl3-drill-",suffix=".db"); os.close(fd)
+        try:
+            shutil.copy2(backup,tmp); conn=sqlite3.connect(tmp)
+            integ=conn.execute("PRAGMA integrity_check").fetchone()[0]; tables=conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]; conn.close()
+            out["integrity"]=str(integ); out["tables"]=int(tables); out["restore_verified"]=str(integ).lower()=="ok" and int(tables)>0
+        finally:
+            if os.path.exists(tmp): os.remove(tmp)
+    except Exception as exc: out["error"]=(type(exc).__name__+": "+str(exc))[:240]
+    out["state"]="PASS" if out["backup_created"] and out["restore_verified"] else "FAIL"
+    return out
+
+@app.route("/api/founder/backup-restore-drill")
+def v116_restore_drill_api():
+    if not _admin_ok(): return jsonify({"error":"admin authorization required"}),403
+    return jsonify(_v116_restore_drill_report())
+
+@app.route("/founder-backup-restore-drill")
+def v116_restore_drill_page():
+    if not _admin_ok(): return "<h1>403</h1>",403
+    r=_v116_restore_drill_report(); return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V116 Backup + Restore Drill</h1><h2>%s</h2><p>Integrity: %s</p><p>Tables: %s</p></body></html>"%(r["state"],html.escape(r["integrity"]),r.get("tables",0))
+
 if __name__ == "__main__":
 
     init_db()
