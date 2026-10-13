@@ -105787,6 +105787,31 @@ def founder_uat():
 def api_founder_uat(): return jsonify(_v132_uat_snapshot())
 
 
+# ===== V133.00 PRODUCTION CUTOVER CHECKLIST =====
+def _v133_cutover_snapshot():
+    command=_v130_release_command_snapshot(); uat=_v132_uat_snapshot(); artifact=_v131_release_artifact_snapshot()
+    checks=[
+        {"name":"Release command is GO","ok":command.get("command")=="GO","detail":command.get("command")},
+        {"name":"UAT fully accepted","ok":uat.get("verdict")=="ACCEPTED","detail":f"{uat.get('passed',0)}/{uat.get('total',0)} passed"},
+        {"name":"Source fingerprint available","ok":bool(artifact.get("source",{}).get("ok")),"detail":artifact.get("source",{}).get("sha256","")[:16]},
+        {"name":"Schema fingerprint available","ok":bool(artifact.get("schema",{}).get("ok")),"detail":artifact.get("schema",{}).get("sha256","")[:16]},
+        {"name":"Rollback readiness","ok":_v124_rollback_readiness_snapshot().get("verdict")=="READY","detail":_v124_rollback_readiness_snapshot().get("verdict")},
+    ]
+    passed=sum(1 for x in checks if x['ok']); score=round(100*passed/max(1,len(checks)))
+    verdict="CUTOVER READY" if passed==len(checks) else ("CUTOVER CONDITIONAL" if score>=80 else "CUTOVER HOLD")
+    payload={"version":"V133.00","score":score,"verdict":verdict,"checks":checks,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route("/founder-production-cutover")
+def founder_production_cutover():
+    s=_v133_cutover_snapshot(); rows=''.join(f"<tr><td>{html.escape(x['name'])}</td><td>{'PASS' if x['ok'] else 'FAIL'}</td><td>{html.escape(str(x['detail']))}</td></tr>" for x in s['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Cutover</title><style>body{{font-family:system-ui;background:#040407;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2c2c35}}.v{{color:#baff5a}}</style><h1>BL3 // Production Cutover Checklist</h1><h2 class='v'>{s['verdict']} · {s['score']}/100</h2><table><tr><th>Gate</th><th>Result</th><th>Detail</th></tr>{rows}</table><p>Evidence: <code>{s['evidence_sha256']}</code></p>"""
+
+@app.route("/api/founder/production-cutover")
+def api_founder_production_cutover(): return jsonify(_v133_cutover_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
