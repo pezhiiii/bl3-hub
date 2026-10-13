@@ -106053,6 +106053,32 @@ def founder_blocker_burndown():
 def api_founder_blocker_burndown(): return jsonify(_v140_release_blocker_burndown_snapshot())
 
 
+
+# ===== V141.00 STAGING SIGN-OFF GATE =====
+def _v141_staging_signoff_snapshot():
+    qa=_v138_v1_qa_snapshot(); burn=_v140_release_blocker_burndown_snapshot()
+    checks=[
+        {"name":"V1 QA locked","ok":qa.get("verdict")=="QA LOCKED","detail":str(qa.get("verdict"))},
+        {"name":"QA score >= 95","ok":int(qa.get("score",0) or 0)>=95,"detail":str(qa.get("score",0))},
+        {"name":"No release blockers","ok":int(burn.get("open_gates",1) or 0)==0,"detail":str(burn.get("open_gates",0))},
+        {"name":"Blocker burn-down complete","ok":burn.get("state")=="COMPLETE","detail":str(burn.get("state"))},
+    ]
+    passed=sum(1 for x in checks if x['ok']); score=round(100*passed/len(checks))
+    verdict="STAGING SIGN-OFF" if passed==len(checks) else ("STAGING CONDITIONAL" if score>=75 else "STAGING HOLD")
+    directive="Freeze V1 artifact and perform controlled staging acceptance." if verdict=="STAGING SIGN-OFF" else "Do not promote. Clear remaining QA evidence first."
+    payload={"version":"V141.00","verdict":verdict,"score":score,"checks":checks,"directive":directive,"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload["evidence_sha256"]=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+@app.route('/founder-staging-signoff')
+def founder_staging_signoff():
+    s=_v141_staging_signoff_snapshot(); rows=''.join(f"<tr><td>{html.escape(x['name'])}</td><td>{'PASS' if x['ok'] else 'FAIL'}</td><td>{html.escape(x['detail'])}</td></tr>" for x in s['checks'])
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 Staging Sign-off</title><style>body{{font-family:system-ui;background:#030306;color:#fff;padding:28px}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #2b2b34}}.v{{color:#baff5a}}</style><h1>BL3 // Staging Sign-off Gate</h1><h2 class='v'>{s['verdict']} · {s['score']}/100</h2><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>{rows}</table><h3>Directive</h3><p>{html.escape(s['directive'])}</p>"""
+
+@app.route('/api/founder/staging-signoff')
+def api_founder_staging_signoff(): return jsonify(_v141_staging_signoff_snapshot())
+
+
 if __name__ == "__main__":
 
     init_db()
