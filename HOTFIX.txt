@@ -1,0 +1,2 @@
+BL3 V1 Hotfix 001
+Fixes NameError: _hunter_public_snapshot is not defined by adding a compatibility alias to _hunter_public_data.

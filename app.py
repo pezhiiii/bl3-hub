@@ -5552,6 +5552,13 @@ def _hunter_public_data(username):
     }
 
 
+# V1 hotfix: compatibility alias for newer proof/nemesis features.
+# These routes need the same read-only Hunter snapshot returned by
+# _hunter_public_data(); keeping the alias avoids 500 NameError failures.
+def _hunter_public_snapshot(username):
+    return _hunter_public_data(username)
+
+
 @app.route("/api/hunter/<username>")
 def hunter_public_api(username):
     data = _hunter_public_data(username)
