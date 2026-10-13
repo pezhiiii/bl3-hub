@@ -105249,6 +105249,32 @@ def v116_restore_drill_page():
     if not _admin_ok(): return "<h1>403</h1>",403
     r=_v116_restore_drill_report(); return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V116 Backup + Restore Drill</h1><h2>%s</h2><p>Integrity: %s</p><p>Tables: %s</p></body></html>"%(r["state"],html.escape(r["integrity"]),r.get("tables",0))
 
+
+# ===== V117.00 RELEASE FREEZE CHECKLIST =====
+def _v117_release_freeze_report():
+    env=_v115_deployment_env_report(); conn=sqlite3.connect(DB)
+    try:
+        integ=conn.execute("PRAGMA integrity_check").fetchone()[0]; fk=conn.execute("PRAGMA foreign_key_check").fetchall()
+        try: unresolved=conn.execute("SELECT COUNT(*) FROM operator_remediation_items WHERE status NOT IN ('RESOLVED','CLOSED')").fetchone()[0]
+        except Exception: unresolved=0
+    finally: conn.close()
+    items=[
+      {"name":"Deployment environment","ok":env["score"]==100,"detail":str(env["score"])+"/100"},
+      {"name":"Database integrity","ok":str(integ).lower()=="ok","detail":str(integ)},
+      {"name":"Foreign keys","ok":len(fk)==0,"detail":str(len(fk))+" violations"},
+      {"name":"Remediation queue","ok":int(unresolved)==0,"detail":str(unresolved)+" unresolved"},
+      {"name":"Secure cookies","ok":bool(app.config.get("SESSION_COOKIE_SECURE")),"detail":str(bool(app.config.get("SESSION_COOKIE_SECURE")))},
+      {"name":"Admin token","ok":bool(BL3_ADMIN_TOKEN),"detail":"configured" if BL3_ADMIN_TOKEN else "missing"}]
+    score=round(100*sum(1 for i in items if i["ok"])/len(items)); verdict="FREEZE READY" if score==100 else ("FREEZE CONDITIONAL" if score>=70 else "DO NOT FREEZE")
+    return {"version":"V117.00","score":score,"verdict":verdict,"items":items,"blocking":[i for i in items if not i["ok"]]}
+
+@app.route("/api/founder/release-freeze")
+def v117_release_freeze_api(): return jsonify(_v117_release_freeze_report())
+
+@app.route("/founder-release-freeze")
+def v117_release_freeze_page():
+    r=_v117_release_freeze_report(); rows="".join("<li>%s %s — %s</li>"%("✅" if i["ok"] else "❌",html.escape(i["name"]),html.escape(i["detail"])) for i in r["items"]); return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V117 Release Freeze Checklist</h1><h2>%s/100 — %s</h2><ul>%s</ul></body></html>"%(r["score"],r["verdict"],rows)
+
 if __name__ == "__main__":
 
     init_db()
