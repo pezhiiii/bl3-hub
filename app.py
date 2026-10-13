@@ -105192,6 +105192,34 @@ def v114_launch_candidate_page():
     cards=''.join('<div class="card"><span>{}</span><div class="big">{}</div><b>{}</b></div>'.format(label,value,html.escape(str(state))) for label,value,state in parts)
     return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BL3 // Launch Candidate</title><style>body{font-family:Inter,system-ui;background:#040406;color:#fff;margin:0}main{max-width:1120px;margin:auto;padding:34px}.hero,.card{background:linear-gradient(145deg,#15151f,#0c0c12);border:1px solid rgba(255,255,255,.1);border-radius:28px;padding:24px}.mode{font-size:64px;font-weight:950;letter-spacing:-2px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.big{font-size:34px;font-weight:950}p,span{color:#989aaa}a{color:#baff5a}@media(max-width:780px){.grid{grid-template-columns:1fr 1fr}.mode{font-size:42px}}</style></head><body><main><div class="hero"><div>V114.00 · LAUNCH CANDIDATE CONTROL ROOM</div><div class="mode">{}</div><h2>{} · {} / 100</h2><p>{}</p></div><div class="grid">{}</div><p><a href="/founder-production-audit">Production Audit</a> · <a href="/founder-smoke-tests">Smoke Tests</a> · <a href="/founder-release-candidate">RC Gate</a> · <a href="/api/founder/launch-candidate-control-room/export">Export JSON</a></p></main></body></html>'''.format(html.escape(s['mode']),html.escape(rc['verdict']),rc['rc_score'],html.escape(s['directive']),cards)
 
+
+# ===== V115.00 DEPLOYMENT ENVIRONMENT VALIDATOR =====
+def _v115_deployment_env_report():
+    checks=[]
+    env=(os.environ.get("BL3_ENV") or "development").lower()
+    pub=(os.environ.get("BL3_PUBLIC_URL") or "").strip()
+    pairs=[
+        ("production_env", env in ("production","prod"), "BL3_ENV="+env),
+        ("secret_key", bool(os.environ.get("BL3_SECRET_KEY")), "secret configured" if os.environ.get("BL3_SECRET_KEY") else "secret missing"),
+        ("admin_token", bool(BL3_ADMIN_TOKEN), "admin token configured" if BL3_ADMIN_TOKEN else "admin token missing"),
+        ("https_public_url", pub.startswith("https://"), pub or "public url missing"),
+        ("secure_cookie", bool(app.config.get("SESSION_COOKIE_SECURE")), str(bool(app.config.get("SESSION_COOKIE_SECURE")))),
+        ("rate_limit", bool(BL3_RATE_LIMIT), str(bool(BL3_RATE_LIMIT))),
+        ("database", os.path.exists(DB), os.path.abspath(DB)),
+        ("backup_dir", os.path.isdir(BL3_BACKUP_DIR) and os.access(BL3_BACKUP_DIR, os.W_OK), os.path.abspath(BL3_BACKUP_DIR)),
+    ]
+    for key,ok,detail in pairs: checks.append({"key":key,"ok":bool(ok),"detail":detail})
+    score=round(100*sum(1 for c in checks if c["ok"])/len(checks))
+    return {"version":"V115.00","score":score,"state":"READY" if score==100 else ("NEAR READY" if score>=75 else "NOT READY"),"checks":checks,"failed":[c for c in checks if not c["ok"]]}
+
+@app.route("/api/founder/deployment-env")
+def v115_deployment_env_api(): return jsonify(_v115_deployment_env_report())
+
+@app.route("/founder-deployment-env")
+def v115_deployment_env_page():
+    r=_v115_deployment_env_report(); rows="".join("<li>%s %s — %s</li>" % ("✅" if c["ok"] else "❌", html.escape(c["key"]), html.escape(c["detail"])) for c in r["checks"])
+    return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V115 Deployment Environment Validator</h1><h2>%s/100 — %s</h2><ul>%s</ul></body></html>" % (r["score"],r["state"],rows)
+
 if __name__ == "__main__":
 
     init_db()
