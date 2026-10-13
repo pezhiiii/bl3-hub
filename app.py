@@ -105275,6 +105275,27 @@ def v117_release_freeze_api(): return jsonify(_v117_release_freeze_report())
 def v117_release_freeze_page():
     r=_v117_release_freeze_report(); rows="".join("<li>%s %s — %s</li>"%("✅" if i["ok"] else "❌",html.escape(i["name"]),html.escape(i["detail"])) for i in r["items"]); return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V117 Release Freeze Checklist</h1><h2>%s/100 — %s</h2><ul>%s</ul></body></html>"%(r["score"],r["verdict"],rows)
 
+
+# ===== V118.00 PRODUCTION LAUNCH GATE =====
+def _v118_production_launch_gate():
+    env=_v115_deployment_env_report(); freeze=_v117_release_freeze_report(); rc_score=0; rc_state="UNKNOWN"
+    try:
+        rc=_v114_launch_candidate_report(); rc_score=int(rc.get("score",rc.get("rc_score",0)) or 0); rc_state=str(rc.get("state",rc.get("mode",rc.get("verdict","UNKNOWN"))))
+    except Exception as exc: rc_state="UNAVAILABLE:"+type(exc).__name__
+    score=round(env["score"]*.35+freeze["score"]*.35+rc_score*.30); blockers=["ENV: "+c["key"] for c in env["failed"]]+["FREEZE: "+i["name"] for i in freeze["blocking"]]
+    if rc_score<80: blockers.append("RC score below target: "+str(rc_score))
+    if score>=95 and not blockers: verdict="GO"; directive="Freeze code, create final backup, stage deployment, then launch."
+    elif score>=80: verdict="CONDITIONAL GO"; directive="Clear remaining blockers, rerun smoke and restore checks, then authorize launch."
+    else: verdict="HOLD"; directive="Do not launch. Resolve production hardening failures first."
+    return {"version":"V118.00","launch_score":score,"verdict":verdict,"directive":directive,"environment_score":env["score"],"freeze_score":freeze["score"],"release_candidate_score":rc_score,"release_candidate_state":rc_state,"blockers":blockers}
+
+@app.route("/api/founder/production-launch-gate")
+def v118_production_launch_gate_api(): return jsonify(_v118_production_launch_gate())
+
+@app.route("/founder-production-launch-gate")
+def v118_production_launch_gate_page():
+    r=_v118_production_launch_gate(); items="".join("<li>%s</li>"%html.escape(x) for x in r["blockers"]) or "<li>None</li>"; return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V118 Production Launch Gate</h1><h2>%s/100 — %s</h2><p>%s</p><p>Environment %s | Freeze %s | RC %s</p><h3>Blockers</h3><ul>%s</ul></body></html>"%(r["launch_score"],r["verdict"],html.escape(r["directive"]),r["environment_score"],r["freeze_score"],r["release_candidate_score"],items)
+
 if __name__ == "__main__":
 
     init_db()
