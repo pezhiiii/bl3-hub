@@ -105812,6 +105812,55 @@ def founder_production_cutover():
 def api_founder_production_cutover(): return jsonify(_v133_cutover_snapshot())
 
 
+# ===== V134.00 V1 LAUNCH READINESS CERTIFICATE =====
+def _v134_ensure_cert_table():
+    c=sqlite3.connect(DB)
+    c.execute("""CREATE TABLE IF NOT EXISTS v1_launch_readiness_certificates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      certificate_id TEXT NOT NULL UNIQUE,
+      verdict TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      artifact_sha256 TEXT NOT NULL,
+      evidence_sha256 TEXT NOT NULL,
+      issued_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    )""")
+    c.commit(); c.close()
+
+def _v134_readiness_snapshot():
+    cut=_v133_cutover_snapshot(); artifact=_v131_release_artifact_snapshot(); stability=_v129_post_launch_stability_snapshot()
+    score=round(cut['score']*.7 + stability['score']*.3)
+    if cut['verdict']=='CUTOVER READY' and stability['state']=='STABLE': verdict='V1 READY'
+    elif cut['score']>=80 and stability['state']!='DEGRADED': verdict='V1 CONDITIONAL'
+    else: verdict='V1 HOLD'
+    payload={"version":"V134.00","verdict":verdict,"score":score,"cutover":cut,"stability":stability,"artifact_sha256":artifact['artifact_sha256'],"generated_at":datetime.utcnow().isoformat()+"Z"}
+    payload['evidence_sha256']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    return payload
+
+def _v134_issue_certificate():
+    _v134_ensure_cert_table(); s=_v134_readiness_snapshot()
+    if s['verdict']!='V1 READY': return {"ok":False,"error":"readiness_not_green","snapshot":s}
+    issued=datetime.utcnow().isoformat()+"Z"; cert_id="BL3-V1-"+s['evidence_sha256'][:16].upper()
+    payload=dict(s); payload['certificate_id']=cert_id; payload['issued_at']=issued
+    c=sqlite3.connect(DB)
+    c.execute("INSERT OR IGNORE INTO v1_launch_readiness_certificates(certificate_id,verdict,score,artifact_sha256,evidence_sha256,issued_at,payload_json) VALUES (?,?,?,?,?,?,?)",(cert_id,s['verdict'],s['score'],s['artifact_sha256'],s['evidence_sha256'],issued,json.dumps(payload,ensure_ascii=False,separators=(",",":"))))
+    c.commit(); c.close(); _audit_write("v1_readiness_certificate",True,cert_id)
+    return {"ok":True,"certificate":payload}
+
+@app.route("/founder-v1-readiness")
+def founder_v1_readiness():
+    s=_v134_readiness_snapshot()
+    return f"""<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 V1 Readiness</title><style>body{{font-family:system-ui;background:#030306;color:#fff;padding:28px}}.hero{{max-width:900px;border:1px solid #30303a;border-radius:24px;padding:24px}}.v{{font-size:44px;font-weight:900;color:#baff5a}}code{{word-break:break-all;color:#a17cff}}</style><h1>BL3 // V1 Launch Readiness</h1><div class='hero'><div class='v'>{s['verdict']}</div><h2>{s['score']}/100</h2><p>Cutover: {s['cutover']['verdict']} · Stability: {s['stability']['state']}</p><p>Artifact SHA256<br><code>{s['artifact_sha256']}</code></p><p>Evidence SHA256<br><code>{s['evidence_sha256']}</code></p></div>"""
+
+@app.route("/api/founder/v1-readiness")
+def api_founder_v1_readiness(): return jsonify(_v134_readiness_snapshot())
+
+@app.route("/api/founder/v1-readiness/issue", methods=["POST"])
+def api_founder_v1_readiness_issue():
+    if not _admin_ok(): return jsonify({"ok":False,"error":"admin_required"}),403
+    result=_v134_issue_certificate(); return jsonify(result), (200 if result.get('ok') else 409)
+
+
 if __name__ == "__main__":
 
     init_db()
