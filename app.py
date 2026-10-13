@@ -105296,6 +105296,58 @@ def v118_production_launch_gate_api(): return jsonify(_v118_production_launch_ga
 def v118_production_launch_gate_page():
     r=_v118_production_launch_gate(); items="".join("<li>%s</li>"%html.escape(x) for x in r["blockers"]) or "<li>None</li>"; return "<html><body style='font-family:system-ui;background:#07070b;color:white;padding:30px'><h1>V118 Production Launch Gate</h1><h2>%s/100 — %s</h2><p>%s</p><p>Environment %s | Freeze %s | RC %s</p><h3>Blockers</h3><ul>%s</ul></body></html>"%(r["launch_score"],r["verdict"],html.escape(r["directive"]),r["environment_score"],r["freeze_score"],r["release_candidate_score"],items)
 
+# ===== V119.00 FINAL PREFLIGHT VERIFIER =====
+V11900_VERSION = "119.00"
+
+def _v119_final_preflight_snapshot():
+    gate = _v118_production_launch_gate()
+    audit = _v111_production_audit_snapshot()
+    smoke = _v112_smoke_snapshot()
+    db_integrity = "UNKNOWN"
+    fk_issues = []
+    try:
+        conn = sqlite3.connect(DB)
+        db_integrity = str(conn.execute("PRAGMA quick_check").fetchone()[0])
+        fk_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+        conn.close()
+    except Exception as exc:
+        db_integrity = type(exc).__name__
+        fk_issues = [("inspection_failed",)]
+    blockers = []
+    blockers.extend(list(gate.get("blockers") or []))
+    blockers.extend(["SMOKE: " + str(t.get("name")) for t in smoke.get("tests", []) if not t.get("ok")])
+    if db_integrity.lower() != "ok": blockers.append("DB integrity: " + db_integrity)
+    if fk_issues: blockers.append("Foreign key issues: " + str(len(fk_issues)))
+    score = int(round(int(gate.get("launch_score", 0))*0.50 + int(smoke.get("score",0))*0.25 + int(audit.get("audit_score",0))*0.25))
+    passed = gate.get("verdict") == "GO" and smoke.get("state") == "PASS" and db_integrity.lower() == "ok" and not fk_issues and not blockers
+    state = "PREFLIGHT PASS" if passed and score >= 95 else ("PREFLIGHT CONDITIONAL" if score >= 80 else "PREFLIGHT BLOCKED")
+    directive = "Stage the sealed candidate and perform the launch runbook." if state == "PREFLIGHT PASS" else "Clear every blocker and rerun preflight before authorization."
+    return {
+        "version": V11900_VERSION,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "score": score,
+        "state": state,
+        "directive": directive,
+        "production_gate": {"score": gate.get("launch_score",0), "verdict": gate.get("verdict","UNKNOWN")},
+        "production_audit": {"score": audit.get("audit_score",0), "state": audit.get("state","UNKNOWN")},
+        "smoke_tests": {"score": smoke.get("score",0), "state": smoke.get("state","UNKNOWN")},
+        "database": {"integrity": db_integrity, "foreign_key_issues": len(fk_issues)},
+        "blockers": blockers,
+    }
+
+@app.route("/api/founder/final-preflight")
+def v119_final_preflight_api():
+    if not _admin_ok(): return jsonify({"error":"admin authorization required"}),403
+    return jsonify(_v119_final_preflight_snapshot())
+
+@app.route("/founder-final-preflight")
+def v119_final_preflight_page():
+    if not _admin_ok(): return "<h1>403</h1>",403
+    s=_v119_final_preflight_snapshot()
+    blockers="".join("<li>%s</li>"%html.escape(str(x)) for x in s["blockers"]) or "<li>None</li>"
+    return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BL3 // Final Preflight</title><style>body{font-family:Inter,system-ui;background:#050507;color:#fff;margin:0}main{max-width:1050px;margin:auto;padding:32px}.hero,.card{background:#101018;border:1px solid #292935;border-radius:26px;padding:24px}.score{font-size:72px;font-weight:950}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.big{font-size:30px;font-weight:900}p,li,span{color:#999baa}a{color:#baff5a}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><main><div class='hero'><div>V119.00 · FINAL PREFLIGHT VERIFIER</div><div class='score'>%s / 100</div><h1>%s</h1><p>%s</p></div><div class='grid'><div class='card'><span>Launch Gate</span><div class='big'>%s</div></div><div class='card'><span>Audit</span><div class='big'>%s</div></div><div class='card'><span>Smoke</span><div class='big'>%s</div></div><div class='card'><span>DB</span><div class='big'>%s</div></div></div><div class='card'><h3>Blockers</h3><ul>%s</ul></div></main></body></html>"""%(s['score'],html.escape(s['state']),html.escape(s['directive']),s['production_gate']['score'],s['production_audit']['score'],s['smoke_tests']['score'],html.escape(s['database']['integrity']),blockers)
+
+
 if __name__ == "__main__":
 
     init_db()
